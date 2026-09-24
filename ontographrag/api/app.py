@@ -18,6 +18,7 @@ from collections import deque
 from pathlib import Path
 from dotenv import load_dotenv
 import httpx
+from ontographrag.api.teapot import create_teapot_file
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +423,11 @@ async def api_key_auth_middleware(request: Request, call_next):
     started_at = time.perf_counter()
     path = request.url.path
     if _APP_API_KEY and path not in _OPEN_AUTH_PATHS and not path.startswith(_OPEN_AUTH_PREFIXES):
-        require_api_key(request)
+        try:
+            require_api_key(request)
+        except HTTPException as exc:
+            # Middleware runs outside FastAPI's HTTPException handler boundary.
+            return await http_exception_handler(request, exc)
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Process-Time-Ms"] = str(int((time.perf_counter() - started_at) * 1000))
@@ -476,6 +481,46 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             "request_id": request_id,
         },
     )
+
+@app.get(
+    "/teapot",
+    status_code=418,
+    responses={
+        418: {
+            "description": "Exercise completed: one random-number file created",
+            "content": {"application/json": {"example": {
+                "status": "teapot", "detail": "I'm a teapot",
+                "filename": "teapot-0123456789abcdef.txt", "request_id": "example-id",
+            }}},
+        },
+        500: {"description": "File creation failed; standard error envelope"},
+    },
+)
+def teapot(request: Request):
+    """Educational GET with a file side effect on every call; not a health check."""
+    request_id = _request_id_for(request)
+    logger.info("Teapot request_id=%r method=GET route=/teapot outcome=received", request_id)
+    try:
+        filename = create_teapot_file(_PROJECT_ROOT)
+    except OSError as exc:
+        logger.error(
+            "Teapot request_id=%r method=GET route=/teapot outcome=failed error=%s",
+            request_id, type(exc).__name__,
+        )
+        raise HTTPException(status_code=500, detail="Could not create teapot file") from exc
+    logger.info(
+        "Teapot request_id=%r method=GET route=/teapot outcome=completed filename=%s",
+        request_id, filename,
+    )
+    return JSONResponse(
+        status_code=418,
+        headers={"Cache-Control": "no-store"},
+        content={
+            "status": "teapot", "detail": "I'm a teapot",
+            "filename": filename, "request_id": request_id,
+        },
+    )
+
 
 # Global storage for current graph data
 current_graph_data = None

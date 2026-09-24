@@ -61,6 +61,8 @@ test_*.txt
 test_*.json
 test_*.pdf
 kg_test.txt
+/teapot-*.txt
+/.teapot-*.tmp
 *_output.json
 
 # ── Slides, presentations, bibliography ──────────────────────────────────────

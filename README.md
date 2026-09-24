@@ -88,6 +88,38 @@ static assets stay public.
 | `POST` | `/validate_csv` · `/bulk_process_csv` | CSV bulk processing (template at `/static/medical_reports_template.csv`) |
 | `GET`  | `/models/{provider}` | List models for a provider |
 | `GET`  | `/health` · `/health/neo4j` · `/ready` · `/doctor` | Health and readiness |
+| `GET`  | `/teapot` | Educational file-creation exercise; returns 418 on completion |
+
+### Teapot workflow exercise (source checkout)
+
+With the server running, visit `http://localhost:8004/teapot` or run:
+
+```bash
+curl -i http://localhost:8004/teapot
+# When APP_API_KEY is configured, add: -H "X-API-Key: $APP_API_KEY"
+```
+
+Expected: HTTP **418**, `Cache-Control: no-store`, and JSON containing
+`status: "teapot"`, `detail: "I'm a teapot"`, `filename`, and `request_id`
+(also returned as `X-Request-ID`). Do not use curl's fail-on-4xx option here.
+Each GET creates a new `teapot-<unique-id>.txt` directly in the server's
+source-project root, independent of its working directory. Each file contains
+32 random decimal digits and a newline. Files are completed before publication;
+existing names are never overwritten, including on concurrent requests.
+Filesystem errors return the usual 500 error envelope, without a claimed filename.
+Receipt and outcome logs carry the request ID; completion logs include the basename.
+
+This deliberately side-effecting GET is **not a health check**: retries, browser
+prefetches, and repeated calls create more files, even with the same request ID.
+A lost response can leave a completed file; files persist until manually removed.
+HEAD and other unsupported methods do not create files. No RAG, model, or database
+work is performed. Filesystem publication requires local hard-link support;
+unsupported filesystems return 500. Generated files are git-ignored.
+To clean up, inspect `teapot-*.txt` in the project root and delete only the exercise
+files you no longer need. A process crash may also leave a hidden `.teapot-*.tmp`
+staging file; inspect and remove those only when no exercise requests are running.
+
+### RAG requests
 
 `POST /create_ontology_guided_kg` takes multipart `file` (PDF/TXT/CSV/JSON/XML,
 ≤ 50 MB), `provider`, `model`, `embedding_model`, optional `ontology_file`
