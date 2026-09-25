@@ -1058,7 +1058,7 @@ async def extract_graph(
 
 @app.post("/create_ontology_guided_kg")
 @limiter.limit("5/minute")
-async def create_ontology_guided_kg(  # noqa: C901
+async def create_ontology_guided_kg(
     request: Request,
     file: UploadFile = File(...),
     provider: str = Form("openai"),
