@@ -12,6 +12,7 @@ class CreateChunksofDocument:
     """
     Class to create chunks from documents
     """
+
     def __init__(self, pages: list[Document], graph: Neo4jGraph):
         self.pages = pages
         self.graph = graph
@@ -34,7 +35,7 @@ class CreateChunksofDocument:
         MAX_TOKEN_CHUNK_SIZE = 8000  # Fixed value for determinism
         chunk_to_be_created = int(MAX_TOKEN_CHUNK_SIZE / token_chunk_size)
 
-        if 'page' in self.pages[0].metadata:
+        if "page" in self.pages[0].metadata:
             chunks = []
             for i, document in enumerate(self.pages):
                 page_number = i + 1
@@ -42,17 +43,32 @@ class CreateChunksofDocument:
                     break
                 else:
                     for chunk in text_splitter.split_documents([document]):
-                        chunks.append(Document(page_content=chunk.page_content, metadata={'page_number':page_number}))
+                        chunks.append(
+                            Document(
+                                page_content=chunk.page_content,
+                                metadata={"page_number": page_number},
+                            )
+                        )
 
-        elif 'length' in self.pages[0].metadata:
-            if len(self.pages) == 1  or (len(self.pages) > 1 and self.pages[1].page_content.strip() == ''):
-                match = re.search(r'(?:v=)([0-9A-Za-z_-]{11})\s*',self.pages[0].metadata['source'])
-                youtube_id=match.group(1)
-                chunks_without_time_range = text_splitter.split_documents([self.pages[0]])
-                chunks = get_calculated_timestamps(chunks_without_time_range[:chunk_to_be_created], youtube_id)
+        elif "length" in self.pages[0].metadata:
+            if len(self.pages) == 1 or (
+                len(self.pages) > 1 and self.pages[1].page_content.strip() == ""
+            ):
+                match = re.search(
+                    r"(?:v=)([0-9A-Za-z_-]{11})\s*", self.pages[0].metadata["source"]
+                )
+                youtube_id = match.group(1)
+                chunks_without_time_range = text_splitter.split_documents(
+                    [self.pages[0]]
+                )
+                chunks = get_calculated_timestamps(
+                    chunks_without_time_range[:chunk_to_be_created], youtube_id
+                )
             else:
                 chunks_without_time_range = text_splitter.split_documents(self.pages)
-                chunks = get_chunks_with_timestamps(chunks_without_time_range[:chunk_to_be_created])
+                chunks = get_chunks_with_timestamps(
+                    chunks_without_time_range[:chunk_to_be_created]
+                )
         else:
             chunks = text_splitter.split_documents(self.pages)
 

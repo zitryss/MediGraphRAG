@@ -16,7 +16,9 @@ def reranker_enabled() -> bool:
     explicit = os.getenv("ONTOGRAPHRAG_RERANKER", "").strip().lower()
     if explicit:
         return explicit in {"1", "true", "yes", "on"}
-    profile = str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
+    profile = (
+        str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
+    )
     return profile in {"accuracy", "quality", "high_accuracy"}
 
 
@@ -24,7 +26,9 @@ def resolve_reranker_model_name() -> str:
     explicit = os.getenv("ONTOGRAPHRAG_RERANKER_MODEL", "").strip()
     if explicit:
         return explicit
-    profile = str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
+    profile = (
+        str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
+    )
     if profile in {"accuracy", "quality", "high_accuracy"}:
         return "BAAI/bge-reranker-base"
     return ""
@@ -34,7 +38,9 @@ def late_interaction_enabled() -> bool:
     explicit = os.getenv("ONTOGRAPHRAG_LATE_INTERACTION", "").strip().lower()
     if explicit:
         return explicit in {"1", "true", "yes", "on"}
-    profile = str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
+    profile = (
+        str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
+    )
     return profile in {"accuracy", "quality", "high_accuracy"}
 
 
@@ -45,7 +51,9 @@ def resolve_late_interaction_model_name() -> str:
     embedding_model = os.getenv("HUGGINGFACE_EMBEDDING_MODEL", "").strip()
     if embedding_model:
         return embedding_model
-    profile = str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
+    profile = (
+        str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
+    )
     if profile in {"accuracy", "quality", "high_accuracy"}:
         return "BAAI/bge-base-en-v1.5"
     return ""
@@ -56,7 +64,9 @@ def _load_cross_encoder(model_name: str):
         return None
 
     device = os.getenv("ONTOGRAPHRAG_RERANKER_DEVICE", "cpu").strip() or "cpu"
-    max_length = int(os.getenv("ONTOGRAPHRAG_RERANKER_MAX_LENGTH", "512").strip() or 512)
+    max_length = int(
+        os.getenv("ONTOGRAPHRAG_RERANKER_MAX_LENGTH", "512").strip() or 512
+    )
     cache_key = (model_name, device, max_length)
     if cache_key in _RERANKER_CACHE:
         return _RERANKER_CACHE[cache_key]
@@ -81,8 +91,12 @@ def _load_late_interaction_model(model_name: str):
         return None
 
     device = os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DEVICE", "cpu").strip() or "cpu"
-    query_max_length = int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_QUERY_MAX_LENGTH", "48").strip() or 48)
-    doc_max_length = int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DOC_MAX_LENGTH", "256").strip() or 256)
+    query_max_length = int(
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_QUERY_MAX_LENGTH", "48").strip() or 48
+    )
+    doc_max_length = int(
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DOC_MAX_LENGTH", "256").strip() or 256
+    )
     cache_key = (model_name, device, query_max_length, doc_max_length)
     if cache_key in _LATE_INTERACTION_CACHE:
         return _LATE_INTERACTION_CACHE[cache_key]
@@ -107,7 +121,9 @@ def _load_late_interaction_model(model_name: str):
             "torch": torch,
         }
     except Exception as exc:
-        logging.warning("Could not initialize late-interaction model '%s': %s", model_name, exc)
+        logging.warning(
+            "Could not initialize late-interaction model '%s': %s", model_name, exc
+        )
         _LATE_INTERACTION_FAILURES.add(cache_key)
         return None
 
@@ -126,7 +142,9 @@ def _late_interaction_scores(
     torch = bundle["torch"]
     query_max_length = int(bundle["query_max_length"])
     doc_max_length = int(bundle["doc_max_length"])
-    batch_size = int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8)
+    batch_size = int(
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8
+    )
 
     query_inputs = tokenizer(
         query,
@@ -160,7 +178,7 @@ def _late_interaction_scores(
 
     for start in range(0, len(texts), batch_size):
         doc_inputs = tokenizer(
-            texts[start:start + batch_size],
+            texts[start : start + batch_size],
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -183,7 +201,9 @@ def _late_interaction_scores(
             doc_mask = doc_masks[row_idx]
             if int(doc_mask.sum().item()) == 0:
                 doc_mask = doc_inputs["attention_mask"][row_idx] > 0
-            doc_tokens = torch.nn.functional.normalize(doc_hidden[row_idx][doc_mask], p=2, dim=-1)
+            doc_tokens = torch.nn.functional.normalize(
+                doc_hidden[row_idx][doc_mask], p=2, dim=-1
+            )
             similarity = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
             score = float(similarity.max(dim=1).values.mean().item())
             scores.append(score)
@@ -212,19 +232,43 @@ def _late_interaction_chunk_text(chunk: Dict[str, Any]) -> str:
 
 
 def _late_interaction_index_cache_limit() -> int:
-    return max(1, int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_INDEX_CACHE_SIZE", "12").strip() or 12))
+    return max(
+        1,
+        int(
+            os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_INDEX_CACHE_SIZE", "12").strip()
+            or 12
+        ),
+    )
 
 
 def _late_interaction_prefilter_min_docs() -> int:
-    return max(16, int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_PREFILTER_MIN_DOCS", "96").strip() or 96))
+    return max(
+        16,
+        int(
+            os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_PREFILTER_MIN_DOCS", "96").strip()
+            or 96
+        ),
+    )
 
 
 def _late_interaction_shortlist_cap() -> int:
-    return max(16, int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_SHORTLIST_CAP", "384").strip() or 384))
+    return max(
+        16,
+        int(
+            os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_SHORTLIST_CAP", "384").strip()
+            or 384
+        ),
+    )
 
 
 def _late_interaction_default_shortlist_factor() -> int:
-    return max(2, int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_SHORTLIST_FACTOR", "8").strip() or 8))
+    return max(
+        2,
+        int(
+            os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_SHORTLIST_FACTOR", "8").strip()
+            or 8
+        ),
+    )
 
 
 def _late_interaction_index_signature(chunks: Sequence[Dict[str, Any]]) -> str:
@@ -263,7 +307,9 @@ def _trim_late_interaction_index_cache() -> None:
         _LATE_INTERACTION_INDEX_CACHE.popitem(last=False)
 
 
-def _encode_late_interaction_query(bundle: Dict[str, Any], query: str) -> Dict[str, Any]:
+def _encode_late_interaction_query(
+    bundle: Dict[str, Any], query: str
+) -> Dict[str, Any]:
     tokenizer = bundle["tokenizer"]
     model = bundle["model"]
     device = bundle["device"]
@@ -294,7 +340,9 @@ def _encode_late_interaction_query(bundle: Dict[str, Any], query: str) -> Dict[s
         query_mask = query_inputs["attention_mask"][0] > 0
 
     query_tokens = torch.nn.functional.normalize(query_hidden[query_mask], p=2, dim=-1)
-    pooled = torch.nn.functional.normalize(query_tokens.mean(dim=0, keepdim=True), p=2, dim=-1)[0]
+    pooled = torch.nn.functional.normalize(
+        query_tokens.mean(dim=0, keepdim=True), p=2, dim=-1
+    )[0]
     return {
         "tokens": query_tokens,
         "pooled": pooled,
@@ -322,7 +370,9 @@ def _build_late_interaction_index(
     device = bundle["device"]
     torch = bundle["torch"]
     doc_max_length = int(bundle["doc_max_length"])
-    batch_size = int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8)
+    batch_size = int(
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8
+    )
 
     texts = [_late_interaction_chunk_text(chunk) for chunk in chunk_list]
     doc_tokens: List[Any] = []
@@ -330,7 +380,7 @@ def _build_late_interaction_index(
 
     for start in range(0, len(texts), batch_size):
         doc_inputs = tokenizer(
-            texts[start:start + batch_size],
+            texts[start : start + batch_size],
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -353,9 +403,13 @@ def _build_late_interaction_index(
             doc_mask = doc_masks[row_idx]
             if int(doc_mask.sum().item()) == 0:
                 doc_mask = doc_inputs["attention_mask"][row_idx] > 0
-            token_tensor = torch.nn.functional.normalize(doc_hidden[row_idx][doc_mask], p=2, dim=-1)
+            token_tensor = torch.nn.functional.normalize(
+                doc_hidden[row_idx][doc_mask], p=2, dim=-1
+            )
             token_tensor = token_tensor.detach().cpu()
-            pooled = torch.nn.functional.normalize(token_tensor.mean(dim=0, keepdim=True), p=2, dim=-1)[0]
+            pooled = torch.nn.functional.normalize(
+                token_tensor.mean(dim=0, keepdim=True), p=2, dim=-1
+            )[0]
             doc_tokens.append(token_tensor)
             pooled_vectors.append(pooled)
 
@@ -390,7 +444,9 @@ def _resolve_late_interaction_shortlist_size(
 
     requested = shortlist_size
     if requested is None:
-        requested = max(1, int(max_chunks)) * _late_interaction_default_shortlist_factor()
+        requested = (
+            max(1, int(max_chunks)) * _late_interaction_default_shortlist_factor()
+        )
     requested = max(int(max_chunks), int(requested))
     requested = min(total_docs, requested, _late_interaction_shortlist_cap())
     return max(int(max_chunks), requested)
@@ -407,7 +463,9 @@ def _late_interaction_scores_indexed(
 ) -> Tuple[List[Tuple[int, float]], Dict[str, Any]]:
     torch = bundle["torch"]
     query_repr = _encode_late_interaction_query(bundle, query)
-    index, cache_hit = _build_late_interaction_index(bundle, chunks, index_key=index_key)
+    index, cache_hit = _build_late_interaction_index(
+        bundle, chunks, index_key=index_key
+    )
     if index is None:
         return [], {
             "index_cached": False,
@@ -425,7 +483,9 @@ def _late_interaction_scores_indexed(
     shortlisted_indices = list(range(total_docs))
     prefiltered = shortlist_n < total_docs
     if prefiltered and shortlist_n > 0:
-        pooled_scores = torch.matmul(index["doc_pooled"], query_repr["pooled"].detach().cpu())
+        pooled_scores = torch.matmul(
+            index["doc_pooled"], query_repr["pooled"].detach().cpu()
+        )
         topk = torch.topk(pooled_scores, k=shortlist_n)
         shortlisted_indices = [int(idx) for idx in topk.indices.tolist()]
 
@@ -519,7 +579,9 @@ def late_interaction_rescore_chunks_for_query(
 
         scores = _late_interaction_scores(bundle, query, chunk_list)
     except Exception as exc:
-        logging.warning("Late-interaction scoring failed for model '%s': %s", model_name, exc)
+        logging.warning(
+            "Late-interaction scoring failed for model '%s': %s", model_name, exc
+        )
         return chunk_list, {
             "enabled": True,
             "applied": False,

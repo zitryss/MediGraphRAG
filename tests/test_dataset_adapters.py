@@ -202,13 +202,21 @@ def test_multihoprag_uses_shared_corpus_for_fair_retrieval():
 
 
 def test_multihoprag_shared_corpus_absent_without_local_corpus(monkeypatch):
-    monkeypatch.setattr(dataset_adapters_module, "_load_optional_json_records", lambda candidate_paths: None)
+    monkeypatch.setattr(
+        dataset_adapters_module,
+        "_load_optional_json_records",
+        lambda candidate_paths: None,
+    )
     passages = build_global_corpus_passages("multihoprag")
     assert passages is None
 
 
 def test_bioasq_shared_corpus_absent_without_local_abstract_corpus(monkeypatch):
-    monkeypatch.setattr(dataset_adapters_module, "_load_optional_json_records", lambda candidate_paths: None)
+    monkeypatch.setattr(
+        dataset_adapters_module,
+        "_load_optional_json_records",
+        lambda candidate_paths: None,
+    )
     passages = build_global_corpus_passages("bioasq")
     assert passages is None
 
@@ -307,7 +315,10 @@ def test_build_passage_corpus_preserves_question_local_duplicates_when_requested
 
     assert len(deduped) == 3
     assert len(question_scoped) == 4
-    assert [p.question_id for p in question_scoped if p.text == "Shared passage"] == ["q1", "q2"]
+    assert [p.question_id for p in question_scoped if p.text == "Shared passage"] == [
+        "q1",
+        "q2",
+    ]
 
 
 def test_build_passage_corpus_preserves_structured_titles_with_periods():

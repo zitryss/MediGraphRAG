@@ -38,11 +38,22 @@ def load_answers(slug, policy):
         details = doc["config_results"][0]["details"]
     else:
         doc = json.load(open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])))
-        details = next(c for c in doc["config_results"]
-                       if c["config"]["name"].startswith("kg_entity_first"))["details"]
-    return [(str(r["question_id"]), r["question"], r["expected"],
-             r["kg_response"], bool(r["kg_correct"]))
-            for r in details if not r.get("kg_generation_failed")]
+        details = next(
+            c
+            for c in doc["config_results"]
+            if c["config"]["name"].startswith("kg_entity_first")
+        )["details"]
+    return [
+        (
+            str(r["question_id"]),
+            r["question"],
+            r["expected"],
+            r["kg_response"],
+            bool(r["kg_correct"]),
+        )
+        for r in details
+        if not r.get("kg_generation_failed")
+    ]
 
 
 def gps_scores(slug, strict):
@@ -56,17 +67,23 @@ def metric_aurocs(slug, policy, labels_by_qid):
     except Exception:
         gps = {}
     out = {}
-    for name, getter in [("sd_uq", lambda r: r["sd"]), ("seu", lambda r: r["seu"]),
-                         ("gps", lambda r: gps.get(r["qid"]))]:
+    for name, getter in [
+        ("sd_uq", lambda r: r["sd"]),
+        ("seu", lambda r: r["seu"]),
+        ("gps", lambda r: gps.get(r["qid"])),
+    ]:
         s, w = [], []
         for r in rows:
             lbl = labels_by_qid.get(r["qid"])
             v = getter(r)
             if lbl is None or v is None:
                 continue
-            s.append(float(v)); w.append(int(not lbl))
-        out[name] = (float(roc_auc_score(w, s)) if len(set(w)) > 1 and len(s) > 10
-                     else None, len(s))
+            s.append(float(v))
+            w.append(int(not lbl))
+        out[name] = (
+            float(roc_auc_score(w, s)) if len(set(w)) > 1 and len(s) > 10 else None,
+            len(s),
+        )
     return out
 
 
@@ -78,8 +95,7 @@ def main():
         rows = load_answers(slug, policy)
         print(f"[{tag}] judging {len(rows)} answers with {JUDGE_MODEL} ...", flush=True)
         with ThreadPoolExecutor(max_workers=8) as ex:
-            verdicts = list(ex.map(
-                lambda t: judge_one(client, t[1], t[2], t[3]), rows))
+            verdicts = list(ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows))
         ok = [(r, v) for r, v in zip(rows, verdicts) if v is not None]
         orig = np.array([r[4] for r, _ in ok], int)
         new = np.array([v for _, v in ok], int)
@@ -88,18 +104,27 @@ def main():
         labels = {r[0]: bool(v) for r, v in ok}
         aurocs = metric_aurocs(slug, policy, labels)
         results[tag] = {
-            "n_judged": len(ok), "n_failed": len(rows) - len(ok),
-            "agreement": agree, "kappa": kappa,
+            "n_judged": len(ok),
+            "n_failed": len(rows) - len(ok),
+            "agreement": agree,
+            "kappa": kappa,
             "accuracy_original": float(orig.mean()),
             "accuracy_independent": float(new.mean()),
             "auroc_under_independent_labels": {
-                k: {"auroc": v[0], "n": v[1]} for k, v in aurocs.items()},
+                k: {"auroc": v[0], "n": v[1]} for k, v in aurocs.items()
+            },
         }
-        print(f"[{tag}] agreement={agree:.3f} kappa={kappa:.3f} "
-              f"acc orig={orig.mean():.3f} indep={new.mean():.3f}", flush=True)
+        print(
+            f"[{tag}] agreement={agree:.3f} kappa={kappa:.3f} "
+            f"acc orig={orig.mean():.3f} indep={new.mean():.3f}",
+            flush=True,
+        )
         for k, v in aurocs.items():
-            print(f"[{tag}]   {k}: AUROC="
-                  f"{v[0] if v[0] is None else round(v[0], 3)} (n={v[1]})", flush=True)
+            print(
+                f"[{tag}]   {k}: AUROC="
+                f"{v[0] if v[0] is None else round(v[0], 3)} (n={v[1]})",
+                flush=True,
+            )
     dest = os.path.join(REPO, "results", "analyses", "rejudge_wave1.json")
     json.dump(results, open(dest, "w"), indent=1, default=float)
     print("wrote", dest)

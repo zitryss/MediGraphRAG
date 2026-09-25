@@ -27,8 +27,14 @@ from experiments.lockin_accounting_analysis import (
 )
 
 OUT_PATH = os.path.join(REPO, "results", "analyses", "residue_audit.json")
-SLUGS = ["pubmedqa", "realmedqa", "hotpotqa", "hotpotqa_fullwiki",
-         "2wikimultihopqa", "musique"]
+SLUGS = [
+    "pubmedqa",
+    "realmedqa",
+    "hotpotqa",
+    "hotpotqa_fullwiki",
+    "2wikimultihopqa",
+    "musique",
+]
 
 
 def calm_rows_for(slug):
@@ -36,7 +42,8 @@ def calm_rows_for(slug):
     path = os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])
     doc = json.load(open(path))
     details = next(
-        cfg["details"] for cfg in doc["config_results"]
+        cfg["details"]
+        for cfg in doc["config_results"]
         if cfg["config"]["name"].startswith("kg_entity_first")
     )
     gps = gps_cache(slug, "kg", "kg")
@@ -46,7 +53,8 @@ def calm_rows_for(slug):
             continue
         qid = str(r["question_id"])
         row = {
-            "qid": qid, "policy": "kg",
+            "qid": qid,
+            "policy": "kg",
             "correct": bool(r.get("kg_correct")),
             "dse": r.get("kg_discrete_semantic_entropy"),
             "sd": r.get("kg_sd_uq"),
@@ -59,15 +67,20 @@ def calm_rows_for(slug):
             continue
         if route_state(row) == "empty" or seu_flags(row) or gps_flags(row):
             continue
-        found.append({
-            "slug": slug,
-            "question_id": qid,
-            "question": r.get("question"),
-            "expected": r.get("expected"),
-            "response": r.get("kg_response"),
-            "sd_uq": row["sd"], "seu": row["seu"], "gps": row["gps"],
-            "route": row["route"], "route_reason": row["route_reason"],
-        })
+        found.append(
+            {
+                "slug": slug,
+                "question_id": qid,
+                "question": r.get("question"),
+                "expected": r.get("expected"),
+                "response": r.get("kg_response"),
+                "sd_uq": row["sd"],
+                "seu": row["seu"],
+                "gps": row["gps"],
+                "route": row["route"],
+                "route_reason": row["route_reason"],
+            }
+        )
     return found
 
 
@@ -80,9 +93,9 @@ def main():
             print(f"skip {slug}: {exc}")
     out = {
         "definition": "adaptive-KG wrong & silent (DSE=0, SD-UQ<=1e-9) & route!=empty "
-                      "& SEU<=0.5 & GPS defined<=0.5",
+        "& SEU<=0.5 & GPS defined<=0.5",
         "caveat": "retrieved chunk texts not archived; entailment of the wrong "
-                  "answer cannot be confirmed from logs",
+        "answer cannot be confirmed from logs",
         "count": len(residue),
         "cases": residue,
     }
@@ -92,7 +105,9 @@ def main():
         print(f"\n[{c['slug']}] {c['question']}")
         print(f"   gold: {c['expected']}")
         print(f"   ans : {str(c['response'])[:160]}")
-        print(f"   sd={c['sd_uq']!s:.6} seu={c['seu']} gps={c['gps']} route={c['route']}/{c['route_reason']}")
+        print(
+            f"   sd={c['sd_uq']!s:.6} seu={c['seu']} gps={c['gps']} route={c['route']}/{c['route_reason']}"
+        )
     print("\nwrote", os.path.relpath(OUT_PATH, REPO))
 
 

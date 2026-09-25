@@ -50,7 +50,9 @@ def _path_id(path_entry: Dict[str, Any]) -> str:
         return ""
     node_ids = path_entry.get("node_ids") or []
     if node_ids:
-        return "->".join(_clean_id(node_id) for node_id in node_ids if _clean_id(node_id))
+        return "->".join(
+            _clean_id(node_id) for node_id in node_ids if _clean_id(node_id)
+        )
     return _clean_id(path_entry.get("path"))
 
 
@@ -188,7 +190,9 @@ def graph_state_diversity(sample_states: Sequence[Dict[str, Any]]) -> Dict[str, 
         for state in states
     ]
     chunk_sets = [state.get("chunk_ids") or [] for state in states]
-    seed_counter = Counter(eid for state in states for eid in (state.get("seed_entity_ids") or []))
+    seed_counter = Counter(
+        eid for state in states for eid in (state.get("seed_entity_ids") or [])
+    )
     dominant_seed_id, dominant_seed_count = ("", 0)
     if seed_counter:
         dominant_seed_id, dominant_seed_count = seed_counter.most_common(1)[0]

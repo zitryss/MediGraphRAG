@@ -2,6 +2,7 @@ import re
 from typing import Dict, Any, List, Optional
 from collections import Counter
 
+
 class EvaluationMixin:
     """Knowledge-graph quality evaluation and reporting.
 
@@ -28,11 +29,7 @@ class EvaluationMixin:
             entity_id = str(node.get("id") or props.get("id") or "").strip()
             if not entity_id:
                 continue
-            name = str(
-                props.get("name")
-                or node.get("name")
-                or entity_id
-            ).strip()
+            name = str(props.get("name") or node.get("name") or entity_id).strip()
             entity_type = str(
                 node.get("label")
                 or node.get("type")
@@ -95,18 +92,12 @@ class EvaluationMixin:
                 or target_ref
             ).strip()
 
-            negated = bool(
-                rel.get("negated", props.get("negated", False))
-            )
+            negated = bool(rel.get("negated", props.get("negated", False)))
             condition = str(
-                rel.get("condition")
-                or props.get("condition")
-                or ""
+                rel.get("condition") or props.get("condition") or ""
             ).strip()
             quantitative = str(
-                rel.get("quantitative")
-                or props.get("quantitative")
-                or ""
+                rel.get("quantitative") or props.get("quantitative") or ""
             ).strip()
 
             base_key = "||".join(
@@ -149,7 +140,7 @@ class EvaluationMixin:
         fn = len(gold_keys - predicted_keys)
         precision = tp / max(1, tp + fp)
         recall = tp / max(1, tp + fn)
-        f1 = (2 * precision * recall / max(1e-9, precision + recall))
+        f1 = 2 * precision * recall / max(1e-9, precision + recall)
         return {
             "true_positives": tp,
             "false_positives": fp,
@@ -214,7 +205,8 @@ class EvaluationMixin:
             1 for n in nodes if (n.get("properties") or {}).get("umls_cui")
         )
         has_synonyms = sum(
-            1 for n in nodes
+            1
+            for n in nodes
             if len((n.get("properties") or {}).get("all_names") or []) > 1
         )
         n_entities = len(nodes)
@@ -231,8 +223,10 @@ class EvaluationMixin:
         degrees = list(degree.values()) if degree else [0]
         sorted_degrees = sorted(degrees, reverse=True)
         top10_degree_share = (
-            sum(sorted_degrees[:10]) / max(1, sum(sorted_degrees))
-        ) if sorted_degrees else 0.0
+            (sum(sorted_degrees[:10]) / max(1, sum(sorted_degrees)))
+            if sorted_degrees
+            else 0.0
+        )
         isolated_entities = n_entities - len(degree)
         degree_buckets = {"0": 0, "1": 0, "2-4": 0, "5-9": 0, "10+": 0}
         for node in nodes:
@@ -267,17 +261,16 @@ class EvaluationMixin:
         )
         negated_count = sum(1 for r in relationships if r.get("negated"))
         contradiction_count = sum(
-            1 for r in relationships
+            1
+            for r in relationships
             if (r.get("properties") or {}).get("contradiction_detected")
-               or r.get("contradiction_detected")
+            or r.get("contradiction_detected")
         )
         conditioned_count = sum(
-            1 for r in relationships
-            if (r.get("properties") or {}).get("condition")
+            1 for r in relationships if (r.get("properties") or {}).get("condition")
         )
         quantified_count = sum(
-            1 for r in relationships
-            if (r.get("properties") or {}).get("quantitative")
+            1 for r in relationships if (r.get("properties") or {}).get("quantitative")
         )
 
         # evidence scope distribution
@@ -293,21 +286,25 @@ class EvaluationMixin:
 
         mean_confidence = (
             sum(confidence_values) / len(confidence_values)
-            if confidence_values else None
+            if confidence_values
+            else None
         )
         high_conf_rels = sum(1 for c in confidence_values if c >= 0.7)
         low_conf_rels = sum(1 for c in confidence_values if c < 0.4)
 
         restoration_full = sum(
-            1 for r in relationships
+            1
+            for r in relationships
             if (r.get("properties") or {}).get("restoration_status") == "full"
         )
         restoration_partial = sum(
-            1 for r in relationships
+            1
+            for r in relationships
             if (r.get("properties") or {}).get("restoration_status") == "partial"
         )
         restoration_failed = sum(
-            1 for r in relationships
+            1
+            for r in relationships
             if (r.get("properties") or {}).get("restoration_status") == "failed"
         )
 
@@ -316,36 +313,46 @@ class EvaluationMixin:
         entities_per_chunk = n_entities / max(1, n_chunks)
         rels_per_chunk = n_rels / max(1, n_chunks)
         anchor_rel_count = sum(
-            1 for r in relationships
-            if (r.get("properties") or {}).get("anchor_text")
+            1 for r in relationships if (r.get("properties") or {}).get("anchor_text")
         )
         anchor_grounding_count = sum(
-            1 for r in relationships
+            1
+            for r in relationships
             if (r.get("properties") or {}).get("anchor_grounding")
         )
         section_names: set = {
-            str(c.get("section_name") or "")
-            for c in chunks
-            if c.get("section_name")
+            str(c.get("section_name") or "") for c in chunks if c.get("section_name")
         }
 
         # ── Pipeline health metrics ─────────────────────────────────────────
         dropped_entities = meta.get("schema_enforcement_dropped_entities", 0)
         dropped_rels_schema = meta.get("schema_enforcement_dropped_relationships", 0)
-        dropped_rels_unmapped = meta.get("harmonization_relationships_dropped_unmapped", 0)
+        dropped_rels_unmapped = meta.get(
+            "harmonization_relationships_dropped_unmapped", 0
+        )
         deduped_rels = meta.get("harmonization_relationships_deduped", 0)
-        contradiction_groups = meta.get("harmonization_relationship_contradiction_groups", 0)
+        contradiction_groups = meta.get(
+            "harmonization_relationship_contradiction_groups", 0
+        )
         stored_relationships = meta.get("stored_relationships")
         relationship_store_failures = meta.get("relationship_store_failures", 0)
-        relationships_skipped_low_confidence = meta.get("relationships_skipped_low_confidence", 0)
-        relationships_skipped_schema_mismatch = meta.get("relationships_skipped_schema_mismatch", 0)
+        relationships_skipped_low_confidence = meta.get(
+            "relationships_skipped_low_confidence", 0
+        )
+        relationships_skipped_schema_mismatch = meta.get(
+            "relationships_skipped_schema_mismatch", 0
+        )
         relationships_reverified_kept = meta.get("relationships_reverified_kept", 0)
-        relationships_reverified_rejected = meta.get("relationships_reverified_rejected", 0)
+        relationships_reverified_rejected = meta.get(
+            "relationships_reverified_rejected", 0
+        )
         relationship_store_ratio = meta.get("relationship_store_ratio")
 
         raw_entities_approx = n_entities + dropped_entities
         entity_pass_rate = n_entities / max(1, raw_entities_approx)
-        raw_rels_approx = n_rels + dropped_rels_schema + dropped_rels_unmapped + deduped_rels
+        raw_rels_approx = (
+            n_rels + dropped_rels_schema + dropped_rels_unmapped + deduped_rels
+        )
         rel_pass_rate = n_rels / max(1, raw_rels_approx)
 
         # ── Precision / recall vs. gold ─────────────────────────────────────
@@ -355,12 +362,18 @@ class EvaluationMixin:
         reference_nodes: List[Dict[str, Any]] = []
         reference_relationships: List[Dict[str, Any]] = []
         if isinstance(reference, dict):
-            reference_nodes = list(reference.get("nodes") or reference.get("entities") or [])
-            reference_relationships = list(reference.get("relationships") or reference.get("triples") or [])
+            reference_nodes = list(
+                reference.get("nodes") or reference.get("entities") or []
+            )
+            reference_relationships = list(
+                reference.get("relationships") or reference.get("triples") or []
+            )
         elif isinstance(reference, list):
             reference_relationships = list(reference)
         if reference_triples:
-            reference_relationships = list(reference_relationships) + list(reference_triples)
+            reference_relationships = list(reference_relationships) + list(
+                reference_triples
+            )
 
         if reference_nodes:
             gold_entity_keys = set(self._kg_eval_entity_keys(reference_nodes))
@@ -369,8 +382,12 @@ class EvaluationMixin:
                 pred_entity_keys,
                 gold_entity_keys,
             )
-            entity_precision_recall["gold_entities"] = entity_precision_recall.pop("gold_count")
-            entity_precision_recall["predicted_entities"] = entity_precision_recall.pop("predicted_count")
+            entity_precision_recall["gold_entities"] = entity_precision_recall.pop(
+                "gold_count"
+            )
+            entity_precision_recall["predicted_entities"] = entity_precision_recall.pop(
+                "predicted_count"
+            )
 
         if reference_relationships:
             reference_lookup = dict(entity_lookup)
@@ -389,8 +406,12 @@ class EvaluationMixin:
                 pred_keys,
                 gold_keys,
             )
-            relationship_precision_recall["gold_triples"] = relationship_precision_recall.pop("gold_count")
-            relationship_precision_recall["predicted_triples"] = relationship_precision_recall.pop("predicted_count")
+            relationship_precision_recall["gold_triples"] = (
+                relationship_precision_recall.pop("gold_count")
+            )
+            relationship_precision_recall["predicted_triples"] = (
+                relationship_precision_recall.pop("predicted_count")
+            )
 
             has_qualified_reference = any(
                 record["negated"] or record["condition"] or record["quantitative"]
@@ -407,8 +428,12 @@ class EvaluationMixin:
                     pred_qualified_keys,
                     gold_qualified_keys,
                 )
-                qualified_relationship_precision_recall["gold_triples"] = qualified_relationship_precision_recall.pop("gold_count")
-                qualified_relationship_precision_recall["predicted_triples"] = qualified_relationship_precision_recall.pop("predicted_count")
+                qualified_relationship_precision_recall["gold_triples"] = (
+                    qualified_relationship_precision_recall.pop("gold_count")
+                )
+                qualified_relationship_precision_recall["predicted_triples"] = (
+                    qualified_relationship_precision_recall.pop("predicted_count")
+                )
 
         # ── Assemble report ─────────────────────────────────────────────────
         report: Dict[str, Any] = {
@@ -426,7 +451,9 @@ class EvaluationMixin:
             "entity_metrics": {
                 "type_distribution": dict(type_counts.most_common()),
                 "anchor_grounded": anchor_grounded,
-                "anchor_grounded_pct": round(100 * anchor_grounded / max(1, n_entities), 1),
+                "anchor_grounded_pct": round(
+                    100 * anchor_grounded / max(1, n_entities), 1
+                ),
                 "umls_linked": umls_linked,
                 "umls_linked_pct": round(100 * umls_linked / max(1, n_entities), 1),
                 "with_synonyms": has_synonyms,
@@ -443,25 +470,39 @@ class EvaluationMixin:
                 "negated_pct": round(100 * negated_count / max(1, n_rels), 1),
                 "contradiction_flagged": contradiction_count,
                 "contradiction_groups": contradiction_groups,
-                "contradiction_rate_pct": round(100 * contradiction_count / max(1, n_rels), 1),
+                "contradiction_rate_pct": round(
+                    100 * contradiction_count / max(1, n_rels), 1
+                ),
                 "conditioned": conditioned_count,
                 "conditioned_pct": round(100 * conditioned_count / max(1, n_rels), 1),
                 "quantified": quantified_count,
                 "quantified_pct": round(100 * quantified_count / max(1, n_rels), 1),
                 "evidence_scope_distribution": dict(scope_counts),
-                "mean_confidence": round(mean_confidence, 4) if mean_confidence is not None else None,
-                "high_confidence_pct": round(100 * high_conf_rels / max(1, len(confidence_values)), 1),
-                "low_confidence_pct": round(100 * low_conf_rels / max(1, len(confidence_values)), 1),
+                "mean_confidence": round(mean_confidence, 4)
+                if mean_confidence is not None
+                else None,
+                "high_confidence_pct": round(
+                    100 * high_conf_rels / max(1, len(confidence_values)), 1
+                ),
+                "low_confidence_pct": round(
+                    100 * low_conf_rels / max(1, len(confidence_values)), 1
+                ),
                 "restoration_full": restoration_full,
                 "restoration_partial": restoration_partial,
                 "restoration_failed": restoration_failed,
-                "anchor_relation_phrase_pct": round(100 * anchor_rel_count / max(1, n_rels), 1),
-                "anchor_grounding_pct": round(100 * anchor_grounding_count / max(1, n_rels), 1),
+                "anchor_relation_phrase_pct": round(
+                    100 * anchor_rel_count / max(1, n_rels), 1
+                ),
+                "anchor_grounding_pct": round(
+                    100 * anchor_grounding_count / max(1, n_rels), 1
+                ),
             },
             "grounding_metrics": {
                 "entities_per_chunk": round(entities_per_chunk, 2),
                 "relationships_per_chunk": round(rels_per_chunk, 2),
-                "chunks_with_section_tags": sum(1 for c in chunks if c.get("section_name")),
+                "chunks_with_section_tags": sum(
+                    1 for c in chunks if c.get("section_name")
+                ),
             },
             "pipeline_metrics": {
                 "schema_enforcement_dropped_entities": dropped_entities,
@@ -489,7 +530,9 @@ class EvaluationMixin:
             # relationship-level precision / recall.
             report["precision_recall"] = relationship_precision_recall
         if qualified_relationship_precision_recall is not None:
-            report["qualified_relationship_precision_recall"] = qualified_relationship_precision_recall
+            report["qualified_relationship_precision_recall"] = (
+                qualified_relationship_precision_recall
+            )
 
         if print_report:
             self._print_kg_evaluation_report(report)
@@ -535,9 +578,7 @@ class EvaluationMixin:
         if em.get("hub_entities_topk"):
             lines.append("  Top hub entities:")
             for hub in em["hub_entities_topk"][:5]:
-                lines.append(
-                    f"    {hub['name']:<25} {hub['degree']}  ({hub['type']})"
-                )
+                lines.append(f"    {hub['name']:<25} {hub['degree']}  ({hub['type']})")
 
         lines += [
             "",
@@ -552,7 +593,9 @@ class EvaluationMixin:
             f"  Restoration (full/partial/failed): {rm['restoration_full']} / {rm['restoration_partial']} / {rm['restoration_failed']}",
             f"  Evidence scope:",
         ]
-        for scope, cnt in sorted(rm["evidence_scope_distribution"].items(), key=lambda x: -x[1]):
+        for scope, cnt in sorted(
+            rm["evidence_scope_distribution"].items(), key=lambda x: -x[1]
+        ):
             pct = round(100 * cnt / max(1, s["relationships"]), 1)
             lines.append(f"    {scope:<25} {cnt}  ({pct}%)")
 

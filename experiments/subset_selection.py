@@ -144,19 +144,29 @@ def resolve_question_subset(
     force_resample: bool = False,
 ) -> QuestionSubsetResolution:
     """Load or create a persisted deterministic question subset."""
-    ordered_ids = [str(question_id) for question_id in available_question_ids if str(question_id)]
+    ordered_ids = [
+        str(question_id) for question_id in available_question_ids if str(question_id)
+    ]
     available_id_set = set(ordered_ids)
     requested_num_samples = None if num_samples is None else int(num_samples)
 
     if selection_path.exists() and not force_resample:
         payload = json.loads(selection_path.read_text())
-        saved_ids = [str(question_id) for question_id in payload.get("question_ids", []) if str(question_id)]
+        saved_ids = [
+            str(question_id)
+            for question_id in payload.get("question_ids", [])
+            if str(question_id)
+        ]
         if not saved_ids and ordered_ids:
             raise ValueError(
                 f"Persisted selection at {selection_path} is missing question_ids."
             )
 
-        missing_ids = [question_id for question_id in saved_ids if question_id not in available_id_set]
+        missing_ids = [
+            question_id
+            for question_id in saved_ids
+            if question_id not in available_id_set
+        ]
         if missing_ids:
             preview = ", ".join(missing_ids[:5])
             raise ValueError(
@@ -209,7 +219,9 @@ def resolve_question_subset(
         "version": 1,
         "dataset": dataset_name,
         "created_at": datetime.now().isoformat(),
-        "selection_strategy": "all" if len(selected_ids) == len(ordered_ids) else "seeded_sample",
+        "selection_strategy": "all"
+        if len(selected_ids) == len(ordered_ids)
+        else "seeded_sample",
         "subset_seed": int(subset_seed),
         "requested_num_samples": requested_num_samples,
         "available_question_count": len(ordered_ids),

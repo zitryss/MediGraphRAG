@@ -16,8 +16,10 @@ from unittest.mock import MagicMock, patch
 # Minimal chunk / entity / relationship factories
 # ---------------------------------------------------------------------------
 
-def make_chunk(text: str, kg_name: str = "test_kg", file_name: str = "doc.txt",
-               score: float = 1.0) -> dict:
+
+def make_chunk(
+    text: str, kg_name: str = "test_kg", file_name: str = "doc.txt", score: float = 1.0
+) -> dict:
     chunk_id = hashlib.sha1(f"{kg_name}:{file_name}:{text}".encode()).hexdigest()
     return {
         "text": text,
@@ -30,8 +32,9 @@ def make_chunk(text: str, kg_name: str = "test_kg", file_name: str = "doc.txt",
     }
 
 
-def make_entity(eid: str, source: str = "entity_lookup", min_hops: int = 0,
-                etype: str = "Disease") -> dict:
+def make_entity(
+    eid: str, source: str = "entity_lookup", min_hops: int = 0, etype: str = "Disease"
+) -> dict:
     return {
         "id": eid,
         "name": eid,
@@ -42,9 +45,14 @@ def make_entity(eid: str, source: str = "entity_lookup", min_hops: int = 0,
     }
 
 
-def make_relationship(src: str, tgt: str, rel_type: str = "TREATS",
-                      negated: bool = False, condition: str = None,
-                      quantitative: str = None) -> dict:
+def make_relationship(
+    src: str,
+    tgt: str,
+    rel_type: str = "TREATS",
+    negated: bool = False,
+    condition: str = None,
+    quantitative: str = None,
+) -> dict:
     key = f"{src}-{rel_type}-{tgt}"
     return {
         "key": key,
@@ -61,6 +69,7 @@ def make_relationship(src: str, tgt: str, rel_type: str = "TREATS",
 # Neo4j graph stub — records calls, returns configurable results
 # ---------------------------------------------------------------------------
 
+
 class StubGraph:
     """Minimal stand-in for langchain_neo4j.Neo4jGraph.
 
@@ -70,7 +79,7 @@ class StubGraph:
 
     def __init__(self, query_results=None):
         self._results = list(query_results or [])
-        self.queries = []   # recorded (query_str, params) pairs
+        self.queries = []  # recorded (query_str, params) pairs
 
     def query(self, query: str, params: dict = None):
         self.queries.append((query, params or {}))
@@ -90,6 +99,7 @@ def stub_graph():
 # ---------------------------------------------------------------------------
 # Minimal LLM stub
 # ---------------------------------------------------------------------------
+
 
 class StubLLM:
     """Minimal stand-in for a LangChain Runnable that returns a fixed string."""

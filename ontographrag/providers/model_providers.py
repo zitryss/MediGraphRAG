@@ -13,10 +13,14 @@ from ontographrag.kg.utils.common_functions import _resolve_huggingface_embeddin
 
 logger = logging.getLogger(__name__)
 
+
 class ModelProvider(ABC):
     @abstractmethod
-    def generate(self, system_prompt: str, user_prompt: str, model: str, **kwargs) -> str:
+    def generate(
+        self, system_prompt: str, user_prompt: str, model: str, **kwargs
+    ) -> str:
         pass
+
 
 class LangChainRunnableAdapter(Runnable):
     def __init__(self, provider: ModelProvider, model: str, temperature: float = 1.0):
@@ -52,7 +56,9 @@ class LangChainRunnableAdapter(Runnable):
         # If no explicit messages found, try simple string input
         if not system_prompt and not user_prompt:
             if isinstance(input, dict):
-                user_prompt = input.get("input", input.get("text", input.get("chunk_text", "")))
+                user_prompt = input.get(
+                    "input", input.get("text", input.get("chunk_text", ""))
+                )
             elif hasattr(input, "content"):
                 user_prompt = input.content
             elif isinstance(input, str):
@@ -66,16 +72,18 @@ class LangChainRunnableAdapter(Runnable):
 
     def __class_getitem__(cls, item):
         return cls
-    
+
     def with_structured_output(self, schema, **kwargs):
         """Add structured output support for LLMGraphTransformer compatibility"""
         return self
-    
+
     def bind(self, **kwargs):
         """Add bind method for LangChain compatibility"""
         return self
 
+
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
+
 
 class OpenAIProvider(ModelProvider):
     def __init__(self):
@@ -84,52 +92,58 @@ class OpenAIProvider(ModelProvider):
             timeout=LLM_TIMEOUT_SECONDS,
         )
 
-    def generate(self, system_prompt: str, user_prompt: str, model: str, **kwargs) -> str:
+    def generate(
+        self, system_prompt: str, user_prompt: str, model: str, **kwargs
+    ) -> str:
         kwargs.setdefault("temperature", 1.0)
         response = self.client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            **kwargs
+            **kwargs,
         )
         return response.choices[0].message.content
 
+
 class OllamaProvider(ModelProvider):
-    def generate(self, system_prompt: str, user_prompt: str, model: str, **kwargs) -> str:
+    def generate(
+        self, system_prompt: str, user_prompt: str, model: str, **kwargs
+    ) -> str:
         import ollama
+
         try:
             # Check if JSON format is explicitly requested in kwargs
-            force_json = kwargs.pop('force_json', False)
-            
+            force_json = kwargs.pop("force_json", False)
+
             # Build the chat request
             chat_kwargs = {
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": user_prompt},
                 ],
                 "options": {"num_ctx": 16384},
             }
-            
+
             # Only enforce JSON format if explicitly requested
             if force_json:
-                chat_kwargs['format'] = 'json'
-            
+                chat_kwargs["format"] = "json"
+
             # Add any remaining kwargs
             chat_kwargs.update(kwargs)
-            
+
             response = ollama.chat(**chat_kwargs)
-            content = response['message']['content']
-            
+            content = response["message"]["content"]
+
             # If JSON was requested, validate the response
             if force_json:
                 try:
                     json.loads(content)
                 except json.JSONDecodeError:
                     raise ValueError(f"Invalid JSON response from model: {content}")
-            
+
             return content
         except Exception as e:
             if "not found" in str(e).lower():
@@ -137,36 +151,39 @@ class OllamaProvider(ModelProvider):
             else:
                 return f"Ollama error: {str(e)}"
 
+
 class GeminiProvider(ModelProvider):
     def __init__(self):
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-    def generate(self, system_prompt: str, user_prompt: str, model: str, **kwargs) -> str:
+    def generate(
+        self, system_prompt: str, user_prompt: str, model: str, **kwargs
+    ) -> str:
         kwargs.pop("temperature", None)  # pass via generation_config instead
         gemini_model = genai.GenerativeModel(
-            model,
-            generation_config=genai.GenerationConfig(temperature=0)
+            model, generation_config=genai.GenerationConfig(temperature=0)
         )
         response = gemini_model.generate_content(
-            contents=[system_prompt, user_prompt],
-            **kwargs
+            contents=[system_prompt, user_prompt], **kwargs
         )
         return response.text
 
+
 class HuggingFaceProvider(ModelProvider):
-    def generate(self, system_prompt: str, user_prompt: str, model: str, **kwargs) -> str:
+    def generate(
+        self, system_prompt: str, user_prompt: str, model: str, **kwargs
+    ) -> str:
         client = InferenceClient(token=os.getenv("HF_API_TOKEN"))
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
         kwargs.setdefault("temperature", 0.0)
-        response = client.text_generation(
-            prompt=full_prompt,
-            model=model,
-            **kwargs
-        )
+        response = client.text_generation(prompt=full_prompt, model=model, **kwargs)
         return response
 
+
 class DeepSeekProvider(ModelProvider):
-    def generate(self, system_prompt: str, user_prompt: str, model: str, **kwargs) -> str:
+    def generate(
+        self, system_prompt: str, user_prompt: str, model: str, **kwargs
+    ) -> str:
         api_key = os.getenv("DEEPSEEK_API_KEY")
         headers = {"Authorization": f"Bearer {api_key}"}
         kwargs.setdefault("temperature", 0)
@@ -174,11 +191,11 @@ class DeepSeekProvider(ModelProvider):
             "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            **kwargs
+            **kwargs,
         }
-        
+
         response = httpx.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers=headers,
@@ -188,24 +205,27 @@ class DeepSeekProvider(ModelProvider):
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
 
+
 class OpenRouterProvider(ModelProvider):
-    def generate(self, system_prompt: str, user_prompt: str, model: str, **kwargs) -> str:
+    def generate(
+        self, system_prompt: str, user_prompt: str, model: str, **kwargs
+    ) -> str:
         api_key = os.getenv("OPENROUTER_API_KEY")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "HTTP-Referer": "https://github.com/ModelContext/tool-2025-kg-rag",
-            "X-Title": "KG RAG Tool"
+            "X-Title": "KG RAG Tool",
         }
         kwargs.setdefault("temperature", 0)
         payload = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            **kwargs
+            **kwargs,
         }
-        
+
         response = httpx.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
@@ -214,11 +234,11 @@ class OpenRouterProvider(ModelProvider):
         )
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
-    
+
     def with_structured_output(self, schema, **kwargs):
         """Add structured output support for LLMGraphTransformer compatibility"""
         return self
-    
+
     def bind(self, **kwargs):
         """Add bind method for LangChain compatibility"""
         return self
@@ -231,13 +251,16 @@ class TemperatureLockedProvider(ModelProvider):
         self.provider = provider
         self.temperature = temperature
 
-    def generate(self, system_prompt: str, user_prompt: str, model: str, **kwargs) -> str:
+    def generate(
+        self, system_prompt: str, user_prompt: str, model: str, **kwargs
+    ) -> str:
         kwargs = dict(kwargs)
         kwargs["temperature"] = self.temperature
         return self.provider.generate(system_prompt, user_prompt, model, **kwargs)
 
     def __getattr__(self, name: str):
         return getattr(self.provider, name)
+
 
 def get_provider(provider: str, model: str = None, **kwargs) -> ModelProvider:
     providers: Dict[str, Any] = {
@@ -246,17 +269,19 @@ def get_provider(provider: str, model: str = None, **kwargs) -> ModelProvider:
         "gemini": GeminiProvider,
         "huggingface": HuggingFaceProvider,
         "deepseek": DeepSeekProvider,
-        "openrouter": OpenRouterProvider
+        "openrouter": OpenRouterProvider,
     }
-    
+
     provider_class = providers.get(provider.lower())
     if not provider_class:
         raise ValueError(f"Unsupported provider: {provider}")
-    
+
     return provider_class()
+
 
 # alias for compatibility
 get_llm_provider = get_provider
+
 
 def get_embedding_model(provider="huggingface"):
     """Get an embedding model from different providers
@@ -283,26 +308,33 @@ def get_embedding_model(provider="huggingface"):
             model_name = _resolve_huggingface_embedding_model()
             embedder = HuggingFaceEmbeddings(
                 model_name=model_name,
-                model_kwargs={'device': 'cpu'},  # Use CPU by default for compatibility
-                encode_kwargs={'normalize_embeddings': True}
+                model_kwargs={"device": "cpu"},  # Use CPU by default for compatibility
+                encode_kwargs={"normalize_embeddings": True},
             )
             logger.info("HuggingFaceEmbeddings initialized successfully")
             return embedder
         except Exception as e:
             logger.warning("HuggingFace initialization failed: %s", e)
-            raise ImportError("huggingface embeddings not available. Install with: pip install sentence-transformers transformers torch")
+            raise ImportError(
+                "huggingface embeddings not available. Install with: pip install sentence-transformers transformers torch"
+            )
     elif provider == "openai":
         from langchain_openai import OpenAIEmbeddings
+
         return OpenAIEmbeddings(
             model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small").strip()
         )
     elif provider == "vertexai":
         from langchain_google_vertexai import VertexAIEmbeddings
+
         return VertexAIEmbeddings(
             model=os.getenv("VERTEXAI_EMBEDDING_MODEL", "text-embedding-005").strip()
         )
     else:
-        raise ValueError(f"Unsupported embedding provider: {provider}. Choose from 'huggingface', 'openai', 'vertexai'")
+        raise ValueError(
+            f"Unsupported embedding provider: {provider}. Choose from 'huggingface', 'openai', 'vertexai'"
+        )
+
 
 def get_embedding_method(provider_name=None):
     """Get the configured embedding method from environment
@@ -314,7 +346,9 @@ def get_embedding_method(provider_name=None):
         tuple: (provider_name, embedding_model)
     """
     if provider_name is None:
-        provider = os.getenv("EMBEDDING_PROVIDER", "huggingface")  # Default to huggingface
+        provider = os.getenv(
+            "EMBEDDING_PROVIDER", "huggingface"
+        )  # Default to huggingface
     else:
         provider = provider_name
 
@@ -332,4 +366,6 @@ def get_embedding_method(provider_name=None):
             embedder = get_embedding_model("openai")
             return "openai", embedder
         except Exception as e2:
-            raise RuntimeError(f"Failed to initialize any embedding model. OpenAI error: {e2}")
+            raise RuntimeError(
+                f"Failed to initialize any embedding model. OpenAI error: {e2}"
+            )

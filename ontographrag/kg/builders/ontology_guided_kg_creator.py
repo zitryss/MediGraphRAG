@@ -29,6 +29,7 @@ from ontographrag.kg.builders._extraction import ExtractionMixin
 from ontographrag.kg.builders._ontology import OntologySchemaMixin
 from ontographrag.kg.builders._storage import StorageMixin
 
+
 class OntologyGuidedKGCreator(
     EnrichmentMixin,
     EvaluationMixin,
@@ -40,9 +41,10 @@ class OntologyGuidedKGCreator(
     Ontology-Guided Knowledge Graph Creator that properly extracts entities from PDF content
     using LLM with ontology guidance for better entity classification and relationships
     """
+
     _SECTION_HEADER_RE = re.compile(
         r"(?m)^(?:"
-        r"\d+[\.\d]*\s*"                              # optional numbering: "2.", "2.1."
+        r"\d+[\.\d]*\s*"  # optional numbering: "2.", "2.1."
         r")?"
         r"(?P<header>"
         r"abstract|introduction|background|methods?|materials?\s+and\s+methods?|"
@@ -162,7 +164,9 @@ class OntologyGuidedKGCreator(
             int(os.getenv("KG_RELATION_PROMPT_ENTITY_CAP", "40") or 40),
         )
         self.enable_coreference_resolution = enable_coreference_resolution
-        self.enable_heuristic_coreference_resolution = enable_heuristic_coreference_resolution
+        self.enable_heuristic_coreference_resolution = (
+            enable_heuristic_coreference_resolution
+        )
         self.neo4j_uri = neo4j_uri
         self.neo4j_user = neo4j_user
         self.neo4j_password = neo4j_password
@@ -172,11 +176,17 @@ class OntologyGuidedKGCreator(
         self.strict_ontology = strict_ontology
         self.self_consistency_n = max(
             1,
-            int(os.getenv("KG_SELF_CONSISTENCY_N", str(self_consistency_n)) or self_consistency_n),
+            int(
+                os.getenv("KG_SELF_CONSISTENCY_N", str(self_consistency_n))
+                or self_consistency_n
+            ),
         )
         self.few_shot_example_count = max(
             0,
-            int(os.getenv("KG_FEW_SHOT_EXAMPLE_COUNT", str(few_shot_example_count)) or few_shot_example_count),
+            int(
+                os.getenv("KG_FEW_SHOT_EXAMPLE_COUNT", str(few_shot_example_count))
+                or few_shot_example_count
+            ),
         )
         try:
             self.min_triple_confidence = max(
@@ -209,7 +219,9 @@ class OntologyGuidedKGCreator(
                 ),
             )
         except ValueError:
-            self.relationship_type_similarity_threshold = relationship_type_similarity_threshold
+            self.relationship_type_similarity_threshold = (
+                relationship_type_similarity_threshold
+            )
         self.enable_low_confidence_triple_reverification = _env_flag(
             os.getenv("KG_ENABLE_LOW_CONFIDENCE_TRIPLE_REVERIFY"),
             enable_low_confidence_triple_reverification,
@@ -235,7 +247,8 @@ class OntologyGuidedKGCreator(
             enable_umls_linking,
         )
         self.umls_spacy_model = (
-            os.getenv("KG_UMLS_SPACY_MODEL", umls_spacy_model or "en_core_sci_sm") or "en_core_sci_sm"
+            os.getenv("KG_UMLS_SPACY_MODEL", umls_spacy_model or "en_core_sci_sm")
+            or "en_core_sci_sm"
         )
         self.enable_anchor_constrained_extraction = _env_flag(
             os.getenv("KG_ENABLE_ANCHOR_CONSTRAINED_EXTRACTION"),
@@ -363,18 +376,26 @@ class OntologyGuidedKGCreator(
         }
 
         # Initialize embedding model
-        self.embedding_function, self.embedding_dimension = load_embedding_model(embedding_model)
-        logging.info(f"Initialized embedding model: {embedding_model}, dimension: {self.embedding_dimension}")
+        self.embedding_function, self.embedding_dimension = load_embedding_model(
+            embedding_model
+        )
+        logging.info(
+            f"Initialized embedding model: {embedding_model}, dimension: {self.embedding_dimension}"
+        )
 
         # Load ontology if provided
         self.ontology_classes = []
         self.ontology_relationships = []
         self._ontology_schema: Optional[OntologySchema] = None
         if ontology_path and os.path.exists(ontology_path):
-            logging.info(f"Ontology file exists at: {ontology_path} (size: {os.path.getsize(ontology_path)} bytes)")
+            logging.info(
+                f"Ontology file exists at: {ontology_path} (size: {os.path.getsize(ontology_path)} bytes)"
+            )
             try:
                 self._load_ontology(ontology_path)
-                logging.info(f"✅ Successfully loaded ontology: {len(self.ontology_classes)} classes, {len(self.ontology_relationships)} relationships")
+                logging.info(
+                    f"✅ Successfully loaded ontology: {len(self.ontology_classes)} classes, {len(self.ontology_relationships)} relationships"
+                )
 
                 # Validate ontology structure to prevent "string indices must be integers" errors
                 self._validate_ontology_structure()
@@ -389,7 +410,9 @@ class OntologyGuidedKGCreator(
         else:
             if ontology_path:
                 logging.warning(f"Ontology file not found: {ontology_path}")
-                logging.info(f"Available files in temp dir: {os.listdir(os.path.dirname(ontology_path)) if ontology_path else 'N/A'}")
+                logging.info(
+                    f"Available files in temp dir: {os.listdir(os.path.dirname(ontology_path)) if ontology_path else 'N/A'}"
+                )
                 if self.strict_ontology:
                     raise FileNotFoundError(f"Ontology file not found: {ontology_path}")
             else:
@@ -397,30 +420,45 @@ class OntologyGuidedKGCreator(
             # No ontology - use empty lists (will fall back to pattern matching)
 
         # Pre-compute ontology class label embeddings for semantic classification
-        self._ontology_class_embeddings: List[Tuple[str, Any]] = []  # [(class_id, embedding), ...]
-        self._ontology_relationship_embeddings: List[Tuple[str, str, Any]] = []  # [(id, label, embedding), ...]
+        self._ontology_class_embeddings: List[
+            Tuple[str, Any]
+        ] = []  # [(class_id, embedding), ...]
+        self._ontology_relationship_embeddings: List[
+            Tuple[str, str, Any]
+        ] = []  # [(id, label, embedding), ...]
         if self.ontology_classes and self.embedding_function:
             try:
-                labels = [cls['label'] for cls in self.ontology_classes]
+                labels = [cls["label"] for cls in self.ontology_classes]
                 embeddings = self.embedding_function.embed_documents(labels)
                 self._ontology_class_embeddings = [
-                    (cls['id'], emb)
+                    (cls["id"], emb)
                     for cls, emb in zip(self.ontology_classes, embeddings)
                 ]
-                logging.info(f"Pre-computed embeddings for {len(self._ontology_class_embeddings)} ontology classes")
+                logging.info(
+                    f"Pre-computed embeddings for {len(self._ontology_class_embeddings)} ontology classes"
+                )
             except Exception as e:
-                logging.warning(f"Could not pre-compute ontology class embeddings: {e}. Falling back to keyword matching.")
+                logging.warning(
+                    f"Could not pre-compute ontology class embeddings: {e}. Falling back to keyword matching."
+                )
         if self.embedding_function:
             try:
                 if self._ontology_schema and self._ontology_schema.relationship_types:
-                    rel_labels = [rt.label for rt in self._ontology_schema.relationship_types]
+                    rel_labels = [
+                        rt.label for rt in self._ontology_schema.relationship_types
+                    ]
                     embeddings = self.embedding_function.embed_documents(rel_labels)
                     self._ontology_relationship_embeddings = [
                         (rt.id, rt.label, emb)
-                        for rt, emb in zip(self._ontology_schema.relationship_types, embeddings)
+                        for rt, emb in zip(
+                            self._ontology_schema.relationship_types, embeddings
+                        )
                     ]
                 elif self.ontology_relationships:
-                    rel_labels = [rel.get("label", rel.get("id", "")) for rel in self.ontology_relationships]
+                    rel_labels = [
+                        rel.get("label", rel.get("id", ""))
+                        for rel in self.ontology_relationships
+                    ]
                     embeddings = self.embedding_function.embed_documents(rel_labels)
                     self._ontology_relationship_embeddings = [
                         (rel.get("id", ""), rel.get("label", rel.get("id", "")), emb)
@@ -441,16 +479,16 @@ class OntologyGuidedKGCreator(
     def _boundary_pattern(name: str, *, ignore_case: bool = False) -> re.Pattern:
         """Boundary-aware regex for entity/relation span restoration."""
         flags = re.IGNORECASE if ignore_case else 0
-        prefix = r'(?<!\w)' if not name[:1].isalnum() and name[:1] != '_' else r'\b'
-        suffix = r'(?!\w)' if not name[-1:].isalnum() and name[-1:] != '_' else r'\b'
+        prefix = r"(?<!\w)" if not name[:1].isalnum() and name[:1] != "_" else r"\b"
+        suffix = r"(?!\w)" if not name[-1:].isalnum() and name[-1:] != "_" else r"\b"
         return re.compile(prefix + re.escape(name) + suffix, flags)
 
     @staticmethod
     def _surface_forms(name: str) -> set:
         """Return underscore/space variants for exact-text restoration."""
         forms = {name}
-        forms.add(name.replace('_', ' '))
-        forms.add(name.replace(' ', '_'))
+        forms.add(name.replace("_", " "))
+        forms.add(name.replace(" ", "_"))
         return {f for f in forms if isinstance(f, str) and f.strip()}
 
     def _find_exact_text_spans(
@@ -487,7 +525,7 @@ class OntologyGuidedKGCreator(
                     candidate_matches += 1
                     spans.append(
                         {
-                            "text": text[match.start():match.end()],
+                            "text": text[match.start() : match.end()],
                             "start": start_offset + match.start(),
                             "end": start_offset + match.end(),
                             "chunk_position": chunk_position,
@@ -513,7 +551,9 @@ class OntologyGuidedKGCreator(
             # Normalise to title case; collapse "materials and methods" variants
             if re.match(r"materials?\s+and\s+methods?", raw, re.I):
                 normalised = "Methods"
-            elif re.match(r"experimental\s+(?:procedures?|design)|study\s+design", raw, re.I):
+            elif re.match(
+                r"experimental\s+(?:procedures?|design)|study\s+design", raw, re.I
+            ):
                 normalised = "Methods"
             elif re.match(r"results?\s+and\s+discussion", raw, re.I):
                 normalised = "Results"
@@ -541,9 +581,8 @@ class OntologyGuidedKGCreator(
     @staticmethod
     def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
         """Return cosine similarity for two dense vectors."""
-        denom = (
-            (sum(a * a for a in vec_a) ** 0.5 + 1e-9)
-            * (sum(b * b for b in vec_b) ** 0.5 + 1e-9)
+        denom = (sum(a * a for a in vec_a) ** 0.5 + 1e-9) * (
+            sum(b * b for b in vec_b) ** 0.5 + 1e-9
         )
         return float(sum(a * b for a, b in zip(vec_a, vec_b)) / denom)
 
@@ -571,7 +610,13 @@ class OntologyGuidedKGCreator(
             "animal": {"animal", "animals", "mouse", "mice", "rat", "rats"},
             "model": {"model", "system", "context", "protocol", "setup"},
             "person": {"person", "people", "actor", "director", "scientist"},
-            "organization": {"organization", "company", "museum", "institute", "university"},
+            "organization": {
+                "organization",
+                "company",
+                "museum",
+                "institute",
+                "university",
+            },
             "location": {"city", "country", "state", "province", "location"},
             "work": {"film", "movie", "book", "song", "album", "series"},
         }
@@ -600,7 +645,9 @@ class OntologyGuidedKGCreator(
                     continue
                 if entity_type in preferred_types:
                     return entity_name
-                entity_desc = str((entity.get("properties") or {}).get("description") or "").lower()
+                entity_desc = str(
+                    (entity.get("properties") or {}).get("description") or ""
+                ).lower()
                 if any(alias in entity_desc for alias in category_aliases):
                     return entity_name
             for entity in reversed(previous_entities):
@@ -611,18 +658,84 @@ class OntologyGuidedKGCreator(
 
         resolved = chunk_text
         replacement_patterns = [
-            ("disease", re.compile(r"\b(?:this|the)\s+(?:disease|condition|disorder|syndrome)\b", re.IGNORECASE)),
-            ("treatment", re.compile(r"\b(?:this|the)\s+(?:treatment|therapy|drug|medication|procedure)\b", re.IGNORECASE)),
-            ("gene", re.compile(r"\b(?:this|the)\s+(?:gene|mutation|variant|allele)\b", re.IGNORECASE)),
-            ("protein", re.compile(r"\b(?:this|the)\s+(?:protein|enzyme|receptor|biomarker)\b", re.IGNORECASE)),
-            ("patient", re.compile(r"\b(?:these|the)\s+(?:patients|subjects|cases|participants)\b", re.IGNORECASE)),
-            ("cell", re.compile(r"\b(?:these|the)\s+(?:cells|cell lines)\b", re.IGNORECASE)),
-            ("animal", re.compile(r"\b(?:these|the)\s+(?:animals|mice|rats)\b", re.IGNORECASE)),
-            ("model", re.compile(r"\b(?:this|the)\s+(?:model|system|protocol|setup|context)\b", re.IGNORECASE)),
-            ("person", re.compile(r"\b(?:this|the)\s+(?:person|actor|director|scientist)\b", re.IGNORECASE)),
-            ("organization", re.compile(r"\b(?:this|the)\s+(?:organization|company|museum|institute|university)\b", re.IGNORECASE)),
-            ("location", re.compile(r"\b(?:this|the)\s+(?:city|country|state|province|location)\b", re.IGNORECASE)),
-            ("work", re.compile(r"\b(?:this|the)\s+(?:film|movie|book|song|album|series)\b", re.IGNORECASE)),
+            (
+                "disease",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:disease|condition|disorder|syndrome)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "treatment",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:treatment|therapy|drug|medication|procedure)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "gene",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:gene|mutation|variant|allele)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "protein",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:protein|enzyme|receptor|biomarker)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "patient",
+                re.compile(
+                    r"\b(?:these|the)\s+(?:patients|subjects|cases|participants)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "cell",
+                re.compile(r"\b(?:these|the)\s+(?:cells|cell lines)\b", re.IGNORECASE),
+            ),
+            (
+                "animal",
+                re.compile(r"\b(?:these|the)\s+(?:animals|mice|rats)\b", re.IGNORECASE),
+            ),
+            (
+                "model",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:model|system|protocol|setup|context)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "person",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:person|actor|director|scientist)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "organization",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:organization|company|museum|institute|university)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "location",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:city|country|state|province|location)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "work",
+                re.compile(
+                    r"\b(?:this|the)\s+(?:film|movie|book|song|album|series)\b",
+                    re.IGNORECASE,
+                ),
+            ),
         ]
 
         for category, pattern in replacement_patterns:
@@ -656,16 +769,20 @@ class OntologyGuidedKGCreator(
             if not segment_text.strip():
                 continue
             section_name = self._get_section_for_position(start, headers)
-            segments.append({
-                "index": idx,
-                "name": section_name or "Preamble",
-                "start_pos": start,
-                "end_pos": end,
-                "text": segment_text,
-            })
+            segments.append(
+                {
+                    "index": idx,
+                    "name": section_name or "Preamble",
+                    "start_pos": start,
+                    "end_pos": end,
+                    "text": segment_text,
+                }
+            )
         return segments
 
-    def merge_synonym_entities(self, graph, similarity_threshold: float = 0.82, kg_name: str = None) -> int:
+    def merge_synonym_entities(
+        self, graph, similarity_threshold: float = 0.82, kg_name: str = None
+    ) -> int:
         """
         HippoRAG-style synonym merging: cluster entity nodes that share nearly-identical
         embeddings (surface-form variants like "TBK1" / "TBK1 kinase" / "TBK1 protein")
@@ -694,20 +811,22 @@ class OntologyGuidedKGCreator(
                 logging.info("No entity embeddings found; skipping synonym merging.")
                 return 0
 
-            rows = [r for r in rows if r.get('emb') is not None]
+            rows = [r for r in rows if r.get("emb") is not None]
             if not rows:
-                logging.info("No entity embeddings found after filtering; skipping synonym merging.")
+                logging.info(
+                    "No entity embeddings found after filtering; skipping synonym merging."
+                )
                 return 0
-            eids = [r['eid'] for r in rows]
-            names = [r['name'] for r in rows]
-            degrees = [r['degree'] for r in rows]
-            etypes = [r.get('etype', '') or '' for r in rows]
-            embeddings = np.array([r['emb'] for r in rows], dtype=float)
+            eids = [r["eid"] for r in rows]
+            names = [r["name"] for r in rows]
+            degrees = [r["degree"] for r in rows]
+            etypes = [r.get("etype", "") or "" for r in rows]
+            embeddings = np.array([r["emb"] for r in rows], dtype=float)
 
             # Generic types that should not block merging (the LLM falls back to these
             # when it cannot classify an entity, so two nodes might genuinely represent
             # the same concept even though one was labelled "Entity" and the other "Concept").
-            _generic_types = {'entity', 'concept', 'unknown', 'other', ''}
+            _generic_types = {"entity", "concept", "unknown", "other", ""}
 
             # Normalise for cosine similarity
             norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
@@ -738,7 +857,11 @@ class OntologyGuidedKGCreator(
                 for j in range(i + 1, n):
                     if sim_matrix[i, j] >= similarity_threshold:
                         ti, tj = etypes[i].lower(), etypes[j].lower()
-                        if ti not in _generic_types and tj not in _generic_types and ti != tj:
+                        if (
+                            ti not in _generic_types
+                            and tj not in _generic_types
+                            and ti != tj
+                        ):
                             continue
                         if not self._names_pass_synonym_guard(names[i], names[j]):
                             continue
@@ -746,6 +869,7 @@ class OntologyGuidedKGCreator(
 
             # Group indices by cluster root
             from collections import defaultdict as _dd
+
             clusters: dict = _dd(list)
             for i in range(n):
                 clusters[_find(i)].append(i)
@@ -761,7 +885,10 @@ class OntologyGuidedKGCreator(
                 merge_tasks.append((canonical_idx, dups))
 
             if not merge_tasks:
-                logging.info("No synonym clusters found above threshold %.2f", similarity_threshold)
+                logging.info(
+                    "No synonym clusters found above threshold %.2f",
+                    similarity_threshold,
+                )
                 return 0
 
             merged = 0
@@ -790,13 +917,21 @@ class OntologyGuidedKGCreator(
                                 "can_eid": eids[canonical_idx],
                             },
                         )
-                        logging.info("Merged synonym '%s' → '%s'", duplicate_name, canonical_name)
+                        logging.info(
+                            "Merged synonym '%s' → '%s'", duplicate_name, canonical_name
+                        )
                         merged += 1
                     except Exception as merge_err:
-                        logging.warning("Failed to merge '%s' → '%s': %s",
-                                        duplicate_name, canonical_name, merge_err)
+                        logging.warning(
+                            "Failed to merge '%s' → '%s': %s",
+                            duplicate_name,
+                            canonical_name,
+                            merge_err,
+                        )
 
-            logging.info(f"Synonym merging complete: {merged}/{len(merge_tasks)} pairs merged")
+            logging.info(
+                f"Synonym merging complete: {merged}/{len(merge_tasks)} pairs merged"
+            )
             return merged
 
         except Exception as e:
@@ -810,13 +945,20 @@ class OntologyGuidedKGCreator(
     ) -> Optional[Tuple[str, float]]:
         """Return the best semantic relationship-type match if embeddings exist."""
         embeddings = getattr(self, "_ontology_relationship_embeddings", []) or []
-        if not embeddings or not self.embedding_function or not raw_type or not candidate_ids:
+        if (
+            not embeddings
+            or not self.embedding_function
+            or not raw_type
+            or not candidate_ids
+        ):
             return None
 
         try:
             raw_embedding = self.embedding_function.embed_query(raw_type)
         except Exception as exc:
-            logging.debug("Relationship embedding lookup failed for '%s': %s", raw_type, exc)
+            logging.debug(
+                "Relationship embedding lookup failed for '%s': %s", raw_type, exc
+            )
             return None
 
         candidate_id_set = set(candidate_ids)
@@ -830,7 +972,9 @@ class OntologyGuidedKGCreator(
                 best_id = rel_id
                 best_score = score
 
-        if best_id and best_score >= getattr(self, "relationship_type_similarity_threshold", 0.62):
+        if best_id and best_score >= getattr(
+            self, "relationship_type_similarity_threshold", 0.62
+        ):
             return best_id, best_score
         return None
 
@@ -843,8 +987,8 @@ class OntologyGuidedKGCreator(
         _harmonize_entities) the representative carries a single resolved type, so
         chunk-level variants still converge to the same UUID.
         """
-        norm_text = self._normalize_entity_text(entity['id'])
-        entity_type = (entity.get('type') or '').strip()
+        norm_text = self._normalize_entity_text(entity["id"])
+        entity_type = (entity.get("type") or "").strip()
         properties = dict(entity.get("properties") or {})
         scope_key = str(
             properties.get("disambiguation_scope")
@@ -967,8 +1111,8 @@ class OntologyGuidedKGCreator(
         variants = {
             base,
             base.lower(),
-            base.replace('_', ' '),
-            base.replace(' ', '_'),
+            base.replace("_", " "),
+            base.replace(" ", "_"),
             self._normalize_entity_text(base),
         }
         return [v for v in variants if isinstance(v, str) and v.strip()]
@@ -1022,8 +1166,16 @@ class OntologyGuidedKGCreator(
                 if len(normalized) < 3 or normalized in seen_variants:
                     continue
                 seen_variants.add(normalized)
-                prefix = r'(?<!\w)' if not normalized[:1].isalnum() and normalized[:1] != '_' else r'\b'
-                suffix = r'(?!\w)' if not normalized[-1:].isalnum() and normalized[-1:] != '_' else r'\b'
+                prefix = (
+                    r"(?<!\w)"
+                    if not normalized[:1].isalnum() and normalized[:1] != "_"
+                    else r"\b"
+                )
+                suffix = (
+                    r"(?!\w)"
+                    if not normalized[-1:].isalnum() and normalized[-1:] != "_"
+                    else r"\b"
+                )
                 pattern = re.compile(prefix + re.escape(normalized) + suffix)
                 if pattern.search(text_lower):
                     return True
@@ -1061,7 +1213,11 @@ class OntologyGuidedKGCreator(
             for candidate in self._entity_candidate_names(entity):
                 candidate_variants.update(self._entity_name_variants(candidate))
 
-            if any(rv.lower() == cv.lower() for rv in raw_variants for cv in candidate_variants):
+            if any(
+                rv.lower() == cv.lower()
+                for rv in raw_variants
+                for cv in candidate_variants
+            ):
                 direct_matches.append(entity_id)
                 continue
 
@@ -1079,9 +1235,11 @@ class OntologyGuidedKGCreator(
                     if min(len(raw_norm), len(candidate_norm)) >= 4:
                         score = 0.94
                 else:
-                    score = difflib.SequenceMatcher(None, raw_norm, candidate_norm).ratio()
-                    raw_tokens = set(raw_norm.split('_'))
-                    candidate_tokens = set(candidate_norm.split('_'))
+                    score = difflib.SequenceMatcher(
+                        None, raw_norm, candidate_norm
+                    ).ratio()
+                    raw_tokens = set(raw_norm.split("_"))
+                    candidate_tokens = set(candidate_norm.split("_"))
                     if raw_tokens and candidate_tokens:
                         overlap = len(raw_tokens & candidate_tokens) / max(
                             1, min(len(raw_tokens), len(candidate_tokens))
@@ -1167,7 +1325,9 @@ class OntologyGuidedKGCreator(
                 )
             self._umls_nlp = nlp
             self._umls_linker_state = "ready"
-            logging.info("UMLS linker enabled using spaCy model '%s'", self.umls_spacy_model)
+            logging.info(
+                "UMLS linker enabled using spaCy model '%s'", self.umls_spacy_model
+            )
             return nlp
         except Exception as exc:
             self._umls_linker_state = "unavailable"
@@ -1277,8 +1437,12 @@ class OntologyGuidedKGCreator(
             properties = dict(representative.get("properties") or {})
             all_names = set(properties.get("all_names") or [representative.get("id")])
             all_descriptions = set(properties.get("all_descriptions") or [])
-            original_ids = set(properties.get("original_ids") or [representative.get("id")])
-            merged_anchor_spans = self._merge_anchor_spans(properties.get("anchor_spans"))
+            original_ids = set(
+                properties.get("original_ids") or [representative.get("id")]
+            )
+            merged_anchor_spans = self._merge_anchor_spans(
+                properties.get("anchor_spans")
+            )
 
             for entity in cui_group:
                 entity_props = dict(entity.get("properties") or {})
@@ -1287,7 +1451,9 @@ class OntologyGuidedKGCreator(
                 description = entity_props.get("description")
                 if description:
                     all_descriptions.add(description)
-                original_ids.update(entity_props.get("original_ids") or [entity.get("id")])
+                original_ids.update(
+                    entity_props.get("original_ids") or [entity.get("id")]
+                )
                 merged_anchor_spans = self._merge_anchor_spans(
                     merged_anchor_spans,
                     entity_props.get("anchor_spans"),
@@ -1298,15 +1464,27 @@ class OntologyGuidedKGCreator(
                     remapped_entities_by_uuid[entity["uuid"]] = representative
 
             properties["all_names"] = sorted(
-                {name for name in all_names if isinstance(name, str) and name and str(name).strip()}
+                {
+                    name
+                    for name in all_names
+                    if isinstance(name, str) and name and str(name).strip()
+                }
             )
             properties["all_descriptions"] = sorted(
-                {desc for desc in all_descriptions if isinstance(desc, str) and desc.strip()},
+                {
+                    desc
+                    for desc in all_descriptions
+                    if isinstance(desc, str) and desc.strip()
+                },
                 key=len,
                 reverse=True,
             )
             properties["original_ids"] = sorted(
-                {value for value in original_ids if isinstance(value, str) and value and str(value).strip()}
+                {
+                    value
+                    for value in original_ids
+                    if isinstance(value, str) and value and str(value).strip()
+                }
             )
             if merged_anchor_spans:
                 properties["anchor_spans"] = merged_anchor_spans
@@ -1322,7 +1500,9 @@ class OntologyGuidedKGCreator(
         merged_entities.extend(ungrouped)
         updated_entity_map: Dict[str, Dict[str, Any]] = {}
         for variant_name, representative in entity_map.items():
-            uuid_value = representative.get("uuid") if isinstance(representative, dict) else None
+            uuid_value = (
+                representative.get("uuid") if isinstance(representative, dict) else None
+            )
             updated_entity_map[variant_name] = remapped_entities_by_uuid.get(
                 uuid_value,
                 representative,
@@ -1344,7 +1524,9 @@ class OntologyGuidedKGCreator(
             keys.add(self._normalize_entity_text(stripped_parenthetical))
 
         tokens = [
-            tok for tok in re.split(r"[_\s]+", self._normalize_entity_text(cleaned)) if tok
+            tok
+            for tok in re.split(r"[_\s]+", self._normalize_entity_text(cleaned))
+            if tok
         ]
         if len(tokens) >= 2:
             keys.add("".join(token[0] for token in tokens if token))
@@ -1447,7 +1629,10 @@ class OntologyGuidedKGCreator(
 
         properties = dict(representative.get("properties") or {})
         merged_anchor_spans = self._merge_anchor_spans(
-            *[(entity.get("properties") or {}).get("anchor_spans") for entity in entities]
+            *[
+                (entity.get("properties") or {}).get("anchor_spans")
+                for entity in entities
+            ]
         )
 
         all_names: set = set()
@@ -1478,7 +1663,9 @@ class OntologyGuidedKGCreator(
             for key in entity_properties.get("source_scope_keys") or []:
                 if isinstance(key, str) and key.strip():
                     source_scope_keys.add(key.strip())
-            source_scope_key = str(entity_properties.get("source_scope_key") or "").strip()
+            source_scope_key = str(
+                entity_properties.get("source_scope_key") or ""
+            ).strip()
             if source_scope_key:
                 source_scope_keys.add(source_scope_key)
             for title in entity_properties.get("source_titles") or []:
@@ -1525,7 +1712,9 @@ class OntologyGuidedKGCreator(
             properties["all_names"] = sorted(all_names)
             properties["original_ids"] = sorted(all_names)
         if all_descriptions:
-            properties["all_descriptions"] = sorted(all_descriptions, key=len, reverse=True)
+            properties["all_descriptions"] = sorted(
+                all_descriptions, key=len, reverse=True
+            )
             properties.setdefault("description", max(all_descriptions, key=len))
         if aliases:
             properties["aliases"] = sorted(aliases)
@@ -1616,11 +1805,13 @@ class OntologyGuidedKGCreator(
         for idx, left_entity in enumerate(entities):
             left_uuid = left_entity["uuid"]
             left_type = str(left_entity.get("type") or "").strip().lower()
-            for right_entity in entities[idx + 1:]:
+            for right_entity in entities[idx + 1 :]:
                 right_uuid = right_entity["uuid"]
                 right_type = str(right_entity.get("type") or "").strip().lower()
 
-                alias_overlap = alias_keys.get(left_uuid, set()) & alias_keys.get(right_uuid, set())
+                alias_overlap = alias_keys.get(left_uuid, set()) & alias_keys.get(
+                    right_uuid, set()
+                )
                 lexical_guard = bool(alias_overlap)
                 if not lexical_guard:
                     lexical_guard = any(
@@ -1634,7 +1825,9 @@ class OntologyGuidedKGCreator(
                         embeddings.get(left_uuid),
                         embeddings.get(right_uuid),
                     )
-                    if similarity < getattr(self, "soft_entity_similarity_threshold", 0.88):
+                    if similarity < getattr(
+                        self, "soft_entity_similarity_threshold", 0.88
+                    ):
                         continue
                 elif alias_overlap:
                     similarity = 1.0
@@ -1655,7 +1848,8 @@ class OntologyGuidedKGCreator(
                 if (
                     not alias_overlap
                     and similarity > 0.0
-                    and similarity < getattr(self, "soft_entity_similarity_threshold", 0.88)
+                    and similarity
+                    < getattr(self, "soft_entity_similarity_threshold", 0.88)
                 ):
                     continue
 
@@ -1691,7 +1885,9 @@ class OntologyGuidedKGCreator(
                 updated_entity_map.setdefault(candidate, entity)
                 for variant in self._entity_name_variants(candidate):
                     updated_entity_map.setdefault(variant, entity)
-                for scope_key in (entity.get("properties") or {}).get("source_scope_keys") or []:
+                for scope_key in (entity.get("properties") or {}).get(
+                    "source_scope_keys"
+                ) or []:
                     if isinstance(scope_key, str) and scope_key.strip():
                         updated_entity_map.setdefault((scope_key, candidate), entity)
 
@@ -1702,7 +1898,9 @@ class OntologyGuidedKGCreator(
         )
         return merged_entities, updated_entity_map
 
-    def _harmonize_entities(self, all_entities: List[Dict], return_id_map: bool = False):
+    def _harmonize_entities(
+        self, all_entities: List[Dict], return_id_map: bool = False
+    ):
         """
         Harmonize entities across chunks to avoid duplicates using improved normalization
         """
@@ -1713,7 +1911,11 @@ class OntologyGuidedKGCreator(
         # hub nodes that fan out to hundreds of irrelevant chunks at retrieval
         # time.  The filter is conservative: it only removes names that are
         # explicitly blocklisted or shorter than the minimum length threshold.
-        filtered_entities = [e for e in all_entities if _is_valid_entity_name(e.get('id', '') or e.get('name', ''))]
+        filtered_entities = [
+            e
+            for e in all_entities
+            if _is_valid_entity_name(e.get("id", "") or e.get("name", ""))
+        ]
         if len(filtered_entities) < len(all_entities):
             logging.info(
                 "Hub-entity filter removed %d/%d entities (generic names or too short)",
@@ -1736,11 +1938,11 @@ class OntologyGuidedKGCreator(
         #   per-specific-type buckets; generic-typed occurrences (Concept/Entity/Unknown/Other)
         #   are assigned to the dominant (largest) specific-type bucket so that LLM drift
         #   toward generic labels still merges into the right node rather than floating free.
-        _generic_types = {'Concept', 'Entity', 'Unknown', 'Other'}
+        _generic_types = {"Concept", "Entity", "Unknown", "Other"}
 
         text_groups: Dict[str, list] = defaultdict(list)
         for entity in all_entities:
-            normalized_text = self._normalize_entity_text(entity['id'])
+            normalized_text = self._normalize_entity_text(entity["id"])
             text_groups[normalized_text].append(entity)
 
         # Refine:
@@ -1754,7 +1956,9 @@ class OntologyGuidedKGCreator(
         dominant_for_surface: Dict[str, str] = {}  # norm_text → dominant specific type
 
         for norm_text, entities in text_groups.items():
-            pending_groups: List[Tuple[Any, List[Dict[str, Any]]]] = [(norm_text, list(entities))]
+            pending_groups: List[Tuple[Any, List[Dict[str, Any]]]] = [
+                (norm_text, list(entities))
+            ]
             title_matched_by_scope: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
             residual_entities: List[Dict[str, Any]] = []
 
@@ -1774,7 +1978,9 @@ class OntologyGuidedKGCreator(
             if len(title_matched_by_scope) > 1:
                 pending_groups = [
                     ((norm_text, "__title_scope__", scope_key), scoped_entities)
-                    for scope_key, scoped_entities in sorted(title_matched_by_scope.items())
+                    for scope_key, scoped_entities in sorted(
+                        title_matched_by_scope.items()
+                    )
                 ]
                 if residual_entities:
                     pending_groups.append((norm_text, residual_entities))
@@ -1786,9 +1992,9 @@ class OntologyGuidedKGCreator(
 
             for group_key, group_entities in pending_groups:
                 specific_types = {
-                    e.get('type')
+                    e.get("type")
                     for e in group_entities
-                    if e.get('type') not in _generic_types
+                    if e.get("type") not in _generic_types
                 }
                 if len(specific_types) <= 1:
                     entity_groups[group_key].extend(group_entities)
@@ -1798,10 +2004,10 @@ class OntologyGuidedKGCreator(
                 type_buckets: Dict[str, list] = defaultdict(list)
                 generics = []
                 for e in group_entities:
-                    if e.get('type') in _generic_types:
+                    if e.get("type") in _generic_types:
                         generics.append(e)
                     else:
-                        type_buckets[e['type']].append(e)
+                        type_buckets[e["type"]].append(e)
                 dominant = max(type_buckets, key=lambda t: len(type_buckets[t]))
                 if generics:
                     type_buckets[dominant].extend(generics)
@@ -1810,8 +2016,11 @@ class OntologyGuidedKGCreator(
                     "Surface form '%s' has %d distinct specific types %s; "
                     "relationships will resolve to dominant type '%s' (%d occurrences). "
                     "Add source/target type fields to relationship dicts for per-type resolution.",
-                    norm_text, len(type_buckets), sorted(type_buckets),
-                    dominant, len(type_buckets[dominant]),
+                    norm_text,
+                    len(type_buckets),
+                    sorted(type_buckets),
+                    dominant,
+                    len(type_buckets[dominant]),
                 )
                 for stype, bucket in type_buckets.items():
                     entity_groups[(group_key, stype)].extend(bucket)
@@ -1820,9 +2029,11 @@ class OntologyGuidedKGCreator(
         type_distribution = Counter()
         for entities in entity_groups.values():
             for entity in entities:
-                type_distribution[entity['type']] += 1
+                type_distribution[entity["type"]] += 1
 
-        logging.info(f"Entity type distribution before harmonization: {dict(type_distribution)}")
+        logging.info(
+            f"Entity type distribution before harmonization: {dict(type_distribution)}"
+        )
 
         # Step 3: Create harmonized entities
         harmonized_entities = []
@@ -1861,16 +2072,17 @@ class OntologyGuidedKGCreator(
             # (_generic_types defined at Step 1 above)
 
             def _type_specificity(e):
-                return 0 if e.get('type', 'Concept') in _generic_types else 1
+                return 0 if e.get("type", "Concept") in _generic_types else 1
 
             def _desc_len(e):
-                return len(e.get('properties', {}).get('description') or '')
+                return len(e.get("properties", {}).get("description") or "")
 
             def _name_len(e):
-                return len(e.get('id') or '')
+                return len(e.get("id") or "")
 
             representative_entity = max(
-                entities, key=lambda e: (_type_specificity(e), _desc_len(e), _name_len(e))
+                entities,
+                key=lambda e: (_type_specificity(e), _desc_len(e), _name_len(e)),
             ).copy()
 
             # Merge information from all occurrences
@@ -1884,8 +2096,8 @@ class OntologyGuidedKGCreator(
 
             for entity in entities:
                 # Rule 3: accumulate all surface forms as synonyms
-                all_names.add(entity['id'])
-                desc = entity.get('properties', {}).get('description')
+                all_names.add(entity["id"])
+                desc = entity.get("properties", {}).get("description")
                 if desc:
                     all_descriptions.add(desc if isinstance(desc, str) else str(desc))
                 all_anchor_spans = self._merge_anchor_spans(
@@ -1907,43 +2119,65 @@ class OntologyGuidedKGCreator(
                     all_passage_indexes.add(int(passage_index))
 
                 # Keep the best embedding (prefer any available embedding)
-                if not representative_entity.get('embedding') and entity.get('embedding'):
-                    representative_entity['embedding'] = entity['embedding']
+                if not representative_entity.get("embedding") and entity.get(
+                    "embedding"
+                ):
+                    representative_entity["embedding"] = entity["embedding"]
 
             # Merge all non-description properties from variants into representative
             for entity in entities:
-                if entity.get('properties'):
-                    for k, v in entity['properties'].items():
-                        if k not in ('description',):  # description already resolved above
-                            representative_entity.setdefault('properties', {}).setdefault(k, v)
+                if entity.get("properties"):
+                    for k, v in entity["properties"].items():
+                        if k not in (
+                            "description",
+                        ):  # description already resolved above
+                            representative_entity.setdefault(
+                                "properties", {}
+                            ).setdefault(k, v)
 
             # Update representative entity with merged information
-            representative_entity.setdefault('properties', {})
-            representative_entity['properties'].setdefault('original_ids', [representative_entity['id']])
+            representative_entity.setdefault("properties", {})
+            representative_entity["properties"].setdefault(
+                "original_ids", [representative_entity["id"]]
+            )
             if all_anchor_spans:
                 representative_entity["properties"]["anchor_spans"] = all_anchor_spans
-                representative_entity["properties"]["anchor_mention_count"] = len(all_anchor_spans)
+                representative_entity["properties"]["anchor_mention_count"] = len(
+                    all_anchor_spans
+                )
             if all_source_scope_keys:
-                representative_entity["properties"]["source_scope_keys"] = sorted(all_source_scope_keys)
+                representative_entity["properties"]["source_scope_keys"] = sorted(
+                    all_source_scope_keys
+                )
             if all_source_titles:
-                representative_entity["properties"]["source_titles"] = sorted(all_source_titles)
+                representative_entity["properties"]["source_titles"] = sorted(
+                    all_source_titles
+                )
             if all_question_ids:
-                representative_entity["properties"]["question_ids"] = sorted(all_question_ids)
+                representative_entity["properties"]["question_ids"] = sorted(
+                    all_question_ids
+                )
             if all_passage_indexes:
-                representative_entity["properties"]["passage_indexes"] = sorted(all_passage_indexes)
+                representative_entity["properties"]["passage_indexes"] = sorted(
+                    all_passage_indexes
+                )
             if title_scope_key:
                 representative_entity["properties"]["title_entity_scoped"] = True
                 representative_entity["properties"]["title_scope_key"] = title_scope_key
-                representative_entity["properties"]["disambiguation_scope"] = title_scope_key
+                representative_entity["properties"]["disambiguation_scope"] = (
+                    title_scope_key
+                )
             if len(all_names) > 1 or len(all_descriptions) > 1:
-                representative_entity['properties']['all_names'] = sorted(all_names)
-                representative_entity['properties']['all_descriptions'] = sorted(all_descriptions, key=len, reverse=True)
-                representative_entity['properties']['original_ids'] = sorted(all_names)
+                representative_entity["properties"]["all_names"] = sorted(all_names)
+                representative_entity["properties"]["all_descriptions"] = sorted(
+                    all_descriptions, key=len, reverse=True
+                )
+                representative_entity["properties"]["original_ids"] = sorted(all_names)
                 total_duplicates_removed += len(entities) - 1
 
             # Generate deterministic UUID
             entity_uuid = self._generate_entity_id(representative_entity)
-            representative_entity['uuid'] = entity_uuid
+            representative_entity["uuid"] = entity_uuid
 
             harmonized_entities.append(representative_entity)
 
@@ -1953,23 +2187,30 @@ class OntologyGuidedKGCreator(
             # regardless of which order entity_groups iterates the split buckets.
             # The dominant type was pre-computed in the split phase above.
             for entity in entities:
-                norm = self._normalize_entity_text(entity['id'])
+                norm = self._normalize_entity_text(entity["id"])
                 is_dominant = (
-                    dominant_for_surface.get(str(dominant_lookup_key)) == representative_entity.get('type')
+                    dominant_for_surface.get(str(dominant_lookup_key))
+                    == representative_entity.get("type")
                     if str(dominant_lookup_key) in dominant_for_surface
                     else True  # not a split surface form — always write
                 )
-                if is_dominant or entity['id'] not in entity_map:
-                    entity_map[entity['id']] = representative_entity
-                scope_key = str((entity.get("properties") or {}).get("source_scope_key") or "").strip()
+                if is_dominant or entity["id"] not in entity_map:
+                    entity_map[entity["id"]] = representative_entity
+                scope_key = str(
+                    (entity.get("properties") or {}).get("source_scope_key") or ""
+                ).strip()
                 if scope_key:
-                    entity_map[(scope_key, entity['id'])] = representative_entity
+                    entity_map[(scope_key, entity["id"])] = representative_entity
 
-        logging.info(f"Harmonization complete: {len(harmonized_entities)} entities (removed {total_duplicates_removed} duplicates)")
+        logging.info(
+            f"Harmonization complete: {len(harmonized_entities)} entities (removed {total_duplicates_removed} duplicates)"
+        )
 
         # Log final distribution
-        final_type_distribution = Counter(e['type'] for e in harmonized_entities)
-        logging.info(f"Entity type distribution after harmonization: {dict(final_type_distribution)}")
+        final_type_distribution = Counter(e["type"] for e in harmonized_entities)
+        logging.info(
+            f"Entity type distribution after harmonization: {dict(final_type_distribution)}"
+        )
 
         harmonized_entities, entity_map = self._apply_soft_entity_linking(
             harmonized_entities,
@@ -1981,10 +2222,15 @@ class OntologyGuidedKGCreator(
         )
 
         if return_id_map:
-            return harmonized_entities, entity_map  # entity_map: original_id → representative
+            return (
+                harmonized_entities,
+                entity_map,
+            )  # entity_map: original_id → representative
         return harmonized_entities
 
-    def _harmonize_relationships(self, all_relationships: List[Dict], entity_map: Dict) -> List[Dict]:
+    def _harmonize_relationships(
+        self, all_relationships: List[Dict], entity_map: Dict
+    ) -> List[Dict]:
         """
         Harmonize relationships across chunks and map to UUID-based entity IDs.
 
@@ -2006,12 +2252,14 @@ class OntologyGuidedKGCreator(
         candidate_names_by_uuid: Dict[str, set] = defaultdict(set)
         entity_type_by_uuid: Dict[str, str] = {}
         for variant_name, representative in entity_map.items():
-            if 'uuid' not in representative:
-                logging.warning(f"Entity '{representative.get('id', '?')}' missing uuid in entity_map — skipping in relationship mapping")
+            if "uuid" not in representative:
+                logging.warning(
+                    f"Entity '{representative.get('id', '?')}' missing uuid in entity_map — skipping in relationship mapping"
+                )
                 continue
-            uuid_value = representative['uuid']
-            if representative.get('type'):
-                entity_type_by_uuid.setdefault(uuid_value, representative.get('type'))
+            uuid_value = representative["uuid"]
+            if representative.get("type"):
+                entity_type_by_uuid.setdefault(uuid_value, representative.get("type"))
             if (
                 isinstance(variant_name, tuple)
                 and len(variant_name) == 2
@@ -2020,10 +2268,16 @@ class OntologyGuidedKGCreator(
                 scope_key, scoped_name = variant_name
                 for candidate in self._entity_name_variants(scoped_name):
                     scoped_to_uuid.setdefault((scope_key, candidate), uuid_value)
-                    scoped_to_uuid.setdefault((scope_key, candidate.lower()), uuid_value)
+                    scoped_to_uuid.setdefault(
+                        (scope_key, candidate.lower()), uuid_value
+                    )
                     candidate_names_by_uuid[uuid_value].add(candidate)
                 continue
-            for candidate in self._entity_name_variants(variant_name) if isinstance(variant_name, str) else []:
+            for candidate in (
+                self._entity_name_variants(variant_name)
+                if isinstance(variant_name, str)
+                else []
+            ):
                 original_to_uuid.setdefault(candidate, uuid_value)
                 original_to_uuid.setdefault(candidate.lower(), uuid_value)
                 candidate_names_by_uuid[uuid_value].add(candidate)
@@ -2039,19 +2293,18 @@ class OntologyGuidedKGCreator(
                 return None
             if preferred_scope:
                 for candidate in self._entity_name_variants(name):
-                    scoped = (
-                        scoped_to_uuid.get((preferred_scope, candidate))
-                        or scoped_to_uuid.get((preferred_scope, candidate.lower()))
-                    )
+                    scoped = scoped_to_uuid.get(
+                        (preferred_scope, candidate)
+                    ) or scoped_to_uuid.get((preferred_scope, candidate.lower()))
                     if scoped:
                         return scoped
             exact = (
                 original_to_uuid.get(name)
                 or original_to_uuid.get(name.lower())
-                or original_to_uuid.get(name.replace('_', ' '))
-                or original_to_uuid.get(name.replace('_', ' ').lower())
-                or original_to_uuid.get(name.replace(' ', '_'))
-                or original_to_uuid.get(name.replace(' ', '_').lower())
+                or original_to_uuid.get(name.replace("_", " "))
+                or original_to_uuid.get(name.replace("_", " ").lower())
+                or original_to_uuid.get(name.replace(" ", "_"))
+                or original_to_uuid.get(name.replace(" ", "_").lower())
                 or original_to_uuid.get(self._normalize_entity_text(name))
             )
             if exact:
@@ -2095,10 +2348,12 @@ class OntologyGuidedKGCreator(
         dropped_schema_mismatch = 0
         deduped_relationships = 0
         for rel in all_relationships:
-            src = rel.get('source')
-            tgt = rel.get('target')
+            src = rel.get("source")
+            tgt = rel.get("target")
             rel_props = dict(rel.get("properties") or {})
-            preferred_scope = str(rel_props.get("source_scope_key") or "").strip() or None
+            preferred_scope = (
+                str(rel_props.get("source_scope_key") or "").strip() or None
+            )
             source_uuid = _lookup_uuid(src, preferred_scope=preferred_scope)
             target_uuid = _lookup_uuid(tgt, preferred_scope=preferred_scope)
 
@@ -2106,29 +2361,37 @@ class OntologyGuidedKGCreator(
                 dropped_unmapped += 1
                 logging.warning(
                     "Dropping relationship — entity not found in map: '%s' -[%s]-> '%s'",
-                    src, rel.get('type', '?'), tgt,
+                    src,
+                    rel.get("type", "?"),
+                    tgt,
                 )
                 continue
 
             if source_uuid and target_uuid:
                 # Create new relationship with UUID-based IDs
                 uuid_rel = rel.copy()
-                rel_properties = dict(uuid_rel.get('properties') or {})
+                rel_properties = dict(uuid_rel.get("properties") or {})
                 if isinstance(src, str):
                     rel_properties.setdefault("source_name", src)
                 if isinstance(tgt, str):
                     rel_properties.setdefault("target_name", tgt)
-                uuid_rel['properties'] = rel_properties
-                uuid_rel['source'] = source_uuid
-                uuid_rel['target'] = target_uuid
+                uuid_rel["properties"] = rel_properties
+                uuid_rel["source"] = source_uuid
+                uuid_rel["target"] = target_uuid
 
                 # Include negated in the key: A-INHIBITS->B (negated=True) and
                 # A-INHIBITS->B (negated=False) are opposite claims and must not collapse.
-                _neg = bool(uuid_rel.get('negated', False))
-                condition = uuid_rel.get('condition') or rel_properties.get('condition') or ''
-                quantitative = uuid_rel.get('quantitative') or rel_properties.get('quantitative') or ''
+                _neg = bool(uuid_rel.get("negated", False))
+                condition = (
+                    uuid_rel.get("condition") or rel_properties.get("condition") or ""
+                )
+                quantitative = (
+                    uuid_rel.get("quantitative")
+                    or rel_properties.get("quantitative")
+                    or ""
+                )
                 rel_type_key = self._canonicalize_relationship_type(
-                    uuid_rel.get('type', ''),
+                    uuid_rel.get("type", ""),
                     source_type=entity_type_by_uuid.get(source_uuid),
                     target_type=entity_type_by_uuid.get(target_uuid),
                 )
@@ -2137,11 +2400,11 @@ class OntologyGuidedKGCreator(
                     logging.info(
                         "Dropping relationship with no schema-compatible type: '%s' -[%s]-> '%s'",
                         src,
-                        rel.get('type', '?'),
+                        rel.get("type", "?"),
                         tgt,
                     )
                     continue
-                uuid_rel['type'] = rel_type_key
+                uuid_rel["type"] = rel_type_key
                 rel_key = (
                     f"{source_uuid}:{rel_type_key}:{target_uuid}:{_neg}:"
                     f"{str(condition).strip().lower()}:{str(quantitative).strip().lower()}"
@@ -2166,8 +2429,12 @@ class OntologyGuidedKGCreator(
                         )
                         existing_props["restoration_status"] = restoration["status"]
                         existing_props["restoration_verified"] = restoration["verified"]
-                        existing_props["restoration_grounded_components"] = restoration["grounded_components"]
-                        existing_props["restoration_grounded_count"] = restoration["grounded_count"]
+                        existing_props["restoration_grounded_components"] = restoration[
+                            "grounded_components"
+                        ]
+                        existing_props["restoration_grounded_count"] = restoration[
+                            "grounded_count"
+                        ]
                     for key, value in new_props.items():
                         existing_props.setdefault(key, value)
                     existing_rel["properties"] = existing_props
@@ -2207,7 +2474,9 @@ class OntologyGuidedKGCreator(
         harmonized_relationships: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """Flag relation pairs that appear with both positive and negated polarity."""
-        grouped: Dict[Tuple[str, str, str, str, str], List[Dict[str, Any]]] = defaultdict(list)
+        grouped: Dict[Tuple[str, str, str, str, str], List[Dict[str, Any]]] = (
+            defaultdict(list)
+        )
         for rel in harmonized_relationships:
             properties = dict(rel.get("properties") or {})
             condition = rel.get("condition")
@@ -2249,7 +2518,9 @@ class OntologyGuidedKGCreator(
         """Return connected components over the entity-relation graph."""
         nodes = list(kg.get("nodes") or [])
         relationships = list(kg.get("relationships") or [])
-        node_lookup = {str(node.get("id") or ""): node for node in nodes if node.get("id")}
+        node_lookup = {
+            str(node.get("id") or ""): node for node in nodes if node.get("id")
+        }
         entity_ids = [entity_id for entity_id in node_lookup.keys() if entity_id]
         adjacency: Dict[str, set] = {entity_id: set() for entity_id in entity_ids}
 
@@ -2277,9 +2548,12 @@ class OntologyGuidedKGCreator(
 
             component_set = set(component_ids)
             component_relationships = [
-                rel for rel in relationships
-                if str(rel.get("source") or rel.get("from") or "").strip() in component_set
-                and str(rel.get("target") or rel.get("to") or "").strip() in component_set
+                rel
+                for rel in relationships
+                if str(rel.get("source") or rel.get("from") or "").strip()
+                in component_set
+                and str(rel.get("target") or rel.get("to") or "").strip()
+                in component_set
             ]
             degree = Counter()
             for rel in component_relationships:
@@ -2294,13 +2568,20 @@ class OntologyGuidedKGCreator(
                 component_ids,
                 key=lambda entity_uuid: (
                     -degree.get(entity_uuid, 0),
-                    str((node_lookup.get(entity_uuid, {}).get("properties") or {}).get("name") or entity_uuid),
+                    str(
+                        (node_lookup.get(entity_uuid, {}).get("properties") or {}).get(
+                            "name"
+                        )
+                        or entity_uuid
+                    ),
                 ),
             )[: max(1, getattr(self, "max_summary_entities", 6))]
             top_relationships = sorted(
                 component_relationships,
                 key=lambda rel: (
-                    -self._confidence_score((rel.get("properties") or {}).get("confidence")),
+                    -self._confidence_score(
+                        (rel.get("properties") or {}).get("confidence")
+                    ),
                     str(rel.get("type") or ""),
                 ),
             )[: max(1, getattr(self, "max_summary_relationships", 6))]
@@ -2341,9 +2622,13 @@ class OntologyGuidedKGCreator(
         for component_index, component in enumerate(components):
             if include_component_summaries:
                 summary_id = hashlib.sha1(
-                    f"{kg.get('metadata', {}).get('kg_name', '')}:component:{component_index}".encode("utf-8")
+                    f"{kg.get('metadata', {}).get('kg_name', '')}:component:{component_index}".encode(
+                        "utf-8"
+                    )
                 ).hexdigest()
-                summary_text = self._heuristic_component_summary_text(component, node_lookup)
+                summary_text = self._heuristic_component_summary_text(
+                    component, node_lookup
+                )
                 component_record = {
                     "id": summary_id,
                     "component_index": component_index,
@@ -2370,7 +2655,9 @@ class OntologyGuidedKGCreator(
             ]
             graph_summary = {
                 "id": hashlib.sha1(
-                    f"{kg.get('metadata', {}).get('kg_name', '')}:graph_summary".encode("utf-8")
+                    f"{kg.get('metadata', {}).get('kg_name', '')}:graph_summary".encode(
+                        "utf-8"
+                    )
                 ).hexdigest(),
                 "text": (
                     f"Graph contains {len(component_summaries)} connected components. "
@@ -2397,9 +2684,7 @@ class OntologyGuidedKGCreator(
         """Attach local chunk provenance so triple verification can stay passage-local."""
         annotated: List[Dict] = []
         normalized_positions = [
-            int(pos)
-            for pos in chunk_positions
-            if isinstance(pos, (int, float))
+            int(pos) for pos in chunk_positions if isinstance(pos, (int, float))
         ]
         for rel in relationships or []:
             if not isinstance(rel, dict):
@@ -2407,9 +2692,7 @@ class OntologyGuidedKGCreator(
             rel_copy = dict(rel)
             existing_positions = rel_copy.get("provenance_positions") or []
             merged_positions = {
-                int(pos)
-                for pos in existing_positions
-                if isinstance(pos, (int, float))
+                int(pos) for pos in existing_positions if isinstance(pos, (int, float))
             }
             merged_positions.update(normalized_positions)
             rel_copy["provenance_positions"] = sorted(merged_positions)
@@ -2449,7 +2732,9 @@ class OntologyGuidedKGCreator(
             qid = chunk.get("question_id")
             if qid is not None and str(qid).strip():
                 question_ids.add(str(qid))
-            passage_key = f"{chunk.get('question_id', '')}::p{chunk.get('passage_index', -1)}"
+            passage_key = (
+                f"{chunk.get('question_id', '')}::p{chunk.get('passage_index', -1)}"
+            )
             passage_keys.add(passage_key)
 
         return {
@@ -2475,7 +2760,17 @@ class OntologyGuidedKGCreator(
             {"kg_name": kg_name},
         )
 
-    def generate_knowledge_graph(self, text: str, llm, file_name: str = None, model_name: str = "openai/gpt-oss-120b:free", max_chunks: int = None, kg_name: str = None, doc_metadata: dict = None, doc_hash: str = None) -> Dict[str, Any]:
+    def generate_knowledge_graph(
+        self,
+        text: str,
+        llm,
+        file_name: str = None,
+        model_name: str = "openai/gpt-oss-120b:free",
+        max_chunks: int = None,
+        kg_name: str = None,
+        doc_metadata: dict = None,
+        doc_hash: str = None,
+    ) -> Dict[str, Any]:
         """
         Generate knowledge graph from text with ontology-guided entity extraction
 
@@ -2497,8 +2792,11 @@ class OntologyGuidedKGCreator(
         # Each chunk is tagged with its section (e.g. "Methods", "Results") so
         # the extraction LLM can interpret claims in the correct context.
         section_headers = self._detect_section_headers(text)
-        logging.info("Detected %d section headers: %s", len(section_headers),
-                     [name for _, name in section_headers])
+        logging.info(
+            "Detected %d section headers: %s",
+            len(section_headers),
+            [name for _, name in section_headers],
+        )
 
         # Step 1: Chunk the text, keeping detected document sections separate when
         # possible so extraction never straddles unrelated headers.
@@ -2510,7 +2808,9 @@ class OntologyGuidedKGCreator(
 
         # Limit chunks if specified (for very large documents)
         if max_chunks and len(chunks) > max_chunks:
-            logging.warning(f"Limiting processing to {max_chunks} chunks out of {len(chunks)} total")
+            logging.warning(
+                f"Limiting processing to {max_chunks} chunks out of {len(chunks)} total"
+            )
             chunks = chunks[:max_chunks]
 
         # Step 2: Extract entities and relationships from each chunk
@@ -2518,11 +2818,13 @@ class OntologyGuidedKGCreator(
         all_relationships = []
         processed_chunks = 0
         failed_chunks = 0
-        entities_per_chunk: Dict[int, List[Dict]] = {}  # chunk index → entities (for cross-chunk pass)
+        entities_per_chunk: Dict[
+            int, List[Dict]
+        ] = {}  # chunk index → entities (for cross-chunk pass)
 
         for i, chunk in enumerate(chunks):
             try:
-                logging.info(f"Processing chunk {i+1}/{len(chunks)}")
+                logging.info(f"Processing chunk {i + 1}/{len(chunks)}")
 
                 # --- Context enrichment ---
                 # 1. Section header for this chunk
@@ -2534,7 +2836,9 @@ class OntologyGuidedKGCreator(
                 # 2. Qualifier sentences from the previous chunk
                 qualifier_ctx = ""
                 if i > 0:
-                    qualifier_ctx = self._extract_qualifier_sentences(chunks[i - 1]["text"])
+                    qualifier_ctx = self._extract_qualifier_sentences(
+                        chunks[i - 1]["text"]
+                    )
 
                 previous_chunk_indexes = list(range(max(0, i - 2), i))
                 previous_entities = [
@@ -2543,8 +2847,7 @@ class OntologyGuidedKGCreator(
                     for entity in entities_per_chunk.get(prev_idx, [])
                 ]
                 previous_texts = [
-                    chunks[prev_idx]["text"]
-                    for prev_idx in previous_chunk_indexes
+                    chunks[prev_idx]["text"] for prev_idx in previous_chunk_indexes
                 ]
                 extraction_text = self._prepare_chunk_text_for_extraction(
                     chunk["text"],
@@ -2565,37 +2868,49 @@ class OntologyGuidedKGCreator(
 
                 # Ensure chunk_kg is a dictionary with expected keys
                 try:
-                    if isinstance(chunk_kg, dict) and (chunk_kg.get('entities', []) or chunk_kg.get('relationships', [])):
-                        chunk_entities = chunk_kg.get('entities', [])
+                    if isinstance(chunk_kg, dict) and (
+                        chunk_kg.get("entities", [])
+                        or chunk_kg.get("relationships", [])
+                    ):
+                        chunk_entities = chunk_kg.get("entities", [])
                         all_entities.extend(chunk_entities)
                         all_relationships.extend(
                             self._attach_relationship_provenance(
-                                chunk_kg.get('relationships', []),
+                                chunk_kg.get("relationships", []),
                                 [chunk.get("position", i)],
                             )
                         )
                         entities_per_chunk[i] = chunk_entities
                         processed_chunks += 1
-                        logging.info(f"✓ Chunk {i+1} processed: {len(chunk_entities)} entities, {len(chunk_kg.get('relationships', []))} relationships")
+                        logging.info(
+                            f"✓ Chunk {i + 1} processed: {len(chunk_entities)} entities, {len(chunk_kg.get('relationships', []))} relationships"
+                        )
                     else:
-                        logging.warning(f"⚠ Chunk {i+1} returned invalid or empty format: {type(chunk_kg)}")
+                        logging.warning(
+                            f"⚠ Chunk {i + 1} returned invalid or empty format: {type(chunk_kg)}"
+                        )
                         failed_chunks += 1
                 except Exception as inner_e:
                     logging.error(f"❌ Error processing chunk result: {inner_e}")
                     failed_chunks += 1
 
             except Exception as e:
-                logging.error(f"❌ Failed to process chunk {i+1}: {e}")
+                logging.error(f"❌ Failed to process chunk {i + 1}: {e}")
                 import traceback
+
                 logging.error(f"Traceback: {traceback.format_exc()}")
                 failed_chunks += 1
                 continue
 
             # Add small delay between chunks only when an external LLM is in use
-            if llm is not None and i < len(chunks) - 1:  # Don't delay after the last chunk
+            if (
+                llm is not None and i < len(chunks) - 1
+            ):  # Don't delay after the last chunk
                 time.sleep(1.0)  # 1 second delay between API calls
 
-        logging.info(f"Processing complete: {processed_chunks} successful, {failed_chunks} failed")
+        logging.info(
+            f"Processing complete: {processed_chunks} successful, {failed_chunks} failed"
+        )
 
         # Step 2b: Cross-chunk relationship extraction across wider adjacent windows.
         # The per-chunk LLM pass can only see entities within one chunk at a time, so relationships
@@ -2604,8 +2919,7 @@ class OntologyGuidedKGCreator(
         # full entity extraction.
         if llm is not None and len(chunks) > 1:
             chunk_positions = {
-                i: [int(chunks[i].get("position", i))]
-                for i in range(len(chunks))
+                i: [int(chunks[i].get("position", i))] for i in range(len(chunks))
             }
             all_relationships.extend(
                 self._extract_relationships_for_segment_windows(
@@ -2643,17 +2957,25 @@ class OntologyGuidedKGCreator(
         # entities as entity['_all_ids'] is NOT available, so we rebuild it here).
         # We need every original variant ID to map to its representative so that
         # relationships whose source/target used a non-canonical name aren't dropped.
-        harmonized_entities, id_to_representative = self._harmonize_entities(all_entities, return_id_map=True)
-        harmonized_relationships = self._harmonize_relationships(all_relationships, id_to_representative)
-        harmonized_entities, harmonized_relationships = self._coerce_harmonized_entities_to_schema(
-            harmonized_entities,
-            harmonized_relationships,
+        harmonized_entities, id_to_representative = self._harmonize_entities(
+            all_entities, return_id_map=True
+        )
+        harmonized_relationships = self._harmonize_relationships(
+            all_relationships, id_to_representative
+        )
+        harmonized_entities, harmonized_relationships = (
+            self._coerce_harmonized_entities_to_schema(
+                harmonized_entities,
+                harmonized_relationships,
+            )
         )
         harmonized_relationships = self._mark_relationship_contradictions(
             harmonized_relationships
         )
 
-        logging.info(f"Harmonized to {len(harmonized_entities)} entities and {len(harmonized_relationships)} relationships")
+        logging.info(
+            f"Harmonized to {len(harmonized_entities)} entities and {len(harmonized_relationships)} relationships"
+        )
 
         # Step 4: Format the final knowledge graph
         # Use UUID-based IDs to prevent duplicates
@@ -2663,18 +2985,18 @@ class OntologyGuidedKGCreator(
             "nodes": [
                 {
                     "id": f"{kg_prefix}{entity['uuid']}",
-                    "label": entity['type'],
+                    "label": entity["type"],
                     "properties": {
-                        "name": entity['id'],
-                        "type": entity['type'],
-                        "original_id": entity['id'],  # Keep original ID for reference
-                        **entity.get('properties', {})
+                        "name": entity["id"],
+                        "type": entity["type"],
+                        "original_id": entity["id"],  # Keep original ID for reference
+                        **entity.get("properties", {}),
                     },
-                    "embedding": entity.get('embedding'),
-                    "color": self._get_node_color(entity['type']),
+                    "embedding": entity.get("embedding"),
+                    "color": self._get_node_color(entity["type"]),
                     "size": 30,
                     "font": {"size": 14, "color": "#333333"},
-                    "title": f"Entity: {entity['id']}\nType: {entity['type']}\nKG: {kg_name or 'default'}\nClick for details"
+                    "title": f"Entity: {entity['id']}\nType: {entity['type']}\nKG: {kg_name or 'default'}\nClick for details",
                 }
                 for entity in harmonized_entities
             ],
@@ -2685,13 +3007,13 @@ class OntologyGuidedKGCreator(
                     "to": f"{kg_prefix}{rel['target']}",
                     "source": f"{kg_prefix}{rel['source']}",
                     "target": f"{kg_prefix}{rel['target']}",
-                    "type": rel['type'],
-                    "label": rel['type'],
-                    "negated": rel.get('negated', False),
-                    "properties": rel.get('properties', {}),
+                    "type": rel["type"],
+                    "label": rel["type"],
+                    "negated": rel.get("negated", False),
+                    "properties": rel.get("properties", {}),
                     "arrows": "to",
                     "color": {"color": "#444444"},
-                    "font": {"size": 12, "align": "middle"}
+                    "font": {"size": 12, "align": "middle"},
                 }
                 for idx, rel in enumerate(harmonized_relationships)
             ],
@@ -2706,7 +3028,9 @@ class OntologyGuidedKGCreator(
                 "embedding_dimension": self.embedding_dimension,
                 "ontology_classes": len(self.ontology_classes),
                 "ontology_relationships": len(self.ontology_relationships),
-                "extraction_method": "ontology_guided_llm" if has_ontology else "natural_llm",
+                "extraction_method": "ontology_guided_llm"
+                if has_ontology
+                else "natural_llm",
                 "kg_name": kg_name,
                 "provider": provider,
                 "model": model_name,
@@ -2715,40 +3039,69 @@ class OntologyGuidedKGCreator(
                 "visualization_ready": True,
                 "file_name": file_name,
                 "doc_hash": doc_hash,
-                "schema_card": self._build_schema_card()
-            }
+                "schema_card": self._build_schema_card(),
+            },
         }
-        kg["metadata"].update({
-            "schema_enforcement_dropped_entities": self._last_schema_enforcement_stats.get("dropped_entities", 0),
-            "schema_enforcement_dropped_relationships": self._last_schema_enforcement_stats.get("dropped_relationships", 0),
-            "harmonization_relationships_dropped_unmapped": self._last_relationship_harmonization_stats.get("dropped_unmapped", 0),
-            "harmonization_relationships_dropped_schema_mismatch": self._last_relationship_harmonization_stats.get("dropped_schema_mismatch", 0),
-            "harmonization_relationships_deduped": self._last_relationship_harmonization_stats.get("deduped", 0),
-            "harmonization_relationship_contradiction_groups": self._last_relationship_contradiction_stats.get("contradiction_groups", 0),
-            "harmonization_relationship_contradiction_edges": self._last_relationship_contradiction_stats.get("contradiction_edges", 0),
-            "anchor_grounded_entities": sum(
-                1 for entity in harmonized_entities
-                if (entity.get("properties") or {}).get("anchor_spans")
-            ),
-            "restoration_full_relationships": sum(
-                1 for rel in harmonized_relationships
-                if ((rel.get("properties") or {}).get("restoration_status") == "full")
-            ),
-            "restoration_partial_relationships": sum(
-                1 for rel in harmonized_relationships
-                if ((rel.get("properties") or {}).get("restoration_status") == "partial")
-            ),
-        })
+        kg["metadata"].update(
+            {
+                "schema_enforcement_dropped_entities": self._last_schema_enforcement_stats.get(
+                    "dropped_entities", 0
+                ),
+                "schema_enforcement_dropped_relationships": self._last_schema_enforcement_stats.get(
+                    "dropped_relationships", 0
+                ),
+                "harmonization_relationships_dropped_unmapped": self._last_relationship_harmonization_stats.get(
+                    "dropped_unmapped", 0
+                ),
+                "harmonization_relationships_dropped_schema_mismatch": self._last_relationship_harmonization_stats.get(
+                    "dropped_schema_mismatch", 0
+                ),
+                "harmonization_relationships_deduped": self._last_relationship_harmonization_stats.get(
+                    "deduped", 0
+                ),
+                "harmonization_relationship_contradiction_groups": self._last_relationship_contradiction_stats.get(
+                    "contradiction_groups", 0
+                ),
+                "harmonization_relationship_contradiction_edges": self._last_relationship_contradiction_stats.get(
+                    "contradiction_edges", 0
+                ),
+                "anchor_grounded_entities": sum(
+                    1
+                    for entity in harmonized_entities
+                    if (entity.get("properties") or {}).get("anchor_spans")
+                ),
+                "restoration_full_relationships": sum(
+                    1
+                    for rel in harmonized_relationships
+                    if (
+                        (rel.get("properties") or {}).get("restoration_status")
+                        == "full"
+                    )
+                ),
+                "restoration_partial_relationships": sum(
+                    1
+                    for rel in harmonized_relationships
+                    if (
+                        (rel.get("properties") or {}).get("restoration_status")
+                        == "partial"
+                    )
+                ),
+            }
+        )
         enrichment = self._build_graph_enrichment_records(kg)
         if enrichment:
             kg["metadata"]["graph_enrichment"] = enrichment
-            kg["metadata"]["component_summary_count"] = len(enrichment.get("component_summaries") or [])
+            kg["metadata"]["component_summary_count"] = len(
+                enrichment.get("component_summaries") or []
+            )
             kg["metadata"]["claim_count"] = len(enrichment.get("claims") or [])
-            kg["metadata"]["fragmentation_bridge_count"] = len(enrichment.get("fragmentation_bridges") or [])
+            kg["metadata"]["fragmentation_bridge_count"] = len(
+                enrichment.get("fragmentation_bridges") or []
+            )
 
         # Attach any document-level metadata from the source (e.g. CSV columns)
         if doc_metadata:
-            kg['metadata']['doc_metadata'] = doc_metadata
+            kg["metadata"]["doc_metadata"] = doc_metadata
 
         # Step 5: Store in Neo4j if requested
         if file_name:
@@ -2760,7 +3113,7 @@ class OntologyGuidedKGCreator(
                 llm=llm,
                 model_name=model_name,
             )
-            kg['metadata']['stored_in_neo4j'] = success
+            kg["metadata"]["stored_in_neo4j"] = success
 
             # Step 5b: HippoRAG-style synonym merging.
             # After embeddings are in Neo4j, cluster near-duplicate entity nodes
@@ -2769,8 +3122,10 @@ class OntologyGuidedKGCreator(
             if success:
                 try:
                     graph_for_merge = self._create_neo4j_connection()
-                    merges = self.merge_synonym_entities(graph_for_merge, kg_name=kg_name)
-                    kg['metadata']['synonym_merges'] = merges
+                    merges = self.merge_synonym_entities(
+                        graph_for_merge, kg_name=kg_name
+                    )
+                    kg["metadata"]["synonym_merges"] = merges
                     logging.info(f"Synonym merging complete: {merges} pairs merged")
                 except Exception as syn_err:
                     logging.warning(f"Synonym merging failed (non-fatal): {syn_err}")
@@ -2781,15 +3136,19 @@ class OntologyGuidedKGCreator(
                 try:
                     graph_for_merge = self._create_neo4j_connection()
                     self._compute_node_specificity_weights(graph_for_merge, kg_name)
-                    logging.info("Node specificity weights computed for kg_name=%s", kg_name)
+                    logging.info(
+                        "Node specificity weights computed for kg_name=%s", kg_name
+                    )
                 except Exception as spec_err:
-                    logging.warning("Node specificity computation failed (non-fatal): %s", spec_err)
+                    logging.warning(
+                        "Node specificity computation failed (non-fatal): %s", spec_err
+                    )
 
         return kg
 
     def generate_knowledge_graph_from_passages(
         self,
-        passages,           # List[ContextPassage] — avoids circular import; duck-typed
+        passages,  # List[ContextPassage] — avoids circular import; duck-typed
         llm,
         file_name: str = None,
         model_name: str = "openai/gpt-oss-120b:free",
@@ -2810,9 +3169,7 @@ class OntologyGuidedKGCreator(
         processed, so the result is equivalent in structure to the single-call
         path but with clean passage-level extraction boundaries.
         """
-        logging.info(
-            "Starting passage-aware KG generation: %d passages", len(passages)
-        )
+        logging.info("Starting passage-aware KG generation: %d passages", len(passages))
         has_ontology = bool(self.ontology_classes) or bool(self.ontology_relationships)
         extraction_method = "ontology_guided_llm" if has_ontology else "natural_llm"
 
@@ -2826,11 +3183,12 @@ class OntologyGuidedKGCreator(
 
         for p_idx, passage in enumerate(passages):
             passage_text = passage.text
-            source_label = f"{passage.dataset}/{passage.question_id}/p{passage.passage_index}"
-            source_title = (
-                getattr(passage, "source_title", None)
-                or self._infer_passage_title(passage_text, passage.dataset)
+            source_label = (
+                f"{passage.dataset}/{passage.question_id}/p{passage.passage_index}"
             )
+            source_title = getattr(
+                passage, "source_title", None
+            ) or self._infer_passage_title(passage_text, passage.dataset)
             source_scope_key = self._build_passage_scope_key(
                 dataset=passage.dataset,
                 question_id=passage.question_id,
@@ -2888,7 +3246,9 @@ class OntologyGuidedKGCreator(
                     )
 
                     chunk_kg = self._extract_entities_and_relationships_with_llm(
-                        extraction_text, llm, model_name,
+                        extraction_text,
+                        llm,
+                        model_name,
                         context_header=qualifier_ctx or None,
                         section_header=chunk_section,
                     )
@@ -2908,8 +3268,10 @@ class OntologyGuidedKGCreator(
                         processed += 1
                         logging.info(
                             "Passage %d/%d chunk %d/%d: %d entities, %d rels [%s]",
-                            p_idx + 1, len(passages),
-                            local_i + 1, len(p_chunks),
+                            p_idx + 1,
+                            len(passages),
+                            local_i + 1,
+                            len(p_chunks),
                             len(chunk_entities),
                             len(chunk_kg.get("relationships", [])),
                             source_label,
@@ -2929,7 +3291,13 @@ class OntologyGuidedKGCreator(
             # Cross-chunk relationship extraction — scoped within this passage only.
             if llm is not None and len(p_chunks) > 1:
                 chunk_positions_this_passage = {
-                    local_i: [int(p_chunks[local_i].get("position", global_chunk_offset + local_i))]
+                    local_i: [
+                        int(
+                            p_chunks[local_i].get(
+                                "position", global_chunk_offset + local_i
+                            )
+                        )
+                    ]
                     for local_i in range(len(p_chunks))
                 }
                 all_relationships.extend(
@@ -2978,12 +3346,18 @@ class OntologyGuidedKGCreator(
 
             logging.info(
                 "Passage %d/%d complete: processed=%d failed=%d [%s]",
-                p_idx + 1, len(passages), processed, failed, source_label,
+                p_idx + 1,
+                len(passages),
+                processed,
+                failed,
+                source_label,
             )
 
         logging.info(
             "All passages processed: %d chunks, %d raw entities, %d raw relationships",
-            len(all_chunks), len(all_entities), len(all_relationships),
+            len(all_chunks),
+            len(all_entities),
+            len(all_relationships),
         )
 
         if not all_entities and not all_relationships:
@@ -3012,7 +3386,9 @@ class OntologyGuidedKGCreator(
                         group["positions"],
                         llm,
                         model_name,
-                        max_window_size=getattr(self, "cross_passage_relation_window", 2),
+                        max_window_size=getattr(
+                            self, "cross_passage_relation_window", 2
+                        ),
                         scope_label=group["source_label"],
                     )
                 )
@@ -3024,16 +3400,19 @@ class OntologyGuidedKGCreator(
         harmonized_relationships = self._harmonize_relationships(
             all_relationships, id_to_representative
         )
-        harmonized_entities, harmonized_relationships = self._coerce_harmonized_entities_to_schema(
-            harmonized_entities,
-            harmonized_relationships,
+        harmonized_entities, harmonized_relationships = (
+            self._coerce_harmonized_entities_to_schema(
+                harmonized_entities,
+                harmonized_relationships,
+            )
         )
         harmonized_relationships = self._mark_relationship_contradictions(
             harmonized_relationships
         )
         logging.info(
             "Harmonized: %d entities, %d relationships",
-            len(harmonized_entities), len(harmonized_relationships),
+            len(harmonized_entities),
+            len(harmonized_relationships),
         )
 
         kg_prefix = f"{kg_name}_" if kg_name else ""
@@ -3097,33 +3476,62 @@ class OntologyGuidedKGCreator(
                 "doc_hash": doc_hash,
             },
         }
-        kg["metadata"].update({
-            "schema_enforcement_dropped_entities": self._last_schema_enforcement_stats.get("dropped_entities", 0),
-            "schema_enforcement_dropped_relationships": self._last_schema_enforcement_stats.get("dropped_relationships", 0),
-            "harmonization_relationships_dropped_unmapped": self._last_relationship_harmonization_stats.get("dropped_unmapped", 0),
-            "harmonization_relationships_dropped_schema_mismatch": self._last_relationship_harmonization_stats.get("dropped_schema_mismatch", 0),
-            "harmonization_relationships_deduped": self._last_relationship_harmonization_stats.get("deduped", 0),
-            "harmonization_relationship_contradiction_groups": self._last_relationship_contradiction_stats.get("contradiction_groups", 0),
-            "harmonization_relationship_contradiction_edges": self._last_relationship_contradiction_stats.get("contradiction_edges", 0),
-            "anchor_grounded_entities": sum(
-                1 for entity in harmonized_entities
-                if (entity.get("properties") or {}).get("anchor_spans")
-            ),
-            "restoration_full_relationships": sum(
-                1 for rel in harmonized_relationships
-                if ((rel.get("properties") or {}).get("restoration_status") == "full")
-            ),
-            "restoration_partial_relationships": sum(
-                1 for rel in harmonized_relationships
-                if ((rel.get("properties") or {}).get("restoration_status") == "partial")
-            ),
-        })
+        kg["metadata"].update(
+            {
+                "schema_enforcement_dropped_entities": self._last_schema_enforcement_stats.get(
+                    "dropped_entities", 0
+                ),
+                "schema_enforcement_dropped_relationships": self._last_schema_enforcement_stats.get(
+                    "dropped_relationships", 0
+                ),
+                "harmonization_relationships_dropped_unmapped": self._last_relationship_harmonization_stats.get(
+                    "dropped_unmapped", 0
+                ),
+                "harmonization_relationships_dropped_schema_mismatch": self._last_relationship_harmonization_stats.get(
+                    "dropped_schema_mismatch", 0
+                ),
+                "harmonization_relationships_deduped": self._last_relationship_harmonization_stats.get(
+                    "deduped", 0
+                ),
+                "harmonization_relationship_contradiction_groups": self._last_relationship_contradiction_stats.get(
+                    "contradiction_groups", 0
+                ),
+                "harmonization_relationship_contradiction_edges": self._last_relationship_contradiction_stats.get(
+                    "contradiction_edges", 0
+                ),
+                "anchor_grounded_entities": sum(
+                    1
+                    for entity in harmonized_entities
+                    if (entity.get("properties") or {}).get("anchor_spans")
+                ),
+                "restoration_full_relationships": sum(
+                    1
+                    for rel in harmonized_relationships
+                    if (
+                        (rel.get("properties") or {}).get("restoration_status")
+                        == "full"
+                    )
+                ),
+                "restoration_partial_relationships": sum(
+                    1
+                    for rel in harmonized_relationships
+                    if (
+                        (rel.get("properties") or {}).get("restoration_status")
+                        == "partial"
+                    )
+                ),
+            }
+        )
         enrichment = self._build_graph_enrichment_records(kg)
         if enrichment:
             kg["metadata"]["graph_enrichment"] = enrichment
-            kg["metadata"]["component_summary_count"] = len(enrichment.get("component_summaries") or [])
+            kg["metadata"]["component_summary_count"] = len(
+                enrichment.get("component_summaries") or []
+            )
             kg["metadata"]["claim_count"] = len(enrichment.get("claims") or [])
-            kg["metadata"]["fragmentation_bridge_count"] = len(enrichment.get("fragmentation_bridges") or [])
+            kg["metadata"]["fragmentation_bridge_count"] = len(
+                enrichment.get("fragmentation_bridges") or []
+            )
 
         if doc_metadata:
             kg["metadata"]["doc_metadata"] = doc_metadata
@@ -3152,9 +3560,13 @@ class OntologyGuidedKGCreator(
                 try:
                     graph_for_merge = self._create_neo4j_connection()
                     self._compute_node_specificity_weights(graph_for_merge, kg_name)
-                    logging.info("Node specificity weights computed for kg_name=%s", kg_name)
+                    logging.info(
+                        "Node specificity weights computed for kg_name=%s", kg_name
+                    )
                 except Exception as spec_err:
-                    logging.warning("Node specificity computation failed (non-fatal): %s", spec_err)
+                    logging.warning(
+                        "Node specificity computation failed (non-fatal): %s", spec_err
+                    )
 
         return kg
 
@@ -3171,7 +3583,7 @@ class OntologyGuidedKGCreator(
             "MedicalProcedure": "#cc99ff",
             "MedicalDevice": "#ff99cc",
             "Anatomy": "#99ff99",
-            "Concept": "#a6cee3"
+            "Concept": "#a6cee3",
         }
         return color_map.get(entity_type, "#a6cee3")
 
@@ -3201,26 +3613,27 @@ class OntologyGuidedKGCreator(
             ORDER BY score DESC
             """
 
-            results = graph.query(search_query, {
-                "top_k": top_k,
-                "query_vector": query_embedding
-            })
+            results = graph.query(
+                search_query, {"top_k": top_k, "query_vector": query_embedding}
+            )
 
             context = {
                 "query": query,
                 "chunks": [],
                 "entities": set(),
-                "documents": set()
+                "documents": set(),
             }
 
             for result in results:
-                context["chunks"].append({
-                    "text": result["text"],
-                    "chunk_id": result["chunk_id"],
-                    "score": result["score"],
-                    "document": result["document"],
-                    "entities": result["entities"]
-                })
+                context["chunks"].append(
+                    {
+                        "text": result["text"],
+                        "chunk_id": result["chunk_id"],
+                        "score": result["score"],
+                        "document": result["document"],
+                        "entities": result["entities"],
+                    }
+                )
 
                 context["documents"].add(result["document"])
                 for entity in result["entities"]:

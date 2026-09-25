@@ -1,9 +1,11 @@
 from datetime import datetime
 
+
 class sourceNode:
     """
     Source node class for document metadata
     """
+
     file_name: str = None
     file_size: int = None
     file_type: str = None

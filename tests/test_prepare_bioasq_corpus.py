@@ -8,7 +8,10 @@ from experiments.prepare_bioasq_corpus import (
 
 
 def test_extract_pmid_from_url_handles_pubmed_url_and_raw_id():
-    assert extract_pmid_from_url("http://www.ncbi.nlm.nih.gov/pubmed/34022131") == "34022131"
+    assert (
+        extract_pmid_from_url("http://www.ncbi.nlm.nih.gov/pubmed/34022131")
+        == "34022131"
+    )
     assert extract_pmid_from_url("34022131") == "34022131"
     assert extract_pmid_from_url("https://example.com/not-pubmed") is None
 
@@ -57,4 +60,7 @@ def test_parse_pubmed_article_xml_extracts_title_and_abstract():
 
     records = parse_pubmed_article_xml(xml)
     assert records["34022131"]["title"] == "Sample title"
-    assert records["34022131"]["abstract"] == "BACKGROUND: First sentence.\nSecond sentence."
+    assert (
+        records["34022131"]["abstract"]
+        == "BACKGROUND: First sentence.\nSecond sentence."
+    )

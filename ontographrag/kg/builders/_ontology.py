@@ -21,6 +21,7 @@ from ontographrag.kg.builders._creator_shared import (
     _is_valid_entity_name,
 )
 
+
 class OntologySchemaMixin:
     """Ontology loading, schema validation, and type normalisation.
 
@@ -32,15 +33,22 @@ class OntologySchemaMixin:
     def _prop_type(raw: str) -> PropertyType:
         """Map a raw type string from JSON to a PropertyType enum value."""
         _map = {
-            "string": PropertyType.STRING, "str": PropertyType.STRING,
-            "integer": PropertyType.INTEGER, "int": PropertyType.INTEGER,
-            "decimal": PropertyType.DECIMAL, "numeric": PropertyType.DECIMAL,
+            "string": PropertyType.STRING,
+            "str": PropertyType.STRING,
+            "integer": PropertyType.INTEGER,
+            "int": PropertyType.INTEGER,
+            "decimal": PropertyType.DECIMAL,
+            "numeric": PropertyType.DECIMAL,
             "double": PropertyType.DOUBLE,
-            "float": PropertyType.FLOAT, "number": PropertyType.FLOAT,
-            "boolean": PropertyType.BOOLEAN, "bool": PropertyType.BOOLEAN,
-            "date": PropertyType.DATE, "datetime": PropertyType.DATETIME,
+            "float": PropertyType.FLOAT,
+            "number": PropertyType.FLOAT,
+            "boolean": PropertyType.BOOLEAN,
+            "bool": PropertyType.BOOLEAN,
+            "date": PropertyType.DATE,
+            "datetime": PropertyType.DATETIME,
             "enum": PropertyType.ENUM,
-            "id": PropertyType.ID, "identifier": PropertyType.ID,
+            "id": PropertyType.ID,
+            "identifier": PropertyType.ID,
         }
         return _map.get((raw or "string").strip().lower(), PropertyType.STRING)
 
@@ -53,13 +61,13 @@ class OntologySchemaMixin:
           self.ontology_relationships — List[dict]  (legacy flat list)
         """
         ext = os.path.splitext(ontology_path)[1].lower()
-        is_json = ext == '.json'
-        if not is_json and ext not in ('.owl', '.rdf', '.ttl', '.xml'):
+        is_json = ext == ".json"
+        if not is_json and ext not in (".owl", ".rdf", ".ttl", ".xml"):
             # Peek at first byte to detect JSON
             try:
-                with open(ontology_path, 'r', encoding='utf-8') as _f:
+                with open(ontology_path, "r", encoding="utf-8") as _f:
                     _peek = _f.read(3).lstrip()
-                is_json = _peek.startswith('{') or _peek.startswith('[')
+                is_json = _peek.startswith("{") or _peek.startswith("[")
             except OSError:
                 pass
 
@@ -74,21 +82,31 @@ class OntologySchemaMixin:
 
         # Populate legacy flat lists for backwards compatibility
         self.ontology_classes = [
-            {'id': et.id, 'uri': et.uri or '', 'label': et.label,
-             'description': et.description or ''}
+            {
+                "id": et.id,
+                "uri": et.uri or "",
+                "label": et.label,
+                "description": et.description or "",
+            }
             for et in self._ontology_schema.entity_types
         ]
         self.ontology_relationships = [
-            {'id': rt.id, 'uri': rt.uri or '', 'label': rt.label,
-             'description': rt.description or '',
-             'domain': rt.domain or '', 'range': rt.range or '',
-             'cardinality': rt.cardinality or ''}
+            {
+                "id": rt.id,
+                "uri": rt.uri or "",
+                "label": rt.label,
+                "description": rt.description or "",
+                "domain": rt.domain or "",
+                "range": rt.range or "",
+                "cardinality": rt.cardinality or "",
+            }
             for rt in self._ontology_schema.relationship_types
         ]
         logging.info(
             "Loaded ontology (%s): %d entity types, %d relationship types",
             self._ontology_schema.source_format,
-            len(self.ontology_classes), len(self.ontology_relationships),
+            len(self.ontology_classes),
+            len(self.ontology_relationships),
         )
 
     def _load_ontology_json(self, ontology_path: str) -> OntologySchema:
@@ -97,73 +115,87 @@ class OntologySchemaMixin:
         Accepts layout A: {"classes": [...], "relationships": [...]}
         and layout B:     {"entity_types": [...], "relationship_types": [...]}
         """
-        with open(ontology_path, 'r', encoding='utf-8') as f:
+        with open(ontology_path, "r", encoding="utf-8") as f:
             raw = json.load(f)
 
-        raw_classes = raw.get('classes') or raw.get('entity_types') or []
-        raw_rels = raw.get('relationships') or raw.get('relationship_types') or []
+        raw_classes = raw.get("classes") or raw.get("entity_types") or []
+        raw_rels = raw.get("relationships") or raw.get("relationship_types") or []
 
         entity_types: List[OntEntityType] = []
         for cls in raw_classes:
             if not isinstance(cls, dict):
                 continue
-            eid = cls.get('id') or cls.get('name') or ''
+            eid = cls.get("id") or cls.get("name") or ""
             if not eid:
                 continue
             props = []
-            for p in cls.get('properties') or []:
-                pname = (p.get('name') or p.get('id') or '') if isinstance(p, dict) else ''
+            for p in cls.get("properties") or []:
+                pname = (
+                    (p.get("name") or p.get("id") or "") if isinstance(p, dict) else ""
+                )
                 if not pname:
                     continue
-                props.append(DataBinding(
-                    name=pname,
-                    type=self._prop_type(p.get('type', 'string')),
-                    description=p.get('description') or None,
-                    identifier=bool(p.get('identifier', False)),
-                    required=bool(p.get('required', False)),
-                    enum_values=list(p.get('enum_values') or p.get('values') or []),
-                    unit=p.get('unit') or None,
-                ))
-            entity_types.append(OntEntityType(
-                id=eid,
-                label=cls.get('label') or eid.replace('_', ' ').title(),
-                description=cls.get('description') or None,
-                uri=cls.get('uri') or None,
-                properties=props,
-            ))
+                props.append(
+                    DataBinding(
+                        name=pname,
+                        type=self._prop_type(p.get("type", "string")),
+                        description=p.get("description") or None,
+                        identifier=bool(p.get("identifier", False)),
+                        required=bool(p.get("required", False)),
+                        enum_values=list(p.get("enum_values") or p.get("values") or []),
+                        unit=p.get("unit") or None,
+                    )
+                )
+            entity_types.append(
+                OntEntityType(
+                    id=eid,
+                    label=cls.get("label") or eid.replace("_", " ").title(),
+                    description=cls.get("description") or None,
+                    uri=cls.get("uri") or None,
+                    properties=props,
+                )
+            )
 
         relationship_types: List[OntRelType] = []
         for rel in raw_rels:
             if not isinstance(rel, dict):
                 continue
-            rid = rel.get('id') or rel.get('name') or rel.get('type') or ''
+            rid = rel.get("id") or rel.get("name") or rel.get("type") or ""
             if not rid:
                 continue
             attrs = []
-            for a in rel.get('attributes') or rel.get('properties') or []:
-                aname = (a.get('name') or a.get('id') or '') if isinstance(a, dict) else ''
+            for a in rel.get("attributes") or rel.get("properties") or []:
+                aname = (
+                    (a.get("name") or a.get("id") or "") if isinstance(a, dict) else ""
+                )
                 if not aname:
                     continue
-                attrs.append(RelationshipAttribute(
-                    name=aname,
-                    type=self._prop_type(a.get('type', 'string')),
-                    description=a.get('description') or None,
-                    unit=a.get('unit') or None,
-                ))
-            relationship_types.append(OntRelType(
-                id=rid,
-                label=rel.get('label') or rid.replace('_', ' ').title(),
-                description=rel.get('description') or None,
-                uri=rel.get('uri') or None,
-                domain=rel.get('from') or rel.get('domain') or None,
-                range=rel.get('to') or rel.get('range') or None,
-                cardinality=rel.get('cardinality') or None,
-                attributes=attrs,
-            ))
+                attrs.append(
+                    RelationshipAttribute(
+                        name=aname,
+                        type=self._prop_type(a.get("type", "string")),
+                        description=a.get("description") or None,
+                        unit=a.get("unit") or None,
+                    )
+                )
+            relationship_types.append(
+                OntRelType(
+                    id=rid,
+                    label=rel.get("label") or rid.replace("_", " ").title(),
+                    description=rel.get("description") or None,
+                    uri=rel.get("uri") or None,
+                    domain=rel.get("from") or rel.get("domain") or None,
+                    range=rel.get("to") or rel.get("range") or None,
+                    cardinality=rel.get("cardinality") or None,
+                    attributes=attrs,
+                )
+            )
 
         return OntologySchema(
-            entity_types=entity_types, relationship_types=relationship_types,
-            source_format='json', source_path=ontology_path,
+            entity_types=entity_types,
+            relationship_types=relationship_types,
+            source_format="json",
+            source_path=ontology_path,
         )
 
     def _load_ontology_owl(self, ontology_path: str) -> OntologySchema:
@@ -172,24 +204,24 @@ class OntologySchemaMixin:
         root = tree.getroot()
 
         ns = {
-            'owl':  'http://www.w3.org/2002/07/owl#',
-            'rdf':  'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
-            'rdfs': 'http://www.w3.org/2000/01/rdf-schema#',
+            "owl": "http://www.w3.org/2002/07/owl#",
+            "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+            "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
         }
-        _rdf_about  = '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about'
-        _rdfs_label = '{http://www.w3.org/2000/01/rdf-schema#}label'
-        _rdfs_cmt   = '{http://www.w3.org/2000/01/rdf-schema#}comment'
-        _rdfs_dom   = '{http://www.w3.org/2000/01/rdf-schema#}domain'
-        _rdfs_rng   = '{http://www.w3.org/2000/01/rdf-schema#}range'
-        _rdf_rsrc   = '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}resource'
+        _rdf_about = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about"
+        _rdfs_label = "{http://www.w3.org/2000/01/rdf-schema#}label"
+        _rdfs_cmt = "{http://www.w3.org/2000/01/rdf-schema#}comment"
+        _rdfs_dom = "{http://www.w3.org/2000/01/rdf-schema#}domain"
+        _rdfs_rng = "{http://www.w3.org/2000/01/rdf-schema#}range"
+        _rdf_rsrc = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}resource"
 
         def _local(uri: str) -> str:
-            return uri.split('#')[-1] if '#' in uri else uri.split('/')[-1]
+            return uri.split("#")[-1] if "#" in uri else uri.split("/")[-1]
 
         def _res_local(elem):
             if elem is None:
                 return None
-            r = elem.get(_rdf_rsrc, '')
+            r = elem.get(_rdf_rsrc, "")
             return _local(r) if r else None
 
         def _child_text_by_local_name(parent, local_name: str) -> Optional[str]:
@@ -198,7 +230,9 @@ class OntologySchemaMixin:
             for child in list(parent):
                 tag = child.tag
                 if isinstance(tag, str):
-                    child_local = tag.split('}')[-1] if '}' in tag else tag.split(':')[-1]
+                    child_local = (
+                        tag.split("}")[-1] if "}" in tag else tag.split(":")[-1]
+                    )
                     if child_local == local_name and child.text:
                         return child.text.strip()
             return None
@@ -206,7 +240,9 @@ class OntologySchemaMixin:
         def _bool_text(value: Optional[str]) -> bool:
             return str(value or "").strip().lower() in {"true", "1", "yes"}
 
-        def _xsd_to_prop_type(range_uri: Optional[str], explicit_type: Optional[str]) -> PropertyType:
+        def _xsd_to_prop_type(
+            range_uri: Optional[str], explicit_type: Optional[str]
+        ) -> PropertyType:
             if explicit_type:
                 return self._prop_type(explicit_type)
             local = _local(range_uri) if range_uri else ""
@@ -224,8 +260,8 @@ class OntologySchemaMixin:
             }.get(local, PropertyType.STRING)
 
         entity_types: List[OntEntityType] = []
-        for cls_elem in root.findall('.//owl:Class', ns):
-            uri = cls_elem.get(_rdf_about, '')
+        for cls_elem in root.findall(".//owl:Class", ns):
+            uri = cls_elem.get(_rdf_about, "")
             if not uri:
                 continue
             local = _local(uri)
@@ -233,34 +269,53 @@ class OntologySchemaMixin:
                 continue
             lbl_el = cls_elem.find(_rdfs_label)
             cmt_el = cls_elem.find(_rdfs_cmt)
-            entity_types.append(OntEntityType(
-                id=local, uri=uri,
-                label=(lbl_el.text.strip() if lbl_el is not None and lbl_el.text else local.replace('_', ' ').title()),
-                description=(cmt_el.text.strip() if cmt_el is not None and cmt_el.text else None),
-            ))
+            entity_types.append(
+                OntEntityType(
+                    id=local,
+                    uri=uri,
+                    label=(
+                        lbl_el.text.strip()
+                        if lbl_el is not None and lbl_el.text
+                        else local.replace("_", " ").title()
+                    ),
+                    description=(
+                        cmt_el.text.strip()
+                        if cmt_el is not None and cmt_el.text
+                        else None
+                    ),
+                )
+            )
 
         entity_by_id = {et.id: et for et in entity_types}
 
-        relationship_attribute_map: Dict[str, List[RelationshipAttribute]] = defaultdict(list)
+        relationship_attribute_map: Dict[str, List[RelationshipAttribute]] = (
+            defaultdict(list)
+        )
 
-        for dt_elem in root.findall('.//owl:DatatypeProperty', ns):
-            uri = dt_elem.get(_rdf_about, '')
+        for dt_elem in root.findall(".//owl:DatatypeProperty", ns):
+            uri = dt_elem.get(_rdf_about, "")
             if not uri:
                 continue
 
             local = _local(uri)
-            label = _child_text_by_local_name(dt_elem, 'label') or local
-            description = _child_text_by_local_name(dt_elem, 'comment')
-            domain = _res_local(dt_elem.find('.//' + _rdfs_dom))
-            range_uri = dt_elem.find('.//' + _rdfs_rng)
+            label = _child_text_by_local_name(dt_elem, "label") or local
+            description = _child_text_by_local_name(dt_elem, "comment")
+            domain = _res_local(dt_elem.find(".//" + _rdfs_dom))
+            range_uri = dt_elem.find(".//" + _rdfs_rng)
             range_local = _res_local(range_uri)
-            explicit_type = _child_text_by_local_name(dt_elem, 'propertyType') or _child_text_by_local_name(dt_elem, 'attributeType')
+            explicit_type = _child_text_by_local_name(
+                dt_elem, "propertyType"
+            ) or _child_text_by_local_name(dt_elem, "attributeType")
             prop_type = _xsd_to_prop_type(range_local, explicit_type)
-            enum_values_text = _child_text_by_local_name(dt_elem, 'enumValues')
-            enum_values = [v.strip() for v in (enum_values_text or '').split(',') if v.strip()]
-            unit = _child_text_by_local_name(dt_elem, 'unit')
-            identifier = _bool_text(_child_text_by_local_name(dt_elem, 'isIdentifier'))
-            relationship_attr_of = _child_text_by_local_name(dt_elem, 'relationshipAttributeOf')
+            enum_values_text = _child_text_by_local_name(dt_elem, "enumValues")
+            enum_values = [
+                v.strip() for v in (enum_values_text or "").split(",") if v.strip()
+            ]
+            unit = _child_text_by_local_name(dt_elem, "unit")
+            identifier = _bool_text(_child_text_by_local_name(dt_elem, "isIdentifier"))
+            relationship_attr_of = _child_text_by_local_name(
+                dt_elem, "relationshipAttributeOf"
+            )
 
             if relationship_attr_of:
                 relationship_attribute_map[relationship_attr_of].append(
@@ -289,8 +344,8 @@ class OntologySchemaMixin:
             )
 
         relationship_types: List[OntRelType] = []
-        for prop_elem in root.findall('.//owl:ObjectProperty', ns):
-            uri = prop_elem.get(_rdf_about, '')
+        for prop_elem in root.findall(".//owl:ObjectProperty", ns):
+            uri = prop_elem.get(_rdf_about, "")
             if not uri:
                 continue
             local = _local(uri)
@@ -298,21 +353,34 @@ class OntologySchemaMixin:
                 continue
             lbl_el = prop_elem.find(_rdfs_label)
             cmt_el = prop_elem.find(_rdfs_cmt)
-            dom_el = prop_elem.find('.//' + _rdfs_dom)
-            rng_el = prop_elem.find('.//' + _rdfs_rng)
-            relationship_types.append(OntRelType(
-                id=local, uri=uri,
-                label=(lbl_el.text.strip() if lbl_el is not None and lbl_el.text else local.replace('_', ' ').title()),
-                description=(cmt_el.text.strip() if cmt_el is not None and cmt_el.text else None),
-                domain=_res_local(dom_el),
-                range=_res_local(rng_el),
-                cardinality=_child_text_by_local_name(prop_elem, 'cardinality'),
-                attributes=relationship_attribute_map.get(local, []),
-            ))
+            dom_el = prop_elem.find(".//" + _rdfs_dom)
+            rng_el = prop_elem.find(".//" + _rdfs_rng)
+            relationship_types.append(
+                OntRelType(
+                    id=local,
+                    uri=uri,
+                    label=(
+                        lbl_el.text.strip()
+                        if lbl_el is not None and lbl_el.text
+                        else local.replace("_", " ").title()
+                    ),
+                    description=(
+                        cmt_el.text.strip()
+                        if cmt_el is not None and cmt_el.text
+                        else None
+                    ),
+                    domain=_res_local(dom_el),
+                    range=_res_local(rng_el),
+                    cardinality=_child_text_by_local_name(prop_elem, "cardinality"),
+                    attributes=relationship_attribute_map.get(local, []),
+                )
+            )
 
         return OntologySchema(
-            entity_types=entity_types, relationship_types=relationship_types,
-            source_format='owl', source_path=ontology_path,
+            entity_types=entity_types,
+            relationship_types=relationship_types,
+            source_format="owl",
+            source_path=ontology_path,
         )
 
     def _validate_ontology_structure(self):
@@ -322,24 +390,28 @@ class OntologySchemaMixin:
         # Clean ontology classes
         valid_classes = []
         for cls in self.ontology_classes:
-            if isinstance(cls, dict) and 'id' in cls and 'label' in cls:
+            if isinstance(cls, dict) and "id" in cls and "label" in cls:
                 valid_classes.append(cls)
             else:
                 logging.warning(f"Removing invalid ontology class entry: {cls}")
 
         self.ontology_classes = valid_classes
-        logging.info(f"Validated ontology classes: {len(self.ontology_classes)} valid entries")
+        logging.info(
+            f"Validated ontology classes: {len(self.ontology_classes)} valid entries"
+        )
 
         # Clean ontology relationships
         valid_relationships = []
         for rel in self.ontology_relationships:
-            if isinstance(rel, dict) and 'id' in rel and 'label' in rel:
+            if isinstance(rel, dict) and "id" in rel and "label" in rel:
                 valid_relationships.append(rel)
             else:
                 logging.warning(f"Removing invalid ontology relationship entry: {rel}")
 
         self.ontology_relationships = valid_relationships
-        logging.info(f"Validated ontology relationships: {len(self.ontology_relationships)} valid entries")
+        logging.info(
+            f"Validated ontology relationships: {len(self.ontology_relationships)} valid entries"
+        )
 
     @staticmethod
     def _normalize_ontology_identifier(value: Optional[str]) -> str:
@@ -425,7 +497,9 @@ class OntologySchemaMixin:
         entity_text: Optional[str] = None,
     ) -> Optional[str]:
         """Coerce extracted entity types onto the active ontology when present."""
-        has_ontology = bool(self._ontology_schema and self._ontology_schema.entity_types) or bool(self.ontology_classes)
+        has_ontology = bool(
+            self._ontology_schema and self._ontology_schema.entity_types
+        ) or bool(self.ontology_classes)
         if not has_ontology:
             if raw_type:
                 return str(raw_type)
@@ -442,13 +516,17 @@ class OntologySchemaMixin:
             if matched:
                 return matched
             classified = self._classify_entity_with_ontology(entity_text)
-            matched = self._match_ontology_entity_type(classified, allow_fuzzy=False) or self._match_ontology_entity_type(classified)
+            matched = self._match_ontology_entity_type(
+                classified, allow_fuzzy=False
+            ) or self._match_ontology_entity_type(classified)
             if matched:
                 return matched
 
         generic_type = self._schema_generic_entity_type()
         if generic_type:
-            if raw_type and self._normalize_ontology_identifier(raw_type) != self._normalize_ontology_identifier(generic_type):
+            if raw_type and self._normalize_ontology_identifier(
+                raw_type
+            ) != self._normalize_ontology_identifier(generic_type):
                 logging.info(
                     "Coercing off-schema entity type '%s' for '%s' to generic ontology type '%s'",
                     raw_type,
@@ -492,26 +570,36 @@ class OntologySchemaMixin:
         Includes full property signatures, domain/range, cardinalities, and
         attribute schemas when a typed OntologySchema is available.
         """
-        classes = [c.get('id', '') for c in self.ontology_classes if isinstance(c, dict)]
-        rels    = [r.get('id', '') for r in self.ontology_relationships if isinstance(r, dict)]
+        classes = [
+            c.get("id", "") for c in self.ontology_classes if isinstance(c, dict)
+        ]
+        rels = [
+            r.get("id", "") for r in self.ontology_relationships if isinstance(r, dict)
+        ]
 
         ontology_file_hash = None
         if self.ontology_path and os.path.exists(self.ontology_path):
             try:
-                with open(self.ontology_path, 'rb') as f:
+                with open(self.ontology_path, "rb") as f:
                     ontology_file_hash = hashlib.sha256(f.read()).hexdigest()
             except OSError:
                 pass
 
         card: dict = {
             "ontologyFileHash": ontology_file_hash or "",
-            "ontologyPath":     os.path.basename(self.ontology_path) if self.ontology_path else "",
-            "sourceFormat":     (self._ontology_schema.source_format if self._ontology_schema else "unknown"),
-            "classes":          sorted(classes),
-            "relationships":    sorted(rels),
-            "classCount":       len(classes),
+            "ontologyPath": os.path.basename(self.ontology_path)
+            if self.ontology_path
+            else "",
+            "sourceFormat": (
+                self._ontology_schema.source_format
+                if self._ontology_schema
+                else "unknown"
+            ),
+            "classes": sorted(classes),
+            "relationships": sorted(rels),
+            "classCount": len(classes),
             "relationshipCount": len(rels),
-            "builtAt":          datetime.now().isoformat(),
+            "builtAt": datetime.now().isoformat(),
         }
 
         # Enrich with typed property signatures and domain/range when available
@@ -524,9 +612,12 @@ class OntologySchemaMixin:
                     "description": et.description,
                     "properties": [
                         {
-                            "name": p.name, "type": p.type.value,
-                            "identifier": p.identifier, "required": p.required,
-                            "enum_values": p.enum_values, "unit": p.unit,
+                            "name": p.name,
+                            "type": p.type.value,
+                            "identifier": p.identifier,
+                            "required": p.required,
+                            "enum_values": p.enum_values,
+                            "unit": p.unit,
                         }
                         for p in et.properties
                     ],
@@ -535,8 +626,12 @@ class OntologySchemaMixin:
             ]
             card["relationshipTypes"] = [
                 {
-                    "id": rt.id, "label": rt.label, "description": rt.description,
-                    "domain": rt.domain, "range": rt.range, "cardinality": rt.cardinality,
+                    "id": rt.id,
+                    "label": rt.label,
+                    "description": rt.description,
+                    "domain": rt.domain,
+                    "range": rt.range,
+                    "cardinality": rt.cardinality,
                     "attributes": [
                         {"name": a.name, "type": a.type.value, "unit": a.unit}
                         for a in rt.attributes
@@ -568,15 +663,30 @@ class OntologySchemaMixin:
         label = str(type_label or "").lower()
         if "drug" in label or "medication" in label or "treatment" in label:
             return "Metformin"
-        if "disease" in label or "condition" in label or "disorder" in label or "syndrome" in label:
+        if (
+            "disease" in label
+            or "condition" in label
+            or "disorder" in label
+            or "syndrome" in label
+        ):
             return "type 2 diabetes"
         if "gene" in label or "variant" in label or "mutation" in label:
             return "BRCA1"
-        if "protein" in label or "enzyme" in label or "receptor" in label or "biomarker" in label:
+        if (
+            "protein" in label
+            or "enzyme" in label
+            or "receptor" in label
+            or "biomarker" in label
+        ):
             return "TP53 protein"
         if "person" in label or "patient" in label:
             return "Marie Curie"
-        if "organization" in label or "hospital" in label or "institute" in label or "university" in label:
+        if (
+            "organization" in label
+            or "hospital" in label
+            or "institute" in label
+            or "university" in label
+        ):
             return "World Health Organization"
         if "location" in label or "city" in label or "country" in label:
             return "Paris"
@@ -593,8 +703,12 @@ class OntologySchemaMixin:
         schema = self._ontology_schema
         if schema and schema.relationship_types and schema.entity_types:
             for rt in schema.relationship_types[: max(1, self.few_shot_example_count)]:
-                source_type = next((et for et in schema.entity_types if et.id == rt.domain), None)
-                target_type = next((et for et in schema.entity_types if et.id == rt.range), None)
+                source_type = next(
+                    (et for et in schema.entity_types if et.id == rt.domain), None
+                )
+                target_type = next(
+                    (et for et in schema.entity_types if et.id == rt.range), None
+                )
                 if not source_type or not target_type:
                     continue
                 source_name = self._example_surface_form_for_type(source_type.label)
@@ -602,7 +716,7 @@ class OntologySchemaMixin:
                 examples.append(
                     (
                         f"Example {len(examples) + 1}\n"
-                        f"TEXT: \"{source_name} {rt.label.lower().replace('_', ' ')} {target_name}.\"\n"
+                        f'TEXT: "{source_name} {rt.label.lower().replace("_", " ")} {target_name}."\n'
                         "JSON:\n"
                         "{\n"
                         '  "relationships": [\n'
@@ -619,7 +733,9 @@ class OntologySchemaMixin:
                     break
         elif self.ontology_classes:
             for cls in self.ontology_classes[: self.few_shot_example_count]:
-                entity_name = self._example_surface_form_for_type(cls.get("label", cls.get("id", "Entity")))
+                entity_name = self._example_surface_form_for_type(
+                    cls.get("label", cls.get("id", "Entity"))
+                )
                 examples.append(
                     (
                         f"Example {len(examples) + 1}\n"
@@ -673,7 +789,9 @@ class OntologySchemaMixin:
             if key in seen_entities:
                 continue
             seen_entities.add(key)
-            coerced_type = self._coerce_entity_type_with_ontology(anchor_type, exact_text)
+            coerced_type = self._coerce_entity_type_with_ontology(
+                anchor_type, exact_text
+            )
             if not coerced_type:
                 continue
             inventory["entity_anchors"].append(
@@ -735,7 +853,9 @@ class OntologySchemaMixin:
             inventory["attribute_anchors"].append(
                 {
                     "text": exact_text,
-                    "role": role if role in {"condition", "quantitative", "other"} else "other",
+                    "role": role
+                    if role in {"condition", "quantitative", "other"}
+                    else "other",
                     "anchor_spans": spans,
                 }
             )
@@ -774,31 +894,90 @@ class OntologySchemaMixin:
                 if best_class and best_score >= 0.50:
                     return best_class
             except Exception as e:
-                logging.debug(f"Embedding classification failed for '{entity_text}': {e}")
+                logging.debug(
+                    f"Embedding classification failed for '{entity_text}': {e}"
+                )
 
         # Strategy 2: exact substring match against ontology class labels
         for cls in self.ontology_classes:
-            if cls['id'].lower() in entity_lower or cls['label'].lower() in entity_lower:
-                return cls['id']
+            if (
+                cls["id"].lower() in entity_lower
+                or cls["label"].lower() in entity_lower
+            ):
+                return cls["id"]
 
         # Strategy 3: keyword heuristics
-        fallback = 'Concept'
-        if any(word in entity_lower for word in ['disease', 'cancer', 'tumor', 'syndrome', 'disorder', 'carcinoma', 'malignancy']):
-            fallback = 'Disease'
-        elif any(word in entity_lower for word in ['drug', 'medication', 'treatment', 'therapy', 'surgery', 'chemotherapy', 'radiotherapy']):
-            fallback = 'Treatment'
-        elif any(word in entity_lower for word in ['patient', 'person', 'individual', 'male', 'female']):
-            fallback = 'Patient'
-        elif any(word in entity_lower for word in ['doctor', 'physician', 'surgeon', 'specialist', 'oncologist', 'urologist']):
-            fallback = 'Physician'
-        elif any(word in entity_lower for word in ['hospital', 'clinic', 'center', 'institute', 'department']):
-            fallback = 'Hospital'
-        elif any(word in entity_lower for word in ['symptom', 'sign', 'manifestation', 'pain', 'fever']):
-            fallback = 'Symptom'
-        elif any(word in entity_lower for word in ['gene', 'mutation', 'protein', 'biomarker', 'receptor', 'marker']):
-            fallback = 'Biomarker'
-        elif any(word in entity_lower for word in ['score', 'grade', 'stage', 'classification', 'risk']):
-            fallback = 'ClinicalFinding'
+        fallback = "Concept"
+        if any(
+            word in entity_lower
+            for word in [
+                "disease",
+                "cancer",
+                "tumor",
+                "syndrome",
+                "disorder",
+                "carcinoma",
+                "malignancy",
+            ]
+        ):
+            fallback = "Disease"
+        elif any(
+            word in entity_lower
+            for word in [
+                "drug",
+                "medication",
+                "treatment",
+                "therapy",
+                "surgery",
+                "chemotherapy",
+                "radiotherapy",
+            ]
+        ):
+            fallback = "Treatment"
+        elif any(
+            word in entity_lower
+            for word in ["patient", "person", "individual", "male", "female"]
+        ):
+            fallback = "Patient"
+        elif any(
+            word in entity_lower
+            for word in [
+                "doctor",
+                "physician",
+                "surgeon",
+                "specialist",
+                "oncologist",
+                "urologist",
+            ]
+        ):
+            fallback = "Physician"
+        elif any(
+            word in entity_lower
+            for word in ["hospital", "clinic", "center", "institute", "department"]
+        ):
+            fallback = "Hospital"
+        elif any(
+            word in entity_lower
+            for word in ["symptom", "sign", "manifestation", "pain", "fever"]
+        ):
+            fallback = "Symptom"
+        elif any(
+            word in entity_lower
+            for word in [
+                "gene",
+                "mutation",
+                "protein",
+                "biomarker",
+                "receptor",
+                "marker",
+            ]
+        ):
+            fallback = "Biomarker"
+        elif any(
+            word in entity_lower
+            for word in ["score", "grade", "stage", "classification", "risk"]
+        ):
+            fallback = "ClinicalFinding"
 
         if schema and schema.entity_types:
             matched = self._match_ontology_entity_type(fallback, allow_fuzzy=False)
@@ -836,21 +1015,24 @@ class OntologySchemaMixin:
                         None, rt.label.lower(), combined
                     ).ratio(),
                 )
-                return best.id.replace(' ', '_').replace('-', '_').upper()
+                return best.id.replace(" ", "_").replace("-", "_").upper()
 
         # Heuristic fallback (no schema or no compatible candidates found)
         source_lower = source.lower()
         target_lower = target.lower()
-        if any(w in source_lower for w in ['treatment', 'therapy', 'drug']) or \
-           any(w in target_lower for w in ['treatment', 'therapy', 'drug']):
-            return 'TREATS'
-        if any(w in source_lower for w in ['disease', 'cancer']) and \
-           any(w in target_lower for w in ['symptom', 'sign']):
-            return 'HAS_SYMPTOM'
-        if any(w in source_lower for w in ['physician', 'doctor']) and \
-           any(w in target_lower for w in ['patient', 'person']):
-            return 'DIAGNOSES'
-        return 'RELATED_TO'
+        if any(w in source_lower for w in ["treatment", "therapy", "drug"]) or any(
+            w in target_lower for w in ["treatment", "therapy", "drug"]
+        ):
+            return "TREATS"
+        if any(w in source_lower for w in ["disease", "cancer"]) and any(
+            w in target_lower for w in ["symptom", "sign"]
+        ):
+            return "HAS_SYMPTOM"
+        if any(w in source_lower for w in ["physician", "doctor"]) and any(
+            w in target_lower for w in ["patient", "person"]
+        ):
+            return "DIAGNOSES"
+        return "RELATED_TO"
 
     def _canonicalize_relationship_type(
         self,
@@ -873,9 +1055,13 @@ class OntologySchemaMixin:
         """
         schema = self._ontology_schema
         if not raw_type:
-            return self._schema_generic_relationship_type() if schema else 'ASSOCIATED_WITH'
+            return (
+                self._schema_generic_relationship_type()
+                if schema
+                else "ASSOCIATED_WITH"
+            )
 
-        normalized_raw = raw_type.lower().replace(' ', '_').replace('-', '_')
+        normalized_raw = raw_type.lower().replace(" ", "_").replace("-", "_")
 
         candidates = (
             schema.compatible_relationships(source_type, target_type)
@@ -888,36 +1074,46 @@ class OntologySchemaMixin:
         if schema and candidates:
             # Step 1: exact match within schema-compatible candidates first
             for rt in candidates:
-                cand = rt.label.lower().replace(' ', '_')
+                cand = rt.label.lower().replace(" ", "_")
                 if cand == normalized_raw or rt.id.lower() == normalized_raw:
-                    logging.debug("Exact schema-compatible rel match: '%s' → '%s'", raw_type, rt.id)
-                    return rt.id.replace(' ', '_').replace('-', '_').upper()
+                    logging.debug(
+                        "Exact schema-compatible rel match: '%s' → '%s'",
+                        raw_type,
+                        rt.id,
+                    )
+                    return rt.id.replace(" ", "_").replace("-", "_").upper()
             # Step 1b: exact match in full schema (less preferred)
             for rt in schema.relationship_types:
-                cand = rt.label.lower().replace(' ', '_')
+                cand = rt.label.lower().replace(" ", "_")
                 if cand == normalized_raw or rt.id.lower() == normalized_raw:
-                    return rt.id.replace(' ', '_').replace('-', '_').upper()
+                    return rt.id.replace(" ", "_").replace("-", "_").upper()
 
             # Step 2: semantic label match using ontology relationship embeddings.
             semantic_match = self._semantic_relationship_match(
                 raw_type,
-                [rt.id for rt in candidates] or [rt.id for rt in schema.relationship_types],
+                [rt.id for rt in candidates]
+                or [rt.id for rt in schema.relationship_types],
             )
             if semantic_match:
                 matched_id, matched_score = semantic_match
                 logging.debug(
-                    "Semantic schema rel: '%s' → '%s' (score=%.2f)", raw_type, matched_id, matched_score
+                    "Semantic schema rel: '%s' → '%s' (score=%.2f)",
+                    raw_type,
+                    matched_id,
+                    matched_score,
                 )
-                return matched_id.replace(' ', '_').replace('-', '_').upper()
+                return matched_id.replace(" ", "_").replace("-", "_").upper()
 
             # Step 3: fuzzy match with schema-compatibility boost
             compat_ids = {rt.id for rt in candidates}
             best_match, best_score = None, 0.0
             for rt in schema.relationship_types:
-                cand_label = rt.label.lower().replace(' ', '_')
+                cand_label = rt.label.lower().replace(" ", "_")
                 score = max(
                     difflib.SequenceMatcher(None, normalized_raw, cand_label).ratio(),
-                    difflib.SequenceMatcher(None, normalized_raw, rt.id.lower()).ratio(),
+                    difflib.SequenceMatcher(
+                        None, normalized_raw, rt.id.lower()
+                    ).ratio(),
                 )
                 # Boost schema-compatible candidates
                 if rt.id in compat_ids:
@@ -926,16 +1122,22 @@ class OntologySchemaMixin:
                     best_score, best_match = score, rt
             if best_match and best_score >= 0.72:
                 logging.debug(
-                    "Fuzzy schema rel: '%s' → '%s' (score=%.2f)", raw_type, best_match.id, best_score
+                    "Fuzzy schema rel: '%s' → '%s' (score=%.2f)",
+                    raw_type,
+                    best_match.id,
+                    best_score,
                 )
-                return best_match.id.replace(' ', '_').replace('-', '_').upper()
+                return best_match.id.replace(" ", "_").replace("-", "_").upper()
 
         elif ont_rels:
             # Legacy flat-list path (no OntologySchema)
             for ont_rel in ont_rels:
-                candidate = ont_rel['label'].lower().replace(' ', '_')
-                if candidate == normalized_raw or ont_rel['id'].lower() == normalized_raw:
-                    return ont_rel['id'].replace(' ', '_').replace('-', '_').upper()
+                candidate = ont_rel["label"].lower().replace(" ", "_")
+                if (
+                    candidate == normalized_raw
+                    or ont_rel["id"].lower() == normalized_raw
+                ):
+                    return ont_rel["id"].replace(" ", "_").replace("-", "_").upper()
             semantic_match = self._semantic_relationship_match(
                 raw_type,
                 [rel.get("id", "") for rel in ont_rels if rel.get("id")],
@@ -943,25 +1145,33 @@ class OntologySchemaMixin:
             if semantic_match:
                 matched_id, matched_score = semantic_match
                 logging.debug(
-                    "Semantic rel (legacy): '%s' → '%s' (score=%.2f)", raw_type, matched_id, matched_score
+                    "Semantic rel (legacy): '%s' → '%s' (score=%.2f)",
+                    raw_type,
+                    matched_id,
+                    matched_score,
                 )
-                return matched_id.replace(' ', '_').replace('-', '_').upper()
+                return matched_id.replace(" ", "_").replace("-", "_").upper()
             best_match, best_score = None, 0.0
             for ont_rel in ont_rels:
-                candidate = ont_rel['label'].lower().replace(' ', '_')
+                candidate = ont_rel["label"].lower().replace(" ", "_")
                 score = difflib.SequenceMatcher(None, normalized_raw, candidate).ratio()
-                id_score = difflib.SequenceMatcher(None, normalized_raw, ont_rel['id'].lower()).ratio()
+                id_score = difflib.SequenceMatcher(
+                    None, normalized_raw, ont_rel["id"].lower()
+                ).ratio()
                 best_s = max(score, id_score)
                 if best_s > best_score:
                     best_score, best_match = best_s, ont_rel
             if best_match and best_score >= 0.72:
                 logging.debug(
-                    "Fuzzy rel (legacy): '%s' → '%s' (score=%.2f)", raw_type, best_match['id'], best_score
+                    "Fuzzy rel (legacy): '%s' → '%s' (score=%.2f)",
+                    raw_type,
+                    best_match["id"],
+                    best_score,
                 )
-                return best_match['id'].replace(' ', '_').replace('-', '_').upper()
+                return best_match["id"].replace(" ", "_").replace("-", "_").upper()
 
         # Step 3: sanitize raw type
-        sanitized = raw_type.strip().replace(' ', '_').replace('-', '_').upper()
+        sanitized = raw_type.strip().replace(" ", "_").replace("-", "_").upper()
         if schema:
             generic_rel = self._schema_generic_relationship_type()
             if generic_rel:
@@ -978,9 +1188,11 @@ class OntologySchemaMixin:
                 target_type or "?",
             )
             return None
-        if len(sanitized) > 50 or not re.match(r'^[A-Z][A-Z0-9_]*$', sanitized):
-            logging.debug("Rel type '%s' failed sanitization; using ASSOCIATED_WITH", raw_type)
-            return 'ASSOCIATED_WITH'
+        if len(sanitized) > 50 or not re.match(r"^[A-Z][A-Z0-9_]*$", sanitized):
+            logging.debug(
+                "Rel type '%s' failed sanitization; using ASSOCIATED_WITH", raw_type
+            )
+            return "ASSOCIATED_WITH"
         return sanitized
 
     def _normalize_entity_text(self, text: str) -> str:
@@ -997,21 +1209,21 @@ class OntologySchemaMixin:
         The LLM is expected to produce consistent names; UUID5-based
         deduplication in _harmonize_entities handles surface variants.
         """
-        normalized = re.sub(r'\s+', ' ', text.lower().strip())
+        normalized = re.sub(r"\s+", " ", text.lower().strip())
 
         # Strip leading articles and conjunctions
-        normalized = re.sub(r'^(the |an |a |and |or )', '', normalized)
+        normalized = re.sub(r"^(the |an |a |and |or )", "", normalized)
 
         # Remove punctuation that doesn't carry semantic weight
-        normalized = re.sub(r'[,()\[\];:.]', '', normalized)
+        normalized = re.sub(r"[,()\[\];:.]", "", normalized)
 
         # Collapse hyphens/slashes to underscores for stable keys
-        normalized = re.sub(r'[\-/]', '_', normalized)
+        normalized = re.sub(r"[\-/]", "_", normalized)
 
         # Final cleanup
-        normalized = re.sub(r'\s+', '_', normalized.strip())
-        normalized = re.sub(r'_+', '_', normalized)
-        normalized = normalized.strip('_')
+        normalized = re.sub(r"\s+", "_", normalized.strip())
+        normalized = re.sub(r"_+", "_", normalized)
+        normalized = normalized.strip("_")
 
         return normalized
 
@@ -1028,7 +1240,9 @@ class OntologySchemaMixin:
         harmonized_relationships: List[Dict[str, Any]],
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Apply ontology type enforcement after harmonization as a final backstop."""
-        has_ontology = bool(self._ontology_schema and self._ontology_schema.entity_types) or bool(self.ontology_classes)
+        has_ontology = bool(
+            self._ontology_schema and self._ontology_schema.entity_types
+        ) or bool(self.ontology_classes)
         if not has_ontology:
             return harmonized_entities, harmonized_relationships
 
@@ -1052,10 +1266,14 @@ class OntologySchemaMixin:
             valid_entity_ids.add(entity_copy.get("uuid"))
 
         filtered_relationships = [
-            rel for rel in harmonized_relationships
-            if rel.get("source") in valid_entity_ids and rel.get("target") in valid_entity_ids
+            rel
+            for rel in harmonized_relationships
+            if rel.get("source") in valid_entity_ids
+            and rel.get("target") in valid_entity_ids
         ]
-        dropped_relationships = len(harmonized_relationships) - len(filtered_relationships)
+        dropped_relationships = len(harmonized_relationships) - len(
+            filtered_relationships
+        )
         if dropped_entities or dropped_relationships:
             logging.info(
                 "Ontology enforcement dropped %d harmonized entities and %d relationships",

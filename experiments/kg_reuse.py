@@ -34,7 +34,9 @@ def assess_dataset_kg_compatibility(
                 f"{label} mismatch (stored={existing_value!r}, expected={expected_value!r})"
             )
 
-    _compare("uses_global_corpus", "usesGlobalCorpus", "usesGlobalCorpus", normalizer=bool)
+    _compare(
+        "uses_global_corpus", "usesGlobalCorpus", "usesGlobalCorpus", normalizer=bool
+    )
     _compare("corpus_source", "corpusSource", "corpusSource")
     _compare("question_context_role", "questionContextRole", "questionContextRole")
     _compare("dataset_kg_scope", "datasetKgScope", "datasetKgScope")
@@ -52,9 +54,8 @@ def assess_dataset_kg_compatibility(
     _compare("kg_extraction_model", "kgExtractionModel", "kgExtractionModel")
     _compare("kg_embedding_provider", "kgEmbeddingProvider", "kgEmbeddingProvider")
 
-    if (
-        expected_meta.get("datasetKgScope") == evaluation_subset_scope
-        and not bool(expected_meta.get("usesGlobalCorpus"))
+    if expected_meta.get("datasetKgScope") == evaluation_subset_scope and not bool(
+        expected_meta.get("usesGlobalCorpus")
     ):
         _compare("selection_key", "selectionKey", "selectionKey")
 

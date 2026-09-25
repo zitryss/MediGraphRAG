@@ -40,7 +40,9 @@ def _question_id(item: Dict[str, Any], idx: int) -> str:
 
 def _paragraph_text(title: str, sentences: Any) -> str:
     if isinstance(sentences, list):
-        body = " ".join(str(sentence).strip() for sentence in sentences if str(sentence).strip())
+        body = " ".join(
+            str(sentence).strip() for sentence in sentences if str(sentence).strip()
+        )
     else:
         body = str(sentences or "").strip()
     title = str(title or "").strip()
@@ -104,7 +106,9 @@ def prepare_corpus(
     overwrite: bool,
 ) -> Dict[str, Any]:
     if output.exists() and not overwrite:
-        raise FileExistsError(f"Output already exists: {output}. Pass --overwrite to replace it.")
+        raise FileExistsError(
+            f"Output already exists: {output}. Pass --overwrite to replace it."
+        )
     if selection_output.exists() and not overwrite:
         raise FileExistsError(
             f"Selection already exists: {selection_output}. Pass --overwrite to replace it."

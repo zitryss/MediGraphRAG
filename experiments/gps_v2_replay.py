@@ -66,12 +66,18 @@ DENSE_CFG = "dense_floor_thr0.1_k10_rt0p0"
 KG_CFG = "kg_entity_first_thr0.1_k10_rt0p0"
 
 MIN_NAME_LENGTH = 4
-MAX_ENTITIES = 5          # per side, matching GPS-v1
-MAX_SOFT_SPANS = 24       # candidate spans embedded per text
-TAU_LOOSE = float(os.environ.get("GPS_TAU_LOOSE", 0.60))          # store floor; grid taus filter above this
-TAU_Q = 0.75              # fixed question-side soft-fallback threshold (not tuned)
-GRID_TAU = tuple(float(x) for x in os.environ.get("GPS_GRID_TAU", "0.60,0.65,0.72,0.80").split(","))
-GRID_GAMMA = tuple(float(x) for x in os.environ.get("GPS_GRID_GAMMA", "0.5,0.7,1.0").split(","))
+MAX_ENTITIES = 5  # per side, matching GPS-v1
+MAX_SOFT_SPANS = 24  # candidate spans embedded per text
+TAU_LOOSE = float(
+    os.environ.get("GPS_TAU_LOOSE", 0.60)
+)  # store floor; grid taus filter above this
+TAU_Q = 0.75  # fixed question-side soft-fallback threshold (not tuned)
+GRID_TAU = tuple(
+    float(x) for x in os.environ.get("GPS_GRID_TAU", "0.60,0.65,0.72,0.80").split(",")
+)
+GRID_GAMMA = tuple(
+    float(x) for x in os.environ.get("GPS_GRID_GAMMA", "0.5,0.7,1.0").split(",")
+)
 
 
 def _load_env() -> Dict[str, str]:
@@ -97,7 +103,9 @@ def _select_config(doc: Dict[str, Any], name: str) -> Dict[str, Any]:
     raise ValueError(f"missing config {name}")
 
 
-def _merged_rows(result_path: str, kg_cfg: str = KG_CFG, with_dense: bool = True) -> List[Dict[str, Any]]:
+def _merged_rows(
+    result_path: str, kg_cfg: str = KG_CFG, with_dense: bool = True
+) -> List[Dict[str, Any]]:
     """vanilla_* fields from the dense config, kg_* from entity-first (paper convention)."""
     doc = json.load(open(result_path))
     dense = (
@@ -174,15 +182,17 @@ class ScopedEntityIndex:
         if not spans:
             return []
         span_embs = encoder.encode(spans, normalize_embeddings=True)
-        sims = span_embs @ self.emb_matrix.T          # (spans, entities)
-        best = sims.max(axis=0)                       # best span per entity
+        sims = span_embs @ self.emb_matrix.T  # (spans, entities)
+        best = sims.max(axis=0)  # best span per entity
         order = np.argsort(-best)
         out = []
         for idx in order[: MAX_ENTITIES * 3]:
             cos = float(best[idx])
             if cos < tau:
                 break
-            out.append({"id": self.emb_ids[idx], "name": self.emb_names[idx], "cos": cos})
+            out.append(
+                {"id": self.emb_ids[idx], "name": self.emb_names[idx], "cos": cos}
+            )
         return out
 
 
@@ -246,7 +256,12 @@ def replay_question(
     for m in index.surface_match(span):
         a_id = str(m.get("id"))
         if a_id:
-            a_links[a_id] = {"id": a_id, "name": m.get("name"), "cos": 1.0, "source": "surface"}
+            a_links[a_id] = {
+                "id": a_id,
+                "name": m.get("name"),
+                "cos": 1.0,
+                "source": "surface",
+            }
     for m in index.soft_match(span, encoder, TAU_LOOSE):
         if m["id"] not in a_links:
             a_links[m["id"]] = {**m, "source": "soft"}
@@ -269,17 +284,22 @@ def replay_question(
             session, a["q_sources"], a["id"], kg_name, question_id, max_hops
         )
         del a["q_sources"]
-    return {"null_reason": None, "q_ids": q_ids, "q_source": q_source, "answers": answers}
+    return {
+        "null_reason": None,
+        "q_ids": q_ids,
+        "q_source": q_source,
+        "answers": answers,
+    }
 
 
-def score_from_store(store_row: Dict[str, Any], tau: float, gamma: float) -> Dict[str, Any]:
+def score_from_store(
+    store_row: Dict[str, Any], tau: float, gamma: float
+) -> Dict[str, Any]:
     """Evaluate one (tau, gamma) grid point from a stored replay row."""
     if store_row.get("null_reason"):
         return {"score": 0.5, "null_reason": store_row["null_reason"]}
     kept = [
-        a
-        for a in store_row["answers"]
-        if a["source"] == "surface" or a["cos"] >= tau
+        a for a in store_row["answers"] if a["source"] == "surface" or a["cos"] >= tau
     ][:MAX_ENTITIES]
     if not kept:
         return {"score": 0.5, "null_reason": "no_a_entities"}
@@ -296,7 +316,9 @@ def auroc(scores: List[float], wrong: List[bool]) -> Optional[float]:
     return float(roc_auc_score([int(w) for w in wrong], scores))
 
 
-def summarize(rows: List[Dict[str, Any]], side: str, tau: float, gamma: float) -> Dict[str, Any]:
+def summarize(
+    rows: List[Dict[str, Any]], side: str, tau: float, gamma: float
+) -> Dict[str, Any]:
     scored, wrong, reasons = [], [], Counter()
     answered = 0
     for r in rows:
@@ -320,7 +342,9 @@ def summarize(rows: List[Dict[str, Any]], side: str, tau: float, gamma: float) -
     }
 
 
-def run_dataset(slug: str, env: Dict[str, str], encoder, grid: bool, tau: float, gamma: float):
+def run_dataset(
+    slug: str, env: Dict[str, str], encoder, grid: bool, tau: float, gamma: float
+):
     from neo4j import GraphDatabase
 
     manifest_key, scoped, max_hops = DATASETS[slug]
@@ -341,7 +365,9 @@ def run_dataset(slug: str, env: Dict[str, str], encoder, grid: bool, tau: float,
     with driver.session(database=env["database"]) as session:
         if not scoped:
             shared_index = ScopedEntityIndex(session, slug, None)
-            print(f"[{slug}] shared index: {len(shared_index.emb_ids)} embedded entities")
+            print(
+                f"[{slug}] shared index: {len(shared_index.emb_ids)} embedded entities"
+            )
         for i, r in enumerate(rows):
             qid = str(r["question_id"]) if scoped else None
             index = shared_index or ScopedEntityIndex(session, slug, qid)
@@ -356,7 +382,14 @@ def run_dataset(slug: str, env: Dict[str, str], encoder, grid: bool, tau: float,
                     r["store"][side] = {"null_reason": "generation_failed"}
                     continue
                 r["store"][side] = replay_question(
-                    session, encoder, index, r["question"], r[resp_key], slug, qid, max_hops
+                    session,
+                    encoder,
+                    index,
+                    r["question"],
+                    r[resp_key],
+                    slug,
+                    qid,
+                    max_hops,
                 )
             if (i + 1) % 25 == 0:
                 print(f"[{slug}] {i + 1}/{len(rows)} ({time.time() - t0:.0f}s)")
@@ -413,12 +446,15 @@ def run_dataset(slug: str, env: Dict[str, str], encoder, grid: bool, tau: float,
     }
     suffix = "_strict" if runfile else ""
     out_path = os.path.join(
-        os.path.dirname(result_path), f"gps_v2_replay_{slug}{suffix}_{date.today():%Y%m%d}.json"
+        os.path.dirname(result_path),
+        f"gps_v2_replay_{slug}{suffix}_{date.today():%Y%m%d}.json",
     )
     json.dump(out, open(out_path, "w"), indent=1)
     print(f"[{slug}] wrote {out_path}")
     for side in eval_sides:
-        print(f"[{slug}] {side}: v1 usable={v1[side]['usable']} auroc={v1[side]['auroc']}")
+        print(
+            f"[{slug}] {side}: v1 usable={v1[side]['usable']} auroc={v1[side]['auroc']}"
+        )
         for s in summary[side]:
             print(
                 f"[{slug}] {side}: v2 tau={s['tau']} gamma={s['gamma']} "

@@ -59,12 +59,19 @@ def test_parse_guardrail_verdict_keep_keyword_detected():
 
 def test_evaluate_runtime_answer_guardrail_uses_llm_json():
     llm = RunnableLambda(
-        lambda _: '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}'
+        lambda _: (
+            '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}'
+        )
     )
     verdict = evaluate_runtime_answer_guardrail(
         question="Who directed Lost and Delirious?",
         answer="Léa Pool",
-        chunks=[{"document": "2wikimultihopqa", "text": "Lost and Delirious is a 2001 Canadian drama film directed by Léa Pool."}],
+        chunks=[
+            {
+                "document": "2wikimultihopqa",
+                "text": "Lost and Delirious is a 2001 Canadian drama film directed by Léa Pool.",
+            }
+        ],
         llm=llm,
     )
     assert verdict["decision"] == "retry"

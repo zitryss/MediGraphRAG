@@ -19,7 +19,9 @@ app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="markdown",
 )
-explore_app = typer.Typer(help="Inspect named knowledge graphs exposed by a running OntographRAG server.")
+explore_app = typer.Typer(
+    help="Inspect named knowledge graphs exposed by a running OntographRAG server."
+)
 app.add_typer(explore_app, name="explore")
 
 
@@ -37,7 +39,9 @@ def _raise_for_status(response: httpx.Response) -> None:
             detail = payload.get("detail") or payload.get("message") or detail
     except Exception:
         pass
-    raise typer.BadParameter(f"{response.status_code} {response.reason_phrase}: {detail}")
+    raise typer.BadParameter(
+        f"{response.status_code} {response.reason_phrase}: {detail}"
+    )
 
 
 def _repo_root() -> Path:
@@ -68,7 +72,11 @@ def _request_kwargs(api_key: Optional[str]) -> dict:
 
 def _normalize_probe_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", str(text or ""))
-    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower().strip()
+    return (
+        "".join(ch for ch in normalized if not unicodedata.combining(ch))
+        .lower()
+        .strip()
+    )
 
 
 @app.command()
@@ -85,9 +93,19 @@ def serve(
 
 @app.command()
 def doctor(
-    probe_models: bool = typer.Option(False, help="Actively probe configured model providers."),
-    write_probe_dir: Optional[Path] = typer.Option(None, exists=False, file_okay=False, dir_okay=True, help="Directory used for the write-permission probe."),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    probe_models: bool = typer.Option(
+        False, help="Actively probe configured model providers."
+    ),
+    write_probe_dir: Optional[Path] = typer.Option(
+        None,
+        exists=False,
+        file_okay=False,
+        dir_okay=True,
+        help="Directory used for the write-permission probe.",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit machine-readable JSON."
+    ),
 ) -> None:
     """Run a readiness check for Neo4j, embeddings, OCR, ontology parsing, and write access."""
     from ontographrag.api.app import run_doctor_checks
@@ -115,16 +133,36 @@ def doctor(
 
 @app.command()
 def ingest(
-    file: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True, help="Document to ingest."),
-    server: str = typer.Option("http://127.0.0.1:8004", help="OntographRAG server base URL."),
-    kg_name: Optional[str] = typer.Option(None, help="Name for the resulting knowledge graph."),
-    ontology: Optional[Path] = typer.Option(None, exists=True, dir_okay=False, readable=True, help="Optional ontology (.json/.owl)."),
+    file: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, readable=True, help="Document to ingest."
+    ),
+    server: str = typer.Option(
+        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+    ),
+    kg_name: Optional[str] = typer.Option(
+        None, help="Name for the resulting knowledge graph."
+    ),
+    ontology: Optional[Path] = typer.Option(
+        None,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Optional ontology (.json/.owl).",
+    ),
     provider: str = typer.Option("openai", help="KG extraction provider."),
     model: str = typer.Option("gpt-4o-mini", help="KG extraction model."),
-    embedding_model: str = typer.Option("sentence_transformers", help="Embedding backend."),
+    embedding_model: str = typer.Option(
+        "sentence_transformers", help="Embedding backend."
+    ),
     max_chunks: int = typer.Option(20, min=1, help="Max chunks to process."),
-    enable_coreference: bool = typer.Option(False, help="Enable cross-chunk coreference resolution."),
-    api_key: Optional[str] = typer.Option(None, envvar="ONTOGRAPHRAG_API_KEY", help="API key for protected OntographRAG servers."),
+    enable_coreference: bool = typer.Option(
+        False, help="Enable cross-chunk coreference resolution."
+    ),
+    api_key: Optional[str] = typer.Option(
+        None,
+        envvar="ONTOGRAPHRAG_API_KEY",
+        help="API key for protected OntographRAG servers.",
+    ),
 ) -> None:
     """Ingest a document into a named knowledge graph through a running server."""
     url = f"{_base_url(server)}/create_ontology_guided_kg"
@@ -142,7 +180,11 @@ def ingest(
         "file": (file.name, file.read_bytes(), "application/octet-stream"),
     }
     if ontology:
-        files["ontology_file"] = (ontology.name, ontology.read_bytes(), "application/octet-stream")
+        files["ontology_file"] = (
+            ontology.name,
+            ontology.read_bytes(),
+            "application/octet-stream",
+        )
 
     with httpx.Client(timeout=300.0) as client:
         response = client.post(url, data=data, files=files, **_request_kwargs(api_key))
@@ -158,12 +200,20 @@ def ingest(
 @app.command()
 def ask(
     question: str = typer.Argument(..., help="Question to ask against the active KG."),
-    server: str = typer.Option("http://127.0.0.1:8004", help="OntographRAG server base URL."),
-    kg_name: Optional[str] = typer.Option(None, help="Restrict retrieval to a named KG."),
+    server: str = typer.Option(
+        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+    ),
+    kg_name: Optional[str] = typer.Option(
+        None, help="Restrict retrieval to a named KG."
+    ),
     provider: str = typer.Option("openai", help="RAG provider."),
     model: str = typer.Option("gpt-4o-mini", help="RAG model."),
     json_output: bool = typer.Option(False, "--json", help="Emit full JSON response."),
-    api_key: Optional[str] = typer.Option(None, envvar="ONTOGRAPHRAG_API_KEY", help="API key for protected OntographRAG servers."),
+    api_key: Optional[str] = typer.Option(
+        None,
+        envvar="ONTOGRAPHRAG_API_KEY",
+        help="API key for protected OntographRAG servers.",
+    ),
 ) -> None:
     """Ask a grounded question against a running OntographRAG server."""
     payload = {
@@ -175,7 +225,9 @@ def ask(
         payload["kg_name"] = kg_name
 
     with httpx.Client(timeout=180.0) as client:
-        response = client.post(f"{_base_url(server)}/chat", json=payload, **_request_kwargs(api_key))
+        response = client.post(
+            f"{_base_url(server)}/chat", json=payload, **_request_kwargs(api_key)
+        )
     _raise_for_status(response)
     result = response.json()
     if json_output:
@@ -189,15 +241,24 @@ def ask(
         typer.echo(f"\nKG confidence: {kg_confidence:.3f}")
     used_entities = info.get("entities", {}).get("used_entities") or []
     if used_entities:
-        names = [entity.get("description") or entity.get("id") for entity in used_entities[:10]]
+        names = [
+            entity.get("description") or entity.get("id")
+            for entity in used_entities[:10]
+        ]
         typer.echo("Sources: " + ", ".join(filter(None, names)))
 
 
 @app.command("runtime-regression")
 def runtime_regression(
-    server: str = typer.Option("http://127.0.0.1:8004", help="OntographRAG server base URL."),
-    provider: str = typer.Option("openrouter", help="RAG provider for the regression pass."),
-    model: str = typer.Option("openai/gpt-4o-mini", help="RAG model for the regression pass."),
+    server: str = typer.Option(
+        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+    ),
+    provider: str = typer.Option(
+        "openrouter", help="RAG provider for the regression pass."
+    ),
+    model: str = typer.Option(
+        "openai/gpt-4o-mini", help="RAG model for the regression pass."
+    ),
     cases_file: Path = typer.Option(
         _repo_root() / "experiments" / "runtime_regression_cases.json",
         exists=True,
@@ -205,14 +266,22 @@ def runtime_regression(
         readable=True,
         help="JSON file containing curated runtime regression cases.",
     ),
-    api_key: Optional[str] = typer.Option(None, envvar="ONTOGRAPHRAG_API_KEY", help="API key for protected OntographRAG servers."),
-    stop_on_failure: bool = typer.Option(False, help="Stop after the first failing case."),
+    api_key: Optional[str] = typer.Option(
+        None,
+        envvar="ONTOGRAPHRAG_API_KEY",
+        help="API key for protected OntographRAG servers.",
+    ),
+    stop_on_failure: bool = typer.Option(
+        False, help="Stop after the first failing case."
+    ),
     timeout_seconds: float = typer.Option(180.0, min=10.0, help="Per-request timeout."),
 ) -> None:
     """Run curated live regression questions against a running server."""
     cases = json.loads(cases_file.read_text())
     if not isinstance(cases, list) or not cases:
-        raise typer.BadParameter("Regression cases file must contain a non-empty JSON array.")
+        raise typer.BadParameter(
+            "Regression cases file must contain a non-empty JSON array."
+        )
 
     failures = 0
     with httpx.Client(timeout=timeout_seconds) as client:
@@ -240,16 +309,27 @@ def runtime_regression(
             info = result.get("info") or {}
             guardrail = info.get("guardrail") or {}
 
-            expected_any = [str(item) for item in (case.get("expected_any") or []) if str(item).strip()]
+            expected_any = [
+                str(item)
+                for item in (case.get("expected_any") or [])
+                if str(item).strip()
+            ]
             normalized_answer = _normalize_probe_text(answer)
-            matched = any(_normalize_probe_text(expected) in normalized_answer for expected in expected_any)
+            matched = any(
+                _normalize_probe_text(expected) in normalized_answer
+                for expected in expected_any
+            )
 
             if matched:
-                typer.echo(f"PASS [{idx}/{len(cases)}] {case.get('id', f'case-{idx}')}: {question}")
+                typer.echo(
+                    f"PASS [{idx}/{len(cases)}] {case.get('id', f'case-{idx}')}: {question}"
+                )
                 continue
 
             failures += 1
-            typer.echo(f"FAIL [{idx}/{len(cases)}] {case.get('id', f'case-{idx}')}: {question}")
+            typer.echo(
+                f"FAIL [{idx}/{len(cases)}] {case.get('id', f'case-{idx}')}: {question}"
+            )
             typer.echo(f"  Expected any of: {expected_any}")
             typer.echo(f"  Got: {answer}")
             if guardrail:
@@ -265,28 +345,46 @@ def runtime_regression(
 
 @explore_app.command("list")
 def explore_list(
-    server: str = typer.Option("http://127.0.0.1:8004", help="OntographRAG server base URL."),
-    api_key: Optional[str] = typer.Option(None, envvar="ONTOGRAPHRAG_API_KEY", help="API key for protected OntographRAG servers."),
+    server: str = typer.Option(
+        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+    ),
+    api_key: Optional[str] = typer.Option(
+        None,
+        envvar="ONTOGRAPHRAG_API_KEY",
+        help="API key for protected OntographRAG servers.",
+    ),
 ) -> None:
     """List known KGs on the server."""
     with httpx.Client(timeout=30.0) as client:
-        response = client.get(f"{_base_url(server)}/kg/list", **_request_kwargs(api_key))
+        response = client.get(
+            f"{_base_url(server)}/kg/list", **_request_kwargs(api_key)
+        )
     _raise_for_status(response)
     payload = response.json()
     for kg in payload.get("kgs", []):
-        typer.echo(f"- {kg.get('kg_name') or kg.get('name')}: {kg.get('documentCount', '?')} documents")
+        typer.echo(
+            f"- {kg.get('kg_name') or kg.get('name')}: {kg.get('documentCount', '?')} documents"
+        )
 
 
 @explore_app.command("show")
 def explore_show(
     kg_name: str = typer.Argument(..., help="Knowledge graph name."),
-    server: str = typer.Option("http://127.0.0.1:8004", help="OntographRAG server base URL."),
+    server: str = typer.Option(
+        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit full JSON payload."),
-    api_key: Optional[str] = typer.Option(None, envvar="ONTOGRAPHRAG_API_KEY", help="API key for protected OntographRAG servers."),
+    api_key: Optional[str] = typer.Option(
+        None,
+        envvar="ONTOGRAPHRAG_API_KEY",
+        help="API key for protected OntographRAG servers.",
+    ),
 ) -> None:
     """Show summary information for a named KG."""
     with httpx.Client(timeout=30.0) as client:
-        response = client.get(f"{_base_url(server)}/kg/{kg_name}", **_request_kwargs(api_key))
+        response = client.get(
+            f"{_base_url(server)}/kg/{kg_name}", **_request_kwargs(api_key)
+        )
     _raise_for_status(response)
     payload = response.json()
     if json_output:
@@ -304,7 +402,11 @@ def explore_show(
 def evaluate(ctx: typer.Context) -> None:
     """Run the benchmark pipeline with the existing experiment runner."""
     if importlib.util.find_spec("experiments.experiment") is not None:
-        raise typer.Exit(code=subprocess.call([sys.executable, "-m", "experiments.experiment", *ctx.args]))
+        raise typer.Exit(
+            code=subprocess.call(
+                [sys.executable, "-m", "experiments.experiment", *ctx.args]
+            )
+        )
     script = _find_experiment_script()
     if script is None:
         raise typer.BadParameter(
@@ -390,7 +492,7 @@ _BENCHMARK_DATASETS: dict[str, dict] = {
         "source": "http://bioasq.org/participate/challenges",
         "prep": "bioasq",
         "note": "Free registration required. After download, build the shared "
-                "PubMed corpus with `ontograph prepare-bioasq-corpus`.",
+        "PubMed corpus with `ontograph prepare-bioasq-corpus`.",
     },
     "hotpotqa": {
         "path": "MIRAGE/rawdata/hotpotqa/hotpot_dev_fullwiki_v1.json",
@@ -403,7 +505,7 @@ _BENCHMARK_DATASETS: dict[str, dict] = {
         "download": "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_fullwiki_v1.json",
         "prep": "fullwiki",
         "note": "Shares the HotpotQA raw file; `prepare` builds the shared "
-                "FullWiki corpus.",
+        "FullWiki corpus.",
     },
     "2wikimultihopqa": {
         "path": "MIRAGE/rawdata/2wikimultihopqa/dev.json",
@@ -499,7 +601,12 @@ def prepare(
 
     prep = spec.get("prep")
     if prep == "fullwiki":
-        cmd = [sys.executable, "-m", "experiments.prepare_hotpotqa_fullwiki_corpus", *ctx.args]
+        cmd = [
+            sys.executable,
+            "-m",
+            "experiments.prepare_hotpotqa_fullwiki_corpus",
+            *ctx.args,
+        ]
         raise typer.Exit(code=subprocess.call(cmd))
     if prep == "bioasq":
         typer.echo(
@@ -508,7 +615,9 @@ def prepare(
         )
         return
     typer.echo(f"{dataset} is ready: {raw_path}")
-    typer.echo(f"Run it with: ontograph evaluate --datasets {dataset} --num-samples 100 --subset-seed 42")
+    typer.echo(
+        f"Run it with: ontograph evaluate --datasets {dataset} --num-samples 100 --subset-seed 42"
+    )
 
 
 def main() -> None:

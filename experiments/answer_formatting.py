@@ -84,7 +84,9 @@ def _strip_short_answer_wrapper(response: str) -> str:
         return ""
 
     # Prefer the first non-empty line for wrapper-style outputs.
-    first_line = next((line.strip() for line in text.splitlines() if line.strip()), text)
+    first_line = next(
+        (line.strip() for line in text.splitlines() if line.strip()), text
+    )
 
     wrapper_patterns = [
         r"^\s*(?:final answer|answer)\s*[:\-]\s*(.+?)\s*$",
@@ -159,7 +161,9 @@ def _normalize_football_club_answer(response: str, question: str) -> str:
     return normalized.strip().strip(" .") or text
 
 
-def _normalize_multihop_short_answer(response: str, question: str, task_type: str) -> str:
+def _normalize_multihop_short_answer(
+    response: str, question: str, task_type: str
+) -> str:
     """Question-aware canonicalizer for short-answer multi-hop benchmarks."""
     text = _strip_short_answer_wrapper(response)
     if not text:
@@ -175,7 +179,9 @@ def _normalize_multihop_short_answer(response: str, question: str, task_type: st
     if date_span:
         return date_span
 
-    first_line = next((line.strip() for line in text.splitlines() if line.strip()), text)
+    first_line = next(
+        (line.strip() for line in text.splitlines() if line.strip()), text
+    )
     first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
     if 0 < len(first_sentence.split()) <= 6:
         text = first_sentence.strip().strip(" .")
@@ -241,7 +247,9 @@ def _normalize_bioasq_answer(response: str, question: str, task_type: str) -> st
     if numeric_span:
         return numeric_span
 
-    first_line = next((line.strip() for line in text.splitlines() if line.strip()), text)
+    first_line = next(
+        (line.strip() for line in text.splitlines() if line.strip()), text
+    )
     first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
 
     subject = _extract_subject_before_copula(first_sentence)
@@ -282,7 +290,9 @@ def _normalize_generic_answer(response: str, question: str, task_type: str) -> s
     return _strip_short_answer_wrapper(response)
 
 
-def _register_normalizer(dataset_names: Iterable[str], fn: Callable[[str, str, str], str]) -> None:
+def _register_normalizer(
+    dataset_names: Iterable[str], fn: Callable[[str, str, str], str]
+) -> None:
     for name in dataset_names:
         _QUESTION_NORMALIZERS[str(name).strip().lower()] = fn
 
@@ -313,77 +323,93 @@ def build_answer_instructions(
     lines = []
 
     if dataset == "pubmedqa":
-        lines.extend([
-            "This is a 3-label scientific inference task, not open-ended QA.",
-            "Respond with exactly one word: yes, no, or maybe.",
-            "Do not add any explanation, hedging phrase, or second sentence.",
-            "Choose yes when the abstract overall supports the claim.",
-            "Choose no when the abstract overall rejects the claim.",
-            "IMPORTANT: 'maybe' is rare — use it only when the abstract explicitly states the evidence is inconclusive or contradictory and no overall conclusion can be drawn. Most abstracts have a clear directional conclusion; choose yes or no in those cases.",
-            "If a study shows mixed results but the authors draw a net conclusion (e.g. 'overall, treatment X was effective'), that counts as yes or no, not maybe.",
-            "When graph paths are present, treat them as auxiliary support only; they must not override the study conclusion stated in the text chunks.",
-        ])
+        lines.extend(
+            [
+                "This is a 3-label scientific inference task, not open-ended QA.",
+                "Respond with exactly one word: yes, no, or maybe.",
+                "Do not add any explanation, hedging phrase, or second sentence.",
+                "Choose yes when the abstract overall supports the claim.",
+                "Choose no when the abstract overall rejects the claim.",
+                "IMPORTANT: 'maybe' is rare — use it only when the abstract explicitly states the evidence is inconclusive or contradictory and no overall conclusion can be drawn. Most abstracts have a clear directional conclusion; choose yes or no in those cases.",
+                "If a study shows mixed results but the authors draw a net conclusion (e.g. 'overall, treatment X was effective'), that counts as yes or no, not maybe.",
+                "When graph paths are present, treat them as auxiliary support only; they must not override the study conclusion stated in the text chunks.",
+            ]
+        )
         return "\n".join(lines)
 
     if dataset == "bioasq" and task == "binary":
-        lines.extend([
-            "This is a binary biomedical QA task.",
-            "Respond with exactly one word: yes or no.",
-            "Do not answer with maybe.",
-            "Do not add explanation unless the task-specific context explicitly requires it.",
-        ])
+        lines.extend(
+            [
+                "This is a binary biomedical QA task.",
+                "Respond with exactly one word: yes or no.",
+                "Do not answer with maybe.",
+                "Do not add explanation unless the task-specific context explicitly requires it.",
+            ]
+        )
         return "\n".join(lines)
 
     if dataset == "realmedqa":
-        lines.extend([
-            "This is clinical recommendation QA grounded in guideline text.",
-            "Answer with a concise clinical recommendation in 1 to 3 sentences.",
-            "Do not answer with a single entity, label, or fragment.",
-            "Stay close to the retrieved guideline wording and do not invent extra recommendations.",
-            'Use "Insufficient Information." only as a last resort when the retrieved guideline text contains no plausible grounded recommendation to return.',
-        ])
+        lines.extend(
+            [
+                "This is clinical recommendation QA grounded in guideline text.",
+                "Answer with a concise clinical recommendation in 1 to 3 sentences.",
+                "Do not answer with a single entity, label, or fragment.",
+                "Stay close to the retrieved guideline wording and do not invent extra recommendations.",
+                'Use "Insufficient Information." only as a last resort when the retrieved guideline text contains no plausible grounded recommendation to return.',
+            ]
+        )
         return "\n".join(lines)
 
     if task == "mcq" and normalized_options:
-        lines.extend([
-            "This is a multiple-choice question.",
-            "Choose exactly one option from the list below.",
-            "Begin your response with the option letter, then the option text.",
-            "Do not invent a new option or answer outside the list.",
-            "Options:",
-        ])
+        lines.extend(
+            [
+                "This is a multiple-choice question.",
+                "Choose exactly one option from the list below.",
+                "Begin your response with the option letter, then the option text.",
+                "Do not invent a new option or answer outside the list.",
+                "Options:",
+            ]
+        )
         for key, value in normalized_options.items():
             lines.append(f"{key}. {value}")
         return "\n".join(lines)
 
     if dataset == "multihoprag":
-        lines.extend([
-            "Answer with the shortest correct entity, title, date, number, or phrase grounded in the retrieved documents.",
-            "Do not write an explanatory sentence.",
-            "If the question compares two candidates, return only the selected candidate.",
-            'Prefer returning the shortest best-supported answer span from the retrieved evidence.',
-            'Use "Insufficient Information." only as a last resort when no plausible answer candidate is grounded at all.',
-        ])
+        lines.extend(
+            [
+                "Answer with the shortest correct entity, title, date, number, or phrase grounded in the retrieved documents.",
+                "Do not write an explanatory sentence.",
+                "If the question compares two candidates, return only the selected candidate.",
+                "Prefer returning the shortest best-supported answer span from the retrieved evidence.",
+                'Use "Insufficient Information." only as a last resort when no plausible answer candidate is grounded at all.',
+            ]
+        )
         if task == "binary":
-            lines.append("For binary questions, begin your response with exactly Yes or No.")
+            lines.append(
+                "For binary questions, begin your response with exactly Yes or No."
+            )
         return "\n".join(lines)
 
     if dataset in {"hotpotqa", "2wikimultihopqa", "musique"} and task == "free_text":
-        lines.extend([
-            "This is a short-answer multi-hop QA task.",
-            "Respond with the shortest correct entity, title, date, number, or phrase only.",
-            "Do not write an explanatory sentence or reasoning chain after the answer.",
-            "Do not restate the question.",
-            "For comparison questions, return only the winning entity/title/person, not an explanation.",
-            "If the answer is a date, location, person, or title, return exactly that span.",
-        ])
+        lines.extend(
+            [
+                "This is a short-answer multi-hop QA task.",
+                "Respond with the shortest correct entity, title, date, number, or phrase only.",
+                "Do not write an explanatory sentence or reasoning chain after the answer.",
+                "Do not restate the question.",
+                "For comparison questions, return only the winning entity/title/person, not an explanation.",
+                "If the answer is a date, location, person, or title, return exactly that span.",
+            ]
+        )
         return "\n".join(lines)
 
     if task == "binary":
-        lines.extend([
-            "This is a binary question.",
-            "Begin your response with exactly Yes or No as the first word.",
-        ])
+        lines.extend(
+            [
+                "This is a binary question.",
+                "Begin your response with exactly Yes or No as the first word.",
+            ]
+        )
         return "\n".join(lines)
 
     if task == "free_text":

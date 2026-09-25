@@ -4,6 +4,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from ontographrag.rag.graph_state import summarize_context_graph_state
 
+
 class IterativeRetrievalMixin:
     """Iterative multi-hop sub-question retrieval.
 
@@ -85,16 +86,24 @@ class IterativeRetrievalMixin:
 
         Returns a merged context dict, or None if every hop returned empty results.
         """
-        bridge_prompt = ChatPromptTemplate.from_messages([
-            ("system", (
-                "You are given a sub-question and supporting text passages. "
-                "Answer the sub-question in ONE short phrase (a name, date, or short clause). "
-                "If multiple candidates are plausible, prefer the one that is explicitly "
-                "supported by the passages and best enables the next sub-question. "
-                "Return ONLY the answer phrase with no explanation."
-            )),
-            ("human", "Sub-question: {sub_q}\nNext sub-question: {next_sub_q}\n\nPassages:\n{passages}"),
-        ])
+        bridge_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "You are given a sub-question and supporting text passages. "
+                        "Answer the sub-question in ONE short phrase (a name, date, or short clause). "
+                        "If multiple candidates are plausible, prefer the one that is explicitly "
+                        "supported by the passages and best enables the next sub-question. "
+                        "Return ONLY the answer phrase with no explanation."
+                    ),
+                ),
+                (
+                    "human",
+                    "Sub-question: {sub_q}\nNext sub-question: {next_sub_q}\n\nPassages:\n{passages}",
+                ),
+            ]
+        )
         bridge_chain = bridge_prompt | llm | StrOutputParser()
 
         # Per-hop buckets so we can prune graph facts after chunk truncation.
@@ -116,11 +125,20 @@ class IterativeRetrievalMixin:
         )
 
         for hop_idx, sub_q in enumerate(current_sub_qs):
-            logging.info("Iterative hop %d/%d — sub-question: %s", hop_idx + 1, len(current_sub_qs), sub_q)
+            logging.info(
+                "Iterative hop %d/%d — sub-question: %s",
+                hop_idx + 1,
+                len(current_sub_qs),
+                sub_q,
+            )
             hop_max = max(6, max_chunks // len(current_sub_qs))
-            hop_retrieval_k = self._iterative_hop_retrieval_budget(kg_name, hop_idx, hop_max)
+            hop_retrieval_k = self._iterative_hop_retrieval_budget(
+                kg_name, hop_idx, hop_max
+            )
             comparison_query = bool(self._comparison_branches(sub_q))
-            next_sub_q = current_sub_qs[hop_idx + 1] if hop_idx < len(current_sub_qs) - 1 else ""
+            next_sub_q = (
+                current_sub_qs[hop_idx + 1] if hop_idx < len(current_sub_qs) - 1 else ""
+            )
             retrieval_query = self._iterative_retrieval_query(
                 question,
                 sub_q,
@@ -154,17 +172,40 @@ class IterativeRetrievalMixin:
             # even when entity-first finds chunks, we still probe vector search so
             # comparison questions and weakly grounded hops can recover attribute-
             # bearing passages the graph path missed.
-            if hop_ctx and hop_ctx.get("chunks") and (self.check_vector_index() or self._first_stage_late_interaction_enabled()):
+            if (
+                hop_ctx
+                and hop_ctx.get("chunks")
+                and (
+                    self.check_vector_index()
+                    or self._first_stage_late_interaction_enabled()
+                )
+            ):
                 try:
                     vec_ctx = self._semantic_similarity_search(
-                        graph, retrieval_query, document_names, similarity_threshold,
-                        hop_retrieval_k, kg_name, max_hops=iterative_subquestion_max_hops,
+                        graph,
+                        retrieval_query,
+                        document_names,
+                        similarity_threshold,
+                        hop_retrieval_k,
+                        kg_name,
+                        max_hops=iterative_subquestion_max_hops,
                         question_id=question_id,
-                        allow_first_stage_late_interaction=getattr(self, "retrieval_mode", "hybrid_auto") != "entity_first",
+                        allow_first_stage_late_interaction=getattr(
+                            self, "retrieval_mode", "hybrid_auto"
+                        )
+                        != "entity_first",
                     )
                     if vec_ctx and vec_ctx.get("chunks"):
-                        secondary_limit = max(2, min(self._HYBRID_SUPPLEMENT_LIMIT, hop_retrieval_k // 2 or 1))
-                        if self._graph_context_is_meaningful(retrieval_query, hop_ctx) and not comparison_query:
+                        secondary_limit = max(
+                            2,
+                            min(
+                                self._HYBRID_SUPPLEMENT_LIMIT, hop_retrieval_k // 2 or 1
+                            ),
+                        )
+                        if (
+                            self._graph_context_is_meaningful(retrieval_query, hop_ctx)
+                            and not comparison_query
+                        ):
                             hop_ctx = self._merge_retrieval_contexts(
                                 hop_ctx,
                                 vec_ctx,
@@ -186,34 +227,63 @@ class IterativeRetrievalMixin:
                                 min_secondary_score=0.55,
                             )
                 except Exception as _ve:
-                    logging.debug("Hybrid vector augmentation failed at hop %d: %s", hop_idx + 1, _ve)
+                    logging.debug(
+                        "Hybrid vector augmentation failed at hop %d: %s",
+                        hop_idx + 1,
+                        _ve,
+                    )
 
             # Fallback: go straight to vector search, bypassing get_rag_context so we
             # don't re-run _entity_first_search a second time for the same sub-question.
             if not hop_ctx or not hop_ctx.get("chunks"):
-                has_vec = self.check_vector_index() or self._first_stage_late_interaction_enabled()
+                has_vec = (
+                    self.check_vector_index()
+                    or self._first_stage_late_interaction_enabled()
+                )
                 try:
                     if has_vec:
                         hop_ctx = self._semantic_similarity_search(
-                            graph, retrieval_query, document_names, similarity_threshold,
-                            hop_retrieval_k, kg_name, max_hops=iterative_subquestion_max_hops,
+                            graph,
+                            retrieval_query,
+                            document_names,
+                            similarity_threshold,
+                            hop_retrieval_k,
+                            kg_name,
+                            max_hops=iterative_subquestion_max_hops,
                             question_id=question_id,
-                            allow_first_stage_late_interaction=getattr(self, "retrieval_mode", "hybrid_auto") != "entity_first",
+                            allow_first_stage_late_interaction=getattr(
+                                self, "retrieval_mode", "hybrid_auto"
+                            )
+                            != "entity_first",
                         )
                     if not hop_ctx or not hop_ctx.get("chunks"):
                         hop_ctx = self._text_similarity_search(
-                            graph, retrieval_query, document_names, hop_retrieval_k, kg_name, max_hops=iterative_subquestion_max_hops,
+                            graph,
+                            retrieval_query,
+                            document_names,
+                            hop_retrieval_k,
+                            kg_name,
+                            max_hops=iterative_subquestion_max_hops,
                             question_id=question_id,
                         )
                 except Exception as _fe:
-                    logging.warning("Hop %d fallback search failed: %s", hop_idx + 1, _fe)
+                    logging.warning(
+                        "Hop %d fallback search failed: %s", hop_idx + 1, _fe
+                    )
                     hop_ctx = None
 
             if not hop_ctx or not hop_ctx.get("chunks"):
                 logging.info("Hop %d: no chunks found, continuing", hop_idx + 1)
-                hop_buckets.append({"all_chunk_ids": set(), "new_chunks": [],
-                                    "entities": {}, "relationships": [],
-                                    "graph_neighbors": {}, "traversal_paths": []})
+                hop_buckets.append(
+                    {
+                        "all_chunk_ids": set(),
+                        "new_chunks": [],
+                        "entities": {},
+                        "relationships": [],
+                        "graph_neighbors": {},
+                        "traversal_paths": [],
+                    }
+                )
                 continue
 
             # Separate "all chunk IDs retrieved this hop" (for activation checking, pre-dedup)
@@ -221,8 +291,9 @@ class IterativeRetrievalMixin:
             # Using all_chunk_ids for activation ensures that a hop's graph facts are kept
             # whenever ANY of its chunks survive truncation, even if they were first seen in
             # an earlier hop and therefore not counted as new here.
-            all_hop_cids: set = {c.get("chunk_id") or c.get("text", "")[:60]
-                                  for c in hop_ctx["chunks"]}
+            all_hop_cids: set = {
+                c.get("chunk_id") or c.get("text", "")[:60] for c in hop_ctx["chunks"]
+            }
             new_chunks = []
             for chunk in hop_ctx["chunks"]:
                 cid = chunk.get("chunk_id") or chunk.get("text", "")[:60]
@@ -230,14 +301,16 @@ class IterativeRetrievalMixin:
                     seen_chunk_ids.add(cid)
                     new_chunks.append(chunk)
 
-            hop_buckets.append({
-                "all_chunk_ids": all_hop_cids,   # pre-dedup, used for activation
-                "new_chunks": new_chunks,          # only newly seen chunks added to pool
-                "entities": hop_ctx.get("entities", {}),
-                "relationships": hop_ctx.get("relationships", []),
-                "graph_neighbors": hop_ctx.get("graph_neighbors", {}),
-                "traversal_paths": hop_ctx.get("traversal_paths", []),
-            })
+            hop_buckets.append(
+                {
+                    "all_chunk_ids": all_hop_cids,  # pre-dedup, used for activation
+                    "new_chunks": new_chunks,  # only newly seen chunks added to pool
+                    "entities": hop_ctx.get("entities", {}),
+                    "relationships": hop_ctx.get("relationships", []),
+                    "graph_neighbors": hop_ctx.get("graph_neighbors", {}),
+                    "traversal_paths": hop_ctx.get("traversal_paths", []),
+                }
+            )
 
             # Anchor grounding/seed metrics to hop 0 only (direct question entities).
             # When entity-first gated out and the hop fell back to vector/text search,
@@ -253,22 +326,29 @@ class IterativeRetrievalMixin:
                     surfaces: List[str] = []
                     for einfo in hop_ctx.get("entities", {}).values():
                         surface = (
-                            einfo.get("description") or
-                            einfo.get("name") or
-                            einfo.get("id") or ""
+                            einfo.get("description")
+                            or einfo.get("name")
+                            or einfo.get("id")
+                            or ""
                         )
                         if surface and len(surface) >= 4:
                             surfaces.append(surface)
-                    matched_token_count = self._count_matched_query_tokens(question, surfaces)
+                    matched_token_count = self._count_matched_query_tokens(
+                        question, surfaces
+                    )
                     _hop0_seed_count = len(surfaces)
-                    _hop0_grounding = self._grounding_quality(question, matched_token_count)
+                    _hop0_grounding = self._grounding_quality(
+                        question, matched_token_count
+                    )
 
             # Extract bridge answer to refine the next sub-question
             if hop_idx < len(current_sub_qs) - 1 and new_chunks:
                 bridge_passage_limit = 4
                 if hop_idx > 0 and kg_name in self._ORIGINAL_QUESTION_ANCHOR_KGS:
                     bridge_passage_limit = self._ANCHOR_LATER_HOP_BRIDGE_PASSAGE_LIMIT
-                passages = "\n\n".join(c["text"] for c in new_chunks[:bridge_passage_limit])
+                passages = "\n\n".join(
+                    c["text"] for c in new_chunks[:bridge_passage_limit]
+                )
                 try:
                     raw_bridge = bridge_chain.invoke(
                         {
@@ -277,17 +357,31 @@ class IterativeRetrievalMixin:
                             "passages": passages,
                         }
                     ).strip()
-                    _bad_phrases = ("i don't know", "i do not know", "cannot determine",
-                                    "not mentioned", "no information", "unknown")
-                    if (raw_bridge
-                            and len(raw_bridge) <= 200
-                            and not any(p in raw_bridge.lower() for p in _bad_phrases)):
-                        logging.info("Bridge answer for hop %d: %s", hop_idx + 1, raw_bridge)
+                    _bad_phrases = (
+                        "i don't know",
+                        "i do not know",
+                        "cannot determine",
+                        "not mentioned",
+                        "no information",
+                        "unknown",
+                    )
+                    if (
+                        raw_bridge
+                        and len(raw_bridge) <= 200
+                        and not any(p in raw_bridge.lower() for p in _bad_phrases)
+                    ):
+                        logging.info(
+                            "Bridge answer for hop %d: %s", hop_idx + 1, raw_bridge
+                        )
                         next_q = current_sub_qs[hop_idx + 1]
                         if "[BRIDGE]" in next_q:
-                            current_sub_qs[hop_idx + 1] = next_q.replace("[BRIDGE]", raw_bridge)
+                            current_sub_qs[hop_idx + 1] = next_q.replace(
+                                "[BRIDGE]", raw_bridge
+                            )
                         else:
-                            current_sub_qs[hop_idx + 1] = f"{next_q} (context: {raw_bridge})"
+                            current_sub_qs[hop_idx + 1] = (
+                                f"{next_q} (context: {raw_bridge})"
+                            )
 
                         # Entity re-seeding: extract named entities from the bridge
                         # answer and prepend them to the next sub-question so that
@@ -295,7 +389,9 @@ class IterativeRetrievalMixin:
                         # intermediate entity rather than re-embedding the full text.
                         if llm:
                             try:
-                                bridge_entities = self._extract_query_entities(raw_bridge, llm)
+                                bridge_entities = self._extract_query_entities(
+                                    raw_bridge, llm
+                                )
                                 if bridge_entities:
                                     entity_hint = ", ".join(bridge_entities[:3])
                                     current_sub_qs[hop_idx + 1] = (
@@ -303,17 +399,23 @@ class IterativeRetrievalMixin:
                                     )
                                     logging.info(
                                         "Hop %d entity re-seed: %s",
-                                        hop_idx + 1, entity_hint,
+                                        hop_idx + 1,
+                                        entity_hint,
                                     )
                             except Exception as _ee:
-                                logging.debug("Bridge entity extraction failed: %s", _ee)
+                                logging.debug(
+                                    "Bridge entity extraction failed: %s", _ee
+                                )
                     else:
                         logging.info(
                             "Bridge answer for hop %d rejected (empty/unhelpful): %r",
-                            hop_idx + 1, raw_bridge,
+                            hop_idx + 1,
+                            raw_bridge,
                         )
                 except Exception as e:
-                    logging.warning("Bridge answer extraction failed at hop %d: %s", hop_idx + 1, e)
+                    logging.warning(
+                        "Bridge answer extraction failed at hop %d: %s", hop_idx + 1, e
+                    )
 
         # --- Flatten all hop chunks (new-only), sort, and truncate ---
         all_chunks: List[Dict] = []
@@ -328,7 +430,9 @@ class IterativeRetrievalMixin:
         # --- Build chunk-level entity set from retained chunks ---
         # Use all_chunk_ids (pre-dedup) for hop activation so that a hop with a
         # deduplicated chunk still becomes active when that chunk is in the final set.
-        retained_cids = {c.get("chunk_id") or c.get("text", "")[:60] for c in all_chunks}
+        retained_cids = {
+            c.get("chunk_id") or c.get("text", "")[:60] for c in all_chunks
+        }
         active_hops: set = set()
         for h_idx, bucket in enumerate(hop_buckets):
             if bucket["all_chunk_ids"] & retained_cids:
@@ -408,10 +512,14 @@ class IterativeRetrievalMixin:
                 "subquestion_count": len(sub_questions),
                 "active_hop_count": len(active_hops),
                 "anchor_mask_entity_ids": [
-                    str(eid) for eid in (anchor_mask_entity_ids or []) if str(eid).strip()
+                    str(eid)
+                    for eid in (anchor_mask_entity_ids or [])
+                    if str(eid).strip()
                 ],
                 "anchor_mask_entity_names": [
-                    str(name) for name in (anchor_mask_entity_names or []) if str(name).strip()
+                    str(name)
+                    for name in (anchor_mask_entity_names or [])
+                    if str(name).strip()
                 ],
             },
             # Anchored to hop-0 question-entity matches only, not bridge-induced later hops

@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+
 def get_graphDB_driver(uri, username, password, database="neo4j"):
     """
     Creates and returns a Neo4j database driver instance configured with the provided credentials.
@@ -17,20 +18,24 @@ def get_graphDB_driver(uri, username, password, database="neo4j"):
         logging.info(f"Attempting to connect to the Neo4j database at {uri}")
 
         # Handle parameter defaults and environment fallbacks
-        if username is None or username == '':
-            username = os.getenv('NEO4J_USERNAME') or os.getenv('NEO4J_USER', '').strip()
-        if password is None or password == '':
-            password = os.getenv('NEO4J_PASSWORD', '').strip()
-        if database is None or database == '':
-            database = os.getenv('NEO4J_DATABASE', 'neo4j').strip()
+        if username is None or username == "":
+            username = (
+                os.getenv("NEO4J_USERNAME") or os.getenv("NEO4J_USER", "").strip()
+            )
+        if password is None or password == "":
+            password = os.getenv("NEO4J_PASSWORD", "").strip()
+        if database is None or database == "":
+            database = os.getenv("NEO4J_DATABASE", "neo4j").strip()
 
         # Ensure URI is not empty
-        if not uri or uri.strip() == '':
-            uri = os.getenv('NEO4J_URI', '').strip()
+        if not uri or uri.strip() == "":
+            uri = os.getenv("NEO4J_URI", "").strip()
             if not uri:
                 raise ValueError("Neo4j URI is required but not provided")
 
-        logging.info(f"Using credentials: uri={uri}, user='{username}' (password set: {bool(password)}), database='{database}'")
+        logging.info(
+            f"Using credentials: uri={uri}, user='{username}' (password set: {bool(password)}), database='{database}'"
+        )
 
         # Handle case where auth is disabled (both username and password are empty)
         if not username and not password:
@@ -39,11 +44,21 @@ def get_graphDB_driver(uri, username, password, database="neo4j"):
         else:
             logging.info("Using basic authentication")
             from neo4j import Auth
+
             auth = Auth("basic", username, password)
 
-        enable_user_agent = os.environ.get("ENABLE_USER_AGENT", "False").lower() in ("true", "1", "yes")
+        enable_user_agent = os.environ.get("ENABLE_USER_AGENT", "False").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
         if enable_user_agent:
-            driver = GraphDatabase.driver(uri, auth=auth, database=database, user_agent=os.environ.get('NEO4J_USER_AGENT'))
+            driver = GraphDatabase.driver(
+                uri,
+                auth=auth,
+                database=database,
+                user_agent=os.environ.get("NEO4J_USER_AGENT"),
+            )
         else:
             driver = GraphDatabase.driver(uri, auth=auth, database=database)
 

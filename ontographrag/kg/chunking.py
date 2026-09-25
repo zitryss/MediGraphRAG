@@ -116,7 +116,8 @@ def chunk_text(
             end_pos = start_pos + len(chunk_text_)
             logging.warning(
                 "chunk_text: could not locate chunk %d in source text; "
-                "start_pos/end_pos are approximate", idx
+                "start_pos/end_pos are approximate",
+                idx,
             )
 
         embedding: Optional[List[float]] = None
@@ -126,14 +127,16 @@ def chunk_text(
             except Exception as e:
                 logging.warning("Failed to generate embedding for chunk %d: %s", idx, e)
 
-        formatted.append({
-            "text": chunk_text_,
-            "chunk_id": idx,
-            "position": idx,
-            "start_pos": start_pos,
-            "end_pos": end_pos,
-            "total_chunks": total,
-            "embedding": embedding,
-        })
+        formatted.append(
+            {
+                "text": chunk_text_,
+                "chunk_id": idx,
+                "position": idx,
+                "start_pos": start_pos,
+                "end_pos": end_pos,
+                "total_chunks": total,
+                "embedding": embedding,
+            }
+        )
 
     return formatted

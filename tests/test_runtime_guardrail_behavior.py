@@ -9,8 +9,13 @@ import sys
 
 import pytest
 
-pytest.importorskip("langchain_neo4j", reason="langchain_neo4j not installed — skipping guardrail behavior tests")
-pytest.importorskip("langchain", reason="langchain not installed — skipping guardrail behavior tests")
+pytest.importorskip(
+    "langchain_neo4j",
+    reason="langchain_neo4j not installed — skipping guardrail behavior tests",
+)
+pytest.importorskip(
+    "langchain", reason="langchain not installed — skipping guardrail behavior tests"
+)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -145,7 +150,9 @@ def test_enhanced_retrieval_span_context_does_not_retry_vector_only(monkeypatch)
     }
 
     monkeypatch.setattr(system, "get_rag_context", lambda *_, **__: context)
-    monkeypatch.setattr(system, "_invoke_answer_chain", lambda **_: "Insufficient Information")
+    monkeypatch.setattr(
+        system, "_invoke_answer_chain", lambda **_: "Insufficient Information"
+    )
     monkeypatch.setattr(
         system,
         "_apply_runtime_answer_guardrail",
@@ -158,7 +165,9 @@ def test_enhanced_retrieval_span_context_does_not_retry_vector_only(monkeypatch)
     monkeypatch.setattr(
         system,
         "_vector_similarity_search",
-        lambda *_, **__: pytest.fail("pure vector context should not retry vector-only"),
+        lambda *_, **__: pytest.fail(
+            "pure vector context should not retry vector-only"
+        ),
     )
     monkeypatch.setattr(
         system,

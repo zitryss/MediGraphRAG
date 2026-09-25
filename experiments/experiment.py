@@ -31,8 +31,10 @@ from datetime import datetime
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     HAS_MATPLOTLIB = True
 except Exception:
     HAS_MATPLOTLIB = False
@@ -41,12 +43,16 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 os.environ["EMBEDDING_PROVIDER"] = "sentence_transformers"
 
 from ontographrag.rag.systems.vanilla_rag_system import VanillaRAGSystem
 from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
-from ontographrag.rag.graph_state import graph_state_diversity, summarize_context_graph_state
+from ontographrag.rag.graph_state import (
+    graph_state_diversity,
+    summarize_context_graph_state,
+)
 from ontographrag.providers.model_providers import (
     get_provider as get_model_provider,
     LangChainRunnableAdapter,
@@ -113,9 +119,9 @@ import wandb
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+
 
 # ── Run nomenclature ─────────────────────────────────────────────────────────
 def _sanitize_run_token(value: str) -> str:
@@ -154,13 +160,19 @@ def generate_run_id(
         parts.append("rebuildkg")
     return "-".join(parts)
 
+
 def _git_commit() -> str:
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
-        ).decode().strip()
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
     except Exception:
         return "unknown"
+
 
 def update_runs_index(run_dir: Path, manifest: dict) -> None:
     """Append a one-line summary of this run to the sibling runs index."""
@@ -171,14 +183,16 @@ def update_runs_index(run_dir: Path, manifest: dict) -> None:
             entries = json.loads(index_path.read_text())
         except Exception:
             entries = []
-    entries.append({
-        "run_id":     manifest["run_id"],
-        "created_at": manifest["created_at"],
-        "datasets":   manifest["datasets"],
-        "model":      manifest.get("model", "unknown"),
-        "git_commit": manifest.get("git_commit", "unknown"),
-        "accuracy":   manifest.get("accuracy", {}),
-    })
+    entries.append(
+        {
+            "run_id": manifest["run_id"],
+            "created_at": manifest["created_at"],
+            "datasets": manifest["datasets"],
+            "model": manifest.get("model", "unknown"),
+            "git_commit": manifest.get("git_commit", "unknown"),
+            "accuracy": manifest.get("accuracy", {}),
+        }
+    )
     index_path.write_text(json.dumps(entries, indent=2))
 
 
@@ -217,14 +231,14 @@ class MIRAGEEvaluationPipeline:
         "selfcheckgpt",
         "vn_entropy",
         "sd_uq",
-        "graph_path_support",              # structural — does KG path exist from question to answer?
-        "graph_path_disagreement",         # structural — entropy over KG neighbor distribution
-        "competing_answer_alternatives",   # structural — typed-relation cardinality of competing answers
-        "evidence_vn_entropy",             # structural — combined evidence entropy + question alignment (novel)
-        "subgraph_informativeness",          # structural — pre-generation answer-space concentration (novel)
-        "subgraph_perturbation_stability",   # structural — perturbation fragility of answer-supporting paths (novel)
-        "support_entailment_uncertainty",    # grounding — evidence-answer NLI entailment deficit (novel)
-        "evidence_conflict_uncertainty",     # grounding — fraction of E-C conflicting chunk pairs (novel)
+        "graph_path_support",  # structural — does KG path exist from question to answer?
+        "graph_path_disagreement",  # structural — entropy over KG neighbor distribution
+        "competing_answer_alternatives",  # structural — typed-relation cardinality of competing answers
+        "evidence_vn_entropy",  # structural — combined evidence entropy + question alignment (novel)
+        "subgraph_informativeness",  # structural — pre-generation answer-space concentration (novel)
+        "subgraph_perturbation_stability",  # structural — perturbation fragility of answer-supporting paths (novel)
+        "support_entailment_uncertainty",  # grounding — evidence-answer NLI entailment deficit (novel)
+        "evidence_conflict_uncertainty",  # grounding — fraction of E-C conflicting chunk pairs (novel)
     ]
 
     UNCERTAINTY_METRIC_DEFAULTS = {
@@ -244,7 +258,7 @@ class MIRAGEEvaluationPipeline:
         "support_entailment_uncertainty": 0.5,
         "evidence_conflict_uncertainty": 0.0,
     }
-    
+
     # Temperatures used for multi-temperature entropy sweeps.
     MULTI_TEMPERATURES: List[float] = [0.0, 0.5, 1.0]
 
@@ -254,15 +268,15 @@ class MIRAGEEvaluationPipeline:
     # in a single abstract or shared guideline corpus — iterative multi-hop
     # decomposition adds overhead and cross-passage noise without benefit.
     DATASET_MAX_HOPS: Dict[str, int] = {
-        "musique":         4,
-        "hotpotqa":        2,
+        "musique": 4,
+        "hotpotqa": 2,
         "hotpotqa_fullwiki": 2,
         "2wikimultihopqa": 2,
-        "medhop":          3,
-        "multihoprag":     4,
-        "pubmedqa":        2,
-        "realmedqa":       2,
-        "bioasq":          2,
+        "medhop": 3,
+        "multihoprag": 4,
+        "pubmedqa": 2,
+        "realmedqa": 2,
+        "bioasq": 2,
     }
     # Retrieval may need deeper traversals than structural uncertainty metrics.
     # On dense shared-corpus graphs such as MultiHopRAG, letting structural
@@ -277,40 +291,46 @@ class MIRAGEEvaluationPipeline:
     # Wikipedia multi-hop datasets test graph-structured multi-hop reasoning.
     # These are separate empirical claims and must be reported in separate result tables.
     DATASET_TRACKS: Dict[str, str] = {
-        "pubmedqa":         "biomedical_grounding",
-        "realmedqa":        "biomedical_grounding",
-        "bioasq":           "biomedical_grounding",
-        "medhop":           "biomedical_multihop_reasoning",
-        "hotpotqa":         "multihop_reasoning",
+        "pubmedqa": "biomedical_grounding",
+        "realmedqa": "biomedical_grounding",
+        "bioasq": "biomedical_grounding",
+        "medhop": "biomedical_multihop_reasoning",
+        "hotpotqa": "multihop_reasoning",
         "hotpotqa_fullwiki": "multihop_reasoning",
-        "2wikimultihopqa":  "multihop_reasoning",
-        "musique":          "multihop_reasoning",
-        "multihoprag":      "multihop_reasoning",
+        "2wikimultihopqa": "multihop_reasoning",
+        "musique": "multihop_reasoning",
+        "multihoprag": "multihop_reasoning",
     }
     DEFAULT_TRACK: str = "other"
     # Datasets whose KG passages are scoped per-question (bundle or abstract contract).
     # For these, chunk retrieval is filtered by questionId to prevent cross-question contamination.
     # Shared-corpus datasets (bioasq, multihoprag, realmedqa, hotpotqa_fullwiki)
     # are NOT in this set.
-    QUESTION_SCOPED_DATASETS: frozenset = frozenset({
-        "pubmedqa",
-        "hotpotqa",
-        "2wikimultihopqa",
-        "musique",
-    })
+    QUESTION_SCOPED_DATASETS: frozenset = frozenset(
+        {
+            "pubmedqa",
+            "hotpotqa",
+            "2wikimultihopqa",
+            "musique",
+        }
+    )
     KG_BUILD_FINGERPRINT_VERSION: int = 2
     KG_BUILDER_NAME: str = "passage_aware_ontology_guided"
     KG_CHUNK_SIZE: int = 1500
     KG_CHUNK_OVERLAP: int = 200
-    RETRIEVAL_STUDY_PROFILES: frozenset = frozenset({"small", "final_pair", "strict_entity"})
+    RETRIEVAL_STUDY_PROFILES: frozenset = frozenset(
+        {"small", "final_pair", "strict_entity"}
+    )
     KG_BUILDER_PROFILES: frozenset = frozenset({"auto", "full", "lightweight"})
     KG_BUILDER_PROFILE_ALIASES: Dict[str, str] = {"sota": "full"}
 
-    QUESTION_SCOPED_MULTIHOP_DATASETS: frozenset = frozenset({
-        "hotpotqa",
-        "2wikimultihopqa",
-        "musique",
-    })
+    QUESTION_SCOPED_MULTIHOP_DATASETS: frozenset = frozenset(
+        {
+            "hotpotqa",
+            "2wikimultihopqa",
+            "musique",
+        }
+    )
 
     @classmethod
     def normalize_kg_builder_profile(cls, profile: Optional[str]) -> str:
@@ -389,9 +409,7 @@ class MIRAGEEvaluationPipeline:
         {
             **variant,
             "executed_systems": (
-                ["vanilla_rag"]
-                if variant["name"] == "dense_floor"
-                else ["kg_rag"]
+                ["vanilla_rag"] if variant["name"] == "dense_floor" else ["kg_rag"]
             ),
         }
         for variant in RETRIEVAL_STUDY_SMALL_VARIANTS
@@ -473,7 +491,9 @@ class MIRAGEEvaluationPipeline:
         self.allow_gold_evidence_contexts = bool(allow_gold_evidence_contexts)
         self.retrieval_study = str(retrieval_study or "").strip()
         self.kg_builder_profile = kg_builder_profile
-        self._llm_judge_cache: Dict[str, bool] = {}  # cache by (question, expected, response)
+        self._llm_judge_cache: Dict[
+            str, bool
+        ] = {}  # cache by (question, expected, response)
         self.max_kg_contexts = max_kg_contexts  # Cap context passages fed into KG build
         # Judge can be a different model/provider from the generation model to avoid
         # circular evaluation where the same model judges its own outputs.
@@ -504,24 +524,30 @@ class MIRAGEEvaluationPipeline:
             provider, model=self.llm_model, temperature=0.0
         )
         # Judge uses a potentially different provider/model to avoid circular evaluation
-        if self.judge_provider_name == self.llm_provider_name and self.judge_model == self.llm_model:
+        if (
+            self.judge_provider_name == self.llm_provider_name
+            and self.judge_model == self.llm_model
+        ):
             self.judge_llm_provider = provider
         else:
-            self.judge_llm_provider = get_model_provider(self.judge_provider_name,
-                                                          model=self.judge_model)
-        
+            self.judge_llm_provider = get_model_provider(
+                self.judge_provider_name, model=self.judge_model
+            )
+
         # Get embedding provider for consistent use across all components
-        self.embedding_provider = os.getenv("EMBEDDING_PROVIDER", "sentence_transformers")
-        
+        self.embedding_provider = os.getenv(
+            "EMBEDDING_PROVIDER", "sentence_transformers"
+        )
+
         # RAG systems - use explicit embedding model for consistency
         self.vanilla_rag = VanillaRAGSystem(embedding_model=self.embedding_provider)
         self.kg_rag = EnhancedRAGSystem(embedding_model=self.embedding_provider)
-        
+
         # Neo4j connection
         self.neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self.neo4j_user = os.getenv("NEO4J_USERNAME", "neo4j")
         self.neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
-        
+
         # W&B run
         self.wandb_run = None
         self._dataset_cache: Dict[str, Tuple[List[Any], List[Any]]] = {}
@@ -569,20 +595,28 @@ class MIRAGEEvaluationPipeline:
                             f"{variant['name']}_thr{threshold:g}_k{int(max_chunks)}_"
                             f"{cls._retrieval_temperature_suffix(retrieval_temperature)}"
                         )
-                        configs.append({
-                            "name": name,
-                            "similarity_threshold": float(threshold),
-                            "max_chunks": int(max_chunks),
-                            "retrieval_temperature": float(retrieval_temperature),
-                            "retrieval_shortlist_factor": int(retrieval_shortlist_factor),
-                            "retrieval_variant": str(variant["name"]),
-                            "retrieval_stack": dict(variant.get("retrieval_stack", {})),
-                            "kg_system": dict(variant.get("kg_system", {})),
-                            "kg_generation": dict(variant.get("kg_generation", {})),
-                            "executed_systems": list(
-                                variant.get("executed_systems", ["vanilla_rag", "kg_rag"])
-                            ),
-                        })
+                        configs.append(
+                            {
+                                "name": name,
+                                "similarity_threshold": float(threshold),
+                                "max_chunks": int(max_chunks),
+                                "retrieval_temperature": float(retrieval_temperature),
+                                "retrieval_shortlist_factor": int(
+                                    retrieval_shortlist_factor
+                                ),
+                                "retrieval_variant": str(variant["name"]),
+                                "retrieval_stack": dict(
+                                    variant.get("retrieval_stack", {})
+                                ),
+                                "kg_system": dict(variant.get("kg_system", {})),
+                                "kg_generation": dict(variant.get("kg_generation", {})),
+                                "executed_systems": list(
+                                    variant.get(
+                                        "executed_systems", ["vanilla_rag", "kg_rag"]
+                                    )
+                                ),
+                            }
+                        )
         return configs
 
     @staticmethod
@@ -604,13 +638,19 @@ class MIRAGEEvaluationPipeline:
                 else:
                     os.environ[key] = old_value
 
-    def _retrieval_env_overrides(self, config: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    def _retrieval_env_overrides(
+        self, config: Optional[Dict[str, Any]]
+    ) -> Dict[str, str]:
         stack = dict((config or {}).get("retrieval_stack") or {})
         overrides: Dict[str, str] = {}
         if "query_fusion" in stack:
-            overrides["ONTOGRAPHRAG_QUERY_FUSION"] = self._env_bool(stack["query_fusion"])
+            overrides["ONTOGRAPHRAG_QUERY_FUSION"] = self._env_bool(
+                stack["query_fusion"]
+            )
         if "late_interaction" in stack:
-            overrides["ONTOGRAPHRAG_LATE_INTERACTION"] = self._env_bool(stack["late_interaction"])
+            overrides["ONTOGRAPHRAG_LATE_INTERACTION"] = self._env_bool(
+                stack["late_interaction"]
+            )
         if "first_stage_late_interaction" in stack:
             overrides["ONTOGRAPHRAG_FIRST_STAGE_LATE_INTERACTION"] = self._env_bool(
                 stack["first_stage_late_interaction"]
@@ -618,7 +658,9 @@ class MIRAGEEvaluationPipeline:
         if "reranker" in stack:
             overrides["ONTOGRAPHRAG_RERANKER"] = self._env_bool(stack["reranker"])
         if stack.get("retrieval_profile"):
-            overrides["ONTOGRAPHRAG_RETRIEVAL_PROFILE"] = str(stack["retrieval_profile"])
+            overrides["ONTOGRAPHRAG_RETRIEVAL_PROFILE"] = str(
+                stack["retrieval_profile"]
+            )
         return overrides
 
     @staticmethod
@@ -638,12 +680,18 @@ class MIRAGEEvaluationPipeline:
     @staticmethod
     def _execution_signature(config: Optional[Dict[str, Any]]) -> str:
         enabled = MIRAGEEvaluationPipeline._executed_system_map(config)
-        active = [name.replace("_rag", "") for name, is_enabled in enabled.items() if is_enabled]
+        active = [
+            name.replace("_rag", "")
+            for name, is_enabled in enabled.items()
+            if is_enabled
+        ]
         token = re.sub(r"[^a-zA-Z0-9._-]+", "_", "_".join(active) or "all_systems")
         return token.strip("_") or "all_systems"
 
     @staticmethod
-    def _compute_kg_routing_distribution(details: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _compute_kg_routing_distribution(
+        details: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
         """Summarise KG retrieval routing so dense fallback is auditable.
 
         The KG system can answer through pure entity-first traversal, RFGE, or a
@@ -700,13 +748,19 @@ class MIRAGEEvaluationPipeline:
             "use_ppr_scoring": bool(kg_system.get("use_ppr_scoring", True)),
             "use_rfge": bool(kg_system.get("use_rfge", True)),
             "use_evidence_block": bool(kg_system.get("use_evidence_block", True)),
-            "allow_vector_augmentation": bool(kg_system.get("allow_vector_augmentation", True)),
+            "allow_vector_augmentation": bool(
+                kg_system.get("allow_vector_augmentation", True)
+            ),
             "allow_vector_fallback": bool(kg_system.get("allow_vector_fallback", True)),
         }
         if "max_chunks_per_passage" in kg_system:
-            enhanced_kwargs["max_chunks_per_passage"] = int(kg_system["max_chunks_per_passage"])
+            enhanced_kwargs["max_chunks_per_passage"] = int(
+                kg_system["max_chunks_per_passage"]
+            )
         if "traversal_chunk_min_sim" in kg_system:
-            enhanced_kwargs["traversal_chunk_min_sim"] = float(kg_system["traversal_chunk_min_sim"])
+            enhanced_kwargs["traversal_chunk_min_sim"] = float(
+                kg_system["traversal_chunk_min_sim"]
+            )
         vanilla = VanillaRAGSystem(embedding_model=self.embedding_provider)
         kg = EnhancedRAGSystem(**enhanced_kwargs)
         return vanilla, kg
@@ -806,7 +860,9 @@ class MIRAGEEvaluationPipeline:
         # Single-word fuzzy fallback (typo-tolerant, but strict).
         if len(needle_tokens) == 1:
             target = needle_tokens[0]
-            return any(SequenceMatcher(None, target, tok).ratio() >= 0.9 for tok in hay_tokens)
+            return any(
+                SequenceMatcher(None, target, tok).ratio() >= 0.9 for tok in hay_tokens
+            )
 
         # Multi-word fallback by token coverage.
         matched = sum(1 for tok in needle_tokens if tok in hay_tokens)
@@ -861,7 +917,11 @@ class MIRAGEEvaluationPipeline:
                         dataset_name,
                     )
 
-        self._dataset_cache[dataset_name] = (inference_records, gold_records, leakage_detected)
+        self._dataset_cache[dataset_name] = (
+            inference_records,
+            gold_records,
+            leakage_detected,
+        )
         return inference_records, gold_records, leakage_detected
 
     def _build_eval_records(self, dataset_name: str) -> List[Dict[str, Any]]:
@@ -887,19 +947,22 @@ class MIRAGEEvaluationPipeline:
                 # Affects BioASQ list/summary types which have no short_answer.
                 logging.debug(
                     "Skipping record %s (dataset=%s): empty gold short_answer",
-                    inf.id, dataset_name,
+                    inf.id,
+                    dataset_name,
                 )
                 continue
 
-            eval_records.append({
-                "id": inf.id,
-                "question": inf.question,
-                "expected_answer": gold.short_answer,
-                "aliases": gold.aliases or [],
-                "contexts": contexts,
-                "options": inf.options or {},
-                "task_type": inf.task_type,
-            })
+            eval_records.append(
+                {
+                    "id": inf.id,
+                    "question": inf.question,
+                    "expected_answer": gold.short_answer,
+                    "aliases": gold.aliases or [],
+                    "contexts": contexts,
+                    "options": inf.options or {},
+                    "task_type": inf.task_type,
+                }
+            )
 
         return eval_records
 
@@ -992,10 +1055,14 @@ class MIRAGEEvaluationPipeline:
                     "subset_tag": row.get("subsetTag"),
                     "content_hash": row.get("contentHash"),
                     "schema_hash": row.get("schemaHash"),
-                    "kg_build_fingerprint_version": row.get("kgBuildFingerprintVersion"),
+                    "kg_build_fingerprint_version": row.get(
+                        "kgBuildFingerprintVersion"
+                    ),
                     "kg_builder": row.get("kgBuilder"),
                     "kg_builder_profile": row.get("kgBuilderProfile"),
-                    "kg_builder_profile_requested": row.get("kgBuilderProfileRequested"),
+                    "kg_builder_profile_requested": row.get(
+                        "kgBuilderProfileRequested"
+                    ),
                     "kg_chunk_size": row.get("kgChunkSize"),
                     "kg_chunk_overlap": row.get("kgChunkOverlap"),
                     "kg_extraction_provider": row.get("kgExtractionProvider"),
@@ -1072,7 +1139,8 @@ class MIRAGEEvaluationPipeline:
         # behavior. Full hallucination/uncertainty runs should keep the full KG
         # construction stack so graph quality is not the confound.
         if (
-            getattr(self, "evaluation_mode", self.EVALUATION_MODE_ACCURACY_ONLY) == self.EVALUATION_MODE_ACCURACY_ONLY
+            getattr(self, "evaluation_mode", self.EVALUATION_MODE_ACCURACY_ONLY)
+            == self.EVALUATION_MODE_ACCURACY_ONLY
             and dataset_name in self.QUESTION_SCOPED_MULTIHOP_DATASETS
         ):
             return "lightweight"
@@ -1152,7 +1220,9 @@ class MIRAGEEvaluationPipeline:
         inference_by_id = {str(record.id): record for record in inference_records}
         evaluable_inference_records: List[Any] = []
         missing_eval_ids: List[str] = []
-        for question_id in [str(record["id"]) for record in self._build_eval_records(dataset_name)]:
+        for question_id in [
+            str(record["id"]) for record in self._build_eval_records(dataset_name)
+        ]:
             inference_record = inference_by_id.get(question_id)
             if inference_record is None:
                 missing_eval_ids.append(question_id)
@@ -1169,7 +1239,8 @@ class MIRAGEEvaluationPipeline:
             records_for_kg = evaluable_inference_records
         else:
             missing_selected_ids = [
-                question_id for question_id in selected_question_ids
+                question_id
+                for question_id in selected_question_ids
                 if question_id not in inference_by_id
             ]
             if missing_selected_ids:
@@ -1179,8 +1250,7 @@ class MIRAGEEvaluationPipeline:
                     f"{dataset_name}: {preview}"
                 )
             records_for_kg = [
-                inference_by_id[question_id]
-                for question_id in selected_question_ids
+                inference_by_id[question_id] for question_id in selected_question_ids
             ]
 
         passages = build_global_corpus_passages(dataset_name)
@@ -1189,14 +1259,19 @@ class MIRAGEEvaluationPipeline:
             corpus_source = "shared_corpus"
         else:
             question_context_role = corpus_profile.get("question_context_role")
-            if question_context_role == "gold_evidence" and not self.allow_gold_evidence_contexts:
+            if (
+                question_context_role == "gold_evidence"
+                and not self.allow_gold_evidence_contexts
+            ):
                 raise ValueError(
                     f"Refusing to build KG for {dataset_name} from per-question gold evidence "
                     "without --allow-gold-evidence-contexts."
                 )
             passages = build_passage_corpus(
                 records_for_kg,
-                dedupe_across_questions=(dataset_name not in self.QUESTION_SCOPED_DATASETS),
+                dedupe_across_questions=(
+                    dataset_name not in self.QUESTION_SCOPED_DATASETS
+                ),
             )
             corpus_source = (
                 "gold_evidence_question_contexts"
@@ -1206,7 +1281,7 @@ class MIRAGEEvaluationPipeline:
 
         total_passages_before_cap = len(passages)
         if self.max_kg_contexts and len(passages) > self.max_kg_contexts:
-            passages = passages[:self.max_kg_contexts]
+            passages = passages[: self.max_kg_contexts]
 
         build_meta = {
             "datasetKgScope": self.dataset_kg_scope,
@@ -1227,7 +1302,9 @@ class MIRAGEEvaluationPipeline:
             "requiresSharedCorpusForFairRetrieval": bool(
                 corpus_profile.get("requires_shared_corpus_for_fair_retrieval", False)
             ),
-            "globalCorpusPassages": total_passages_before_cap if uses_global_corpus else 0,
+            "globalCorpusPassages": total_passages_before_cap
+            if uses_global_corpus
+            else 0,
             "kgBuildFingerprintVersion": self.KG_BUILD_FINGERPRINT_VERSION,
             "kgBuilder": self.KG_BUILDER_NAME,
             "kgBuilderProfile": resolved_kg_builder_profile,
@@ -1378,7 +1455,11 @@ class MIRAGEEvaluationPipeline:
             force_resample=force_resample,
         )
         by_id = {str(record["id"]): record for record in eval_records}
-        missing_ids = [question_id for question_id in selected_question_ids if question_id not in by_id]
+        missing_ids = [
+            question_id
+            for question_id in selected_question_ids
+            if question_id not in by_id
+        ]
         if missing_ids:
             preview = ", ".join(missing_ids[:5])
             raise ValueError(
@@ -1443,9 +1524,11 @@ class MIRAGEEvaluationPipeline:
                 )
             table.add_data(*row)
 
-        self.wandb_run.log({
-            f"tables/{dataset_name}/{subset_tag}/{config_name}/questions_and_responses": table
-        })
+        self.wandb_run.log(
+            {
+                f"tables/{dataset_name}/{subset_tag}/{config_name}/questions_and_responses": table
+            }
+        )
 
     def _sanitize_for_filename(self, value: str) -> str:
         """Create a filesystem-safe token for filenames."""
@@ -1459,48 +1542,71 @@ class MIRAGEEvaluationPipeline:
         # Identity
         ["question_id", "hop_count", "hop_bucket", "question", "expected", "task_type"]
         # Ground truth & responses
-        + ["vanilla_correct", "kg_correct",
-           "vanilla_response", "kg_response",
-           "vanilla_generation_failed", "kg_generation_failed",
-           "vanilla_system_skipped", "kg_system_skipped"]
+        + [
+            "vanilla_correct",
+            "kg_correct",
+            "vanilla_response",
+            "kg_response",
+            "vanilla_generation_failed",
+            "kg_generation_failed",
+            "vanilla_system_skipped",
+            "kg_system_skipped",
+        ]
         # Official-style answer metrics
-        + ["vanilla_answer_em", "kg_answer_em",
-           "vanilla_answer_f1", "kg_answer_f1"]
+        + ["vanilla_answer_em", "kg_answer_em", "vanilla_answer_f1", "kg_answer_f1"]
         # Retrieval metadata
         + [
-            "grounding_quality", "seed_entity_count",
-            "vanilla_search_method", "kg_search_method",
-            "kg_retrieval_route", "kg_route_reason",
-            "vanilla_retrieval_overlap", "kg_retrieval_overlap",
+            "grounding_quality",
+            "seed_entity_count",
+            "vanilla_search_method",
+            "kg_search_method",
+            "kg_retrieval_route",
+            "kg_route_reason",
+            "vanilla_retrieval_overlap",
+            "kg_retrieval_overlap",
             "kg_retrieval_mode_config",
         ]
         # Per-sample graph-state diversity across the N uncertainty samples
         + [
             "kg_graph_state_sample_count",
-            "kg_seed_entity_jaccard", "kg_path_jaccard",
-            "kg_subgraph_jaccard", "kg_chunk_jaccard",
-            "kg_seed_entity_entropy", "kg_seed_entity_entropy_norm",
-            "kg_path_entropy", "kg_path_entropy_norm",
-            "kg_subgraph_entropy", "kg_subgraph_entropy_norm",
-            "kg_chunk_entropy", "kg_chunk_entropy_norm",
-            "kg_dominant_seed_entity_id", "kg_dominant_seed_entity_fraction",
+            "kg_seed_entity_jaccard",
+            "kg_path_jaccard",
+            "kg_subgraph_jaccard",
+            "kg_chunk_jaccard",
+            "kg_seed_entity_entropy",
+            "kg_seed_entity_entropy_norm",
+            "kg_path_entropy",
+            "kg_path_entropy_norm",
+            "kg_subgraph_entropy",
+            "kg_subgraph_entropy_norm",
+            "kg_chunk_entropy",
+            "kg_chunk_entropy_norm",
+            "kg_dominant_seed_entity_id",
+            "kg_dominant_seed_entity_fraction",
         ]
         # Canonical UQ metrics × 2 systems
-        + [f"{sys}_{m}"
-           for m in [
-               "semantic_entropy", "discrete_semantic_entropy",
-               "p_true", "selfcheckgpt",
-               "sre_uq", "vn_entropy", "sd_uq",
-               "graph_path_support", "graph_path_disagreement",
-               "competing_answer_alternatives",
-               "evidence_vn_entropy",
-               "subgraph_informativeness",
-               "subgraph_perturbation_stability",
-               "subgraph_perturbation_stability_null_reason",
-               "support_entailment_uncertainty",
-               "evidence_conflict_uncertainty",
-           ]
-           for sys in ("vanilla", "kg")]
+        + [
+            f"{sys}_{m}"
+            for m in [
+                "semantic_entropy",
+                "discrete_semantic_entropy",
+                "p_true",
+                "selfcheckgpt",
+                "sre_uq",
+                "vn_entropy",
+                "sd_uq",
+                "graph_path_support",
+                "graph_path_disagreement",
+                "competing_answer_alternatives",
+                "evidence_vn_entropy",
+                "subgraph_informativeness",
+                "subgraph_perturbation_stability",
+                "subgraph_perturbation_stability_null_reason",
+                "support_entailment_uncertainty",
+                "evidence_conflict_uncertainty",
+            ]
+            for sys in ("vanilla", "kg")
+        ]
     )
 
     def _canonicalize_detail_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
@@ -1526,7 +1632,9 @@ class MIRAGEEvaluationPipeline:
         safe_dataset = self._sanitize_for_filename(dataset_name)
         safe_config = self._sanitize_for_filename(config_name)
         safe_subset = self._sanitize_for_filename(subset_tag)
-        output_path = output_dir / f"{safe_dataset}_{safe_subset}_{safe_config}_questions.json"
+        output_path = (
+            output_dir / f"{safe_dataset}_{safe_subset}_{safe_config}_questions.json"
+        )
 
         # Strip intermediate/auxiliary fields — keep only canonical metrics
         clean_details = [self._canonicalize_detail_row(row) for row in details]
@@ -1568,14 +1676,16 @@ class MIRAGEEvaluationPipeline:
             "kg_unknown_route_rate",
         ]
         if self.compute_metrics:
-            summary_columns.extend([
-                "vanilla_semantic_entropy",
-                "kg_semantic_entropy",
-                "vanilla_vn_entropy",
-                "kg_vn_entropy",
-                "vanilla_graph_path_support",
-                "kg_graph_path_support",
-            ])
+            summary_columns.extend(
+                [
+                    "vanilla_semantic_entropy",
+                    "kg_semantic_entropy",
+                    "vanilla_vn_entropy",
+                    "kg_vn_entropy",
+                    "vanilla_graph_path_support",
+                    "kg_graph_path_support",
+                ]
+            )
 
         summary_table = wandb.Table(columns=summary_columns)
 
@@ -1600,14 +1710,16 @@ class MIRAGEEvaluationPipeline:
                 float(r.get("kg_unknown_route_rate", 0.0)),
             ]
             if self.compute_metrics:
-                row.extend([
-                    float(r.get("vanilla_avg_semantic_entropy", 0.0)),
-                    float(r.get("kg_avg_semantic_entropy", 0.0)),
-                    float(r.get("vanilla_avg_vn_entropy", 0.0)),
-                    float(r.get("kg_avg_vn_entropy", 0.0)),
-                    float(r.get("vanilla_avg_graph_path_support", 0.5)),
-                    float(r.get("kg_avg_graph_path_support", 0.5)),
-                ])
+                row.extend(
+                    [
+                        float(r.get("vanilla_avg_semantic_entropy", 0.0)),
+                        float(r.get("kg_avg_semantic_entropy", 0.0)),
+                        float(r.get("vanilla_avg_vn_entropy", 0.0)),
+                        float(r.get("kg_avg_vn_entropy", 0.0)),
+                        float(r.get("vanilla_avg_graph_path_support", 0.5)),
+                        float(r.get("kg_avg_graph_path_support", 0.5)),
+                    ]
+                )
 
             summary_table.add_data(*row)
 
@@ -1615,17 +1727,29 @@ class MIRAGEEvaluationPipeline:
 
         # Grouped bar charts per measure by configuration
         if HAS_MATPLOTLIB:
-            config_names = [r.get("config", {}).get("name", "default") for r in config_results]
+            config_names = [
+                r.get("config", {}).get("name", "default") for r in config_results
+            ]
             x = list(range(len(config_names)))
             width = 0.36
 
             metric_specs = [("clean_accuracy", "vanilla_accuracy", "kg_accuracy")]
             if self.compute_metrics:
-                metric_specs.extend([
-                    ("semantic_entropy", "vanilla_avg_semantic_entropy", "kg_avg_semantic_entropy"),
-                    ("vn_entropy", "vanilla_avg_vn_entropy", "kg_avg_vn_entropy"),
-                    ("graph_path_support", "vanilla_avg_graph_path_support", "kg_avg_graph_path_support"),
-                ])
+                metric_specs.extend(
+                    [
+                        (
+                            "semantic_entropy",
+                            "vanilla_avg_semantic_entropy",
+                            "kg_avg_semantic_entropy",
+                        ),
+                        ("vn_entropy", "vanilla_avg_vn_entropy", "kg_avg_vn_entropy"),
+                        (
+                            "graph_path_support",
+                            "vanilla_avg_graph_path_support",
+                            "kg_avg_graph_path_support",
+                        ),
+                    ]
+                )
 
             fig, axes = plt.subplots(2, 2, figsize=(14, 10))
             axes = axes.flatten()
@@ -1635,8 +1759,20 @@ class MIRAGEEvaluationPipeline:
                 v_vals = [float(r.get(v_key, 0.0)) for r in config_results]
                 k_vals = [float(r.get(k_key, 0.0)) for r in config_results]
 
-                ax.bar([p - width/2 for p in x], v_vals, width, label="Vanilla", color="#1f77b4")
-                ax.bar([p + width/2 for p in x], k_vals, width, label="KG-RAG", color="#ff7f0e")
+                ax.bar(
+                    [p - width / 2 for p in x],
+                    v_vals,
+                    width,
+                    label="Vanilla",
+                    color="#1f77b4",
+                )
+                ax.bar(
+                    [p + width / 2 for p in x],
+                    k_vals,
+                    width,
+                    label="KG-RAG",
+                    color="#ff7f0e",
+                )
                 ax.set_title(title.replace("_", " ").title())
                 ax.set_xticks(x)
                 ax.set_xticklabels(config_names, rotation=20, ha="right")
@@ -1647,7 +1783,9 @@ class MIRAGEEvaluationPipeline:
                 axes[j].axis("off")
 
             plt.tight_layout()
-            self.wandb_run.log({f"charts/{dataset_name}/metrics_by_config": wandb.Image(fig)})
+            self.wandb_run.log(
+                {f"charts/{dataset_name}/metrics_by_config": wandb.Image(fig)}
+            )
             plt.close(fig)
 
     def _log_final_summary_to_wandb(
@@ -1667,22 +1805,24 @@ class MIRAGEEvaluationPipeline:
             "kg_clean_accuracy",
         ]
         if self.compute_metrics:
-            final_columns.extend([
-                "semantic_entropy_vanilla",
-                "semantic_entropy_kg",
-                "discrete_semantic_entropy_vanilla",
-                "discrete_semantic_entropy_kg",
-                "sre_uq_vanilla",
-                "sre_uq_kg",
-                "p_true_vanilla",
-                "p_true_kg",
-                "selfcheckgpt_vanilla",
-                "selfcheckgpt_kg",
-                "vn_entropy_vanilla",
-                "vn_entropy_kg",
-                "sd_uq_vanilla",
-                "sd_uq_kg",
-            ])
+            final_columns.extend(
+                [
+                    "semantic_entropy_vanilla",
+                    "semantic_entropy_kg",
+                    "discrete_semantic_entropy_vanilla",
+                    "discrete_semantic_entropy_kg",
+                    "sre_uq_vanilla",
+                    "sre_uq_kg",
+                    "p_true_vanilla",
+                    "p_true_kg",
+                    "selfcheckgpt_vanilla",
+                    "selfcheckgpt_kg",
+                    "vn_entropy_vanilla",
+                    "vn_entropy_kg",
+                    "sd_uq_vanilla",
+                    "sd_uq_kg",
+                ]
+            )
 
         final_table = wandb.Table(columns=final_columns)
 
@@ -1705,22 +1845,24 @@ class MIRAGEEvaluationPipeline:
                     grouped = self._build_grouped_uncertainty_metrics(cfg_res)
                     v = grouped.get("vanilla_rag", {})
                     k = grouped.get("kg_rag", {})
-                    row.extend([
-                        float(v.get("semantic_entropy", 0.0)),
-                        float(k.get("semantic_entropy", 0.0)),
-                        float(v.get("discrete_semantic_entropy", 0.0)),
-                        float(k.get("discrete_semantic_entropy", 0.0)),
-                        float(v.get("sre_uq", 0.0)),
-                        float(k.get("sre_uq", 0.0)),
-                        float(v.get("p_true", 0.5)),
-                        float(k.get("p_true", 0.5)),
-                        float(v.get("selfcheckgpt", 0.0)),
-                        float(k.get("selfcheckgpt", 0.0)),
-                        float(v.get("vn_entropy", 0.0)),
-                        float(k.get("vn_entropy", 0.0)),
-                        float(v.get("sd_uq", 0.5)),
-                        float(k.get("sd_uq", 0.5)),
-                    ])
+                    row.extend(
+                        [
+                            float(v.get("semantic_entropy", 0.0)),
+                            float(k.get("semantic_entropy", 0.0)),
+                            float(v.get("discrete_semantic_entropy", 0.0)),
+                            float(k.get("discrete_semantic_entropy", 0.0)),
+                            float(v.get("sre_uq", 0.0)),
+                            float(k.get("sre_uq", 0.0)),
+                            float(v.get("p_true", 0.5)),
+                            float(k.get("p_true", 0.5)),
+                            float(v.get("selfcheckgpt", 0.0)),
+                            float(k.get("selfcheckgpt", 0.0)),
+                            float(v.get("vn_entropy", 0.0)),
+                            float(k.get("vn_entropy", 0.0)),
+                            float(v.get("sd_uq", 0.5)),
+                            float(k.get("sd_uq", 0.5)),
+                        ]
+                    )
                 final_table.add_data(*row)
 
         self.wandb_run.log({"tables/final_evaluation_summary": final_table})
@@ -1734,8 +1876,13 @@ class MIRAGEEvaluationPipeline:
 
         # ── AUROC / AUREC table ───────────────────────────────────────────
         _uq_metrics = [
-            "semantic_entropy", "discrete_semantic_entropy",
-            "sre_uq", "p_true", "selfcheckgpt", "vn_entropy", "sd_uq",
+            "semantic_entropy",
+            "discrete_semantic_entropy",
+            "sre_uq",
+            "p_true",
+            "selfcheckgpt",
+            "vn_entropy",
+            "sd_uq",
         ]
         auroc_cols = (
             ["dataset", "config", "system"]
@@ -1749,27 +1896,36 @@ class MIRAGEEvaluationPipeline:
             for cfg_res in dataset_block.get("config_results", []):
                 cfg_name = cfg_res.get("config", {}).get("name", "default")
                 auroc_aurec = cfg_res.get("auroc_aurec", {})
-                for system_label, system_key in (("vanilla_rag", "vanilla_rag"), ("kg_rag", "kg_rag")):
+                for system_label, system_key in (
+                    ("vanilla_rag", "vanilla_rag"),
+                    ("kg_rag", "kg_rag"),
+                ):
                     prefix = "vanilla" if system_key == "vanilla_rag" else "kg"
                     sys_data = auroc_aurec.get(system_key, {})
-                    row = [
-                        dataset_name,
-                        cfg_name,
-                        system_label,
-                    ] + [
-                        float(sys_data.get(f"{m}_auroc", float("nan"))) for m in _uq_metrics
-                    ] + [
-                        float(sys_data.get(f"{m}_aurec", float("nan"))) for m in _uq_metrics
-                    ]
+                    row = (
+                        [
+                            dataset_name,
+                            cfg_name,
+                            system_label,
+                        ]
+                        + [
+                            float(sys_data.get(f"{m}_auroc", float("nan")))
+                            for m in _uq_metrics
+                        ]
+                        + [
+                            float(sys_data.get(f"{m}_aurec", float("nan")))
+                            for m in _uq_metrics
+                        ]
+                    )
                     auroc_table.add_data(*row)
                     # Also log as scalars so they show up in run charts
                     for m in _uq_metrics:
-                        self.wandb_run.summary[f"auroc/{dataset_name}/{cfg_name}/{prefix}/{m}"] = float(
-                            sys_data.get(f"{m}_auroc", float("nan"))
-                        )
-                        self.wandb_run.summary[f"aurec/{dataset_name}/{cfg_name}/{prefix}/{m}"] = float(
-                            sys_data.get(f"{m}_aurec", float("nan"))
-                        )
+                        self.wandb_run.summary[
+                            f"auroc/{dataset_name}/{cfg_name}/{prefix}/{m}"
+                        ] = float(sys_data.get(f"{m}_auroc", float("nan")))
+                        self.wandb_run.summary[
+                            f"aurec/{dataset_name}/{cfg_name}/{prefix}/{m}"
+                        ] = float(sys_data.get(f"{m}_aurec", float("nan")))
 
         self.wandb_run.log({"tables/auroc_aurec": auroc_table})
 
@@ -1839,7 +1995,11 @@ class MIRAGEEvaluationPipeline:
         # Build a per-config details_by_dataset map from in-memory all_results.
         # Only include datasets that have hop_count metadata or are known multi-hop.
         _MULTI_HOP_DATASETS = {
-            "hotpotqa", "hotpotqa_fullwiki", "2wikimultihopqa", "musique", "multihoprag",
+            "hotpotqa",
+            "hotpotqa_fullwiki",
+            "2wikimultihopqa",
+            "musique",
+            "multihoprag",
         }
         _hop_details_by_config: dict = {}
         for _dsblock in all_results:
@@ -1856,7 +2016,10 @@ class MIRAGEEvaluationPipeline:
                 for _cfgname, _hop_details in sorted(_hop_details_by_config.items()):
                     _suffix = ""
                     if _multi_cfg:
-                        _suffix = re.sub(r"[^A-Za-z0-9_.-]+", "_", _cfgname).strip("_") or "config"
+                        _suffix = (
+                            re.sub(r"[^A-Za-z0-9_.-]+", "_", _cfgname).strip("_")
+                            or "config"
+                        )
                     _hop_result = run_hop_stratified_analysis(
                         details_by_dataset=_hop_details,
                         output_dir="paper/figures",
@@ -1871,6 +2034,7 @@ class MIRAGEEvaluationPipeline:
                         if str(_fig_path).lower().endswith(".pdf"):
                             continue
                         import wandb as _wandb
+
                         _wandb_key = f"charts/hop_stratified/{_cfgname}/{os.path.basename(_fig_path)}"
                         self.wandb_run.log({_wandb_key: _wandb.Image(_fig_path)})
             except Exception as _e:
@@ -1878,7 +2042,9 @@ class MIRAGEEvaluationPipeline:
 
         # Add high-level run summary keys for quick W&B overview cards
         self.wandb_run.summary["summary/datasets_evaluated"] = len(all_results)
-        self.wandb_run.summary["summary/total_questions_evaluated"] = total_questions_logged
+        self.wandb_run.summary["summary/total_questions_evaluated"] = (
+            total_questions_logged
+        )
 
         # Upload final JSON summary as a tracked artifact
         if os.path.exists(summary_path):
@@ -1903,8 +2069,12 @@ class MIRAGEEvaluationPipeline:
 
         # Fall back to context.chunks
         if not chunk_texts:
-            context = rag_result.get("context", {}) if isinstance(rag_result, dict) else {}
-            context_chunks = context.get("chunks", []) if isinstance(context, dict) else []
+            context = (
+                rag_result.get("context", {}) if isinstance(rag_result, dict) else {}
+            )
+            context_chunks = (
+                context.get("chunks", []) if isinstance(context, dict) else []
+            )
             for c in context_chunks:
                 if isinstance(c, dict):
                     text = c.get("text", "")
@@ -2047,14 +2217,13 @@ class MIRAGEEvaluationPipeline:
         if return_graph_state_traces:
             return responses, retrieved_chunk_texts, mean_jaccard, graph_state_traces
         return responses, retrieved_chunk_texts, mean_jaccard
-        
+
     def _get_neo4j_driver(self):
         """Get Neo4j driver"""
         return GraphDatabase.driver(
-            self.neo4j_uri, 
-            auth=(self.neo4j_user, self.neo4j_password)
+            self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password)
         )
-        
+
     def _clear_neo4j(self):
         """Clear all data from Neo4j"""
         logging.info("Clearing Neo4j database...")
@@ -2076,10 +2245,12 @@ class MIRAGEEvaluationPipeline:
                 result = session.run(
                     "MATCH (d:Document {kgName: $kg_name})<-[:PART_OF]-(c:Chunk) "
                     "RETURN count(c) AS n",
-                    {"kg_name": dataset_name}
+                    {"kg_name": dataset_name},
                 )
                 chunk_count = result.single()["n"]
-                logging.info(f"[_dataset_kg_exists] Query for kgName='{dataset_name}': {chunk_count} chunks")
+                logging.info(
+                    f"[_dataset_kg_exists] Query for kgName='{dataset_name}': {chunk_count} chunks"
+                )
                 return chunk_count
         except Exception as e:
             logging.warning(f"[_dataset_kg_exists] Error checking for existing KG: {e}")
@@ -2124,15 +2295,35 @@ class MIRAGEEvaluationPipeline:
                 )
                 row = result.single()
                 return {
-                    "documents": int(row["documents"] if row and row["documents"] is not None else 0),
-                    "chunks": int(row["chunks"] if row and row["chunks"] is not None else 0),
-                    "entities": int(row["entities"] if row and row["entities"] is not None else 0),
-                    "relationships": int(row["relationships"] if row and row["relationships"] is not None else 0),
-                    "chunks_with_entities": int(row["chunks_with_entities"] if row and row["chunks_with_entities"] is not None else 0),
-                    "entity_links": int(row["entity_links"] if row and row["entity_links"] is not None else 0),
+                    "documents": int(
+                        row["documents"] if row and row["documents"] is not None else 0
+                    ),
+                    "chunks": int(
+                        row["chunks"] if row and row["chunks"] is not None else 0
+                    ),
+                    "entities": int(
+                        row["entities"] if row and row["entities"] is not None else 0
+                    ),
+                    "relationships": int(
+                        row["relationships"]
+                        if row and row["relationships"] is not None
+                        else 0
+                    ),
+                    "chunks_with_entities": int(
+                        row["chunks_with_entities"]
+                        if row and row["chunks_with_entities"] is not None
+                        else 0
+                    ),
+                    "entity_links": int(
+                        row["entity_links"]
+                        if row and row["entity_links"] is not None
+                        else 0
+                    ),
                 }
         except Exception as e:
-            logging.warning(f"[_get_dataset_kg_stats] Error collecting stats for '{dataset_name}': {e}")
+            logging.warning(
+                f"[_get_dataset_kg_stats] Error collecting stats for '{dataset_name}': {e}"
+            )
             return {
                 "documents": 0,
                 "chunks": 0,
@@ -2197,7 +2388,9 @@ class MIRAGEEvaluationPipeline:
             f"entity_links={stats.get('entity_links', 0)}"
         )
 
-        is_valid, reasons = self._assess_kg_quality(stats, min_chunks=min_chunks, min_entities=min_entities)
+        is_valid, reasons = self._assess_kg_quality(
+            stats, min_chunks=min_chunks, min_entities=min_entities
+        )
         if not is_valid:
             logging.warning(
                 f"[kg_quality] dataset={dataset_name} failed minimum thresholds "
@@ -2375,7 +2568,9 @@ class MIRAGEEvaluationPipeline:
         finally:
             driver.close()
 
-    def _build_dataset_like_raw_mapping(self, dataset_name: str) -> Dict[str, Dict[str, Any]]:
+    def _build_dataset_like_raw_mapping(
+        self, dataset_name: str
+    ) -> Dict[str, Dict[str, Any]]:
         """
         Build a dict-like dataset mapping from normalized adapters to preserve
         the expected downstream shape in evaluation.
@@ -2390,29 +2585,35 @@ class MIRAGEEvaluationPipeline:
         for rec in eval_records:
             question_id = str(rec["id"])
             merged = dict(raw_records.get(question_id, {}))
-            merged.update({
-                "question": rec.get("question", ""),
-                "expected_answer": rec.get("expected_answer", ""),
-                "aliases": rec.get("aliases", []),
-                "contexts": rec.get("contexts", []),
-                "options": rec.get("options", {}) or {},
-                "task_type": rec.get("task_type", ""),
-            })
+            merged.update(
+                {
+                    "question": rec.get("question", ""),
+                    "expected_answer": rec.get("expected_answer", ""),
+                    "aliases": rec.get("aliases", []),
+                    "contexts": rec.get("contexts", []),
+                    "options": rec.get("options", {}) or {},
+                    "task_type": rec.get("task_type", ""),
+                }
+            )
             mapping[question_id] = merged
         return mapping
-        
+
     def _load_mirage_raw_data(self, dataset_name: str) -> Dict[str, Any]:
         """Load evaluation data through normalized dataset adapters."""
         try:
             adapted = self._build_dataset_like_raw_mapping(dataset_name)
             if not adapted:
-                logging.warning(f"No adapted evaluation records found for {dataset_name}")
+                logging.warning(
+                    f"No adapted evaluation records found for {dataset_name}"
+                )
             return adapted
         except Exception as e:
             logging.error(f"Failed to load adapted dataset '{dataset_name}': {e}")
             return {}
-    
-    def _extract_contexts_from_question(self, question_data: Dict, dataset_name: str = None) -> List[str]:
+
+    def _extract_contexts_from_question(
+        self, question_data: Dict, dataset_name: str = None
+    ) -> List[str]:
         """Extract context passages from a question"""
         # Adapter-normalized shape
         contexts = question_data.get("contexts", [])
@@ -2423,14 +2624,14 @@ class MIRAGEEvaluationPipeline:
         contexts = question_data.get("CONTEXTS", [])
         if isinstance(contexts, list) and contexts:
             return [c if isinstance(c, str) else c.get("text", "") for c in contexts]
-        
+
         # Try BioASQ style (snippets field)
         snippets = question_data.get("snippets", [])
         if isinstance(snippets, list) and snippets:
             return [s.get("text", "") for s in snippets if s.get("text")]
-        
+
         return []
-    
+
     def _get_answer_from_question(self, question_data: Dict) -> str:
         """Extract ground truth answer from question data"""
         # Adapter-normalized shape
@@ -2458,7 +2659,7 @@ class MIRAGEEvaluationPipeline:
         # Try MedMCQA-style cop (1-based: 1->A, 2->B, ...)
         if "cop" in question_data:
             try:
-                key = chr(ord('A') + int(question_data["cop"]) - 1)
+                key = chr(ord("A") + int(question_data["cop"]) - 1)
                 if key in question_data:
                     return str(question_data[key]).lower()
                 op_map = {"A": "opa", "B": "opb", "C": "opc", "D": "opd"}
@@ -2466,18 +2667,18 @@ class MIRAGEEvaluationPipeline:
                     return str(question_data[op_map[key]]).lower()
             except Exception:
                 pass
-        
+
         # Try BioASQ style
         if "exact_answer" in question_data:
             return str(question_data["exact_answer"]).lower()
-        
+
         # Try generic
         if "answer" in question_data:
             return str(question_data["answer"]).lower()
         if "Answer" in question_data:
             return str(question_data["Answer"]).lower()
         return ""
-    
+
     def _get_question_text(self, question_data: Dict) -> str:
         """Extract question text from question data"""
         if "question" in question_data:
@@ -2490,7 +2691,9 @@ class MIRAGEEvaluationPipeline:
             return question_data["QUESTION"]
         return ""
 
-    def _extract_options_and_task_type(self, question_data: Dict) -> Tuple[Dict[str, str], str]:
+    def _extract_options_and_task_type(
+        self, question_data: Dict
+    ) -> Tuple[Dict[str, str], str]:
         """Extract MCQ options/task type when available from raw dataset record."""
         explicit_task_type = str(question_data.get("task_type", "")).strip().lower()
         options: Dict[str, str] = {}
@@ -2504,7 +2707,7 @@ class MIRAGEEvaluationPipeline:
             }
         elif isinstance(raw_options, list):
             options = {
-                chr(ord('A') + i): str(v).strip()
+                chr(ord("A") + i): str(v).strip()
                 for i, v in enumerate(raw_options)
                 if str(v).strip()
             }
@@ -2548,11 +2751,17 @@ class MIRAGEEvaluationPipeline:
 
         # 2) Label at start of answer or in explicit "answer is ..." pattern.
         lead = t[:120]
-        if re.search(r"^\s*(yes|true)\b", lead) or re.search(r"\b(answer|conclusion|final answer)\s*(is|:)\s*(yes|true)\b", t):
+        if re.search(r"^\s*(yes|true)\b", lead) or re.search(
+            r"\b(answer|conclusion|final answer)\s*(is|:)\s*(yes|true)\b", t
+        ):
             return "yes"
-        if re.search(r"^\s*(no|false)\b", lead) or re.search(r"\b(answer|conclusion|final answer)\s*(is|:)\s*(no|false)\b", t):
+        if re.search(r"^\s*(no|false)\b", lead) or re.search(
+            r"\b(answer|conclusion|final answer)\s*(is|:)\s*(no|false)\b", t
+        ):
             return "no"
-        if re.search(r"^\s*(maybe|uncertain)\b", lead) or re.search(r"\b(answer|conclusion|final answer)\s*(is|:)\s*(maybe|uncertain)\b", t):
+        if re.search(r"^\s*(maybe|uncertain)\b", lead) or re.search(
+            r"\b(answer|conclusion|final answer)\s*(is|:)\s*(maybe|uncertain)\b", t
+        ):
             return "maybe"
 
         return ""
@@ -2573,16 +2782,26 @@ class MIRAGEEvaluationPipeline:
         lead = t[:220]
 
         # 1) Explicit labels first.
-        if re.search(r"^\s*(yes|true)\b", lead) or re.search(r"\b(answer|conclusion)\s*(is|:)\s*(yes|true)\b", t):
+        if re.search(r"^\s*(yes|true)\b", lead) or re.search(
+            r"\b(answer|conclusion)\s*(is|:)\s*(yes|true)\b", t
+        ):
             return "yes"
-        if re.search(r"^\s*(no|false)\b", lead) or re.search(r"\b(answer|conclusion)\s*(is|:)\s*(no|false)\b", t):
+        if re.search(r"^\s*(no|false)\b", lead) or re.search(
+            r"\b(answer|conclusion)\s*(is|:)\s*(no|false)\b", t
+        ):
             return "no"
         # "so yes/no", "therefore yes/no", "thus yes/no" — buried conclusion markers.
-        if re.search(r"\b(so|therefore|thus|hence|in summary|in conclusion),?\s*(yes|true)\b", t):
+        if re.search(
+            r"\b(so|therefore|thus|hence|in summary|in conclusion),?\s*(yes|true)\b", t
+        ):
             return "yes"
-        if re.search(r"\b(so|therefore|thus|hence|in summary|in conclusion),?\s*(no|false)\b", t):
+        if re.search(
+            r"\b(so|therefore|thus|hence|in summary|in conclusion),?\s*(no|false)\b", t
+        ):
             return "no"
-        if re.search(r"^\s*(maybe|uncertain)\b", lead) or re.search(r"\b(answer|conclusion)\s*(is|:)\s*(maybe|uncertain)\b", t):
+        if re.search(r"^\s*(maybe|uncertain)\b", lead) or re.search(
+            r"\b(answer|conclusion)\s*(is|:)\s*(maybe|uncertain)\b", t
+        ):
             return "maybe"
 
         # 2) Insufficient/inconclusive context => maybe.
@@ -2635,10 +2854,29 @@ class MIRAGEEvaluationPipeline:
             return "no"
 
         # 4) Question-aware fallback for yes/no prompts.
-        if q.startswith(("is ", "are ", "does ", "do ", "can ", "should ", "was ", "were ", "has ", "have ")):
-            if re.search(r"\b(comparable|viable alternative|correlated|associated|beneficial|effective)\b", t):
+        if q.startswith(
+            (
+                "is ",
+                "are ",
+                "does ",
+                "do ",
+                "can ",
+                "should ",
+                "was ",
+                "were ",
+                "has ",
+                "have ",
+            )
+        ):
+            if re.search(
+                r"\b(comparable|viable alternative|correlated|associated|beneficial|effective)\b",
+                t,
+            ):
                 return "yes"
-            if re.search(r"\b(no evidence|not associated|not correlated|not beneficial|not effective)\b", t):
+            if re.search(
+                r"\b(no evidence|not associated|not correlated|not beneficial|not effective)\b",
+                t,
+            ):
                 return "no"
 
         return ""
@@ -2664,8 +2902,12 @@ class MIRAGEEvaluationPipeline:
         if cache_key in self._llm_judge_cache:
             return self._llm_judge_cache[cache_key]
 
-        accepted = [expected_answer] + [a for a in (aliases or []) if a and a != expected_answer]
-        accepted_str = " / ".join(f'"{a}"' for a in accepted[:6])  # cap to avoid token bloat
+        accepted = [expected_answer] + [
+            a for a in (aliases or []) if a and a != expected_answer
+        ]
+        accepted_str = " / ".join(
+            f'"{a}"' for a in accepted[:6]
+        )  # cap to avoid token bloat
 
         system_prompt = (
             "You are a strict answer evaluator for a factoid question answering task. "
@@ -2719,11 +2961,11 @@ class MIRAGEEvaluationPipeline:
         """
         expected_answer = str(expected_answer) if expected_answer else ""
         model_response = str(model_response) if model_response else ""
-        
+
         # Normalize for comparison
         expected_lower = expected_answer.lower().strip()
         response_lower = model_response.lower().strip()
-        
+
         # 1. First try binary (yes/no/maybe) matching.
         expected_binary = self._normalize_decision_label(expected_answer)
         predicted_binary = self._normalize_decision_label(model_response)
@@ -2732,7 +2974,9 @@ class MIRAGEEvaluationPipeline:
 
         # 1b. If response is free-form for binary tasks, attempt inference.
         if expected_binary and not predicted_binary:
-            inferred = self._infer_decision_from_response(model_response, question=question)
+            inferred = self._infer_decision_from_response(
+                model_response, question=question
+            )
             if inferred:
                 return inferred == expected_binary
 
@@ -2744,8 +2988,10 @@ class MIRAGEEvaluationPipeline:
                 if str(v).strip()
             }
             correct_keys = [
-                k for k, v in normalized_options.items()
-                if v == expected_lower or self._contains_expected_text(v, expected_lower)
+                k
+                for k, v in normalized_options.items()
+                if v == expected_lower
+                or self._contains_expected_text(v, expected_lower)
             ]
 
             # Detect letter-style predictions: "B", "Option C", "Answer: D".
@@ -2767,18 +3013,21 @@ class MIRAGEEvaluationPipeline:
 
             # Fallback: compare expected option text directly in generated response.
             return self._contains_expected_text(response_lower, expected_lower)
-        
+
         # 3. Factoid / list answer matching.
         # Use LLM judge when available (stricter, handles "I don't know", accents, paraphrases).
         # Aliases are passed so the judge can accept any correct surface form.
         if self.use_llm_judge and question and expected_answer and model_response:
-            return self._llm_judge_correct(question, expected_answer, model_response, aliases=aliases)
+            return self._llm_judge_correct(
+                question, expected_answer, model_response, aliases=aliases
+            )
 
         # Fallback: heuristic token-coverage matching.
         # Handle formats like: "[['xia']]", "[['casirivimab'], ['imdevimab']]", "['answer']"
         expected_items = []
         try:
             import ast
+
             parsed = ast.literal_eval(expected_answer)
             if isinstance(parsed, list):
                 for item in parsed:
@@ -2794,7 +3043,10 @@ class MIRAGEEvaluationPipeline:
         if not expected_items:
             expected_items = [expected_lower]
 
-        items_found = [self._contains_expected_text(response_lower, item) for item in expected_items]
+        items_found = [
+            self._contains_expected_text(response_lower, item)
+            for item in expected_items
+        ]
 
         if not items_found:
             return False
@@ -2802,13 +3054,15 @@ class MIRAGEEvaluationPipeline:
         if len(expected_items) == 1:
             if items_found[0]:
                 return True
-            for alias in (aliases or []):
-                if alias and self._contains_expected_text(response_lower, alias.lower().strip()):
+            for alias in aliases or []:
+                if alias and self._contains_expected_text(
+                    response_lower, alias.lower().strip()
+                ):
                     return True
             return False
 
         return all(items_found)
-    
+
     def _build_kg_for_dataset(self, dataset_name: str) -> bool:
         """
         Build dataset-scoped KG from normalized adapter contexts.
@@ -2923,7 +3177,9 @@ class MIRAGEEvaluationPipeline:
 
             stored = bool(kg.get("metadata", {}).get("stored_in_neo4j", False))
             if not stored:
-                logging.error(f"Passage-aware KG pipeline did not store graph for {dataset_name}")
+                logging.error(
+                    f"Passage-aware KG pipeline did not store graph for {dataset_name}"
+                )
                 return False
 
             stored_relationships = kg.get("metadata", {}).get(
@@ -2938,10 +3194,11 @@ class MIRAGEEvaluationPipeline:
                 f"relationships={stored_relationships}"
             )
             return True
-            
+
         except Exception as e:
             logging.error(f"Failed to populate Neo4j for {dataset_name}: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -2960,31 +3217,95 @@ class MIRAGEEvaluationPipeline:
             )
         }
 
-    def _structural_metric_max_hops(self, dataset_name: str, retrieval_max_hops: int) -> int:
+    def _structural_metric_max_hops(
+        self, dataset_name: str, retrieval_max_hops: int
+    ) -> int:
         """Return a safe hop budget for structural graph metrics."""
         override = self.DATASET_STRUCTURAL_METRIC_MAX_HOPS.get(dataset_name)
         if override is None:
             return retrieval_max_hops
         return max(1, min(int(retrieval_max_hops), int(override)))
 
-    def _build_grouped_uncertainty_metrics(self, config_result: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+    def _build_grouped_uncertainty_metrics(
+        self, config_result: Dict[str, Any]
+    ) -> Dict[str, Dict[str, float]]:
         """Return strict 8-metric summary grouped by approach for one config result."""
         metric_field_map = {
-            "semantic_entropy": ("vanilla_avg_semantic_entropy", "kg_avg_semantic_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["semantic_entropy"]),
-            "discrete_semantic_entropy": ("vanilla_avg_discrete_semantic_entropy", "kg_avg_discrete_semantic_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["discrete_semantic_entropy"]),
-            "sre_uq": ("vanilla_avg_sre_uq", "kg_avg_sre_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sre_uq"]),
-            "p_true": ("vanilla_avg_p_true", "kg_avg_p_true", self.UNCERTAINTY_METRIC_DEFAULTS["p_true"]),
-            "selfcheckgpt": ("vanilla_avg_selfcheckgpt", "kg_avg_selfcheckgpt", self.UNCERTAINTY_METRIC_DEFAULTS["selfcheckgpt"]),
-            "vn_entropy": ("vanilla_avg_vn_entropy", "kg_avg_vn_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["vn_entropy"]),
-            "sd_uq": ("vanilla_avg_sd_uq", "kg_avg_sd_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sd_uq"]),
-            "graph_path_support": ("vanilla_avg_graph_path_support", "kg_avg_graph_path_support", self.UNCERTAINTY_METRIC_DEFAULTS["graph_path_support"]),
-            "graph_path_disagreement": ("vanilla_avg_graph_path_disagreement", "kg_avg_graph_path_disagreement", self.UNCERTAINTY_METRIC_DEFAULTS["graph_path_disagreement"]),
-            "competing_answer_alternatives": ("vanilla_avg_competing_answer_alternatives", "kg_avg_competing_answer_alternatives", self.UNCERTAINTY_METRIC_DEFAULTS["competing_answer_alternatives"]),
-            "evidence_vn_entropy": ("vanilla_avg_evidence_vn_entropy", "kg_avg_evidence_vn_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["evidence_vn_entropy"]),
-            "subgraph_informativeness": ("vanilla_avg_subgraph_informativeness", "kg_avg_subgraph_informativeness", self.UNCERTAINTY_METRIC_DEFAULTS["subgraph_informativeness"]),
-            "subgraph_perturbation_stability": ("vanilla_avg_subgraph_perturbation_stability", "kg_avg_subgraph_perturbation_stability", self.UNCERTAINTY_METRIC_DEFAULTS["subgraph_perturbation_stability"]),
-            "support_entailment_uncertainty": ("vanilla_avg_support_entailment_uncertainty", "kg_avg_support_entailment_uncertainty", self.UNCERTAINTY_METRIC_DEFAULTS["support_entailment_uncertainty"]),
-            "evidence_conflict_uncertainty": ("vanilla_avg_evidence_conflict_uncertainty", "kg_avg_evidence_conflict_uncertainty", self.UNCERTAINTY_METRIC_DEFAULTS["evidence_conflict_uncertainty"]),
+            "semantic_entropy": (
+                "vanilla_avg_semantic_entropy",
+                "kg_avg_semantic_entropy",
+                self.UNCERTAINTY_METRIC_DEFAULTS["semantic_entropy"],
+            ),
+            "discrete_semantic_entropy": (
+                "vanilla_avg_discrete_semantic_entropy",
+                "kg_avg_discrete_semantic_entropy",
+                self.UNCERTAINTY_METRIC_DEFAULTS["discrete_semantic_entropy"],
+            ),
+            "sre_uq": (
+                "vanilla_avg_sre_uq",
+                "kg_avg_sre_uq",
+                self.UNCERTAINTY_METRIC_DEFAULTS["sre_uq"],
+            ),
+            "p_true": (
+                "vanilla_avg_p_true",
+                "kg_avg_p_true",
+                self.UNCERTAINTY_METRIC_DEFAULTS["p_true"],
+            ),
+            "selfcheckgpt": (
+                "vanilla_avg_selfcheckgpt",
+                "kg_avg_selfcheckgpt",
+                self.UNCERTAINTY_METRIC_DEFAULTS["selfcheckgpt"],
+            ),
+            "vn_entropy": (
+                "vanilla_avg_vn_entropy",
+                "kg_avg_vn_entropy",
+                self.UNCERTAINTY_METRIC_DEFAULTS["vn_entropy"],
+            ),
+            "sd_uq": (
+                "vanilla_avg_sd_uq",
+                "kg_avg_sd_uq",
+                self.UNCERTAINTY_METRIC_DEFAULTS["sd_uq"],
+            ),
+            "graph_path_support": (
+                "vanilla_avg_graph_path_support",
+                "kg_avg_graph_path_support",
+                self.UNCERTAINTY_METRIC_DEFAULTS["graph_path_support"],
+            ),
+            "graph_path_disagreement": (
+                "vanilla_avg_graph_path_disagreement",
+                "kg_avg_graph_path_disagreement",
+                self.UNCERTAINTY_METRIC_DEFAULTS["graph_path_disagreement"],
+            ),
+            "competing_answer_alternatives": (
+                "vanilla_avg_competing_answer_alternatives",
+                "kg_avg_competing_answer_alternatives",
+                self.UNCERTAINTY_METRIC_DEFAULTS["competing_answer_alternatives"],
+            ),
+            "evidence_vn_entropy": (
+                "vanilla_avg_evidence_vn_entropy",
+                "kg_avg_evidence_vn_entropy",
+                self.UNCERTAINTY_METRIC_DEFAULTS["evidence_vn_entropy"],
+            ),
+            "subgraph_informativeness": (
+                "vanilla_avg_subgraph_informativeness",
+                "kg_avg_subgraph_informativeness",
+                self.UNCERTAINTY_METRIC_DEFAULTS["subgraph_informativeness"],
+            ),
+            "subgraph_perturbation_stability": (
+                "vanilla_avg_subgraph_perturbation_stability",
+                "kg_avg_subgraph_perturbation_stability",
+                self.UNCERTAINTY_METRIC_DEFAULTS["subgraph_perturbation_stability"],
+            ),
+            "support_entailment_uncertainty": (
+                "vanilla_avg_support_entailment_uncertainty",
+                "kg_avg_support_entailment_uncertainty",
+                self.UNCERTAINTY_METRIC_DEFAULTS["support_entailment_uncertainty"],
+            ),
+            "evidence_conflict_uncertainty": (
+                "vanilla_avg_evidence_conflict_uncertainty",
+                "kg_avg_evidence_conflict_uncertainty",
+                self.UNCERTAINTY_METRIC_DEFAULTS["evidence_conflict_uncertainty"],
+            ),
         }
 
         grouped = {
@@ -2994,12 +3315,16 @@ class MIRAGEEvaluationPipeline:
 
         for metric_name in self.UNCERTAINTY_METRIC_NAMES:
             vanilla_field, kg_field, default = metric_field_map[metric_name]
-            grouped["vanilla_rag"][metric_name] = float(config_result.get(vanilla_field, default))
+            grouped["vanilla_rag"][metric_name] = float(
+                config_result.get(vanilla_field, default)
+            )
             grouped["kg_rag"][metric_name] = float(config_result.get(kg_field, default))
 
         return grouped
 
-    def _apply_clean_accuracy_reporting(self, result_block: Dict[str, Any]) -> Dict[str, Any]:
+    def _apply_clean_accuracy_reporting(
+        self, result_block: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Make clean accuracy the headline reporting number while preserving raw accuracy.
 
@@ -3009,25 +3334,39 @@ class MIRAGEEvaluationPipeline:
         """
         vanilla_raw = float(result_block.get("vanilla_accuracy", 0.0) or 0.0)
         kg_raw = float(result_block.get("kg_accuracy", 0.0) or 0.0)
-        vanilla_clean = float(result_block.get("vanilla_accuracy_excluding_errors", vanilla_raw) or vanilla_raw)
-        kg_clean = float(result_block.get("kg_accuracy_excluding_errors", kg_raw) or kg_raw)
+        vanilla_clean = float(
+            result_block.get("vanilla_accuracy_excluding_errors", vanilla_raw)
+            or vanilla_raw
+        )
+        kg_clean = float(
+            result_block.get("kg_accuracy_excluding_errors", kg_raw) or kg_raw
+        )
 
         result_block["vanilla_accuracy_raw"] = vanilla_raw
         result_block["kg_accuracy_raw"] = kg_raw
         result_block["vanilla_accuracy"] = vanilla_clean
         result_block["kg_accuracy"] = kg_clean
-        result_block["reported_accuracy_variant"] = "clean_excluding_generation_failures"
+        result_block["reported_accuracy_variant"] = (
+            "clean_excluding_generation_failures"
+        )
         return result_block
 
-    
-    def _run_evaluation_on_dataset(self, dataset_name: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _run_evaluation_on_dataset(
+        self, dataset_name: str, config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Run RAG comparison: Vanilla RAG vs KG-RAG using Neo4j database"""
-        config = config or {"name": "default", "similarity_threshold": 0.1, "max_chunks": 10}
+        config = config or {
+            "name": "default",
+            "similarity_threshold": 0.1,
+            "max_chunks": 10,
+        }
         config_name = config.get("name", "default")
         similarity_threshold = float(config.get("similarity_threshold", 0.1))
         max_chunks = int(config.get("max_chunks", 10))
         retrieval_temperature = float(config.get("retrieval_temperature", 0.0) or 0.0)
-        retrieval_shortlist_factor = int(config.get("retrieval_shortlist_factor", 4) or 4)
+        retrieval_shortlist_factor = int(
+            config.get("retrieval_shortlist_factor", 4) or 4
+        )
         kg_generation = dict(config.get("kg_generation") or {})
         retrieval_env_overrides = self._retrieval_env_overrides(config)
         with self._temporary_env(retrieval_env_overrides):
@@ -3039,7 +3378,7 @@ class MIRAGEEvaluationPipeline:
             f"retrieval_temperature={retrieval_temperature:g}, "
             f"retrieval_shortlist_factor={retrieval_shortlist_factor})"
         )
-        
+
         # Load dataset
         dataset = self._load_mirage_raw_data(dataset_name)
         if not dataset:
@@ -3095,7 +3434,7 @@ class MIRAGEEvaluationPipeline:
                 len(missing_questions),
                 preview,
             )
-        
+
         # Check for leakage — hits the cache if already validated by _build_dataset_kg / _build_eval_records.
         try:
             _, _, _leakage_detected = self._get_normalized_dataset(dataset_name)
@@ -3118,7 +3457,9 @@ class MIRAGEEvaluationPipeline:
                 "retrieval_variant": config.get("retrieval_variant", ""),
                 "retrieval_stack": dict(config.get("retrieval_stack", {}) or {}),
                 "kg_system": dict(config.get("kg_system", {}) or {}),
-                "executed_systems": list((config or {}).get("executed_systems") or ["vanilla_rag", "kg_rag"]),
+                "executed_systems": list(
+                    (config or {}).get("executed_systems") or ["vanilla_rag", "kg_rag"]
+                ),
             },
             "evaluation_mode": self.evaluation_mode,
             "subset_seed": self.subset_seed,
@@ -3136,11 +3477,12 @@ class MIRAGEEvaluationPipeline:
             "vanilla_rag_correct": 0,
             "kg_rag_correct": 0,
             "leakage_detected": _leakage_detected,
-            "details": []
+            "details": [],
         }
 
         # Accumulate per-metric compute times for averaging
         from collections import defaultdict as _defaultdict
+
         vanilla_compute_times: dict = _defaultdict(list)
         kg_compute_times: dict = _defaultdict(list)
         vanilla_retrieval_overlaps: List[float] = []
@@ -3153,12 +3495,15 @@ class MIRAGEEvaluationPipeline:
         _ckpt_dir = Path("results") / "checkpoints"
         _ckpt_dir.mkdir(parents=True, exist_ok=True)
         _safe_dataset = re.sub(r"[^a-zA-Z0-9._-]+", "_", dataset_name)
-        _safe_config  = re.sub(r"[^a-zA-Z0-9._-]+", "_", config_name)
+        _safe_config = re.sub(r"[^a-zA-Z0-9._-]+", "_", config_name)
         _safe_subset = self._sanitize_for_filename(
             subset_meta.get("subset_tag", f"n{self.num_samples}_seed{self.subset_seed}")
         )
         _safe_exec = self._execution_signature(config)
-        _ckpt_path = _ckpt_dir / f"{_safe_dataset}_{_safe_subset}_{_safe_config}_{_safe_exec}.jsonl"
+        _ckpt_path = (
+            _ckpt_dir
+            / f"{_safe_dataset}_{_safe_subset}_{_safe_config}_{_safe_exec}.jsonl"
+        )
 
         if self.rebuild_kg and _ckpt_path.exists():
             archived_name = (
@@ -3200,7 +3545,8 @@ class MIRAGEEvaluationPipeline:
             if _seen_ids:
                 logging.info(
                     "Checkpoint: resuming from %d previously completed questions (%s)",
-                    len(_seen_ids), _ckpt_path,
+                    len(_seen_ids),
+                    _ckpt_path,
                 )
 
         _ckpt_file = _ckpt_path.open("a")  # append mode
@@ -3209,7 +3555,9 @@ class MIRAGEEvaluationPipeline:
         for q_idx, (q_id, q_data) in enumerate(questions):
             question = self._get_question_text(q_data)
             expected_answer = self._get_answer_from_question(q_data)
-            hop_count = self._infer_hop_count(dataset_name, str(q_id), q_data if isinstance(q_data, dict) else {})
+            hop_count = self._infer_hop_count(
+                dataset_name, str(q_id), q_data if isinstance(q_data, dict) else {}
+            )
             hop_bucket = self._hop_bucket_label(hop_count)
 
             if not question or not expected_answer:
@@ -3217,15 +3565,21 @@ class MIRAGEEvaluationPipeline:
 
             # Skip already-processed questions (checkpoint resume)
             if str(q_id) in _seen_ids:
-                logging.info(f"[{q_idx+1}/{len(questions)}] Skipping (checkpoint): {question[:50]}...")
+                logging.info(
+                    f"[{q_idx + 1}/{len(questions)}] Skipping (checkpoint): {question[:50]}..."
+                )
                 continue
 
-            logging.info(f"[{q_idx+1}/{len(questions)}] Processing: {question[:50]}...")
+            logging.info(
+                f"[{q_idx + 1}/{len(questions)}] Processing: {question[:50]}..."
+            )
 
             # Gold contexts are extracted but only used for KG construction (not inference).
             # Both systems must retrieve on their own — this is the key experimental condition:
             # vanilla RAG retrieves varying chunks per sample; KG-RAG always returns the same graph.
-            question_contexts = self._extract_contexts_from_question(q_data, dataset_name=dataset_name)
+            question_contexts = self._extract_contexts_from_question(
+                q_data, dataset_name=dataset_name
+            )
             options, task_type = self._extract_options_and_task_type(q_data)
             aliases = q_data.get("aliases", [])
             answer_instructions = build_answer_instructions(
@@ -3242,9 +3596,7 @@ class MIRAGEEvaluationPipeline:
             # Run Vanilla RAG
             vanilla_result = {}
             _question_id = (
-                str(q_id)
-                if dataset_name in self.QUESTION_SCOPED_DATASETS
-                else None
+                str(q_id) if dataset_name in self.QUESTION_SCOPED_DATASETS else None
             )
             if vanilla_enabled:
                 try:
@@ -3294,7 +3646,9 @@ class MIRAGEEvaluationPipeline:
                 vanilla_generation_failed = True
 
             # Run KG-RAG
-            _dataset_max_hops = self.DATASET_MAX_HOPS.get(dataset_name, self.DEFAULT_MAX_HOPS)
+            _dataset_max_hops = self.DATASET_MAX_HOPS.get(
+                dataset_name, self.DEFAULT_MAX_HOPS
+            )
             kg_result = {}
             if kg_enabled:
                 try:
@@ -3303,7 +3657,9 @@ class MIRAGEEvaluationPipeline:
                     # extra LLM calls, while keeping full graph traversal depth.
                     _allow_decomposition = task_type not in {"binary"}
                     if "allow_decomposition" in kg_generation:
-                        _allow_decomposition = bool(kg_generation["allow_decomposition"])
+                        _allow_decomposition = bool(
+                            kg_generation["allow_decomposition"]
+                        )
                     _kg_runtime_guardrail = kg_generation.get("runtime_guardrail")
                     with self._temporary_env(retrieval_env_overrides):
                         kg_result = kg_rag.generate_response(
@@ -3352,7 +3708,7 @@ class MIRAGEEvaluationPipeline:
             else:
                 kg_response = ""
                 kg_generation_failed = True
-            
+
             # Check correctness
             vanilla_correct = False
             kg_correct = False
@@ -3392,7 +3748,7 @@ class MIRAGEEvaluationPipeline:
                         expected_answer,
                         aliases=aliases,
                     )
-            
+
             # Track correctness
             if vanilla_correct:
                 results["vanilla_rag_correct"] += 1
@@ -3420,10 +3776,18 @@ class MIRAGEEvaluationPipeline:
                 "kg_answer_em": kg_answer_em,
                 "vanilla_answer_f1": vanilla_answer_f1,
                 "kg_answer_f1": kg_answer_f1,
-                "vanilla_search_method": str(vanilla_result.get("context", {}).get("search_method", "") or ""),
-                "kg_search_method": str(kg_result.get("context", {}).get("search_method", "") or ""),
-                "kg_retrieval_route": str(kg_result.get("context", {}).get("retrieval_route", "") or ""),
-                "kg_route_reason": str(kg_result.get("context", {}).get("route_reason", "") or ""),
+                "vanilla_search_method": str(
+                    vanilla_result.get("context", {}).get("search_method", "") or ""
+                ),
+                "kg_search_method": str(
+                    kg_result.get("context", {}).get("search_method", "") or ""
+                ),
+                "kg_retrieval_route": str(
+                    kg_result.get("context", {}).get("retrieval_route", "") or ""
+                ),
+                "kg_route_reason": str(
+                    kg_result.get("context", {}).get("route_reason", "") or ""
+                ),
                 "kg_retrieval_mode_config": str(
                     kg_result.get("context", {})
                     .get("diagnostics", {})
@@ -3431,7 +3795,9 @@ class MIRAGEEvaluationPipeline:
                     or ""
                 ),
                 "vanilla_late_interaction_stage_applied": bool(
-                    vanilla_result.get("late_interaction_stage", {}).get("applied", False)
+                    vanilla_result.get("late_interaction_stage", {}).get(
+                        "applied", False
+                    )
                 ),
                 "kg_late_interaction_stage_applied": bool(
                     kg_result.get("late_interaction_stage", {}).get("applied", False)
@@ -3452,7 +3818,9 @@ class MIRAGEEvaluationPipeline:
                 "grounding_quality": float(
                     kg_result.get("context", {}).get("grounding_quality", 0.0) or 0.0
                 ),
-                "seed_entity_count": kg_result.get("context", {}).get("seed_entity_count", 0),
+                "seed_entity_count": kg_result.get("context", {}).get(
+                    "seed_entity_count", 0
+                ),
                 "retrieval_temperature": retrieval_temperature,
             }
 
@@ -3461,12 +3829,18 @@ class MIRAGEEvaluationPipeline:
                 # using the same dataset-scoped KG filter as the main responses.
                 if vanilla_generation_failed:
                     vanilla_samples = []
-                    vanilla_chunk_texts = self._extract_chunk_texts_from_result(vanilla_result)
+                    vanilla_chunk_texts = self._extract_chunk_texts_from_result(
+                        vanilla_result
+                    )
                     vanilla_retrieval_overlap = 0.0
                     vanilla_uncertainty = self._default_uncertainty_metrics()
                 else:
                     with self._temporary_env(retrieval_env_overrides):
-                        vanilla_samples, vanilla_chunk_texts, vanilla_retrieval_overlap = self._collect_sample_responses(
+                        (
+                            vanilla_samples,
+                            vanilla_chunk_texts,
+                            vanilla_retrieval_overlap,
+                        ) = self._collect_sample_responses(
                             rag_system=vanilla_rag,
                             question=question,
                             answer_instructions=answer_instructions,
@@ -3478,7 +3852,11 @@ class MIRAGEEvaluationPipeline:
                             retrieval_temperature=retrieval_temperature,
                             retrieval_shortlist_factor=retrieval_shortlist_factor,
                         )
-                    vanilla_context_str = "\n\n".join(vanilla_chunk_texts[:3]) if vanilla_chunk_texts else ""
+                    vanilla_context_str = (
+                        "\n\n".join(vanilla_chunk_texts[:3])
+                        if vanilla_chunk_texts
+                        else ""
+                    )
                     vanilla_uncertainty = compute_all_uncertainty_metrics(
                         responses=vanilla_samples,
                         prompt=question,
@@ -3515,13 +3893,22 @@ class MIRAGEEvaluationPipeline:
                             return_graph_state_traces=True,
                             generate_kwargs={
                                 "allow_decomposition": bool(
-                                    kg_generation.get("allow_decomposition", task_type not in {"binary"})
+                                    kg_generation.get(
+                                        "allow_decomposition",
+                                        task_type not in {"binary"},
+                                    )
                                 ),
-                                "runtime_guardrail": kg_generation.get("runtime_guardrail"),
+                                "runtime_guardrail": kg_generation.get(
+                                    "runtime_guardrail"
+                                ),
                             },
                         )
-                    kg_graph_state_diversity = graph_state_diversity(kg_graph_state_traces)
-                    kg_context_str = "\n\n".join(kg_chunk_texts[:3]) if kg_chunk_texts else ""
+                    kg_graph_state_diversity = graph_state_diversity(
+                        kg_graph_state_traces
+                    )
+                    kg_context_str = (
+                        "\n\n".join(kg_chunk_texts[:3]) if kg_chunk_texts else ""
+                    )
                     kg_uncertainty = compute_all_uncertainty_metrics(
                         responses=kg_samples,
                         prompt=question,
@@ -3530,27 +3917,63 @@ class MIRAGEEvaluationPipeline:
                     for _m, _t in kg_uncertainty.get("compute_times", {}).items():
                         kg_compute_times[_m].append(_t)
 
-                vanilla_retrieval_overlaps.append(float(vanilla_retrieval_overlap or 0.0))
+                vanilla_retrieval_overlaps.append(
+                    float(vanilla_retrieval_overlap or 0.0)
+                )
                 kg_retrieval_overlaps.append(float(kg_retrieval_overlap or 0.0))
-                detail_entry.update({
-                    "kg_graph_state_sample_count": kg_graph_state_diversity.get("sample_count", 0),
-                    "kg_seed_entity_entropy": kg_graph_state_diversity.get("seed_entity_entropy", 0.0),
-                    "kg_seed_entity_entropy_norm": kg_graph_state_diversity.get("seed_entity_entropy_norm", 0.0),
-                    "kg_path_entropy": kg_graph_state_diversity.get("path_entropy", 0.0),
-                    "kg_path_entropy_norm": kg_graph_state_diversity.get("path_entropy_norm", 0.0),
-                    "kg_subgraph_entropy": kg_graph_state_diversity.get("subgraph_entropy", 0.0),
-                    "kg_subgraph_entropy_norm": kg_graph_state_diversity.get("subgraph_entropy_norm", 0.0),
-                    "kg_chunk_entropy": kg_graph_state_diversity.get("chunk_entropy", 0.0),
-                    "kg_chunk_entropy_norm": kg_graph_state_diversity.get("chunk_entropy_norm", 0.0),
-                    "kg_seed_entity_jaccard": kg_graph_state_diversity.get("seed_entity_jaccard", 0.0),
-                    "kg_path_jaccard": kg_graph_state_diversity.get("path_jaccard", 0.0),
-                    "kg_subgraph_jaccard": kg_graph_state_diversity.get("subgraph_jaccard", 0.0),
-                    "kg_chunk_jaccard": kg_graph_state_diversity.get("chunk_jaccard", 0.0),
-                    "kg_dominant_seed_entity_id": kg_graph_state_diversity.get("dominant_seed_entity_id", ""),
-                    "kg_dominant_seed_entity_fraction": kg_graph_state_diversity.get("dominant_seed_entity_fraction", 0.0),
-                    # Keep bounded raw traces for targeted debugging/intervention selection.
-                    "kg_graph_state_traces": kg_graph_state_traces[: self.entropy_samples],
-                })
+                detail_entry.update(
+                    {
+                        "kg_graph_state_sample_count": kg_graph_state_diversity.get(
+                            "sample_count", 0
+                        ),
+                        "kg_seed_entity_entropy": kg_graph_state_diversity.get(
+                            "seed_entity_entropy", 0.0
+                        ),
+                        "kg_seed_entity_entropy_norm": kg_graph_state_diversity.get(
+                            "seed_entity_entropy_norm", 0.0
+                        ),
+                        "kg_path_entropy": kg_graph_state_diversity.get(
+                            "path_entropy", 0.0
+                        ),
+                        "kg_path_entropy_norm": kg_graph_state_diversity.get(
+                            "path_entropy_norm", 0.0
+                        ),
+                        "kg_subgraph_entropy": kg_graph_state_diversity.get(
+                            "subgraph_entropy", 0.0
+                        ),
+                        "kg_subgraph_entropy_norm": kg_graph_state_diversity.get(
+                            "subgraph_entropy_norm", 0.0
+                        ),
+                        "kg_chunk_entropy": kg_graph_state_diversity.get(
+                            "chunk_entropy", 0.0
+                        ),
+                        "kg_chunk_entropy_norm": kg_graph_state_diversity.get(
+                            "chunk_entropy_norm", 0.0
+                        ),
+                        "kg_seed_entity_jaccard": kg_graph_state_diversity.get(
+                            "seed_entity_jaccard", 0.0
+                        ),
+                        "kg_path_jaccard": kg_graph_state_diversity.get(
+                            "path_jaccard", 0.0
+                        ),
+                        "kg_subgraph_jaccard": kg_graph_state_diversity.get(
+                            "subgraph_jaccard", 0.0
+                        ),
+                        "kg_chunk_jaccard": kg_graph_state_diversity.get(
+                            "chunk_jaccard", 0.0
+                        ),
+                        "kg_dominant_seed_entity_id": kg_graph_state_diversity.get(
+                            "dominant_seed_entity_id", ""
+                        ),
+                        "kg_dominant_seed_entity_fraction": kg_graph_state_diversity.get(
+                            "dominant_seed_entity_fraction", 0.0
+                        ),
+                        # Keep bounded raw traces for targeted debugging/intervention selection.
+                        "kg_graph_state_traces": kg_graph_state_traces[
+                            : self.entropy_samples
+                        ],
+                    }
+                )
 
                 # Structural metrics: graph-based uncertainty (no extra LLM sampling).
                 _structural_max_hops = self._structural_metric_max_hops(
@@ -3567,12 +3990,18 @@ class MIRAGEEvaluationPipeline:
                 )
                 _t0 = time.perf_counter()
                 _vanilla_gps = (
-                    {"score": 0.5, "null_reason": "generation_failed"} if vanilla_generation_failed else
-                    compute_graph_path_support_detailed(question=question, answer=vanilla_response, **_graph_kwargs)
+                    {"score": 0.5, "null_reason": "generation_failed"}
+                    if vanilla_generation_failed
+                    else compute_graph_path_support_detailed(
+                        question=question, answer=vanilla_response, **_graph_kwargs
+                    )
                 )
                 _kg_gps = (
-                    {"score": 0.5, "null_reason": "generation_failed"} if kg_generation_failed else
-                    compute_graph_path_support_detailed(question=question, answer=kg_response, **_graph_kwargs)
+                    {"score": 0.5, "null_reason": "generation_failed"}
+                    if kg_generation_failed
+                    else compute_graph_path_support_detailed(
+                        question=question, answer=kg_response, **_graph_kwargs
+                    )
                 )
                 vanilla_graph_path_uq = _vanilla_gps["score"]
                 kg_graph_path_uq = _kg_gps["score"]
@@ -3585,33 +4014,43 @@ class MIRAGEEvaluationPipeline:
                 graph_path_disagreement = compute_graph_path_disagreement(
                     question=question, **_graph_kwargs
                 )
-                _competing_kwargs = {k: v for k, v in _graph_kwargs.items() if k != "max_hops"}
+                _competing_kwargs = {
+                    k: v for k, v in _graph_kwargs.items() if k != "max_hops"
+                }
                 vanilla_competing_uq = (
-                    0.0 if vanilla_generation_failed else
-                    compute_competing_answer_alternatives(
+                    0.0
+                    if vanilla_generation_failed
+                    else compute_competing_answer_alternatives(
                         question=question, answer=vanilla_response, **_competing_kwargs
                     )
                 )
                 kg_competing_uq = (
-                    0.0 if kg_generation_failed else
-                    compute_competing_answer_alternatives(
+                    0.0
+                    if kg_generation_failed
+                    else compute_competing_answer_alternatives(
                         question=question, answer=kg_response, **_competing_kwargs
                     )
                 )
-                evidence_vn_uq = compute_evidence_vn_entropy(question=question, **_graph_kwargs)
-                subgraph_info_uq = compute_subgraph_informativeness(question=question, **_graph_kwargs)
+                evidence_vn_uq = compute_evidence_vn_entropy(
+                    question=question, **_graph_kwargs
+                )
+                subgraph_info_uq = compute_subgraph_informativeness(
+                    question=question, **_graph_kwargs
+                )
                 _t0 = time.perf_counter()
                 _vanilla_sps = (
-                    {"score": 0.5, "null_reason": "generation_failed"} if vanilla_generation_failed else
-                    compute_subgraph_perturbation_stability_detailed(
+                    {"score": 0.5, "null_reason": "generation_failed"}
+                    if vanilla_generation_failed
+                    else compute_subgraph_perturbation_stability_detailed(
                         question=question,
                         answer=vanilla_response,
                         **_graph_kwargs,
                     )
                 )
                 _kg_sps = (
-                    {"score": 0.5, "null_reason": "generation_failed"} if kg_generation_failed else
-                    compute_subgraph_perturbation_stability_detailed(
+                    {"score": 0.5, "null_reason": "generation_failed"}
+                    if kg_generation_failed
+                    else compute_subgraph_perturbation_stability_detailed(
                         question=question,
                         answer=kg_response,
                         **_graph_kwargs,
@@ -3622,7 +4061,9 @@ class MIRAGEEvaluationPipeline:
                 vanilla_sps_null_reason = _vanilla_sps.get("null_reason") or ""
                 kg_sps_null_reason = _kg_sps.get("null_reason") or ""
                 _elapsed = time.perf_counter() - _t0
-                vanilla_compute_times["subgraph_perturbation_stability"].append(_elapsed)
+                vanilla_compute_times["subgraph_perturbation_stability"].append(
+                    _elapsed
+                )
                 kg_compute_times["subgraph_perturbation_stability"].append(_elapsed)
 
                 _t0 = time.perf_counter()
@@ -3631,20 +4072,33 @@ class MIRAGEEvaluationPipeline:
                 # are also meaningful when generation failed: the retrieved chunks
                 # still exist and we can measure whether they entail the expected
                 # answer, using it as the hypothesis when the model abstained.
-                _vanilla_seu_answer = vanilla_response if not vanilla_generation_failed else expected_answer
-                _kg_seu_answer      = kg_response      if not kg_generation_failed      else expected_answer
-                _vanilla_seu_chunks = vanilla_chunk_texts or self._extract_chunk_texts_from_result(vanilla_result)
-                _kg_seu_chunks      = kg_chunk_texts      or self._extract_chunk_texts_from_result(kg_result)
+                _vanilla_seu_answer = (
+                    vanilla_response
+                    if not vanilla_generation_failed
+                    else expected_answer
+                )
+                _kg_seu_answer = (
+                    kg_response if not kg_generation_failed else expected_answer
+                )
+                _vanilla_seu_chunks = (
+                    vanilla_chunk_texts
+                    or self._extract_chunk_texts_from_result(vanilla_result)
+                )
+                _kg_seu_chunks = (
+                    kg_chunk_texts or self._extract_chunk_texts_from_result(kg_result)
+                )
                 vanilla_seu = (
-                    self.UNCERTAINTY_METRIC_DEFAULTS["support_entailment_uncertainty"] if not _vanilla_seu_chunks else
-                    compute_support_entailment_uncertainty(
+                    self.UNCERTAINTY_METRIC_DEFAULTS["support_entailment_uncertainty"]
+                    if not _vanilla_seu_chunks
+                    else compute_support_entailment_uncertainty(
                         chunks=_vanilla_seu_chunks,
                         answer=_vanilla_seu_answer,
                     )
                 )
                 kg_seu = (
-                    self.UNCERTAINTY_METRIC_DEFAULTS["support_entailment_uncertainty"] if not _kg_seu_chunks else
-                    compute_support_entailment_uncertainty(
+                    self.UNCERTAINTY_METRIC_DEFAULTS["support_entailment_uncertainty"]
+                    if not _kg_seu_chunks
+                    else compute_support_entailment_uncertainty(
                         chunks=_kg_seu_chunks,
                         answer=_kg_seu_answer,
                     )
@@ -3655,15 +4109,17 @@ class MIRAGEEvaluationPipeline:
 
                 _t0 = time.perf_counter()
                 vanilla_ecu = (
-                    self.UNCERTAINTY_METRIC_DEFAULTS["evidence_conflict_uncertainty"] if not _vanilla_seu_chunks else
-                    compute_evidence_conflict_uncertainty(
+                    self.UNCERTAINTY_METRIC_DEFAULTS["evidence_conflict_uncertainty"]
+                    if not _vanilla_seu_chunks
+                    else compute_evidence_conflict_uncertainty(
                         chunks=_vanilla_seu_chunks,
                         answer=_vanilla_seu_answer,
                     )
                 )
                 kg_ecu = (
-                    self.UNCERTAINTY_METRIC_DEFAULTS["evidence_conflict_uncertainty"] if not _kg_seu_chunks else
-                    compute_evidence_conflict_uncertainty(
+                    self.UNCERTAINTY_METRIC_DEFAULTS["evidence_conflict_uncertainty"]
+                    if not _kg_seu_chunks
+                    else compute_evidence_conflict_uncertainty(
                         chunks=_kg_seu_chunks,
                         answer=_kg_seu_answer,
                     )
@@ -3672,61 +4128,124 @@ class MIRAGEEvaluationPipeline:
                 vanilla_compute_times["evidence_conflict_uncertainty"].append(_elapsed)
                 kg_compute_times["evidence_conflict_uncertainty"].append(_elapsed)
 
-                detail_entry.update({
-                    "vanilla_retrieval_overlap": float(vanilla_retrieval_overlap or 0.0),
-                    "kg_retrieval_overlap": float(kg_retrieval_overlap or 0.0),
-                    "vanilla_semantic_entropy": vanilla_uncertainty.get("semantic_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["semantic_entropy"]),
-                    "kg_semantic_entropy": kg_uncertainty.get("semantic_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["semantic_entropy"]),
-                    "vanilla_discrete_semantic_entropy": vanilla_uncertainty.get("discrete_semantic_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["discrete_semantic_entropy"]),
-                    "kg_discrete_semantic_entropy": kg_uncertainty.get("discrete_semantic_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["discrete_semantic_entropy"]),
-                    "vanilla_p_true": vanilla_uncertainty.get("p_true", self.UNCERTAINTY_METRIC_DEFAULTS["p_true"]),
-                    "kg_p_true": kg_uncertainty.get("p_true", self.UNCERTAINTY_METRIC_DEFAULTS["p_true"]),
-                    "vanilla_selfcheckgpt": vanilla_uncertainty.get("selfcheckgpt", self.UNCERTAINTY_METRIC_DEFAULTS["selfcheckgpt"]),
-                    "kg_selfcheckgpt": kg_uncertainty.get("selfcheckgpt", self.UNCERTAINTY_METRIC_DEFAULTS["selfcheckgpt"]),
-                    "vanilla_sre_uq": vanilla_uncertainty.get("sre_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sre_uq"]),
-                    "kg_sre_uq": kg_uncertainty.get("sre_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sre_uq"]),
-                    "vanilla_vn_entropy": vanilla_uncertainty.get("vn_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["vn_entropy"]),
-                    "kg_vn_entropy": kg_uncertainty.get("vn_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["vn_entropy"]),
-                    "vanilla_sd_uq": vanilla_uncertainty.get("sd_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sd_uq"]),
-                    "kg_sd_uq": kg_uncertainty.get("sd_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sd_uq"]),
-                    "vanilla_graph_path_support": vanilla_graph_path_uq,
-                    "kg_graph_path_support": kg_graph_path_uq,
-                    "vanilla_graph_path_support_null_reason": vanilla_gps_null_reason,
-                    "kg_graph_path_support_null_reason": kg_gps_null_reason,
-                    "vanilla_graph_path_disagreement": graph_path_disagreement,
-                    "kg_graph_path_disagreement": graph_path_disagreement,
-                    "vanilla_competing_answer_alternatives": vanilla_competing_uq,
-                    "kg_competing_answer_alternatives": kg_competing_uq,
-                    "vanilla_evidence_vn_entropy": evidence_vn_uq,
-                    "kg_evidence_vn_entropy": evidence_vn_uq,
-                    "vanilla_subgraph_informativeness": subgraph_info_uq,
-                    "kg_subgraph_informativeness": subgraph_info_uq,
-                    "vanilla_subgraph_perturbation_stability": vanilla_css_uq,
-                    "kg_subgraph_perturbation_stability": kg_css_uq,
-                    "vanilla_subgraph_perturbation_stability_null_reason": vanilla_sps_null_reason,
-                    "kg_subgraph_perturbation_stability_null_reason": kg_sps_null_reason,
-                    "vanilla_support_entailment_uncertainty": vanilla_seu,
-                    "kg_support_entailment_uncertainty": kg_seu,
-                    "vanilla_evidence_conflict_uncertainty": vanilla_ecu,
-                    "kg_evidence_conflict_uncertainty": kg_ecu,
-                })
+                detail_entry.update(
+                    {
+                        "vanilla_retrieval_overlap": float(
+                            vanilla_retrieval_overlap or 0.0
+                        ),
+                        "kg_retrieval_overlap": float(kg_retrieval_overlap or 0.0),
+                        "vanilla_semantic_entropy": vanilla_uncertainty.get(
+                            "semantic_entropy",
+                            self.UNCERTAINTY_METRIC_DEFAULTS["semantic_entropy"],
+                        ),
+                        "kg_semantic_entropy": kg_uncertainty.get(
+                            "semantic_entropy",
+                            self.UNCERTAINTY_METRIC_DEFAULTS["semantic_entropy"],
+                        ),
+                        "vanilla_discrete_semantic_entropy": vanilla_uncertainty.get(
+                            "discrete_semantic_entropy",
+                            self.UNCERTAINTY_METRIC_DEFAULTS[
+                                "discrete_semantic_entropy"
+                            ],
+                        ),
+                        "kg_discrete_semantic_entropy": kg_uncertainty.get(
+                            "discrete_semantic_entropy",
+                            self.UNCERTAINTY_METRIC_DEFAULTS[
+                                "discrete_semantic_entropy"
+                            ],
+                        ),
+                        "vanilla_p_true": vanilla_uncertainty.get(
+                            "p_true", self.UNCERTAINTY_METRIC_DEFAULTS["p_true"]
+                        ),
+                        "kg_p_true": kg_uncertainty.get(
+                            "p_true", self.UNCERTAINTY_METRIC_DEFAULTS["p_true"]
+                        ),
+                        "vanilla_selfcheckgpt": vanilla_uncertainty.get(
+                            "selfcheckgpt",
+                            self.UNCERTAINTY_METRIC_DEFAULTS["selfcheckgpt"],
+                        ),
+                        "kg_selfcheckgpt": kg_uncertainty.get(
+                            "selfcheckgpt",
+                            self.UNCERTAINTY_METRIC_DEFAULTS["selfcheckgpt"],
+                        ),
+                        "vanilla_sre_uq": vanilla_uncertainty.get(
+                            "sre_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sre_uq"]
+                        ),
+                        "kg_sre_uq": kg_uncertainty.get(
+                            "sre_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sre_uq"]
+                        ),
+                        "vanilla_vn_entropy": vanilla_uncertainty.get(
+                            "vn_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["vn_entropy"]
+                        ),
+                        "kg_vn_entropy": kg_uncertainty.get(
+                            "vn_entropy", self.UNCERTAINTY_METRIC_DEFAULTS["vn_entropy"]
+                        ),
+                        "vanilla_sd_uq": vanilla_uncertainty.get(
+                            "sd_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sd_uq"]
+                        ),
+                        "kg_sd_uq": kg_uncertainty.get(
+                            "sd_uq", self.UNCERTAINTY_METRIC_DEFAULTS["sd_uq"]
+                        ),
+                        "vanilla_graph_path_support": vanilla_graph_path_uq,
+                        "kg_graph_path_support": kg_graph_path_uq,
+                        "vanilla_graph_path_support_null_reason": vanilla_gps_null_reason,
+                        "kg_graph_path_support_null_reason": kg_gps_null_reason,
+                        "vanilla_graph_path_disagreement": graph_path_disagreement,
+                        "kg_graph_path_disagreement": graph_path_disagreement,
+                        "vanilla_competing_answer_alternatives": vanilla_competing_uq,
+                        "kg_competing_answer_alternatives": kg_competing_uq,
+                        "vanilla_evidence_vn_entropy": evidence_vn_uq,
+                        "kg_evidence_vn_entropy": evidence_vn_uq,
+                        "vanilla_subgraph_informativeness": subgraph_info_uq,
+                        "kg_subgraph_informativeness": subgraph_info_uq,
+                        "vanilla_subgraph_perturbation_stability": vanilla_css_uq,
+                        "kg_subgraph_perturbation_stability": kg_css_uq,
+                        "vanilla_subgraph_perturbation_stability_null_reason": vanilla_sps_null_reason,
+                        "kg_subgraph_perturbation_stability_null_reason": kg_sps_null_reason,
+                        "vanilla_support_entailment_uncertainty": vanilla_seu,
+                        "kg_support_entailment_uncertainty": kg_seu,
+                        "vanilla_evidence_conflict_uncertainty": vanilla_ecu,
+                        "kg_evidence_conflict_uncertainty": kg_ecu,
+                    }
+                )
 
             # Multi-temperature entropy sweep: collect N samples at T=0, 0.5, 1.0
             # and store per-temperature uncertainty metrics with a _t{suffix} key.
             # This lets downstream analysis show whether geometric metrics (VN-Entropy,
             # SD-UQ) retain discriminative signal across temperatures while NLI-based
             # metrics collapse at all temperatures under KG-RAG context determinism.
-            if self.compute_metrics and self.multi_temperature and not vanilla_generation_failed and not kg_generation_failed:
-                _mt_metrics = ["sre_uq", "vn_entropy", "sd_uq", "selfcheckgpt", "discrete_semantic_entropy"]
-                vanilla_context_str_mt = "\n\n".join(vanilla_chunk_texts[:3]) if vanilla_chunk_texts else ""
-                kg_context_str_mt = "\n\n".join(kg_chunk_texts[:3]) if kg_chunk_texts else ""
+            if (
+                self.compute_metrics
+                and self.multi_temperature
+                and not vanilla_generation_failed
+                and not kg_generation_failed
+            ):
+                _mt_metrics = [
+                    "sre_uq",
+                    "vn_entropy",
+                    "sd_uq",
+                    "selfcheckgpt",
+                    "discrete_semantic_entropy",
+                ]
+                vanilla_context_str_mt = (
+                    "\n\n".join(vanilla_chunk_texts[:3]) if vanilla_chunk_texts else ""
+                )
+                kg_context_str_mt = (
+                    "\n\n".join(kg_chunk_texts[:3]) if kg_chunk_texts else ""
+                )
                 for _t_val in self.MULTI_TEMPERATURES:
-                    _t_str = ("t" + str(_t_val).replace(".", ""))  # 0.0→t00, 0.5→t05, 1.0→t10
+                    _t_str = "t" + str(_t_val).replace(
+                        ".", ""
+                    )  # 0.0→t00, 0.5→t05, 1.0→t10
                     if abs(_t_val - self.temperature) < 1e-9:
                         # Already computed — copy existing values to avoid extra API calls
                         for _mk in _mt_metrics:
-                            detail_entry["vanilla_%s_%s" % (_mk, _t_str)] = detail_entry.get("vanilla_%s" % _mk, 0.0)
-                            detail_entry["kg_%s_%s" % (_mk, _t_str)] = detail_entry.get("kg_%s" % _mk, 0.0)
+                            detail_entry["vanilla_%s_%s" % (_mk, _t_str)] = (
+                                detail_entry.get("vanilla_%s" % _mk, 0.0)
+                            )
+                            detail_entry["kg_%s_%s" % (_mk, _t_str)] = detail_entry.get(
+                                "kg_%s" % _mk, 0.0
+                            )
                     else:
                         try:
                             _t_llm = self._llm_for_temperature(_t_val)
@@ -3752,23 +4271,34 @@ class MIRAGEEvaluationPipeline:
                                     llm=_t_llm,
                                 )
                             _v_uq = compute_all_uncertainty_metrics(
-                                responses=_v_samps, prompt=question, context=vanilla_context_str_mt
+                                responses=_v_samps,
+                                prompt=question,
+                                context=vanilla_context_str_mt,
                             )
                             _k_uq = compute_all_uncertainty_metrics(
-                                responses=_k_samps, prompt=question, context=kg_context_str_mt
+                                responses=_k_samps,
+                                prompt=question,
+                                context=kg_context_str_mt,
                             )
                             for _mk in _mt_metrics:
-                                detail_entry["vanilla_%s_%s" % (_mk, _t_str)] = _v_uq.get(_mk, 0.0)
-                                detail_entry["kg_%s_%s" % (_mk, _t_str)] = _k_uq.get(_mk, 0.0)
+                                detail_entry["vanilla_%s_%s" % (_mk, _t_str)] = (
+                                    _v_uq.get(_mk, 0.0)
+                                )
+                                detail_entry["kg_%s_%s" % (_mk, _t_str)] = _k_uq.get(
+                                    _mk, 0.0
+                                )
                         except Exception as _e:
-                            logging.warning("Multi-temperature sweep at T=%s failed: %s", _t_val, _e)
+                            logging.warning(
+                                "Multi-temperature sweep at T=%s failed: %s", _t_val, _e
+                            )
 
             results["details"].append(detail_entry)
 
             # Write checkpoint immediately so a crash doesn't lose this question
             try:
                 _ckpt_file.write(
-                    json.dumps(self._canonicalize_detail_row(detail_entry), default=str) + "\n"
+                    json.dumps(self._canonicalize_detail_row(detail_entry), default=str)
+                    + "\n"
                 )
                 _ckpt_file.flush()
             except Exception as _ckpt_err:
@@ -3780,22 +4310,33 @@ class MIRAGEEvaluationPipeline:
                 try:
                     _running_stats = compute_accuracy_breakdown(results["details"])
                     _n_done = len(results["details"])
-                    _running_vanilla_acc = _running_stats["vanilla_accuracy_excluding_errors"]
+                    _running_vanilla_acc = _running_stats[
+                        "vanilla_accuracy_excluding_errors"
+                    ]
                     _running_kg_acc = _running_stats["kg_accuracy_excluding_errors"]
-                    self.wandb_run.log({
-                        f"live/{dataset_name}/vanilla_accuracy":  _running_vanilla_acc,
-                        f"live/{dataset_name}/kg_accuracy":       _running_kg_acc,
-                        f"live/{dataset_name}/vanilla_correct":   int(vanilla_correct),
-                        f"live/{dataset_name}/kg_correct":        int(kg_correct),
-                        f"live/{dataset_name}/questions_done":    _n_done,
-                        f"live/{dataset_name}/grounding_quality": detail_entry.get("grounding_quality", 0.0),
-                    }, step=_n_done)
+                    self.wandb_run.log(
+                        {
+                            f"live/{dataset_name}/vanilla_accuracy": _running_vanilla_acc,
+                            f"live/{dataset_name}/kg_accuracy": _running_kg_acc,
+                            f"live/{dataset_name}/vanilla_correct": int(
+                                vanilla_correct
+                            ),
+                            f"live/{dataset_name}/kg_correct": int(kg_correct),
+                            f"live/{dataset_name}/questions_done": _n_done,
+                            f"live/{dataset_name}/grounding_quality": detail_entry.get(
+                                "grounding_quality", 0.0
+                            ),
+                        },
+                        step=_n_done,
+                    )
                 except Exception as _wb_err:
                     logging.debug("W&B live log failed (non-fatal): %s", _wb_err)
 
-            logging.info(f"  Vanilla: {vanilla_response[:40]}... (correct: {vanilla_correct})")
+            logging.info(
+                f"  Vanilla: {vanilla_response[:40]}... (correct: {vanilla_correct})"
+            )
             logging.info(f"  KG-RAG:  {kg_response[:40]}... (correct: {kg_correct})")
-        
+
         # Close checkpoint file; delete it now that the run completed cleanly
         try:
             _ckpt_file.close()
@@ -3810,22 +4351,32 @@ class MIRAGEEvaluationPipeline:
         self._apply_clean_accuracy_reporting(results)
         routing_distribution = self._compute_kg_routing_distribution(results["details"])
         results["kg_routing_distribution"] = routing_distribution
-        results["kg_pure_entity_first_rate"] = routing_distribution.get("pure_entity_first_rate", 0.0)
-        results["kg_dense_fallback_rate"] = routing_distribution.get("dense_fallback_rate", 0.0)
-        results["kg_unknown_route_rate"] = routing_distribution.get("unknown_route_rate", 0.0)
+        results["kg_pure_entity_first_rate"] = routing_distribution.get(
+            "pure_entity_first_rate", 0.0
+        )
+        results["kg_dense_fallback_rate"] = routing_distribution.get(
+            "dense_fallback_rate", 0.0
+        )
+        results["kg_unknown_route_rate"] = routing_distribution.get(
+            "unknown_route_rate", 0.0
+        )
         if total > 0:
-            results["vanilla_answer_em"] = sum(
-                float(d.get("vanilla_answer_em", 0.0)) for d in results["details"]
-            ) / total
-            results["kg_answer_em"] = sum(
-                float(d.get("kg_answer_em", 0.0)) for d in results["details"]
-            ) / total
-            results["vanilla_answer_f1"] = sum(
-                float(d.get("vanilla_answer_f1", 0.0)) for d in results["details"]
-            ) / total
-            results["kg_answer_f1"] = sum(
-                float(d.get("kg_answer_f1", 0.0)) for d in results["details"]
-            ) / total
+            results["vanilla_answer_em"] = (
+                sum(float(d.get("vanilla_answer_em", 0.0)) for d in results["details"])
+                / total
+            )
+            results["kg_answer_em"] = (
+                sum(float(d.get("kg_answer_em", 0.0)) for d in results["details"])
+                / total
+            )
+            results["vanilla_answer_f1"] = (
+                sum(float(d.get("vanilla_answer_f1", 0.0)) for d in results["details"])
+                / total
+            )
+            results["kg_answer_f1"] = (
+                sum(float(d.get("kg_answer_f1", 0.0)) for d in results["details"])
+                / total
+            )
         else:
             results["vanilla_answer_em"] = 0.0
             results["kg_answer_em"] = 0.0
@@ -3834,8 +4385,12 @@ class MIRAGEEvaluationPipeline:
         if total > 0 and self.compute_metrics:
             metric_defaults = dict(self.UNCERTAINTY_METRIC_DEFAULTS)
             for metric_name, default in metric_defaults.items():
-                vanilla_vals = [d.get(f"vanilla_{metric_name}", default) for d in results["details"]]
-                kg_vals = [d.get(f"kg_{metric_name}", default) for d in results["details"]]
+                vanilla_vals = [
+                    d.get(f"vanilla_{metric_name}", default) for d in results["details"]
+                ]
+                kg_vals = [
+                    d.get(f"kg_{metric_name}", default) for d in results["details"]
+                ]
                 results[f"vanilla_avg_{metric_name}"] = (
                     sum(vanilla_vals) / len(vanilla_vals) if vanilla_vals else default
                 )
@@ -3845,29 +4400,37 @@ class MIRAGEEvaluationPipeline:
 
             results["vanilla_avg_retrieval_overlap"] = (
                 sum(vanilla_retrieval_overlaps) / len(vanilla_retrieval_overlaps)
-                if vanilla_retrieval_overlaps else 0.0
+                if vanilla_retrieval_overlaps
+                else 0.0
             )
             results["kg_avg_retrieval_overlap"] = (
                 sum(kg_retrieval_overlaps) / len(kg_retrieval_overlaps)
-                if kg_retrieval_overlaps else 0.0
+                if kg_retrieval_overlaps
+                else 0.0
             )
 
             # ── AUROC / AUREC ─────────────────────────────────────────────
-            auroc_aurec = compute_auroc_aurec(results["details"], metric_names=self.UNCERTAINTY_METRIC_NAMES)
+            auroc_aurec = compute_auroc_aurec(
+                results["details"], metric_names=self.UNCERTAINTY_METRIC_NAMES
+            )
             results["auroc_aurec"] = auroc_aurec
             for system_key, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
                 for metric_key, val in auroc_aurec.get(system_key, {}).items():
                     results[f"{prefix}_avg_{metric_key}"] = val
 
             # ── ECE ───────────────────────────────────────────────────────
-            ece_results = compute_ece(results["details"], metric_names=self.UNCERTAINTY_METRIC_NAMES)
+            ece_results = compute_ece(
+                results["details"], metric_names=self.UNCERTAINTY_METRIC_NAMES
+            )
             results["ece"] = ece_results
             for system_key, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
                 for metric_key, val in ece_results.get(system_key, {}).items():
                     results[f"{prefix}_avg_{metric_key}"] = val
 
             # ── Precision@k ───────────────────────────────────────────────
-            ppv_results = compute_precision_at_k(results["details"], metric_names=self.UNCERTAINTY_METRIC_NAMES)
+            ppv_results = compute_precision_at_k(
+                results["details"], metric_names=self.UNCERTAINTY_METRIC_NAMES
+            )
             results["precision_at_k"] = ppv_results
             for system_key, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
                 for metric_key, val in ppv_results.get(system_key, {}).items():
@@ -3877,28 +4440,46 @@ class MIRAGEEvaluationPipeline:
             # Classify each question into one of four quadrants:
             #   both_correct, vanilla_only, kg_only, neither_correct
             _details = results["details"]
-            _both   = sum(1 for d in _details if d.get("vanilla_correct") and d.get("kg_correct"))
-            _v_only = sum(1 for d in _details if d.get("vanilla_correct") and not d.get("kg_correct"))
-            _k_only = sum(1 for d in _details if not d.get("vanilla_correct") and d.get("kg_correct"))
-            _neither = sum(1 for d in _details if not d.get("vanilla_correct") and not d.get("kg_correct"))
+            _both = sum(
+                1 for d in _details if d.get("vanilla_correct") and d.get("kg_correct")
+            )
+            _v_only = sum(
+                1
+                for d in _details
+                if d.get("vanilla_correct") and not d.get("kg_correct")
+            )
+            _k_only = sum(
+                1
+                for d in _details
+                if not d.get("vanilla_correct") and d.get("kg_correct")
+            )
+            _neither = sum(
+                1
+                for d in _details
+                if not d.get("vanilla_correct") and not d.get("kg_correct")
+            )
             _n = max(1, len(_details))
             results["complementarity"] = {
-                "both_correct":    _both,
-                "vanilla_only":    _v_only,
-                "kg_only":         _k_only,
+                "both_correct": _both,
+                "vanilla_only": _v_only,
+                "kg_only": _k_only,
                 "neither_correct": _neither,
-                "both_correct_pct":    round(_both   / _n * 100, 1),
-                "vanilla_only_pct":    round(_v_only / _n * 100, 1),
-                "kg_only_pct":         round(_k_only / _n * 100, 1),
+                "both_correct_pct": round(_both / _n * 100, 1),
+                "vanilla_only_pct": round(_v_only / _n * 100, 1),
+                "kg_only_pct": round(_k_only / _n * 100, 1),
                 "neither_correct_pct": round(_neither / _n * 100, 1),
             }
             logging.info(
                 "Complementarity: both=%d (%.0f%%), vanilla-only=%d (%.0f%%), "
                 "kg-only=%d (%.0f%%), neither=%d (%.0f%%)",
-                _both,    _both    / _n * 100,
-                _v_only,  _v_only  / _n * 100,
-                _k_only,  _k_only  / _n * 100,
-                _neither, _neither / _n * 100,
+                _both,
+                _both / _n * 100,
+                _v_only,
+                _v_only / _n * 100,
+                _k_only,
+                _k_only / _n * 100,
+                _neither,
+                _neither / _n * 100,
             )
 
             # ── Query-type stratified accuracy & AUROC ────────────────────
@@ -3906,6 +4487,7 @@ class MIRAGEEvaluationPipeline:
             # per-metric AUROC for each group.  Stored in results so
             # visualize_results.py can plot per-type breakdowns.
             from collections import defaultdict as _defaultdict
+
             _by_type: Dict[str, List[Dict]] = _defaultdict(list)
             for _d in _details:
                 _tt = str(_d.get("task_type") or "unknown").strip() or "unknown"
@@ -3916,7 +4498,9 @@ class MIRAGEEvaluationPipeline:
                 _acc_t = compute_accuracy_breakdown(_rows)
                 _type_stats[_tt] = {
                     "n": len(_rows),
-                    "vanilla_accuracy": round(_acc_t["vanilla_accuracy_excluding_errors"], 4),
+                    "vanilla_accuracy": round(
+                        _acc_t["vanilla_accuracy_excluding_errors"], 4
+                    ),
                     "kg_accuracy": round(_acc_t["kg_accuracy_excluding_errors"], 4),
                     "vanilla_accuracy_raw": round(_acc_t["vanilla_accuracy"], 4),
                     "kg_accuracy_raw": round(_acc_t["kg_accuracy"], 4),
@@ -3941,10 +4525,14 @@ class MIRAGEEvaluationPipeline:
             ),
         )
         results["vanilla_avg_compute_times"] = {
-            m: (sum(times) / len(times)) for m, times in vanilla_compute_times.items() if times
+            m: (sum(times) / len(times))
+            for m, times in vanilla_compute_times.items()
+            if times
         }
         results["kg_avg_compute_times"] = {
-            m: (sum(times) / len(times)) for m, times in kg_compute_times.items() if times
+            m: (sum(times) / len(times))
+            for m, times in kg_compute_times.items()
+            if times
         }
 
         logging.info(
@@ -3985,28 +4573,37 @@ class MIRAGEEvaluationPipeline:
         logging.info(
             f"Saved per-question Q/A + metrics to local file: {question_details_path}"
         )
-        logging.info(
-            f"Per-question table logged to W&B key: {question_table_key}"
-        )
+        logging.info(f"Per-question table logged to W&B key: {question_table_key}")
 
         # Small scalar to make table visibility explicit in W&B metric view.
         if self.wandb_run:
-            self.wandb_run.log({
-                f"tables/{dataset_name}/{config_name}/num_questions_logged": len(results.get("details", []))
-            })
+            self.wandb_run.log(
+                {
+                    f"tables/{dataset_name}/{config_name}/num_questions_logged": len(
+                        results.get("details", [])
+                    )
+                }
+            )
             self.wandb_run.summary[
                 f"artifacts/{dataset_name}/{config_name}/questions_table_key"
             ] = question_table_key
             self.wandb_run.summary[
                 f"artifacts/{dataset_name}/{config_name}/local_details_file"
             ] = question_details_path
-        
+
         return results
-    
+
     def run_pipeline(self, datasets: List[str] = None, output_dir: str = "results"):
         """Run the full evaluation pipeline"""
         if datasets is None:
-            datasets = ["pubmedqa", "bioasq", "medhop", "hotpotqa", "2wikimultihopqa", "musique"]
+            datasets = [
+                "pubmedqa",
+                "bioasq",
+                "medhop",
+                "hotpotqa",
+                "2wikimultihopqa",
+                "musique",
+            ]
             if "multihoprag" not in datasets:
                 datasets.append("multihoprag")
 
@@ -4022,29 +4619,31 @@ class MIRAGEEvaluationPipeline:
         run_dir = output_root / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "questions").mkdir(exist_ok=True)
-        output_dir = str(run_dir)   # all outputs go here
+        output_dir = str(run_dir)  # all outputs go here
         logging.info("Run ID: %s  →  %s", run_id, run_dir)
 
         # Write initial manifest (completed at end)
         manifest = {
-            "run_id":       run_id,
-            "created_at":   datetime.now().isoformat(),
-            "datasets":     datasets,
-            "num_samples":  self.num_samples,
-            "subset_seed":  self.subset_seed,
+            "run_id": run_id,
+            "created_at": datetime.now().isoformat(),
+            "datasets": datasets,
+            "num_samples": self.num_samples,
+            "subset_seed": self.subset_seed,
             "evaluation_mode": self.evaluation_mode,
             "retrieval_study": self.retrieval_study or None,
             "kg_builder_profile": self.kg_builder_profile,
             "dataset_kg_scope": self.dataset_kg_scope,
             "allow_gold_evidence_contexts": self.allow_gold_evidence_contexts,
-            "model":        os.getenv("LLM_MODEL", "gpt-4o-mini"),
-            "embedding_provider": os.getenv("EMBEDDING_PROVIDER", "sentence_transformers"),
-            "git_commit":   _git_commit(),
-            "rebuild_kg":   getattr(self, "rebuild_kg", False),
+            "model": os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            "embedding_provider": os.getenv(
+                "EMBEDDING_PROVIDER", "sentence_transformers"
+            ),
+            "git_commit": _git_commit(),
+            "rebuild_kg": getattr(self, "rebuild_kg", False),
             "selection_files": {},
             "subset_ids": {},
             "dataset_corpus_profiles": {},
-            "accuracy":     {},   # filled in at end
+            "accuracy": {},  # filled in at end
         }
         (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
@@ -4056,30 +4655,36 @@ class MIRAGEEvaluationPipeline:
             project="mirage-kg-evaluation",
             name=run_id,
             config=manifest,
-            mode=wandb_mode
+            mode=wandb_mode,
         )
         self.wandb_run = run
-        self._run_id  = run_id
+        self._run_id = run_id
         self._run_dir = run_dir
-        
+
         all_results = []
-        
+
         for dataset_name in datasets:
-            logging.info(f"\n{'='*50}")
+            logging.info(f"\n{'=' * 50}")
             logging.info(f"Processing dataset: {dataset_name}")
-            logging.info(f"{'='*50}")
-            manifest["dataset_corpus_profiles"][dataset_name] = self._dataset_corpus_profile(dataset_name)
+            logging.info(f"{'=' * 50}")
+            manifest["dataset_corpus_profiles"][dataset_name] = (
+                self._dataset_corpus_profile(dataset_name)
+            )
             selection_path = self._selection_path(dataset_name)
             if selection_path.exists():
                 manifest["selection_files"][dataset_name] = str(selection_path)
-                manifest["subset_ids"][dataset_name] = self._subset_metadata(dataset_name).get("subset_id")
-            
+                manifest["subset_ids"][dataset_name] = self._subset_metadata(
+                    dataset_name
+                ).get("subset_id")
+
             # Step 1: Build KG for this dataset
             # Check if KG already exists for this specific dataset
             existing_chunk_count = self._dataset_kg_exists(dataset_name)
-            allowed_by_policy, force_rebuild_existing_kg = self._enforce_dataset_corpus_policy(
-                dataset_name,
-                existing_chunk_count=existing_chunk_count,
+            allowed_by_policy, force_rebuild_existing_kg = (
+                self._enforce_dataset_corpus_policy(
+                    dataset_name,
+                    existing_chunk_count=existing_chunk_count,
+                )
             )
             if not allowed_by_policy:
                 logging.error(
@@ -4111,9 +4716,11 @@ class MIRAGEEvaluationPipeline:
                         e,
                     )
                 else:
-                    compatible, incompatibility_reasons = self._assess_dataset_kg_compatibility(
-                        existing_kg_meta,
-                        expected_contract["build_meta"],
+                    compatible, incompatibility_reasons = (
+                        self._assess_dataset_kg_compatibility(
+                            existing_kg_meta,
+                            expected_contract["build_meta"],
+                        )
                     )
                     if not compatible:
                         logging.warning(
@@ -4125,7 +4732,7 @@ class MIRAGEEvaluationPipeline:
                         self._delete_dataset_kg(dataset_name)
                         existing_chunk_count = 0
                         should_rebuild_kg = True
-            
+
             if should_rebuild_kg:
                 # --rebuild-kg: Delete existing KG and rebuild from scratch
                 if existing_chunk_count > 0:
@@ -4166,7 +4773,9 @@ class MIRAGEEvaluationPipeline:
                     logging.info(f"No existing KG for {dataset_name}, building now...")
                     kg_built = self._build_kg_for_dataset(dataset_name)
                     if not kg_built:
-                        logging.error(f"Skipping {dataset_name} due to KG build failure")
+                        logging.error(
+                            f"Skipping {dataset_name} due to KG build failure"
+                        )
                         continue
                     if not self._verify_kg_quality(dataset_name):
                         logging.error(
@@ -4177,12 +4786,16 @@ class MIRAGEEvaluationPipeline:
             selection_path = self._selection_path(dataset_name)
             if selection_path.exists():
                 manifest["selection_files"][dataset_name] = str(selection_path)
-                manifest["subset_ids"][dataset_name] = self._subset_metadata(dataset_name).get("subset_id")
-            
+                manifest["subset_ids"][dataset_name] = self._subset_metadata(
+                    dataset_name
+                ).get("subset_id")
+
             # Step 2: Run evaluation for each configuration
             dataset_config_results = []
             for config in self.eval_configs:
-                dataset_results = self._run_evaluation_on_dataset(dataset_name, config=config)
+                dataset_results = self._run_evaluation_on_dataset(
+                    dataset_name, config=config
+                )
                 if dataset_results.get("error"):
                     logging.error(
                         "Skipping %s [%s] due to evaluation error: %s",
@@ -4196,58 +4809,140 @@ class MIRAGEEvaluationPipeline:
                 config_name = dataset_results.get("config", {}).get("name", "default")
                 log_payload = {
                     # Accuracy
-                    f"accuracy/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_accuracy", 0),
-                    f"accuracy/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_accuracy", 0),
-                    f"accuracy_raw/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_accuracy_raw", 0),
-                    f"accuracy_raw/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_accuracy_raw", 0),
-                    f"answer_em/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_answer_em", 0),
-                    f"answer_em/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_answer_em", 0),
-                    f"answer_f1/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_answer_f1", 0),
-                    f"answer_f1/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_answer_f1", 0),
+                    f"accuracy/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                        "vanilla_accuracy", 0
+                    ),
+                    f"accuracy/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                        "kg_accuracy", 0
+                    ),
+                    f"accuracy_raw/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                        "vanilla_accuracy_raw", 0
+                    ),
+                    f"accuracy_raw/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                        "kg_accuracy_raw", 0
+                    ),
+                    f"answer_em/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                        "vanilla_answer_em", 0
+                    ),
+                    f"answer_em/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                        "kg_answer_em", 0
+                    ),
+                    f"answer_f1/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                        "vanilla_answer_f1", 0
+                    ),
+                    f"answer_f1/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                        "kg_answer_f1", 0
+                    ),
                 }
                 if self.compute_metrics:
-                    log_payload.update({
-                        # Entropy Family (2)
-                        f"semantic_entropy/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_avg_semantic_entropy", 0),
-                        f"semantic_entropy/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_avg_semantic_entropy", 0),
-                        f"discrete_semantic_entropy/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_avg_discrete_semantic_entropy", 0),
-                        f"discrete_semantic_entropy/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_avg_discrete_semantic_entropy", 0),
-                        # Calibration Family (2)
-                        f"p_true/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_avg_p_true", 0.5),
-                        f"p_true/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_avg_p_true", 0.5),
-                        # Similarity Family (1)
-                        f"selfcheckgpt/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_avg_selfcheckgpt", 0.0),
-                        f"selfcheckgpt/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_avg_selfcheckgpt", 0.0),
-                        # Perturbation Family (1)
-                        f"sre_uq/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_avg_sre_uq", 0),
-                        f"sre_uq/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_avg_sre_uq", 0),
-                        # Geometric Family (2)
-                        f"vn_entropy/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_avg_vn_entropy", 0.0),
-                        f"vn_entropy/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_avg_vn_entropy", 0.0),
-                        f"sd_uq/{dataset_name}/{config_name}/vanilla": dataset_results.get("vanilla_avg_sd_uq", 0.0),
-                        f"sd_uq/{dataset_name}/{config_name}/kg_rag": dataset_results.get("kg_avg_sd_uq", 0.0),
-                        # AUROC / AUREC per metric
-                        **{
-                            f"auroc/{m}/{dataset_name}/{config_name}/vanilla": dataset_results.get(f"vanilla_avg_{m}_auroc", float("nan"))
-                            for m in ["semantic_entropy", "discrete_semantic_entropy",
-                                      "sre_uq", "p_true", "selfcheckgpt", "vn_entropy", "sd_uq"]
-                        },
-                        **{
-                            f"auroc/{m}/{dataset_name}/{config_name}/kg_rag": dataset_results.get(f"kg_avg_{m}_auroc", float("nan"))
-                            for m in ["semantic_entropy", "discrete_semantic_entropy",
-                                      "sre_uq", "p_true", "selfcheckgpt", "vn_entropy", "sd_uq"]
-                        },
-                        **{
-                            f"aurec/{m}/{dataset_name}/{config_name}/vanilla": dataset_results.get(f"vanilla_avg_{m}_aurec", float("nan"))
-                            for m in ["semantic_entropy", "discrete_semantic_entropy",
-                                      "sre_uq", "p_true", "selfcheckgpt", "vn_entropy", "sd_uq"]
-                        },
-                        **{
-                            f"aurec/{m}/{dataset_name}/{config_name}/kg_rag": dataset_results.get(f"kg_avg_{m}_aurec", float("nan"))
-                            for m in ["semantic_entropy", "discrete_semantic_entropy",
-                                      "sre_uq", "p_true", "selfcheckgpt", "vn_entropy", "sd_uq"]
-                        },
-                    })
+                    log_payload.update(
+                        {
+                            # Entropy Family (2)
+                            f"semantic_entropy/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                "vanilla_avg_semantic_entropy", 0
+                            ),
+                            f"semantic_entropy/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                "kg_avg_semantic_entropy", 0
+                            ),
+                            f"discrete_semantic_entropy/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                "vanilla_avg_discrete_semantic_entropy", 0
+                            ),
+                            f"discrete_semantic_entropy/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                "kg_avg_discrete_semantic_entropy", 0
+                            ),
+                            # Calibration Family (2)
+                            f"p_true/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                "vanilla_avg_p_true", 0.5
+                            ),
+                            f"p_true/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                "kg_avg_p_true", 0.5
+                            ),
+                            # Similarity Family (1)
+                            f"selfcheckgpt/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                "vanilla_avg_selfcheckgpt", 0.0
+                            ),
+                            f"selfcheckgpt/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                "kg_avg_selfcheckgpt", 0.0
+                            ),
+                            # Perturbation Family (1)
+                            f"sre_uq/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                "vanilla_avg_sre_uq", 0
+                            ),
+                            f"sre_uq/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                "kg_avg_sre_uq", 0
+                            ),
+                            # Geometric Family (2)
+                            f"vn_entropy/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                "vanilla_avg_vn_entropy", 0.0
+                            ),
+                            f"vn_entropy/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                "kg_avg_vn_entropy", 0.0
+                            ),
+                            f"sd_uq/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                "vanilla_avg_sd_uq", 0.0
+                            ),
+                            f"sd_uq/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                "kg_avg_sd_uq", 0.0
+                            ),
+                            # AUROC / AUREC per metric
+                            **{
+                                f"auroc/{m}/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                    f"vanilla_avg_{m}_auroc", float("nan")
+                                )
+                                for m in [
+                                    "semantic_entropy",
+                                    "discrete_semantic_entropy",
+                                    "sre_uq",
+                                    "p_true",
+                                    "selfcheckgpt",
+                                    "vn_entropy",
+                                    "sd_uq",
+                                ]
+                            },
+                            **{
+                                f"auroc/{m}/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                    f"kg_avg_{m}_auroc", float("nan")
+                                )
+                                for m in [
+                                    "semantic_entropy",
+                                    "discrete_semantic_entropy",
+                                    "sre_uq",
+                                    "p_true",
+                                    "selfcheckgpt",
+                                    "vn_entropy",
+                                    "sd_uq",
+                                ]
+                            },
+                            **{
+                                f"aurec/{m}/{dataset_name}/{config_name}/vanilla": dataset_results.get(
+                                    f"vanilla_avg_{m}_aurec", float("nan")
+                                )
+                                for m in [
+                                    "semantic_entropy",
+                                    "discrete_semantic_entropy",
+                                    "sre_uq",
+                                    "p_true",
+                                    "selfcheckgpt",
+                                    "vn_entropy",
+                                    "sd_uq",
+                                ]
+                            },
+                            **{
+                                f"aurec/{m}/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
+                                    f"kg_avg_{m}_aurec", float("nan")
+                                )
+                                for m in [
+                                    "semantic_entropy",
+                                    "discrete_semantic_entropy",
+                                    "sre_uq",
+                                    "p_true",
+                                    "selfcheckgpt",
+                                    "vn_entropy",
+                                    "sd_uq",
+                                ]
+                            },
+                        }
+                    )
                 self.wandb_run.log(log_payload)
 
             # Log config-level table + grouped bar chart for this dataset
@@ -4272,10 +4967,12 @@ class MIRAGEEvaluationPipeline:
 
             # Save intermediate results
             os.makedirs(output_dir, exist_ok=True)
-            output_path = os.path.join(output_dir, f"mirage_{dataset_name}_results.json")
-            with open(output_path, 'w') as f:
+            output_path = os.path.join(
+                output_dir, f"mirage_{dataset_name}_results.json"
+            )
+            with open(output_path, "w") as f:
                 json.dump(dataset_block, f, indent=2)
-        
+
         # Build summary grouped by evaluation track (biomedical_grounding vs multihop_reasoning).
         # These are separate empirical claims and must not be aggregated across tracks.
         summary_results = []
@@ -4299,14 +4996,21 @@ class MIRAGEEvaluationPipeline:
                     "subset_tag": cfg_res.get("subset_tag", ""),
                     "subset_id": cfg_res.get("subset_id", ""),
                     "num_questions_logged": int(
-                        cfg_res.get("num_questions_logged", len(cfg_res.get("details", [])))
+                        cfg_res.get(
+                            "num_questions_logged", len(cfg_res.get("details", []))
+                        )
                     ),
-                    "reported_accuracy_variant": cfg_res.get("reported_accuracy_variant", "clean_excluding_generation_failures"),
+                    "reported_accuracy_variant": cfg_res.get(
+                        "reported_accuracy_variant",
+                        "clean_excluding_generation_failures",
+                    ),
                     "vanilla_accuracy": cfg_res.get("vanilla_accuracy", 0.0),
                     "kg_accuracy": cfg_res.get("kg_accuracy", 0.0),
                     "vanilla_accuracy_raw": cfg_res.get("vanilla_accuracy_raw", 0.0),
                     "kg_accuracy_raw": cfg_res.get("kg_accuracy_raw", 0.0),
-                    "vanilla_answered_questions": cfg_res.get("vanilla_answered_questions", 0),
+                    "vanilla_answered_questions": cfg_res.get(
+                        "vanilla_answered_questions", 0
+                    ),
                     "kg_answered_questions": cfg_res.get("kg_answered_questions", 0),
                     "question_details_file": cfg_res.get("question_details_file", ""),
                     "question_table_key": cfg_res.get("question_table_key", ""),
@@ -4321,33 +5025,73 @@ class MIRAGEEvaluationPipeline:
                     "accuracy_by_task_type": cfg_res.get("accuracy_by_task_type", {}),
                     "accuracy_by_hop_count": cfg_res.get("accuracy_by_hop_count", {}),
                     "retrieval_determinism_confound": None,
-                    "kg_routing_distribution": cfg_res.get("kg_routing_distribution", {}),
-                    "kg_pure_entity_first_rate": cfg_res.get("kg_pure_entity_first_rate"),
+                    "kg_routing_distribution": cfg_res.get(
+                        "kg_routing_distribution", {}
+                    ),
+                    "kg_pure_entity_first_rate": cfg_res.get(
+                        "kg_pure_entity_first_rate"
+                    ),
                     "kg_dense_fallback_rate": cfg_res.get("kg_dense_fallback_rate"),
                     "kg_unknown_route_rate": cfg_res.get("kg_unknown_route_rate"),
                     "kg_avg_retrieval_overlap": cfg_res.get("kg_avg_retrieval_overlap"),
-                    "vanilla_avg_retrieval_overlap": cfg_res.get("vanilla_avg_retrieval_overlap"),
+                    "vanilla_avg_retrieval_overlap": cfg_res.get(
+                        "vanilla_avg_retrieval_overlap"
+                    ),
                 }
                 if self.compute_metrics:
                     cfg_entry["structural_metrics"] = {
-                        "vanilla_avg_graph_path_support": cfg_res.get("vanilla_avg_graph_path_support"),
-                        "kg_avg_graph_path_support": cfg_res.get("kg_avg_graph_path_support"),
-                        "vanilla_avg_graph_path_disagreement": cfg_res.get("vanilla_avg_graph_path_disagreement"),
-                        "kg_avg_graph_path_disagreement": cfg_res.get("kg_avg_graph_path_disagreement"),
-                        "vanilla_avg_competing_answer_alternatives": cfg_res.get("vanilla_avg_competing_answer_alternatives"),
-                        "kg_avg_competing_answer_alternatives": cfg_res.get("kg_avg_competing_answer_alternatives"),
-                        "vanilla_avg_evidence_vn_entropy": cfg_res.get("vanilla_avg_evidence_vn_entropy"),
-                        "kg_avg_evidence_vn_entropy": cfg_res.get("kg_avg_evidence_vn_entropy"),
-                        "vanilla_avg_subgraph_informativeness": cfg_res.get("vanilla_avg_subgraph_informativeness"),
-                        "kg_avg_subgraph_informativeness": cfg_res.get("kg_avg_subgraph_informativeness"),
-                        "vanilla_avg_subgraph_perturbation_stability": cfg_res.get("vanilla_avg_subgraph_perturbation_stability"),
-                        "kg_avg_subgraph_perturbation_stability": cfg_res.get("kg_avg_subgraph_perturbation_stability"),
-                        "vanilla_avg_support_entailment_uncertainty": cfg_res.get("vanilla_avg_support_entailment_uncertainty"),
-                        "kg_avg_support_entailment_uncertainty": cfg_res.get("kg_avg_support_entailment_uncertainty"),
-                        "vanilla_avg_evidence_conflict_uncertainty": cfg_res.get("vanilla_avg_evidence_conflict_uncertainty"),
-                        "kg_avg_evidence_conflict_uncertainty": cfg_res.get("kg_avg_evidence_conflict_uncertainty"),
+                        "vanilla_avg_graph_path_support": cfg_res.get(
+                            "vanilla_avg_graph_path_support"
+                        ),
+                        "kg_avg_graph_path_support": cfg_res.get(
+                            "kg_avg_graph_path_support"
+                        ),
+                        "vanilla_avg_graph_path_disagreement": cfg_res.get(
+                            "vanilla_avg_graph_path_disagreement"
+                        ),
+                        "kg_avg_graph_path_disagreement": cfg_res.get(
+                            "kg_avg_graph_path_disagreement"
+                        ),
+                        "vanilla_avg_competing_answer_alternatives": cfg_res.get(
+                            "vanilla_avg_competing_answer_alternatives"
+                        ),
+                        "kg_avg_competing_answer_alternatives": cfg_res.get(
+                            "kg_avg_competing_answer_alternatives"
+                        ),
+                        "vanilla_avg_evidence_vn_entropy": cfg_res.get(
+                            "vanilla_avg_evidence_vn_entropy"
+                        ),
+                        "kg_avg_evidence_vn_entropy": cfg_res.get(
+                            "kg_avg_evidence_vn_entropy"
+                        ),
+                        "vanilla_avg_subgraph_informativeness": cfg_res.get(
+                            "vanilla_avg_subgraph_informativeness"
+                        ),
+                        "kg_avg_subgraph_informativeness": cfg_res.get(
+                            "kg_avg_subgraph_informativeness"
+                        ),
+                        "vanilla_avg_subgraph_perturbation_stability": cfg_res.get(
+                            "vanilla_avg_subgraph_perturbation_stability"
+                        ),
+                        "kg_avg_subgraph_perturbation_stability": cfg_res.get(
+                            "kg_avg_subgraph_perturbation_stability"
+                        ),
+                        "vanilla_avg_support_entailment_uncertainty": cfg_res.get(
+                            "vanilla_avg_support_entailment_uncertainty"
+                        ),
+                        "kg_avg_support_entailment_uncertainty": cfg_res.get(
+                            "kg_avg_support_entailment_uncertainty"
+                        ),
+                        "vanilla_avg_evidence_conflict_uncertainty": cfg_res.get(
+                            "vanilla_avg_evidence_conflict_uncertainty"
+                        ),
+                        "kg_avg_evidence_conflict_uncertainty": cfg_res.get(
+                            "kg_avg_evidence_conflict_uncertainty"
+                        ),
                     }
-                    cfg_entry["metrics_by_approach"] = self._build_grouped_uncertainty_metrics(cfg_res)
+                    cfg_entry["metrics_by_approach"] = (
+                        self._build_grouped_uncertainty_metrics(cfg_res)
+                    )
                     cfg_entry["auroc_aurec"] = cfg_res.get("auroc_aurec", {})
                     cfg_entry["ece"] = cfg_res.get("ece", {})
                     cfg_entry["precision_at_k"] = cfg_res.get("precision_at_k", {})
@@ -4362,10 +5106,14 @@ class MIRAGEEvaluationPipeline:
         # rather than mirrored in a parallel test copy.  all_results has no
         # track field; resolve it from DATASET_TRACKS here.
         track_aggregates = accumulate_track_accuracy(
-            [{"dataset": ds["dataset"],
-              "track": self.DATASET_TRACKS.get(ds["dataset"], self.DEFAULT_TRACK),
-              "config_results": ds.get("config_results", [])}
-             for ds in all_results]
+            [
+                {
+                    "dataset": ds["dataset"],
+                    "track": self.DATASET_TRACKS.get(ds["dataset"], self.DEFAULT_TRACK),
+                    "config_results": ds.get("config_results", []),
+                }
+                for ds in all_results
+            ]
         )
 
         summary = {
@@ -4383,20 +5131,24 @@ class MIRAGEEvaluationPipeline:
                 self.judge_model != self.llm_model
                 or self.judge_provider_name != self.llm_provider_name
             ),
-            "metric_names": self.UNCERTAINTY_METRIC_NAMES if self.compute_metrics else [],
+            "metric_names": self.UNCERTAINTY_METRIC_NAMES
+            if self.compute_metrics
+            else [],
             "results": summary_results,
             "track_aggregates": track_aggregates,
             "retrieval_selection": select_best_retrieval_configs(all_results),
         }
-        
+
         # Save final summary
         os.makedirs(output_dir, exist_ok=True)
         summary_path = os.path.join(output_dir, "mirage_evaluation_summary.json")
-        with open(summary_path, 'w') as f:
+        with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
 
         # Log final summary to W&B BEFORE finishing run
-        self._log_final_summary_to_wandb(all_results=all_results, summary_path=summary_path)
+        self._log_final_summary_to_wandb(
+            all_results=all_results, summary_path=summary_path
+        )
 
         # ── Finalise manifest & runs index ───────────────────────────────
         if hasattr(self, "_run_dir"):
@@ -4407,29 +5159,31 @@ class MIRAGEEvaluationPipeline:
                     key = f"{dn}/{cfg.get('config', {}).get('name', 'default')}"
                     accuracy_summary[key] = {
                         "vanilla": round(cfg.get("vanilla_accuracy", 0), 4),
-                        "kg":      round(cfg.get("kg_accuracy", 0), 4),
+                        "kg": round(cfg.get("kg_accuracy", 0), 4),
                         "vanilla_raw": round(cfg.get("vanilla_accuracy_raw", 0), 4),
                         "kg_raw": round(cfg.get("kg_accuracy_raw", 0), 4),
                         "vanilla_answer_em": round(cfg.get("vanilla_answer_em", 0), 4),
                         "kg_answer_em": round(cfg.get("kg_answer_em", 0), 4),
                         "vanilla_answer_f1": round(cfg.get("vanilla_answer_f1", 0), 4),
                         "kg_answer_f1": round(cfg.get("kg_answer_f1", 0), 4),
-                        "n":       cfg.get("num_questions_logged", 0),
+                        "n": cfg.get("num_questions_logged", 0),
                     }
-            manifest["accuracy"]     = accuracy_summary
+            manifest["accuracy"] = accuracy_summary
             manifest["completed_at"] = datetime.now().isoformat()
             manifest["wandb_run_id"] = self.wandb_run.id if self.wandb_run else None
             (self._run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
             update_runs_index(self._run_dir, manifest)
             logging.info("Run manifest written: %s/manifest.json", self._run_dir)
-            logging.info("Runs index updated:   %s", self._run_dir.parent / "index.json")
+            logging.info(
+                "Runs index updated:   %s", self._run_dir.parent / "index.json"
+            )
 
         if self.wandb_run:
             self.wandb_run.finish()
 
-        logging.info("\n" + "="*50)
+        logging.info("\n" + "=" * 50)
         logging.info("EVALUATION COMPLETE  (run: %s)", getattr(self, "_run_id", "?"))
-        logging.info("="*50)
+        logging.info("=" * 50)
         for dataset_block in all_results:
             dataset_name = dataset_block.get("dataset", "unknown")
             for cfg_res in dataset_block.get("config_results", []):
@@ -4443,14 +5197,20 @@ class MIRAGEEvaluationPipeline:
                     f"EM/F1 Vanilla={cfg_res.get('vanilla_answer_em', 0):.2%}/{cfg_res.get('vanilla_answer_f1', 0):.2%} "
                     f"KG={cfg_res.get('kg_answer_em', 0):.2%}/{cfg_res.get('kg_answer_f1', 0):.2%}"
                 )
-        
+
         return summary
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run MIRAGE dataset evaluation pipeline (Experiment Mode)")
-    parser.add_argument("--num-samples", type=int, default=None, 
-                        help="Number of samples per dataset (default: all)")
+    parser = argparse.ArgumentParser(
+        description="Run MIRAGE dataset evaluation pipeline (Experiment Mode)"
+    )
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=None,
+        help="Number of samples per dataset (default: all)",
+    )
     parser.add_argument(
         "--subset-seed",
         type=int,
@@ -4461,26 +5221,59 @@ def main():
             "non-rebuild runs will reuse those same IDs."
         ),
     )
-    parser.add_argument("--entropy-samples", type=int, default=5,
-                        help="Number of generations per question for semantic entropy (default: 5, max: 20)")
-    parser.add_argument("--similarity-thresholds", nargs="+", type=float, default=[0.1],
-                        help="One or more similarity thresholds to evaluate as configurations")
-    parser.add_argument("--max-chunks-values", nargs="+", type=int, default=[10],
-                        help="One or more max_chunks values to evaluate as configurations")
-    parser.add_argument("--llm-provider", type=str, default="openai",
-                        help="LLM provider to use for KG extraction and response generation")
-    parser.add_argument("--llm-model", type=str, default="gpt-4o-mini",
-                        help="LLM model name for the selected provider")
-    parser.add_argument("--datasets", nargs="+", 
-                        default=["pubmedqa", "bioasq"],
-                        help=(
-                            "Datasets to evaluate "
-                            "(e.g., pubmedqa realmedqa bioasq medhop multihoprag hotpotqa hotpotqa_fullwiki 2wikimultihopqa musique)"
-                        ))
-    parser.add_argument("--rebuild-kg", action="store_true", default=False,
-                        help="Force rebuild the KG even if it already exists for the dataset")
-    parser.add_argument("--max-kg-contexts", type=int, default=None,
-                        help="Cap the number of context passages used to build the KG (useful for quick tests)")
+    parser.add_argument(
+        "--entropy-samples",
+        type=int,
+        default=5,
+        help="Number of generations per question for semantic entropy (default: 5, max: 20)",
+    )
+    parser.add_argument(
+        "--similarity-thresholds",
+        nargs="+",
+        type=float,
+        default=[0.1],
+        help="One or more similarity thresholds to evaluate as configurations",
+    )
+    parser.add_argument(
+        "--max-chunks-values",
+        nargs="+",
+        type=int,
+        default=[10],
+        help="One or more max_chunks values to evaluate as configurations",
+    )
+    parser.add_argument(
+        "--llm-provider",
+        type=str,
+        default="openai",
+        help="LLM provider to use for KG extraction and response generation",
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=str,
+        default="gpt-4o-mini",
+        help="LLM model name for the selected provider",
+    )
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        default=["pubmedqa", "bioasq"],
+        help=(
+            "Datasets to evaluate "
+            "(e.g., pubmedqa realmedqa bioasq medhop multihoprag hotpotqa hotpotqa_fullwiki 2wikimultihopqa musique)"
+        ),
+    )
+    parser.add_argument(
+        "--rebuild-kg",
+        action="store_true",
+        default=False,
+        help="Force rebuild the KG even if it already exists for the dataset",
+    )
+    parser.add_argument(
+        "--max-kg-contexts",
+        type=int,
+        default=None,
+        help="Cap the number of context passages used to build the KG (useful for quick tests)",
+    )
     parser.add_argument(
         "--dataset-kg-scope",
         type=str,
@@ -4500,16 +5293,32 @@ def main():
             "Use only for controlled-evidence QA analyses, not retrieval benchmarking."
         ),
     )
-    parser.add_argument("--no-llm-judge", action="store_true", default=False,
-                        help="Disable LLM-as-judge evaluation and use heuristic string matching instead")
-    parser.add_argument("--judge-provider", type=str, default=None,
-                        help="LLM provider for the answer judge (default: same as --llm-provider). "
-                             "Set to a different provider/model to avoid circular self-evaluation.")
-    parser.add_argument("--judge-model", type=str, default=None,
-                        help="LLM model for the answer judge (default: same as --llm-model). "
-                             "E.g., --llm-model gpt-4o-mini --judge-model gpt-4o for independent judging.")
-    parser.add_argument("--temperature", type=float, default=1.0,
-                        help="LLM sampling temperature (default: 1.0; use 0.0 for greedy, 0.5 for SE-optimal)")
+    parser.add_argument(
+        "--no-llm-judge",
+        action="store_true",
+        default=False,
+        help="Disable LLM-as-judge evaluation and use heuristic string matching instead",
+    )
+    parser.add_argument(
+        "--judge-provider",
+        type=str,
+        default=None,
+        help="LLM provider for the answer judge (default: same as --llm-provider). "
+        "Set to a different provider/model to avoid circular self-evaluation.",
+    )
+    parser.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        help="LLM model for the answer judge (default: same as --llm-model). "
+        "E.g., --llm-model gpt-4o-mini --judge-model gpt-4o for independent judging.",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="LLM sampling temperature (default: 1.0; use 0.0 for greedy, 0.5 for SE-optimal)",
+    )
     parser.add_argument(
         "--retrieval-temperature-values",
         nargs="+",
@@ -4555,8 +5364,12 @@ def main():
             "question-scoped multihop runs."
         ),
     )
-    parser.add_argument("--multi-temperature", action="store_true", default=False,
-                        help="Run each query at T=0, 0.5, 1.0 and store metrics with _t00/_t05/_t10 suffixes")
+    parser.add_argument(
+        "--multi-temperature",
+        action="store_true",
+        default=False,
+        help="Run each query at T=0, 0.5, 1.0 and store metrics with _t00/_t05/_t10 suffixes",
+    )
     parser.add_argument(
         "--evaluation-mode",
         type=str,
@@ -4567,11 +5380,15 @@ def main():
             "accuracy_only = only generate answers and score correctness for cheap test runs"
         ),
     )
-    parser.add_argument("--output-dir", type=str, default="results",
-                        help="Directory to write result JSON files (default: results/)")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="results",
+        help="Directory to write result JSON files (default: results/)",
+    )
 
     args = parser.parse_args()
-    
+
     if args.retrieval_study:
         eval_configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
             profile=args.retrieval_study,
@@ -4585,14 +5402,20 @@ def main():
         for threshold in args.similarity_thresholds:
             for max_chunks in args.max_chunks_values:
                 for retrieval_temperature in args.retrieval_temperature_values:
-                    rt_suffix = f"_rt{str(float(retrieval_temperature)).replace('.', 'p')}"
-                    eval_configs.append({
-                        "name": f"thr{threshold:g}_k{max_chunks}{rt_suffix}",
-                        "similarity_threshold": float(threshold),
-                        "max_chunks": int(max_chunks),
-                        "retrieval_temperature": float(retrieval_temperature),
-                        "retrieval_shortlist_factor": int(args.retrieval_shortlist_factor),
-                    })
+                    rt_suffix = (
+                        f"_rt{str(float(retrieval_temperature)).replace('.', 'p')}"
+                    )
+                    eval_configs.append(
+                        {
+                            "name": f"thr{threshold:g}_k{max_chunks}{rt_suffix}",
+                            "similarity_threshold": float(threshold),
+                            "max_chunks": int(max_chunks),
+                            "retrieval_temperature": float(retrieval_temperature),
+                            "retrieval_shortlist_factor": int(
+                                args.retrieval_shortlist_factor
+                            ),
+                        }
+                    )
 
     pipeline = MIRAGEEvaluationPipeline(
         num_samples=args.num_samples,
@@ -4615,7 +5438,7 @@ def main():
         kg_builder_profile=args.kg_builder_profile,
     )
     pipeline.run_pipeline(datasets=args.datasets, output_dir=args.output_dir)
-    
+
     print(f"\nResults saved to results/mirage_evaluation_summary.json")
 
 

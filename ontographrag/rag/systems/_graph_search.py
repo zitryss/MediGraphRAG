@@ -2,6 +2,7 @@ import logging
 from typing import Dict, Any, List, Optional, Set, Tuple
 import numpy as np
 
+
 class GraphSearchMixin:
     """Entity-first retrieval, graph expansion, scoped support clauses, and PPR scoring.
 
@@ -84,7 +85,9 @@ class GraphSearchMixin:
 
         direct_edge_scope = ""
         if relationship_var:
-            direct_edge_scope = f"$question_id IN coalesce({relationship_var}.questionIds, []) OR "
+            direct_edge_scope = (
+                f"$question_id IN coalesce({relationship_var}.questionIds, []) OR "
+            )
 
         return f"""{direct_edge_scope}EXISTS {{
             MATCH ({left_var})<-[:MENTIONS|HAS_ENTITY]-(c1:Chunk)-[:PART_OF]->(d1:Document)
@@ -217,15 +220,18 @@ class GraphSearchMixin:
             coalesce(r.passageKeys, []) AS passage_keys,
             coalesce(r.provenancePositions, []) AS provenance_positions
         """
-        return graph.query(
-            relationship_query,
-            {
-                "entity_ids": entity_ids,
-                "kg_name": kg_name,
-                "question_id": question_id,
-                "document_names": document_names,
-            },
-        ) or []
+        return (
+            graph.query(
+                relationship_query,
+                {
+                    "entity_ids": entity_ids,
+                    "kg_name": kg_name,
+                    "question_id": question_id,
+                    "document_names": document_names,
+                },
+            )
+            or []
+        )
 
     def _plan_relation_paths(
         self,
@@ -258,7 +264,9 @@ class GraphSearchMixin:
             scope_filters += "\n  AND (a.kgName IS NULL OR a.kgName = $kg_name)"
         if question_id:
             params["question_id"] = question_id
-            scope_filters += "\n  AND (a.questionId IS NULL OR a.questionId = $question_id)"
+            scope_filters += (
+                "\n  AND (a.questionId IS NULL OR a.questionId = $question_id)"
+            )
 
         rel_query = f"""
         MATCH (a:__Entity__)-[r]-(b:__Entity__)
@@ -290,7 +298,9 @@ class GraphSearchMixin:
             # Convert snake_case / ALL_CAPS label to readable words for embedding
             readable = rel_type.replace("_", " ").lower()
             try:
-                rel_emb = np.array(self._generate_query_embedding(readable), dtype=np.float32)
+                rel_emb = np.array(
+                    self._generate_query_embedding(readable), dtype=np.float32
+                )
             except Exception:
                 continue
             rnorm = np.linalg.norm(rel_emb)
@@ -303,12 +313,16 @@ class GraphSearchMixin:
         allowed = [rt for sim, rt in scored[:top_k] if sim >= min_sim]
 
         if not allowed:
-            logging.debug("RoG planning: no relation types above sim threshold %.2f — using open traversal", min_sim)
+            logging.debug(
+                "RoG planning: no relation types above sim threshold %.2f — using open traversal",
+                min_sim,
+            )
             return None
 
         logging.info(
             "RoG relation planning: %d/%d types selected (top sim=%.3f): %s",
-            len(allowed), len(rel_types),
+            len(allowed),
+            len(rel_types),
             scored[0][0] if scored else 0.0,
             allowed[:5],
         )
@@ -340,13 +354,19 @@ class GraphSearchMixin:
           1. How many distinct seed entities connect to them (higher = more central)
           2. Minimum hop distance (closer = higher priority)
         """
-        excluded_entity_ids = {str(eid) for eid in (excluded_entity_ids or set()) if str(eid).strip()}
-        seed_entity_ids = [eid for eid in seed_entity_ids if str(eid) not in excluded_entity_ids]
+        excluded_entity_ids = {
+            str(eid) for eid in (excluded_entity_ids or set()) if str(eid).strip()
+        }
+        seed_entity_ids = [
+            eid for eid in seed_entity_ids if str(eid) not in excluded_entity_ids
+        ]
         if not seed_entity_ids:
             return {"neighbors": {}, "paths": []}
 
         try:
-            effective_max_hops = self._graph_traversal_max_hops_for_kg(kg_name, max_hops)
+            effective_max_hops = self._graph_traversal_max_hops_for_kg(
+                kg_name, max_hops
+            )
             effective_max_neighbors = self._graph_traversal_neighbor_limit_for_kg(
                 kg_name,
                 max_neighbors,
@@ -399,7 +419,9 @@ class GraphSearchMixin:
             rog_rel_filter = ""
             if allowed_rel_types:
                 params["rog_allowed_rel_types"] = allowed_rel_types
-                rog_rel_filter = "\n                AND type(r) IN $rog_allowed_rel_types"
+                rog_rel_filter = (
+                    "\n                AND type(r) IN $rog_allowed_rel_types"
+                )
 
             traversal_query = f"""
             MATCH (seed:__Entity__)
@@ -468,7 +490,7 @@ class GraphSearchMixin:
                 # Build human-readable path strings for the prompt.
                 # Store node_ids alongside the path string so iterative retrieval
                 # can prune paths whose nodes are not in the retained entity set.
-                for path_data in (row["sample_paths"] or []):
+                for path_data in row["sample_paths"] or []:
                     node_names = path_data.get("nodes", [])
                     node_ids = path_data.get("node_ids", [])
                     rel_data = path_data.get("rels", [])
@@ -506,18 +528,23 @@ class GraphSearchMixin:
                                     if str(key).strip()
                                 )
                             seen_paths.add(path_str)
-                            paths.append({
-                                "path": path_str,
-                                "hops": row["min_hops"],
-                                "node_ids": [nid for nid in node_ids if nid],
-                                "provenance_positions": sorted(path_positions),
-                                "question_ids": sorted(path_question_ids),
-                                "passage_keys": sorted(path_passage_keys),
-                            })
+                            paths.append(
+                                {
+                                    "path": path_str,
+                                    "hops": row["min_hops"],
+                                    "node_ids": [nid for nid in node_ids if nid],
+                                    "provenance_positions": sorted(path_positions),
+                                    "question_ids": sorted(path_question_ids),
+                                    "passage_keys": sorted(path_passage_keys),
+                                }
+                            )
 
             logging.info(
                 "Graph traversal: %d neighbors, %d paths from %d seeds (max_hops=%d)",
-                len(neighbors), len(paths), len(seed_entity_ids), effective_max_hops,
+                len(neighbors),
+                len(paths),
+                len(seed_entity_ids),
+                effective_max_hops,
             )
             return {"neighbors": neighbors, "paths": paths}
 
@@ -621,8 +648,9 @@ class GraphSearchMixin:
             qid_filter = """
             AND ANY(pid IN coalesce(r.questionIds, []) WHERE pid = $question_id)"""
         try:
-            rows = graph.query(
-                f"""
+            rows = (
+                graph.query(
+                    f"""
                 MATCH (a:__Entity__)-[r]->(b:__Entity__)
                 WHERE a.id IN $entity_ids
                   AND b.id IN $entity_ids
@@ -634,11 +662,20 @@ class GraphSearchMixin:
                 RETURN a.id AS src, b.id AS tgt, coalesce(r.confidence, 1.0) AS conf
                 LIMIT 2000
                 """,
-                params,
-            ) or []
-            return [(row["src"], row["tgt"], float(row["conf"])) for row in rows if row["src"] and row["tgt"]]
+                    params,
+                )
+                or []
+            )
+            return [
+                (row["src"], row["tgt"], float(row["conf"]))
+                for row in rows
+                if row["src"] and row["tgt"]
+            ]
         except Exception as exc:
-            logging.debug("_fetch_subgraph_edges failed (%s); PPR will fall back to hop scores.", exc)
+            logging.debug(
+                "_fetch_subgraph_edges failed (%s); PPR will fall back to hop scores.",
+                exc,
+            )
             return []
 
     def _ppr_entity_scores(
@@ -764,7 +801,8 @@ class GraphSearchMixin:
                     logging.warning(
                         "Skipping embedding entity lookup: index has %d dims, model has %d dims. "
                         "Rebuild the KG with the current embedding model to enable this.",
-                        _idx_dim, self.embedding_dimension,
+                        _idx_dim,
+                        self.embedding_dimension,
                     )
                 else:
                     emb_lookup_query = f"""
@@ -803,34 +841,45 @@ class GraphSearchMixin:
                         seen_by_id: Dict[str, Any] = {}
                         for entity_mention in query_entities:
                             entity_vec = self._generate_query_embedding(entity_mention)
-                            rows = graph.query(
-                                emb_lookup_query,
-                                {
-                                    **ann_scope_params,
-                                    "query_vector": entity_vec,
-                                    "ann_threshold": 0.72,
-                                },
-                            ) or []
+                            rows = (
+                                graph.query(
+                                    emb_lookup_query,
+                                    {
+                                        **ann_scope_params,
+                                        "query_vector": entity_vec,
+                                        "ann_threshold": 0.72,
+                                    },
+                                )
+                                or []
+                            )
                             for row in rows:
                                 row = dict(row)
                                 eid = row["id"]
-                                if eid not in seen_by_id or row["weighted_score"] > seen_by_id[eid]["weighted_score"]:
+                                if (
+                                    eid not in seen_by_id
+                                    or row["weighted_score"]
+                                    > seen_by_id[eid]["weighted_score"]
+                                ):
                                     seen_by_id[eid] = row
                         emb_matched = list(seen_by_id.values())
                         logging.info(
                             "Entity-first ANN (per-entity): extracted %d query entities → %d KG candidates",
-                            len(query_entities), len(emb_matched),
+                            len(query_entities),
+                            len(emb_matched),
                         )
                     else:
                         # Fallback: embed the full query (original behaviour)
-                        emb_matched = graph.query(
-                            emb_lookup_query,
-                            {
-                                **ann_scope_params,
-                                "query_vector": query_embedding,
-                                "ann_threshold": 0.55,
-                            },
-                        ) or []
+                        emb_matched = (
+                            graph.query(
+                                emb_lookup_query,
+                                {
+                                    **ann_scope_params,
+                                    "query_vector": query_embedding,
+                                    "ann_threshold": 0.55,
+                                },
+                            )
+                            or []
+                        )
             except Exception as _emb_err:
                 logging.warning("Embedding entity lookup skipped: %s", _emb_err)
 
@@ -850,7 +899,9 @@ class GraphSearchMixin:
             params["query_tokens"] = query_tokens
             params["entity_lookup_limit"] = self._ENTITY_LOOKUP_LIMIT
 
-            entity_lookup_query = self._build_symbolic_entity_lookup_query(entity_support_scope)
+            entity_lookup_query = self._build_symbolic_entity_lookup_query(
+                entity_support_scope
+            )
             sub_matched = graph.query(entity_lookup_query, params) or []
 
             # Merge both passes, deduplicating by entity id and keeping the best-ranked
@@ -862,7 +913,9 @@ class GraphSearchMixin:
                 row.setdefault("exact_in_query", 0)
                 row.setdefault("query_in_entity", 0)
                 row.setdefault("token_overlap", 0)
-                row["_embedding_score"] = float(row.get("ann_score", row.get("score", 0.0)))
+                row["_embedding_score"] = float(
+                    row.get("ann_score", row.get("score", 0.0))
+                )
                 row["_source_kind"] = "embedding"
                 merged_by_id[row["id"]] = row
 
@@ -915,7 +968,8 @@ class GraphSearchMixin:
             if mask_ids or mask_names:
                 before_mask = len(matched_all)
                 matched_all = [
-                    row for row in matched_all
+                    row
+                    for row in matched_all
                     if str(row.get("id") or "").strip() not in mask_ids
                     and str(row.get("name") or "").strip().lower() not in mask_names
                 ]
@@ -926,7 +980,7 @@ class GraphSearchMixin:
                     sorted(mask_ids)[:5],
                     sorted(mask_names)[:5],
                 )
-            matched = matched_all[:self._MAX_ENTITY_SEEDS]
+            matched = matched_all[: self._MAX_ENTITY_SEEDS]
 
             matched_query_token_count = self._count_matched_query_tokens(
                 query,
@@ -935,7 +989,9 @@ class GraphSearchMixin:
             grounding_q = self._grounding_quality(query, matched_query_token_count)
 
             if not matched:
-                logging.info("Entity-first: no entities found in question (grounding=0)")
+                logging.info(
+                    "Entity-first: no entities found in question (grounding=0)"
+                )
                 return None
 
             # Disambiguation confidence gate: if grounding is weak AND no entity
@@ -959,13 +1015,17 @@ class GraphSearchMixin:
                         "Entity-first: low-confidence anchor "
                         "(grounding=%.2f < %.2f, no symbolic match) — "
                         "skipping graph traversal, falling back to vector",
-                        grounding_q, _min_grounding,
+                        grounding_q,
+                        _min_grounding,
                     )
                     return None
 
             logging.info(
                 "Entity-first: matched %d entities covering %d query tokens (grounding=%.2f): %s",
-                len(matched), matched_query_token_count, grounding_q, [r["name"] for r in matched]
+                len(matched),
+                matched_query_token_count,
+                grounding_q,
+                [r["name"] for r in matched],
             )
 
             # Step 2: build seed entity dict (hop 0)
@@ -1089,10 +1149,16 @@ class GraphSearchMixin:
             # score that accounts for the full graph topology — entities connected to
             # more seeds via shorter, denser paths receive higher scores.
             all_entity_ids_for_ppr = list(entities.keys())
-            seed_ids_for_ppr = [eid for eid, info in entities.items() if info.get("min_hops", 99) == 0]
+            seed_ids_for_ppr = [
+                eid for eid, info in entities.items() if info.get("min_hops", 99) == 0
+            ]
             ppr_scores: Dict[str, float] = {}
             subgraph_edges: List[Tuple[str, str]] = []
-            if self.use_ppr_scoring and seed_ids_for_ppr and len(all_entity_ids_for_ppr) > 1:
+            if (
+                self.use_ppr_scoring
+                and seed_ids_for_ppr
+                and len(all_entity_ids_for_ppr) > 1
+            ):
                 subgraph_edges = self._fetch_subgraph_edges(
                     graph,
                     all_entity_ids_for_ppr,
@@ -1106,7 +1172,8 @@ class GraphSearchMixin:
                     )
                     logging.info(
                         "Entity-first PPR: %d entities, %d edges, top score=%.4f",
-                        len(all_entity_ids_for_ppr), len(subgraph_edges),
+                        len(all_entity_ids_for_ppr),
+                        len(subgraph_edges),
                         max(ppr_scores.values()) if ppr_scores else 0.0,
                     )
 
@@ -1122,7 +1189,8 @@ class GraphSearchMixin:
                     # + coverage bonus (n'·P from HippoRAG).
                     entity_ppr = [
                         ppr_scores.get(eid, 0.0) / max_ppr
-                        for eid in linked if eid in entities
+                        for eid in linked
+                        if eid in entities
                     ]
                     if entity_ppr:
                         base_score = sum(entity_ppr) / len(entity_ppr)
@@ -1133,8 +1201,11 @@ class GraphSearchMixin:
                 else:
                     # Fallback: fixed hop-score table (used when subgraph has no edges).
                     entity_hop_scores = [
-                        self._HOP_SCORE.get(entities[eid]["min_hops"], self._HOP_SCORE_DEFAULT)
-                        for eid in linked if eid in entities
+                        self._HOP_SCORE.get(
+                            entities[eid]["min_hops"], self._HOP_SCORE_DEFAULT
+                        )
+                        for eid in linked
+                        if eid in entities
                     ]
                     if entity_hop_scores:
                         base_score = sum(entity_hop_scores) / len(entity_hop_scores)
@@ -1147,24 +1218,26 @@ class GraphSearchMixin:
                     (entities[eid]["min_hops"] for eid in linked if eid in entities),
                     default=2,
                 )
-                chunks.append({
-                    "text": row["text"],
-                    "chunk_id": row["chunk_id"],
-                    "chunk_element_id": row["chunk_element_id"],
-                    "score": hop_score,
-                    "min_hop": min_hop,
-                    "document": row["document"],
-                    "kg_name": row.get("kg_name"),
-                    "position": row.get("position"),
-                    "source": row.get("source"),
-                    "question_id": row.get("question_id"),
-                    "passage_index": row.get("passage_index"),
-                    "chunk_local_index": row.get("chunk_local_index"),
-                    "entities": [],
-                    "linked_entity_count": int(row.get("linked_entity_count") or 0),
-                    # Retained for post-truncation entity pruning in iterative retrieval
-                    "linked_entity_ids": linked,
-                })
+                chunks.append(
+                    {
+                        "text": row["text"],
+                        "chunk_id": row["chunk_id"],
+                        "chunk_element_id": row["chunk_element_id"],
+                        "score": hop_score,
+                        "min_hop": min_hop,
+                        "document": row["document"],
+                        "kg_name": row.get("kg_name"),
+                        "position": row.get("position"),
+                        "source": row.get("source"),
+                        "question_id": row.get("question_id"),
+                        "passage_index": row.get("passage_index"),
+                        "chunk_local_index": row.get("chunk_local_index"),
+                        "entities": [],
+                        "linked_entity_count": int(row.get("linked_entity_count") or 0),
+                        # Retained for post-truncation entity pruning in iterative retrieval
+                        "linked_entity_ids": linked,
+                    }
+                )
                 documents.add(row["document"])
 
             # --- Traversal relevance gate ---
@@ -1178,6 +1251,7 @@ class GraphSearchMixin:
             _min_sim = self._TRAVERSAL_CHUNK_MIN_SIM
             if _min_sim > 0.0 and query_embedding:
                 import numpy as np
+
                 qvec = np.array(query_embedding, dtype=float)
                 qnorm = np.linalg.norm(qvec)
                 # Collect element IDs of hop-1+ chunks that need similarity checks
@@ -1194,16 +1268,23 @@ class GraphSearchMixin:
                             "RETURN elementId(c) AS eid, c.embedding AS emb",
                             {"eids": traversal_eids},
                         )
-                        for _row in (_emb_rows or []):
+                        for _row in _emb_rows or []:
                             _emb = _row.get("emb")
                             if not _emb:
                                 continue
                             cvec = np.array(_emb, dtype=float)
                             cnorm = np.linalg.norm(cvec)
-                            sim = float(np.dot(qvec, cvec) / (qnorm * cnorm)) if cnorm > 0 else 0.0
+                            sim = (
+                                float(np.dot(qvec, cvec) / (qnorm * cnorm))
+                                if cnorm > 0
+                                else 0.0
+                            )
                             eid_to_sim[_row["eid"]] = sim
                     except Exception as _ge:
-                        logging.debug("Traversal relevance gate: batch embedding fetch failed: %s", _ge)
+                        logging.debug(
+                            "Traversal relevance gate: batch embedding fetch failed: %s",
+                            _ge,
+                        )
                 filtered_chunks = []
                 for c in chunks:
                     if c.get("min_hop", 1) == 0:
@@ -1217,14 +1298,18 @@ class GraphSearchMixin:
                     else:
                         logging.debug(
                             "Entity-first: dropped traversal chunk (passage_index=%s, sim=%.3f < %.3f)",
-                            c.get("passage_index"), sim, _min_sim,
+                            c.get("passage_index"),
+                            sim,
+                            _min_sim,
                         )
                 n_before = len(chunks)
                 if filtered_chunks:
                     chunks = filtered_chunks
                 logging.info(
                     "Traversal relevance gate: kept %d/%d chunks (min_sim=%.2f)",
-                    len(chunks), n_before, _min_sim,
+                    len(chunks),
+                    n_before,
+                    _min_sim,
                 )
 
             # --- Per-passage chunk cap ---
@@ -1256,22 +1341,25 @@ class GraphSearchMixin:
                         or f"{rel['source']}-{rel['relationship_type']}-{rel['target']}"
                         f"-negated={bool(rel.get('negated', False))}"
                     )
-                    relationships.append({
-                        "key": rel_key,
-                        "source": rel["source"],
-                        "source_element_id": rel["source_element_id"],
-                        "target": rel["target"],
-                        "target_element_id": rel["target_element_id"],
-                        "type": rel["relationship_type"],
-                        "element_id": rel["relationship_element_id"],
-                        "negated": bool(rel.get("negated", False)),
-                        "condition": rel.get("condition"),
-                        "quantitative": rel.get("quantitative"),
-                        "confidence": rel.get("confidence"),
-                        "question_ids": rel.get("question_ids") or [],
-                        "passage_keys": rel.get("passage_keys") or [],
-                        "provenance_positions": rel.get("provenance_positions") or [],
-                    })
+                    relationships.append(
+                        {
+                            "key": rel_key,
+                            "source": rel["source"],
+                            "source_element_id": rel["source_element_id"],
+                            "target": rel["target"],
+                            "target_element_id": rel["target_element_id"],
+                            "type": rel["relationship_type"],
+                            "element_id": rel["relationship_element_id"],
+                            "negated": bool(rel.get("negated", False)),
+                            "condition": rel.get("condition"),
+                            "quantitative": rel.get("quantitative"),
+                            "confidence": rel.get("confidence"),
+                            "question_ids": rel.get("question_ids") or [],
+                            "passage_keys": rel.get("passage_keys") or [],
+                            "provenance_positions": rel.get("provenance_positions")
+                            or [],
+                        }
+                    )
 
             return {
                 "query": query,
@@ -1292,19 +1380,31 @@ class GraphSearchMixin:
                 "route_reason": "success",
                 "diagnostics": {
                     "seed_entity_ids": seed_ids[:10],
-                    "seed_entity_names": [entities[eid].get("description", eid) for eid in seed_ids[:10]],
-                    "seed_entities": [entities[eid].get("description", eid) for eid in seed_ids[:10]],
+                    "seed_entity_names": [
+                        entities[eid].get("description", eid) for eid in seed_ids[:10]
+                    ],
+                    "seed_entities": [
+                        entities[eid].get("description", eid) for eid in seed_ids[:10]
+                    ],
                     "anchor_mask_entity_ids": sorted(mask_ids),
                     "anchor_mask_entity_names": sorted(mask_names),
-                    "ann_match_count": len([e for e in matched if e.get("_source_kind") == "embedding"]),
-                    "symbolic_match_count": len([e for e in matched if e.get("_source_kind") == "symbolic"]),
+                    "ann_match_count": len(
+                        [e for e in matched if e.get("_source_kind") == "embedding"]
+                    ),
+                    "symbolic_match_count": len(
+                        [e for e in matched if e.get("_source_kind") == "symbolic"]
+                    ),
                     "rfge_fired": False,
                     "subgraph_edge_count": len(subgraph_edges),
                     "top_ppr_entities": sorted(
                         ((eid, score) for eid, score in ppr_scores.items()),
                         key=lambda x: -x[1],
-                    )[:5] if ppr_scores else [],
-                    "retrieval_mode_config": getattr(self, "retrieval_mode", "hybrid_auto"),
+                    )[:5]
+                    if ppr_scores
+                    else [],
+                    "retrieval_mode_config": getattr(
+                        self, "retrieval_mode", "hybrid_auto"
+                    ),
                 },
             }
 
@@ -1369,7 +1469,9 @@ class GraphSearchMixin:
             }
             vec_entity_ids: List[str] = []
             cosine_by_chunk: Dict[str, float] = {}
-            _MAX_ENTITIES_PER_CHUNK = 4  # cap seeds per chunk to avoid generic-entity flooding
+            _MAX_ENTITIES_PER_CHUNK = (
+                4  # cap seeds per chunk to avoid generic-entity flooding
+            )
             for chunk in vec_ctx["chunks"]:
                 cosine_by_chunk[chunk["chunk_id"]] = float(chunk.get("score", 0.0))
                 chunk_ents = chunk.get("entities", [])
@@ -1380,7 +1482,11 @@ class GraphSearchMixin:
                     eid = ent.get("id")
                     if not eid:
                         continue
-                    ent_name = str(ent.get("description") or ent.get("name") or eid).strip().lower()
+                    ent_name = (
+                        str(ent.get("description") or ent.get("name") or eid)
+                        .strip()
+                        .lower()
+                    )
                     if str(eid) in mask_ids or ent_name in mask_names:
                         continue
                     eid_lower = eid.lower().strip()
@@ -1408,7 +1514,11 @@ class GraphSearchMixin:
             # Build the combined entity pool: passage seeds + graph neighbors.
             all_entities: Dict[str, Any] = {}
             for eid in vec_entity_ids:
-                all_entities[eid] = {"id": eid, "min_hops": 0, "source": "retriever_seed"}
+                all_entities[eid] = {
+                    "id": eid,
+                    "min_hops": 0,
+                    "source": "retriever_seed",
+                }
             for nid, ninfo in expansion["neighbors"].items():
                 all_entities[nid] = {**ninfo, "min_hops": ninfo.get("min_hops", 1)}
 
@@ -1424,7 +1534,9 @@ class GraphSearchMixin:
             ppr_scores: Dict[str, float] = {}
             max_ppr = 0.0
             if subgraph_edges:
-                ppr_scores = self._ppr_entity_scores(vec_entity_ids, all_eid_list, subgraph_edges)
+                ppr_scores = self._ppr_entity_scores(
+                    vec_entity_ids, all_eid_list, subgraph_edges
+                )
                 max_ppr = max(ppr_scores.values()) if ppr_scores else 0.0
 
             # Step 5: re-score existing chunks with combined cosine + PPR signal.
@@ -1434,9 +1546,15 @@ class GraphSearchMixin:
                 cosine = cosine_by_chunk.get(cid, float(chunk.get("score", 0.0)))
                 linked = [e.get("id") for e in chunk.get("entities", []) if e.get("id")]
                 if ppr_scores and max_ppr > 0:
-                    ppr_vals = [ppr_scores.get(eid, 0.0) / max_ppr for eid in linked if eid in ppr_scores]
+                    ppr_vals = [
+                        ppr_scores.get(eid, 0.0) / max_ppr
+                        for eid in linked
+                        if eid in ppr_scores
+                    ]
                     if ppr_vals:
-                        ppr_chunk = sum(ppr_vals) / len(ppr_vals) + 0.05 * (len(ppr_vals) - 1)
+                        ppr_chunk = sum(ppr_vals) / len(ppr_vals) + 0.05 * (
+                            len(ppr_vals) - 1
+                        )
                         combined = 0.5 * cosine + 0.5 * min(1.0, ppr_chunk)
                     else:
                         combined = 0.5 * cosine  # no PPR signal for this chunk
@@ -1446,7 +1564,8 @@ class GraphSearchMixin:
 
             # Step 6: fetch chunks for graph-neighbor entities not yet retrieved.
             neighbor_eids = [
-                eid for eid in expansion["neighbors"]
+                eid
+                for eid in expansion["neighbors"]
                 if ppr_scores.get(eid, 0.0) >= self._RFGE_MIN_PPR_SCORE
             ]
             if neighbor_eids:
@@ -1465,8 +1584,9 @@ class GraphSearchMixin:
                 if question_id:
                     scope += " AND c.questionId = $question_id"
                     extra_params["question_id"] = question_id
-                extra_rows = graph.query(
-                    f"""
+                extra_rows = (
+                    graph.query(
+                        f"""
                     MATCH (e:__Entity__)<-[:HAS_ENTITY]-(c:Chunk)-[:PART_OF]->(d:Document)
                     WHERE e.id IN $entity_ids {scope}
                     RETURN DISTINCT c.text AS text, c.id AS chunk_id,
@@ -1479,37 +1599,45 @@ class GraphSearchMixin:
                            e.id AS seed_entity_id
                     LIMIT $limit
                     """,
-                    extra_params,
-                ) or []
+                        extra_params,
+                    )
+                    or []
+                )
                 for row in extra_rows:
                     cid = row["chunk_id"]
                     if not cid or cid in existing_cids:
                         continue
                     eid = row.get("seed_entity_id", "")
                     ppr_val = ppr_scores.get(eid, 0.0) / max_ppr if max_ppr > 0 else 0.0
-                    chunks.append({
-                        "text": row["text"],
-                        "chunk_id": cid,
-                        "chunk_element_id": row["chunk_element_id"],
-                        "score": 0.3 * ppr_val,  # graph-only: lower base score
-                        "min_hop": 1,
-                        "document": row["document"],
-                        "kg_name": row.get("kg_name"),
-                        "question_id": row.get("question_id"),
-                        "position": row.get("position"),
-                        "passage_index": row.get("passage_index"),
-                        "chunk_local_index": row.get("chunk_local_index"),
-                        "entities": [],
-                        "linked_entity_ids": [eid] if eid else [],
-                        "linked_entity_count": 1 if eid else 0,
-                    })
+                    chunks.append(
+                        {
+                            "text": row["text"],
+                            "chunk_id": cid,
+                            "chunk_element_id": row["chunk_element_id"],
+                            "score": 0.3 * ppr_val,  # graph-only: lower base score
+                            "min_hop": 1,
+                            "document": row["document"],
+                            "kg_name": row.get("kg_name"),
+                            "question_id": row.get("question_id"),
+                            "position": row.get("position"),
+                            "passage_index": row.get("passage_index"),
+                            "chunk_local_index": row.get("chunk_local_index"),
+                            "entities": [],
+                            "linked_entity_ids": [eid] if eid else [],
+                            "linked_entity_count": 1 if eid else 0,
+                        }
+                    )
                     existing_cids.add(cid)
 
             chunks.sort(key=lambda c: -float(c.get("score", 0.0)))
             chunks = chunks[:max_chunks]
 
             # Grounding quality: fraction of retrieved entities with PPR > threshold.
-            supported = sum(1 for eid in vec_entity_ids if ppr_scores.get(eid, 0.0) >= self._RFGE_MIN_PPR_SCORE)
+            supported = sum(
+                1
+                for eid in vec_entity_ids
+                if ppr_scores.get(eid, 0.0) >= self._RFGE_MIN_PPR_SCORE
+            )
             grounding_q = supported / len(vec_entity_ids) if vec_entity_ids else 0.0
 
             relationships = []
@@ -1522,31 +1650,37 @@ class GraphSearchMixin:
                     document_names=document_names,
                 )
                 for rel in rel_results:
-                    relationships.append({
-                        "key": (
-                            rel.get("relationship_element_id")
-                            or f"{rel['source']}-{rel['relationship_type']}-{rel['target']}"
-                            f"-negated={bool(rel.get('negated', False))}"
-                        ),
-                        "source": rel["source"],
-                        "source_element_id": rel["source_element_id"],
-                        "target": rel["target"],
-                        "target_element_id": rel["target_element_id"],
-                        "type": rel["relationship_type"],
-                        "element_id": rel["relationship_element_id"],
-                        "negated": bool(rel.get("negated", False)),
-                        "condition": rel.get("condition"),
-                        "quantitative": rel.get("quantitative"),
-                        "confidence": rel.get("confidence"),
-                        "question_ids": rel.get("question_ids") or [],
-                        "passage_keys": rel.get("passage_keys") or [],
-                        "provenance_positions": rel.get("provenance_positions") or [],
-                    })
+                    relationships.append(
+                        {
+                            "key": (
+                                rel.get("relationship_element_id")
+                                or f"{rel['source']}-{rel['relationship_type']}-{rel['target']}"
+                                f"-negated={bool(rel.get('negated', False))}"
+                            ),
+                            "source": rel["source"],
+                            "source_element_id": rel["source_element_id"],
+                            "target": rel["target"],
+                            "target_element_id": rel["target_element_id"],
+                            "type": rel["relationship_type"],
+                            "element_id": rel["relationship_element_id"],
+                            "negated": bool(rel.get("negated", False)),
+                            "condition": rel.get("condition"),
+                            "quantitative": rel.get("quantitative"),
+                            "confidence": rel.get("confidence"),
+                            "question_ids": rel.get("question_ids") or [],
+                            "passage_keys": rel.get("passage_keys") or [],
+                            "provenance_positions": rel.get("provenance_positions")
+                            or [],
+                        }
+                    )
 
             logging.info(
                 "RFGE: %d seeds, %d total entities, %d edges, %d chunks, grounding=%.2f",
-                len(vec_entity_ids), len(all_eid_list), len(subgraph_edges),
-                len(chunks), grounding_q,
+                len(vec_entity_ids),
+                len(all_eid_list),
+                len(subgraph_edges),
+                len(chunks),
+                grounding_q,
             )
             return {
                 "query": query,
@@ -1578,8 +1712,12 @@ class GraphSearchMixin:
                     "top_ppr_entities": sorted(
                         ((eid, score) for eid, score in ppr_scores.items()),
                         key=lambda x: -x[1],
-                    )[:5] if ppr_scores else [],
-                    "retrieval_mode_config": getattr(self, "retrieval_mode", "hybrid_auto"),
+                    )[:5]
+                    if ppr_scores
+                    else [],
+                    "retrieval_mode_config": getattr(
+                        self, "retrieval_mode", "hybrid_auto"
+                    ),
                 },
             }
 

@@ -29,7 +29,9 @@ def test_sentence_transformer_helper_reuses_normalized_cache(monkeypatch):
     monkeypatch.setattr(um, "_SENTENCE_TRANSFORMER_CACHE", {})
     _FakeSentenceTransformer.init_calls.clear()
 
-    model_a = um._get_or_load_sentence_transformer("sentence-transformers/all-MiniLM-L6-v2")
+    model_a = um._get_or_load_sentence_transformer(
+        "sentence-transformers/all-MiniLM-L6-v2"
+    )
     model_b = um._get_or_load_sentence_transformer("all-MiniLM-L6-v2")
 
     assert model_a is model_b
@@ -64,7 +66,9 @@ def test_evidence_vn_entropy_query_checks_tail_reachability(monkeypatch):
         def driver(uri, auth=None):
             return FakeDriver()
 
-    fake_sentence_module = types.SimpleNamespace(SentenceTransformer=_FakeSentenceTransformer)
+    fake_sentence_module = types.SimpleNamespace(
+        SentenceTransformer=_FakeSentenceTransformer
+    )
     fake_neo4j_module = types.SimpleNamespace(GraphDatabase=FakeGraphDatabase)
     monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_module)
     monkeypatch.setitem(sys.modules, "neo4j", fake_neo4j_module)
@@ -99,8 +103,20 @@ def test_graph_path_support_query_applies_question_local_scope(monkeypatch):
             captured_queries.append(query)
             if "RETURN DISTINCT e.id AS id," in query:
                 return [
-                    {"id": "q1", "name": "dune", "aliases": [], "original_ids": [], "synonyms": []},
-                    {"id": "a1", "name": "frank herbert", "aliases": [], "original_ids": [], "synonyms": []},
+                    {
+                        "id": "q1",
+                        "name": "dune",
+                        "aliases": [],
+                        "original_ids": [],
+                        "synonyms": [],
+                    },
+                    {
+                        "id": "a1",
+                        "name": "frank herbert",
+                        "aliases": [],
+                        "original_ids": [],
+                        "synonyms": [],
+                    },
                 ]
             return [{"reachable_id": "a1"}]
 
@@ -132,7 +148,10 @@ def test_graph_path_support_query_applies_question_local_scope(monkeypatch):
 
     assert score == 0.0
     assert "c.questionId = $question_id" in captured_queries[0]
-    assert "$question_id IN coalesce(relationships(p)[idx].questionIds, [])" in captured_queries[1]
+    assert (
+        "$question_id IN coalesce(relationships(p)[idx].questionIds, [])"
+        in captured_queries[1]
+    )
 
 
 def test_graph_path_support_matches_aliases_without_abstaining(monkeypatch):
@@ -175,7 +194,9 @@ def test_graph_path_support_matches_aliases_without_abstaining(monkeypatch):
         def driver(uri, auth=None):
             return FakeDriver()
 
-    monkeypatch.setitem(sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase))
+    monkeypatch.setitem(
+        sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase)
+    )
 
     detail = um.compute_graph_path_support_detailed(
         question="Should aspirin be stopped before surgery?",
@@ -200,8 +221,20 @@ def test_graph_path_support_uses_non_self_question_entities_for_overlap(monkeypa
         def run(self, query, params=None, timeout=None):
             if "RETURN DISTINCT e.id AS id," in query:
                 return [
-                    {"id": "q1", "name": "william nigh", "aliases": [], "original_ids": [], "synonyms": []},
-                    {"id": "a1", "name": "the ape", "aliases": [], "original_ids": [], "synonyms": []},
+                    {
+                        "id": "q1",
+                        "name": "william nigh",
+                        "aliases": [],
+                        "original_ids": [],
+                        "synonyms": [],
+                    },
+                    {
+                        "id": "a1",
+                        "name": "the ape",
+                        "aliases": [],
+                        "original_ids": [],
+                        "synonyms": [],
+                    },
                 ]
             assert params["q_ids"] == ["q1"]
             assert params["a_id"] == "a1"
@@ -219,7 +252,9 @@ def test_graph_path_support_uses_non_self_question_entities_for_overlap(monkeypa
         def driver(uri, auth=None):
             return FakeDriver()
 
-    monkeypatch.setitem(sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase))
+    monkeypatch.setitem(
+        sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase)
+    )
 
     detail = um.compute_graph_path_support_detailed(
         question="Did William Nigh direct The Ape?",
@@ -244,8 +279,20 @@ def test_sps_uses_non_self_question_entities_for_overlap(monkeypatch):
         def run(self, query, params=None, timeout=None):
             if "RETURN DISTINCT e.id AS id," in query:
                 return [
-                    {"id": "q1", "name": "william nigh", "aliases": [], "original_ids": [], "synonyms": []},
-                    {"id": "a1", "name": "the ape", "aliases": [], "original_ids": [], "synonyms": []},
+                    {
+                        "id": "q1",
+                        "name": "william nigh",
+                        "aliases": [],
+                        "original_ids": [],
+                        "synonyms": [],
+                    },
+                    {
+                        "id": "a1",
+                        "name": "the ape",
+                        "aliases": [],
+                        "original_ids": [],
+                        "synonyms": [],
+                    },
                 ]
             assert params["q_ids"] == ["q1"]
             assert params["a_ids"] == ["a1"]
@@ -263,7 +310,9 @@ def test_sps_uses_non_self_question_entities_for_overlap(monkeypatch):
         def driver(uri, auth=None):
             return FakeDriver()
 
-    monkeypatch.setitem(sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase))
+    monkeypatch.setitem(
+        sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase)
+    )
 
     detail = um.compute_subgraph_perturbation_stability_detailed(
         question="Did William Nigh direct The Ape?",
@@ -386,7 +435,10 @@ def test_compute_auroc_aurec_excludes_generation_failures_by_default():
     assert clean_only["kg_rag"]["graph_path_support_auroc"] == 1.0
     assert all_rows["vanilla_rag"]["graph_path_support_auroc"] < 1.0
     assert all_rows["kg_rag"]["graph_path_support_auroc"] < 1.0
-    assert clean_only["vanilla_rag"]["graph_path_support_aurec"] < all_rows["vanilla_rag"]["graph_path_support_aurec"]
+    assert (
+        clean_only["vanilla_rag"]["graph_path_support_aurec"]
+        < all_rows["vanilla_rag"]["graph_path_support_aurec"]
+    )
 
 
 def test_compute_auroc_aurec_default_metric_list_includes_grounding_metrics():

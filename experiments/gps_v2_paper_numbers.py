@@ -30,13 +30,22 @@ TAU, GAMMA = 0.60, 0.4
 B = 2000
 RNG = np.random.default_rng(42)
 
-SLUGS = ["pubmedqa", "realmedqa", "hotpotqa", "hotpotqa_fullwiki",
-         "2wikimultihopqa", "musique"]
+SLUGS = [
+    "pubmedqa",
+    "realmedqa",
+    "hotpotqa",
+    "hotpotqa_fullwiki",
+    "2wikimultihopqa",
+    "musique",
+]
 
 
 def latest_artifact(slug, strict=False):
-    tag = (f"gps_v2_replay_{slug}_strict_[0-9]*.json" if strict
-           else f"gps_v2_replay_{slug}_[0-9]*.json")
+    tag = (
+        f"gps_v2_replay_{slug}_strict_[0-9]*.json"
+        if strict
+        else f"gps_v2_replay_{slug}_[0-9]*.json"
+    )
     paths = glob.glob(os.path.join(RUNS, "*", tag))
     return sorted(paths)[-1] if paths else None
 
@@ -73,7 +82,7 @@ def aurec(correct, uncertainty):
     y = np.asarray(correct, float)
     u = np.asarray(uncertainty, float)
     order = np.argsort(-u)
-    errors = (1 - y[order])
+    errors = 1 - y[order]
     suffix = np.cumsum(errors[::-1])[::-1]
     remaining = np.arange(len(y), 0, -1, dtype=float)
     return float((suffix / remaining).mean())
@@ -90,19 +99,34 @@ def percentile_ranks(values):
 
 
 def main():
-    out = {"frozen": {"tau": TAU, "gamma": GAMMA}, "adaptive": {}, "strict": {},
-           "hopwise_2wiki": {}, "correlations": {}, "composite": {}, "cases": {}}
+    out = {
+        "frozen": {"tau": TAU, "gamma": GAMMA},
+        "adaptive": {},
+        "strict": {},
+        "hopwise_2wiki": {},
+        "correlations": {},
+        "composite": {},
+        "cases": {},
+    }
 
-    manifest = json.load(open(os.path.join(REPO, "paper", "figures",
-                                           "latest_results_manifest.json")))
-    key_for = {"pubmedqa": "Pubmedqa", "realmedqa": "Realmedqa",
-               "hotpotqa": "Hotpotqa", "hotpotqa_fullwiki": "HotpotqaFullWiki",
-               "2wikimultihopqa": "2Wikimultihopqa", "musique": "Musique"}
+    manifest = json.load(
+        open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
+    )
+    key_for = {
+        "pubmedqa": "Pubmedqa",
+        "realmedqa": "Realmedqa",
+        "hotpotqa": "Hotpotqa",
+        "hotpotqa_fullwiki": "HotpotqaFullWiki",
+        "2wikimultihopqa": "2Wikimultihopqa",
+        "musique": "Musique",
+    }
 
     pooled = {"sd": [], "seu": [], "gps": []}
     for slug in SLUGS:
         art = json.load(open(latest_artifact(slug)))
-        run_doc = json.load(open(os.path.join(REPO, manifest[key_for[slug]]["result_path"])))
+        run_doc = json.load(
+            open(os.path.join(REPO, manifest[key_for[slug]]["result_path"]))
+        )
         kg_rows = {}
         for cfg in run_doc["config_results"]:
             if cfg["config"]["name"].startswith("kg_entity_first"):
@@ -116,8 +140,10 @@ def main():
             wrong = [w for _, w in defined]
             a, lo, hi = auroc_ci(scores, wrong) if defined else (None, None, None)
             ds[side] = {
-                "answered": answered, "usable": len(defined),
-                "auroc": a, "ci": [lo, hi],
+                "answered": answered,
+                "usable": len(defined),
+                "auroc": a,
+                "ci": [lo, hi],
                 "aurec": aurec([not w for w in wrong], scores) if defined else None,
             }
         out["adaptive"][slug] = ds
@@ -134,8 +160,9 @@ def main():
                 pooled["sd"].append(float(sd))
                 pooled["seu"].append(float(seu))
                 pooled["gps"].append(float(s))
-            comp_rows.append((float(sd), float(seu),
-                              1.0 if s is None else float(s), bool(c)))
+            comp_rows.append(
+                (float(sd), float(seu), 1.0 if s is None else float(s), bool(c))
+            )
         if len(comp_rows) >= 12:
             sd_r = percentile_ranks([r[0] for r in comp_rows])
             seu_r = percentile_ranks([r[1] for r in comp_rows])
@@ -160,9 +187,11 @@ def main():
         for _ in range(B):
             idx = RNG.integers(0, len(x), len(x))
             boot.append(spearmanr(x[idx], y[idx]).statistic)
-        return {"rho": rho, "ci": [float(np.percentile(boot, 2.5)),
-                                   float(np.percentile(boot, 97.5))],
-                "n": int(len(x))}
+        return {
+            "rho": rho,
+            "ci": [float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))],
+            "n": int(len(x)),
+        }
 
     out["correlations"]["sd_vs_seu"] = spearman_ci(pooled["sd"], pooled["seu"])
     out["correlations"]["sd_vs_gps"] = spearman_ci(pooled["sd"], pooled["gps"])
@@ -176,27 +205,39 @@ def main():
         defined = [(s, not c) for _, s, c in rows if s is not None]
         a, lo, hi = auroc_ci([s for s, _ in defined], [w for _, w in defined])
         out["strict"][slug] = {
-            "answered": len(rows), "usable": len(defined),
-            "auroc": a, "ci": [lo, hi],
+            "answered": len(rows),
+            "usable": len(defined),
+            "auroc": a,
+            "ci": [lo, hi],
             "v1_logged": art["v1_logged"]["kg"],
         }
 
     # 2wiki hop-wise GPS AUC per policy
     adaptive_art = json.load(open(latest_artifact("2wikimultihopqa")))
     strict_art = json.load(open(latest_artifact("2wikimultihopqa", strict=True)))
-    run_doc = json.load(open(os.path.join(REPO, manifest["2Wikimultihopqa"]["result_path"])))
+    run_doc = json.load(
+        open(os.path.join(REPO, manifest["2Wikimultihopqa"]["result_path"]))
+    )
     hop_by_qid = {}
     for cfg in run_doc["config_results"]:
         for r in cfg["details"]:
             hop_by_qid[str(r["question_id"])] = r.get("hop_count")
-    for label, art, side in [("dense", adaptive_art, "vanilla"),
-                             ("adaptive_kg", adaptive_art, "kg"),
-                             ("strict_kg", strict_art, "kg")]:
+    for label, art, side in [
+        ("dense", adaptive_art, "vanilla"),
+        ("adaptive_kg", adaptive_art, "kg"),
+        ("strict_kg", strict_art, "kg"),
+    ]:
         for hop in (2, 4):
-            sel = [(s, not c) for qid, s, c in v2_scores(art, side)
-                   if s is not None and hop_by_qid.get(qid) == hop]
-            a = (auroc_ci([s for s, _ in sel], [w for _, w in sel])[0]
-                 if len(sel) >= 5 else None)
+            sel = [
+                (s, not c)
+                for qid, s, c in v2_scores(art, side)
+                if s is not None and hop_by_qid.get(qid) == hop
+            ]
+            a = (
+                auroc_ci([s for s, _ in sel], [w for _, w in sel])[0]
+                if len(sel) >= 5
+                else None
+            )
             out["hopwise_2wiki"][f"{label}_{hop}hop"] = {"n": len(sel), "auroc": a}
 
     # case-study lookups
@@ -208,7 +249,9 @@ def main():
         "the_cup": (twiki_art, "The Cup (1999"),
     }
     qtext = {}
-    for cfg in json.load(open(os.path.join(REPO, manifest["Musique"]["result_path"])))["config_results"]:
+    for cfg in json.load(open(os.path.join(REPO, manifest["Musique"]["result_path"])))[
+        "config_results"
+    ]:
         for r in cfg["details"]:
             qtext[str(r["question_id"])] = r.get("question", "")
     for cfg in run_doc["config_results"]:
@@ -218,14 +261,23 @@ def main():
         for q in art["questions"]:
             if needle.lower() in qtext.get(str(q["question_id"]), "").lower():
                 st = (q.get("store") or {}).get("kg")
-                res = score_from_store(st, TAU, GAMMA) if st else {"score": None, "null_reason": "missing"}
+                res = (
+                    score_from_store(st, TAU, GAMMA)
+                    if st
+                    else {"score": None, "null_reason": "missing"}
+                )
                 out["cases"][name] = {
                     "question_id": q["question_id"],
                     "question": qtext.get(str(q["question_id"]), "")[:90],
-                    "gps_v2": res["score"], "null": res["null_reason"],
+                    "gps_v2": res["score"],
+                    "null": res["null_reason"],
                     "links": [
-                        {"name": a.get("name"), "cos": round(float(a.get("cos", 0)), 2),
-                         "L": a.get("L"), "source": a.get("source")}
+                        {
+                            "name": a.get("name"),
+                            "cos": round(float(a.get("cos", 0)), 2),
+                            "L": a.get("L"),
+                            "source": a.get("source"),
+                        }
                         for a in (st or {}).get("answers", [])[:4]
                     ],
                 }

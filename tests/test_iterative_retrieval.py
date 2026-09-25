@@ -20,8 +20,13 @@ import hashlib
 
 import pytest
 
-pytest.importorskip("langchain_neo4j", reason="langchain_neo4j not installed — skipping iterative retrieval tests")
-pytest.importorskip("langchain", reason="langchain not installed — skipping iterative retrieval tests")
+pytest.importorskip(
+    "langchain_neo4j",
+    reason="langchain_neo4j not installed — skipping iterative retrieval tests",
+)
+pytest.importorskip(
+    "langchain", reason="langchain not installed — skipping iterative retrieval tests"
+)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -33,6 +38,7 @@ from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_system() -> EnhancedRAGSystem:
     s = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
     return s
@@ -42,8 +48,9 @@ def _cid(text: str) -> str:
     return hashlib.sha1(text.encode()).hexdigest()
 
 
-def _chunk(text: str, score: float = 1.0, doc: str = "doc.txt",
-           linked_entity_ids=None) -> dict:
+def _chunk(
+    text: str, score: float = 1.0, doc: str = "doc.txt", linked_entity_ids=None
+) -> dict:
     return {
         "text": text,
         "chunk_id": _cid(text),
@@ -54,8 +61,14 @@ def _chunk(text: str, score: float = 1.0, doc: str = "doc.txt",
     }
 
 
-def _hop_ctx(chunks, entities=None, relationships=None, traversal_paths=None,
-             grounding_quality=None, seed_entity_count=None) -> dict:
+def _hop_ctx(
+    chunks,
+    entities=None,
+    relationships=None,
+    traversal_paths=None,
+    grounding_quality=None,
+    seed_entity_count=None,
+) -> dict:
     ctx = {
         "chunks": chunks,
         "entities": entities or {},
@@ -89,9 +102,18 @@ class _StubGraph:
 # to inject controlled per-hop contexts without Neo4j.
 # ---------------------------------------------------------------------------
 
-def _run_iterative(system, hop_contexts, sub_questions, max_chunks=10,
-                   kg_name="test_kg", max_hops=2, bridge_response="Paris",
-                   question="Original question?", vector_hop_contexts=None):
+
+def _run_iterative(
+    system,
+    hop_contexts,
+    sub_questions,
+    max_chunks=10,
+    kg_name="test_kg",
+    max_hops=2,
+    bridge_response="Paris",
+    question="Original question?",
+    vector_hop_contexts=None,
+):
     """
     Monkey-patch entity-first search to return items from hop_contexts sequentially,
     then run _iterative_hop_retrieval.
@@ -99,7 +121,9 @@ def _run_iterative(system, hop_contexts, sub_questions, max_chunks=10,
     iter_ = iter(hop_contexts)
     vec_iter = iter(vector_hop_contexts or [])
 
-    def _fake_entity_first(graph, query, max_chunks=10, kg_name=None, max_hops=1, **kwargs):
+    def _fake_entity_first(
+        graph, query, max_chunks=10, kg_name=None, max_hops=1, **kwargs
+    ):
         try:
             return next(iter_)
         except StopIteration:
@@ -115,17 +139,21 @@ def _run_iterative(system, hop_contexts, sub_questions, max_chunks=10,
         except StopIteration:
             return None
 
-    def _no_vec(*a, **kw): return None
+    def _no_vec(*a, **kw):
+        return None
 
-    def _no_text(*a, **kw): return None
+    def _no_text(*a, **kw):
+        return None
 
-    orig_vec  = getattr(system, "_vector_similarity_search", None)
+    orig_vec = getattr(system, "_vector_similarity_search", None)
     orig_text = getattr(system, "_text_similarity_search", None)
     orig_check = getattr(system, "check_vector_index", None)
 
-    system._vector_similarity_search = _fake_vec if vector_hop_contexts is not None else _no_vec
-    system._text_similarity_search   = _no_text
-    system.check_vector_index        = lambda: vector_hop_contexts is not None
+    system._vector_similarity_search = (
+        _fake_vec if vector_hop_contexts is not None else _no_vec
+    )
+    system._text_similarity_search = _no_text
+    system.check_vector_index = lambda: vector_hop_contexts is not None
 
     graph = _StubGraph([])
     llm = _stub_llm(bridge_response)
@@ -144,9 +172,12 @@ def _run_iterative(system, hop_contexts, sub_questions, max_chunks=10,
         )
     finally:
         system._entity_first_search = original
-        if orig_vec:  system._vector_similarity_search = orig_vec
-        if orig_text: system._text_similarity_search   = orig_text
-        if orig_check: system.check_vector_index       = orig_check
+        if orig_vec:
+            system._vector_similarity_search = orig_vec
+        if orig_text:
+            system._text_similarity_search = orig_text
+        if orig_check:
+            system.check_vector_index = orig_check
 
     return result
 
@@ -155,25 +186,29 @@ def _run_iterative(system, hop_contexts, sub_questions, max_chunks=10,
 # 1. Returns None when all hops find nothing
 # ---------------------------------------------------------------------------
 
+
 class TestReturnsNoneOnEmptyHops:
     sys_ = _make_system()
 
     def test_none_when_no_chunks(self):
-        result = _run_iterative(self.sys_, hop_contexts=[None, None],
-                                sub_questions=["Q1?", "Q2?"])
+        result = _run_iterative(
+            self.sys_, hop_contexts=[None, None], sub_questions=["Q1?", "Q2?"]
+        )
         assert result is None
 
     def test_none_when_empty_chunk_lists(self):
         hop1 = _hop_ctx(chunks=[])
         hop2 = _hop_ctx(chunks=[])
-        result = _run_iterative(self.sys_, hop_contexts=[hop1, hop2],
-                                sub_questions=["Q1?", "Q2?"])
+        result = _run_iterative(
+            self.sys_, hop_contexts=[hop1, hop2], sub_questions=["Q1?", "Q2?"]
+        )
         assert result is None
 
 
 # ---------------------------------------------------------------------------
 # 2. Bridge answer rejection
 # ---------------------------------------------------------------------------
+
 
 class TestBridgeAnswerRejection:
     sys_ = _make_system()
@@ -185,7 +220,8 @@ class TestBridgeAnswerRejection:
         if sub_questions is None:
             sub_questions = ["What treats fever?", "Where is [BRIDGE] used?"]
         return _run_iterative(
-            self.sys_, hop_contexts=hops,
+            self.sys_,
+            hop_contexts=hops,
             sub_questions=sub_questions,
             bridge_response=bridge_response,
         )
@@ -219,6 +255,7 @@ class TestBridgeAnswerRejection:
 # 3. Cross-hop dedup: all_chunk_ids activates hop even for deduplicated chunk
 # ---------------------------------------------------------------------------
 
+
 class TestCrossHopDedup:
     sys_ = _make_system()
 
@@ -234,17 +271,25 @@ class TestCrossHopDedup:
 
         hop0_ctx = _hop_ctx(
             chunks=[c_a],
-            entities={"e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"}},
+            entities={
+                "e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"}
+            },
         )
         # Hop 1 returns the same chunk A and fresh chunk B
         hop1_ctx = _hop_ctx(
             chunks=[c_a, c_b],  # c_a will be deduped; c_b is new
             entities={
                 "e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"},
-                "e2": {"id": "Fever",   "type": "Symptom", "source": "entity_lookup"},
+                "e2": {"id": "Fever", "type": "Symptom", "source": "entity_lookup"},
             },
-            relationships=[{"source": "e1", "target": "e2", "type": "CAUSES",
-                            "key": "e1-CAUSES-e2"}],
+            relationships=[
+                {
+                    "source": "e1",
+                    "target": "e2",
+                    "type": "CAUSES",
+                    "key": "e1-CAUSES-e2",
+                }
+            ],
         )
 
         result = _run_iterative(
@@ -267,6 +312,7 @@ class TestCrossHopDedup:
 # 4. Grounding anchored to hop-0
 # ---------------------------------------------------------------------------
 
+
 class TestGroundingAnchoredToHop0:
     sys_ = _make_system()
 
@@ -279,7 +325,8 @@ class TestGroundingAnchoredToHop0:
         hop1 = _hop_ctx([c2], grounding_quality=0.9, seed_entity_count=10)
 
         result = _run_iterative(
-            self.sys_, hop_contexts=[hop0, hop1],
+            self.sys_,
+            hop_contexts=[hop0, hop1],
             sub_questions=["Q1?", "Q2?"],
         )
 
@@ -290,10 +337,11 @@ class TestGroundingAnchoredToHop0:
     def test_grounding_not_overwritten_by_empty_hop(self):
         c1 = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
         hop0 = _hop_ctx([c1], grounding_quality=0.5, seed_entity_count=2)
-        hop1 = _hop_ctx([])   # empty hop
+        hop1 = _hop_ctx([])  # empty hop
 
         result = _run_iterative(
-            self.sys_, hop_contexts=[hop0, hop1],
+            self.sys_,
+            hop_contexts=[hop0, hop1],
             sub_questions=["Q1?", "Q2?"],
         )
         assert result is not None
@@ -304,12 +352,17 @@ class TestGroundingAnchoredToHop0:
 # 5. Dataset-specific per-subquestion hop caps
 # ---------------------------------------------------------------------------
 
+
 class TestDatasetSpecificSubquestionHopCaps:
     sys_ = _make_system()
 
     def test_2wiki_is_capped_to_one_hop_per_subquestion(self):
-        assert self.sys_._iterative_subquestion_max_hops_for_kg("2wikimultihopqa", 2) == 1
-        assert self.sys_._iterative_subquestion_max_hops_for_kg("2wikimultihopqa", 4) == 1
+        assert (
+            self.sys_._iterative_subquestion_max_hops_for_kg("2wikimultihopqa", 2) == 1
+        )
+        assert (
+            self.sys_._iterative_subquestion_max_hops_for_kg("2wikimultihopqa", 4) == 1
+        )
 
     def test_other_datasets_keep_relaxed_default_cap(self):
         assert self.sys_._iterative_subquestion_max_hops_for_kg("musique", 4) == 3
@@ -353,6 +406,7 @@ class TestIterativeRetrievalQueryAnchoring:
 # 5b. Hybrid retrieval should prefer vector evidence when graph signal is weak
 # ---------------------------------------------------------------------------
 
+
 class TestHybridRetrievalRouting:
     sys_ = _make_system()
 
@@ -370,21 +424,35 @@ class TestHybridRetrievalRouting:
 
         graph_ctx = _hop_ctx(
             [graph_chunk],
-            entities={"e_cal": {"id": "Riding the California Trail", "description": "Riding the California Trail"}},
-            traversal_paths=[{"path": "William Nigh --DIRECTED_BY--> Riding the California Trail"}],
+            entities={
+                "e_cal": {
+                    "id": "Riding the California Trail",
+                    "description": "Riding the California Trail",
+                }
+            },
+            traversal_paths=[
+                {"path": "William Nigh --DIRECTED_BY--> Riding the California Trail"}
+            ],
             grounding_quality=0.9,
             seed_entity_count=2,
         )
         vector_ctx = _hop_ctx(
             [vector_chunk],
-            entities={"e_lost": {"id": "Lost and Delirious", "description": "Lost and Delirious"}},
+            entities={
+                "e_lost": {
+                    "id": "Lost and Delirious",
+                    "description": "Lost and Delirious",
+                }
+            },
         )
 
         result = _run_iterative(
             self.sys_,
             hop_contexts=[graph_ctx],
             vector_hop_contexts=[vector_ctx],
-            sub_questions=["Which film has the director born later, Riding The California Trail or Lost And Delirious?"],
+            sub_questions=[
+                "Which film has the director born later, Riding The California Trail or Lost And Delirious?"
+            ],
             question="Which film has the director born later, Riding The California Trail or Lost And Delirious?",
             max_chunks=6,
         )
@@ -395,9 +463,21 @@ class TestHybridRetrievalRouting:
 
     def test_graph_context_meaningfulness_requires_both_comparison_branches(self):
         graph_ctx = _hop_ctx(
-            [_chunk("Riding the California Trail is directed by William Nigh.", linked_entity_ids=["e_cal"])],
-            entities={"e_cal": {"id": "Riding the California Trail", "description": "Riding the California Trail"}},
-            traversal_paths=[{"path": "William Nigh --DIRECTED_BY--> Riding the California Trail"}],
+            [
+                _chunk(
+                    "Riding the California Trail is directed by William Nigh.",
+                    linked_entity_ids=["e_cal"],
+                )
+            ],
+            entities={
+                "e_cal": {
+                    "id": "Riding the California Trail",
+                    "description": "Riding the California Trail",
+                }
+            },
+            traversal_paths=[
+                {"path": "William Nigh --DIRECTED_BY--> Riding the California Trail"}
+            ],
             grounding_quality=0.9,
             seed_entity_count=2,
         )
@@ -408,9 +488,21 @@ class TestHybridRetrievalRouting:
 
     def test_comparison_chunk_rerank_prioritizes_explicit_branches(self):
         chunks = [
-            _chunk("Fred F. Sears was an American film director.", score=1.0, doc="2wikimultihopqa"),
-            _chunk("Lost and Delirious is directed by Lea Pool.", score=0.72, doc="2wikimultihopqa"),
-            _chunk("Riding the California Trail is directed by William Nigh.", score=0.69, doc="2wikimultihopqa"),
+            _chunk(
+                "Fred F. Sears was an American film director.",
+                score=1.0,
+                doc="2wikimultihopqa",
+            ),
+            _chunk(
+                "Lost and Delirious is directed by Lea Pool.",
+                score=0.72,
+                doc="2wikimultihopqa",
+            ),
+            _chunk(
+                "Riding the California Trail is directed by William Nigh.",
+                score=0.69,
+                doc="2wikimultihopqa",
+            ),
         ]
         sorted_chunks = self.sys_._sort_chunks_for_query(
             "Which film has the director born later, Riding The California Trail or Lost And Delirious?",
@@ -425,24 +517,34 @@ class TestHybridRetrievalRouting:
 # 6. Entity and path pruning after chunk truncation
 # ---------------------------------------------------------------------------
 
+
 class TestEntityAndPathPruning:
     sys_ = _make_system()
 
     def test_entity_not_linked_to_retained_chunk_is_dropped(self):
         # We set max_chunks=1, so only the higher-score chunk survives.
-        c_high = _chunk("Aspirin reduces fever.", score=1.0, linked_entity_ids=["e_keep"])
-        c_low  = _chunk("Metformin treats diabetes.", score=0.1, linked_entity_ids=["e_drop"])
+        c_high = _chunk(
+            "Aspirin reduces fever.", score=1.0, linked_entity_ids=["e_keep"]
+        )
+        c_low = _chunk(
+            "Metformin treats diabetes.", score=0.1, linked_entity_ids=["e_drop"]
+        )
 
         hop_ctx = _hop_ctx(
             chunks=[c_high, c_low],
             entities={
-                "e_keep": {"id": "Aspirin",   "type": "Drug", "source": "entity_lookup"},
-                "e_drop": {"id": "Metformin", "type": "Drug", "source": "entity_lookup"},
+                "e_keep": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"},
+                "e_drop": {
+                    "id": "Metformin",
+                    "type": "Drug",
+                    "source": "entity_lookup",
+                },
             },
         )
 
         result = _run_iterative(
-            self.sys_, hop_contexts=[hop_ctx],
+            self.sys_,
+            hop_contexts=[hop_ctx],
             sub_questions=["Q1?"],
             max_chunks=1,
         )
@@ -453,21 +555,29 @@ class TestEntityAndPathPruning:
 
     def test_relationship_dropped_when_either_endpoint_pruned(self):
         c_high = _chunk("Aspirin reduces fever.", score=1.0, linked_entity_ids=["e1"])
-        c_low  = _chunk("Metformin treats diabetes.", score=0.1, linked_entity_ids=["e2"])
+        c_low = _chunk(
+            "Metformin treats diabetes.", score=0.1, linked_entity_ids=["e2"]
+        )
 
         hop_ctx = _hop_ctx(
             chunks=[c_high, c_low],
             entities={
-                "e1": {"id": "Aspirin",   "type": "Drug", "source": "entity_lookup"},
+                "e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"},
                 "e2": {"id": "Metformin", "type": "Drug", "source": "entity_lookup"},
             },
             relationships=[
-                {"source": "e1", "target": "e2", "type": "UNRELATED", "key": "e1-UNRELATED-e2"},
+                {
+                    "source": "e1",
+                    "target": "e2",
+                    "type": "UNRELATED",
+                    "key": "e1-UNRELATED-e2",
+                },
             ],
         )
 
         result = _run_iterative(
-            self.sys_, hop_contexts=[hop_ctx],
+            self.sys_,
+            hop_contexts=[hop_ctx],
             sub_questions=["Q1?"],
             max_chunks=1,
         )
@@ -484,7 +594,9 @@ class TestEntityAndPathPruning:
             traversal_paths=[{"path": "A -> B -> C", "hops": 2}],  # no node_ids
         )
         result = _run_iterative(
-            self.sys_, hop_contexts=[hop_ctx], sub_questions=["Q1?"],
+            self.sys_,
+            hop_contexts=[hop_ctx],
+            sub_questions=["Q1?"],
         )
         assert result is not None
         assert any("A -> B" in p["path"] for p in result["traversal_paths"])
@@ -493,31 +605,41 @@ class TestEntityAndPathPruning:
         c = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1"])
         hop_ctx = _hop_ctx(
             chunks=[c],
-            traversal_paths=[{
-                "path": "Aspirin -> Fever",
-                "hops": 1,
-                "node_ids": ["e1", "e_unknown"],  # e_unknown not in any chunk
-            }],
+            traversal_paths=[
+                {
+                    "path": "Aspirin -> Fever",
+                    "hops": 1,
+                    "node_ids": ["e1", "e_unknown"],  # e_unknown not in any chunk
+                }
+            ],
         )
         result = _run_iterative(
-            self.sys_, hop_contexts=[hop_ctx], sub_questions=["Q1?"],
+            self.sys_,
+            hop_contexts=[hop_ctx],
+            sub_questions=["Q1?"],
         )
         assert result is not None
         # Path referencing unknown node must be pruned
-        assert not any("Aspirin -> Fever" in p["path"] for p in result["traversal_paths"])
+        assert not any(
+            "Aspirin -> Fever" in p["path"] for p in result["traversal_paths"]
+        )
 
     def test_path_with_all_retained_node_ids_kept(self):
         c = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1", "e2"])
         hop_ctx = _hop_ctx(
             chunks=[c],
-            traversal_paths=[{
-                "path": "Aspirin -> Fever",
-                "hops": 1,
-                "node_ids": ["e1", "e2"],  # both in linked_entity_ids
-            }],
+            traversal_paths=[
+                {
+                    "path": "Aspirin -> Fever",
+                    "hops": 1,
+                    "node_ids": ["e1", "e2"],  # both in linked_entity_ids
+                }
+            ],
         )
         result = _run_iterative(
-            self.sys_, hop_contexts=[hop_ctx], sub_questions=["Q1?"],
+            self.sys_,
+            hop_contexts=[hop_ctx],
+            sub_questions=["Q1?"],
         )
         assert result is not None
         assert any("Aspirin -> Fever" in p["path"] for p in result["traversal_paths"])

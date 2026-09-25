@@ -43,7 +43,10 @@ def guardrail_forces_abstention(guardrail: Mapping[str, Any] | None) -> bool:
     if not guardrail:
         return False
     final_decision = str(guardrail.get("final_decision", "")).strip().lower()
-    return bool(guardrail.get("enabled")) and final_decision not in {"keep", "retry_keep"}
+    return bool(guardrail.get("enabled")) and final_decision not in {
+        "keep",
+        "retry_keep",
+    }
 
 
 def build_support_guardrail_verdict(

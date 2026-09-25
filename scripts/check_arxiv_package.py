@@ -129,23 +129,32 @@ def check_figure_inputs() -> None:
             if not candidate.exists():
                 fail(f"missing figure/table input: {candidate.relative_to(REPO)}")
         elif not candidate.with_suffix(".tex").exists():
-            fail(f"missing figure/table input: {candidate.with_suffix('.tex').relative_to(REPO)}")
+            fail(
+                f"missing figure/table input: {candidate.with_suffix('.tex').relative_to(REPO)}"
+            )
 
-    graphic_refs = re.findall(r"\\includegraphics(?:\[[^\]]*\])?\{figures/([^}]+)\}", text)
+    graphic_refs = re.findall(
+        r"\\includegraphics(?:\[[^\]]*\])?\{figures/([^}]+)\}", text
+    )
     for ref in sorted(set(graphic_refs)):
         candidate = PAPER / "figures" / ref
         if candidate.suffix:
             if not candidate.exists():
                 fail(f"missing graphic: {candidate.relative_to(REPO)}")
         else:
-            found = any(candidate.with_suffix(ext).exists() for ext in (".pdf", ".png", ".jpg", ".jpeg"))
+            found = any(
+                candidate.with_suffix(ext).exists()
+                for ext in (".pdf", ".png", ".jpg", ".jpeg")
+            )
             if not found:
                 fail(f"missing graphic for figures/{ref} with pdf/png/jpg extension")
 
 
 def run_tectonic() -> None:
     cmd = ["tectonic", "main_arxiv.tex"]
-    proc = subprocess.run(cmd, cwd=PAPER, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    proc = subprocess.run(
+        cmd, cwd=PAPER, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    )
     if proc.returncode != 0:
         print(proc.stdout)
         fail("tectonic build failed")
@@ -156,7 +165,9 @@ def main() -> None:
     check_manifest_files(doc)
 
     if not PAPER.is_dir():
-        print("arXiv package check passed (paper sources not present locally; skipped paper checks)")
+        print(
+            "arXiv package check passed (paper sources not present locally; skipped paper checks)"
+        )
         return
 
     check_manuscript_wording()

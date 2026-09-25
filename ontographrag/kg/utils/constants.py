@@ -1,7 +1,7 @@
 # Constants copied from llm-graph-builder
-BUCKET_UPLOAD = 'llm-graph-builder-upload'
-BUCKET_FAILED_FILE = 'llm-graph-builder-failed'
-PROJECT_ID = 'llm-experiments-387609'
+BUCKET_UPLOAD = "llm-graph-builder-upload"
+BUCKET_FAILED_FILE = "llm-graph-builder-failed"
+PROJECT_ID = "llm-experiments-387609"
 
 # Query constants
 QUERY_TO_GET_CHUNKS = """

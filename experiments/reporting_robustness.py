@@ -32,8 +32,7 @@ def answered_counts():
             policy = "kg" if prefix == "kg" else "dense"
             total = len(cfg["details"])
             failed = sum(
-                1 for row in cfg["details"]
-                if row.get(f"{prefix}_generation_failed")
+                1 for row in cfg["details"] if row.get(f"{prefix}_generation_failed")
             )
             out[slug][policy] = {
                 "total": total,
@@ -45,9 +44,7 @@ def answered_counts():
         doc = json.load(open(os.path.join(REPO, rel_path)))
         cfg = doc["config_results"][0]
         total = len(cfg["details"])
-        failed = sum(
-            1 for row in cfg["details"] if row.get("kg_generation_failed")
-        )
+        failed = sum(1 for row in cfg["details"] if row.get("kg_generation_failed"))
         out.setdefault(slug, {})["strict_kg"] = {
             "total": total,
             "answered": total - failed,
@@ -58,19 +55,24 @@ def answered_counts():
 
 
 def realmedqa_adaptive_strict_complete_case():
-    adaptive_doc = json.load(open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"])))
+    adaptive_doc = json.load(
+        open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"]))
+    )
     strict_doc = json.load(open(os.path.join(REPO, STRICT_RUNS["realmedqa"])))
     adaptive_rows = next(
-        cfg["details"] for cfg in adaptive_doc["config_results"]
+        cfg["details"]
+        for cfg in adaptive_doc["config_results"]
         if cfg["config"]["name"].startswith("kg")
     )
     strict_rows = strict_doc["config_results"][0]["details"]
     adaptive_answered = {
-        str(row["question_id"]) for row in adaptive_rows
+        str(row["question_id"])
+        for row in adaptive_rows
         if not row.get("kg_generation_failed")
     }
     strict_answered = {
-        str(row["question_id"]) for row in strict_rows
+        str(row["question_id"])
+        for row in strict_rows
         if not row.get("kg_generation_failed")
     }
     return {
@@ -125,7 +127,8 @@ def certificate_effect():
         "uncert_wrong": sum(t["uncert_wrong"] for t in tables.values()),
     }
     pooled["odds_ratio_ha"] = (
-        (pooled["cert_correct"] + 0.5) * (pooled["uncert_wrong"] + 0.5)
+        (pooled["cert_correct"] + 0.5)
+        * (pooled["uncert_wrong"] + 0.5)
         / ((pooled["cert_wrong"] + 0.5) * (pooled["uncert_correct"] + 0.5))
     )
     point = odds_ratio_mh(tables)
@@ -165,12 +168,10 @@ def auroc(scores, wrong):
 
 
 def headline_effect_sizes():
-    adaptive = [
-        row for row in rows_for("realmedqa", "kg")
-        if row["sd"] is not None
-    ]
+    adaptive = [row for row in rows_for("realmedqa", "kg") if row["sd"] is not None]
     strict = [
-        row for row in rows_for("realmedqa", "strict")
+        row
+        for row in rows_for("realmedqa", "strict")
         if row["sd"] is not None and row["seu"] is not None
     ]
     adaptive_sd = auroc(

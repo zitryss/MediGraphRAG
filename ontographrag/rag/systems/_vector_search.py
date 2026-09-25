@@ -7,6 +7,7 @@ from ontographrag.rag.reranking import (
     late_interaction_rescore_chunks_for_query,
 )
 
+
 class VectorSearchMixin:
     """Dense, late-interaction, and text-keyword retrieval.
 
@@ -24,10 +25,20 @@ class VectorSearchMixin:
 
     @staticmethod
     def _late_interaction_corpus_cap() -> int:
-        return max(200, int(os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_CORPUS_CAP", "5000").strip() or 5000))
+        return max(
+            200,
+            int(
+                os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_CORPUS_CAP", "5000").strip()
+                or 5000
+            ),
+        )
 
     def _first_stage_late_interaction_enabled(self) -> bool:
-        explicit = str(os.getenv("ONTOGRAPHRAG_FIRST_STAGE_LATE_INTERACTION", "")).strip().lower()
+        explicit = (
+            str(os.getenv("ONTOGRAPHRAG_FIRST_STAGE_LATE_INTERACTION", ""))
+            .strip()
+            .lower()
+        )
         if explicit:
             return explicit in {"1", "true", "yes", "on"}
         return late_interaction_enabled()
@@ -58,7 +69,9 @@ class VectorSearchMixin:
             raw = self.embedding_model.encode(query, convert_to_numpy=True)
             embedding = raw.tolist() if hasattr(raw, "tolist") else list(raw)
         else:
-            raise ValueError("Unsupported embedding model interface. Expected embed_query or encode.")
+            raise ValueError(
+                "Unsupported embedding model interface. Expected embed_query or encode."
+            )
 
         # Cap cache size to avoid unbounded memory growth.
         if len(self._embedding_cache) >= 2048:
@@ -98,7 +111,9 @@ class VectorSearchMixin:
             filters.append("d.fileName IN $document_names")
             params["document_names"] = list(document_names)
         if question_id:
-            filters.append("coalesce(retrieval.questionId, chunk.questionId) = $question_id")
+            filters.append(
+                "coalesce(retrieval.questionId, chunk.questionId) = $question_id"
+            )
             params["question_id"] = question_id
         where_clause = "WHERE " + " AND ".join(filters) if filters else ""
 
@@ -107,7 +122,9 @@ class VectorSearchMixin:
         entity_return = "[] AS entities"
         if include_entities:
             entity_match = "OPTIONAL MATCH (chunk)-[:HAS_ENTITY]->(entity:__Entity__)"
-            with_clause = "WITH retrieval, chunk, d, collect(DISTINCT entity) AS chunk_entities"
+            with_clause = (
+                "WITH retrieval, chunk, d, collect(DISTINCT entity) AS chunk_entities"
+            )
             entity_return = """[entity IN chunk_entities WHERE entity IS NOT NULL | {
                 id: coalesce(entity.id, entity.name),
                 element_id: elementId(entity),
@@ -152,14 +169,20 @@ class VectorSearchMixin:
                 chunk_filters.append("d.fileName IN $document_names")
             if question_id:
                 chunk_filters.append("chunk.questionId = $question_id")
-            chunk_where = "WHERE " + " AND ".join(chunk_filters) if chunk_filters else ""
+            chunk_where = (
+                "WHERE " + " AND ".join(chunk_filters) if chunk_filters else ""
+            )
 
             entity_match = ""
             with_clause = "WITH chunk, d"
             entity_return = "[] AS entities"
             if include_entities:
-                entity_match = "OPTIONAL MATCH (chunk)-[:HAS_ENTITY]->(entity:__Entity__)"
-                with_clause = "WITH chunk, d, collect(DISTINCT entity) AS chunk_entities"
+                entity_match = (
+                    "OPTIONAL MATCH (chunk)-[:HAS_ENTITY]->(entity:__Entity__)"
+                )
+                with_clause = (
+                    "WITH chunk, d, collect(DISTINCT entity) AS chunk_entities"
+                )
                 entity_return = """[entity IN chunk_entities WHERE entity IS NOT NULL | {
                     id: coalesce(entity.id, entity.name),
                     element_id: elementId(entity),
@@ -236,29 +259,31 @@ class VectorSearchMixin:
             candidate_rows: List[Dict[str, Any]] = []
             for row in rows:
                 entities = row.get("entities") or []
-                candidate_rows.append({
-                    "text": row["text"],
-                    "chunk_id": row["chunk_id"],
-                    "chunk_element_id": row["chunk_element_id"],
-                    "parent_chunk_id": row.get("parent_chunk_id"),
-                    "parent_chunk_element_id": row.get("parent_chunk_element_id"),
-                    "question_id": row.get("question_id"),
-                    "passage_index": row.get("passage_index"),
-                    "chunk_local_index": row.get("chunk_local_index"),
-                    "retrieval_local_index": row.get("retrieval_local_index"),
-                    "position": row.get("position"),
-                    "source": row.get("source"),
-                    "score": 0.0,
-                    "document": row["document"],
-                    "kg_name": row.get("kg_name"),
-                    "entities": entities,
-                    "linked_entity_ids": [
-                        entity.get("id")
-                        for entity in entities
-                        if isinstance(entity, dict) and entity.get("id")
-                    ],
-                    "linked_entity_count": len(entities),
-                })
+                candidate_rows.append(
+                    {
+                        "text": row["text"],
+                        "chunk_id": row["chunk_id"],
+                        "chunk_element_id": row["chunk_element_id"],
+                        "parent_chunk_id": row.get("parent_chunk_id"),
+                        "parent_chunk_element_id": row.get("parent_chunk_element_id"),
+                        "question_id": row.get("question_id"),
+                        "passage_index": row.get("passage_index"),
+                        "chunk_local_index": row.get("chunk_local_index"),
+                        "retrieval_local_index": row.get("retrieval_local_index"),
+                        "position": row.get("position"),
+                        "source": row.get("source"),
+                        "score": 0.0,
+                        "document": row["document"],
+                        "kg_name": row.get("kg_name"),
+                        "entities": entities,
+                        "linked_entity_ids": [
+                            entity.get("id")
+                            for entity in entities
+                            if isinstance(entity, dict) and entity.get("id")
+                        ],
+                        "linked_entity_count": len(entities),
+                    }
+                )
 
             reranked_rows, li_meta = late_interaction_rescore_chunks_for_query(
                 query,
@@ -283,7 +308,11 @@ class VectorSearchMixin:
                 }
 
             score_values = [
-                abs(float(row.get("late_interaction_score", row.get("score", 0.0)) or 0.0))
+                abs(
+                    float(
+                        row.get("late_interaction_score", row.get("score", 0.0)) or 0.0
+                    )
+                )
                 for row in selected_rows
             ]
             if not selected_rows or max(score_values, default=0.0) <= 1e-9:
@@ -311,12 +340,16 @@ class VectorSearchMixin:
                 "relationships": [],
                 "graph_neighbors": {},
                 "traversal_paths": [],
-                "documents": list({
-                    row.get("document")
-                    for row in selected_rows
-                    if row.get("document")
-                }),
-                "total_score": float(sum(float(row.get("score", 0.0)) for row in selected_rows)),
+                "documents": list(
+                    {
+                        row.get("document")
+                        for row in selected_rows
+                        if row.get("document")
+                    }
+                ),
+                "total_score": float(
+                    sum(float(row.get("score", 0.0)) for row in selected_rows)
+                ),
                 "search_method": "late_interaction_similarity",
                 "late_interaction_stage": li_meta,
             }
@@ -338,7 +371,9 @@ class VectorSearchMixin:
                         }
                         all_entity_ids.append(entity_id)
                     else:
-                        context["entities"][entity_id].setdefault("mentioned_in_chunks", []).append(row["chunk_id"])
+                        context["entities"][entity_id].setdefault(
+                            "mentioned_in_chunks", []
+                        ).append(row["chunk_id"])
 
             if all_entity_ids:
                 expansion = self._expand_entities_via_graph(
@@ -364,22 +399,25 @@ class VectorSearchMixin:
                         or f"{rel['source']}-{rel['relationship_type']}-{rel['target']}"
                         f"-negated={bool(rel.get('negated', False))}"
                     )
-                    context["relationships"].append({
-                        "key": rel_key,
-                        "source": rel["source"],
-                        "source_element_id": rel["source_element_id"],
-                        "target": rel["target"],
-                        "target_element_id": rel["target_element_id"],
-                        "type": rel["relationship_type"],
-                        "element_id": rel["relationship_element_id"],
-                        "negated": bool(rel.get("negated", False)),
-                        "condition": rel.get("condition"),
-                        "quantitative": rel.get("quantitative"),
-                        "confidence": rel.get("confidence"),
-                        "question_ids": rel.get("question_ids") or [],
-                        "passage_keys": rel.get("passage_keys") or [],
-                        "provenance_positions": rel.get("provenance_positions") or [],
-                    })
+                    context["relationships"].append(
+                        {
+                            "key": rel_key,
+                            "source": rel["source"],
+                            "source_element_id": rel["source_element_id"],
+                            "target": rel["target"],
+                            "target_element_id": rel["target_element_id"],
+                            "type": rel["relationship_type"],
+                            "element_id": rel["relationship_element_id"],
+                            "negated": bool(rel.get("negated", False)),
+                            "condition": rel.get("condition"),
+                            "quantitative": rel.get("quantitative"),
+                            "confidence": rel.get("confidence"),
+                            "question_ids": rel.get("question_ids") or [],
+                            "passage_keys": rel.get("passage_keys") or [],
+                            "provenance_positions": rel.get("provenance_positions")
+                            or [],
+                        }
+                    )
 
             context["entity_count"] = len(context["entities"])
             context["relationship_count"] = len(context["relationships"])
@@ -413,7 +451,10 @@ class VectorSearchMixin:
         question_id: str = None,
         allow_first_stage_late_interaction: bool = True,
     ) -> Dict[str, Any]:
-        if allow_first_stage_late_interaction and self._first_stage_late_interaction_enabled():
+        if (
+            allow_first_stage_late_interaction
+            and self._first_stage_late_interaction_enabled()
+        ):
             context = self._late_interaction_search(
                 graph,
                 query,
@@ -445,8 +486,7 @@ class VectorSearchMixin:
         try:
             graph = self._create_neo4j_connection()
             result = graph.query(
-                "SHOW INDEXES YIELD name, type, state, options "
-                "WHERE type = 'VECTOR'"
+                "SHOW INDEXES YIELD name, type, state, options WHERE type = 'VECTOR'"
             )
             if not result:
                 logging.warning("No vector index found - falling back to text search")
@@ -470,7 +510,9 @@ class VectorSearchMixin:
                         """,
                         {"query_vector": probe_embedding},
                     )
-                    logging.info("Vector index probe succeeded for %s — result cached", candidate)
+                    logging.info(
+                        "Vector index probe succeeded for %s — result cached", candidate
+                    )
                     self._active_vector_index_name = candidate
                     self._vector_index_available = True
                     return True
@@ -480,7 +522,9 @@ class VectorSearchMixin:
                         candidate,
                         probe_error,
                     )
-            logging.warning("No compatible vector index found - falling back to text search")
+            logging.warning(
+                "No compatible vector index found - falling back to text search"
+            )
             self._vector_index_available = False
             return False
         except Exception as e:
@@ -488,15 +532,28 @@ class VectorSearchMixin:
             self._vector_index_available = False
             return False
 
-    def _text_similarity_search(self, graph, query: str, document_names: List[str] = None, max_chunks: int = 20, kg_name: str = None, max_hops: int = 2, question_id: str = None) -> Dict[str, Any]:
+    def _text_similarity_search(
+        self,
+        graph,
+        query: str,
+        document_names: List[str] = None,
+        max_chunks: int = 20,
+        kg_name: str = None,
+        max_hops: int = 2,
+        question_id: str = None,
+    ) -> Dict[str, Any]:
         """
         Text-based similarity search as fallback when vector search fails
         """
         try:
-            logging.info(f"Using text similarity search as fallback (kg_name: {kg_name})")
+            logging.info(
+                f"Using text similarity search as fallback (kg_name: {kg_name})"
+            )
 
             # Build WHERE clause based on filters and text match
-            where_conditions = ["ANY(term IN $search_terms WHERE toLower(c.text) CONTAINS term)"]
+            where_conditions = [
+                "ANY(term IN $search_terms WHERE toLower(c.text) CONTAINS term)"
+            ]
             params = {}
 
             if kg_name:
@@ -510,7 +567,7 @@ class VectorSearchMixin:
             if document_names:
                 where_conditions.append("d.fileName IN $document_names")
                 params["document_names"] = document_names
-            
+
             # Build a single WHERE clause to avoid duplicate WHERE errors
             where_clause = "WHERE " + " AND ".join(where_conditions)
 
@@ -548,10 +605,7 @@ class VectorSearchMixin:
             if not search_terms:
                 search_terms = [query.lower().strip()]
 
-            params.update({
-                "search_terms": search_terms,
-                "max_chunks": max_chunks
-            })
+            params.update({"search_terms": search_terms, "max_chunks": max_chunks})
 
             results = graph.query(search_query, params)
 
@@ -562,7 +616,7 @@ class VectorSearchMixin:
                 "relationships": [],
                 "documents": set(),
                 "total_score": 0,
-                "search_method": "text_similarity_fallback"
+                "search_method": "text_similarity_fallback",
             }
 
             for result in results:
@@ -577,14 +631,14 @@ class VectorSearchMixin:
                     "score": result["score"],
                     "document": result["document"],
                     "kg_name": result.get("kg_name"),
-                    "entities": result.get("entities") or []
+                    "entities": result.get("entities") or [],
                 }
                 context["chunks"].append(chunk_info)
                 context["documents"].add(result["document"])
                 context["total_score"] += result["score"]
 
                 # Collect unique entities
-                for entity in (result.get("entities") or []):
+                for entity in result.get("entities") or []:
                     entity_id = entity["id"]
                     if entity_id not in context["entities"]:
                         context["entities"][entity_id] = {
@@ -592,10 +646,12 @@ class VectorSearchMixin:
                             "element_id": entity["element_id"],
                             "type": entity["type"],
                             "description": entity["description"],
-                            "mentioned_in_chunks": []
+                            "mentioned_in_chunks": [],
                         }
                     if result.get("chunk_id"):
-                        context["entities"][entity_id]["mentioned_in_chunks"].append(result["chunk_id"])
+                        context["entities"][entity_id]["mentioned_in_chunks"].append(
+                            result["chunk_id"]
+                        )
 
             # Multi-hop graph traversal from seed entities
             seed_ids = list(context["entities"].keys())
@@ -640,23 +696,30 @@ class VectorSearchMixin:
                         or f"{rel_result['source']}-{rel_result['relationship_type']}-{rel_result['target']}"
                         f"-negated={bool(rel_result.get('negated', False))}"
                     )
-                    if not any(r.get('key') == rel_key for r in context["relationships"]):
-                        context["relationships"].append({
-                            "key": rel_key,
-                            "source": rel_result["source"],
-                            "source_element_id": rel_result["source_element_id"],
-                            "target": rel_result["target"],
-                            "target_element_id": rel_result["target_element_id"],
-                            "type": rel_result["relationship_type"],
-                            "element_id": rel_result["relationship_element_id"],
-                            "negated": bool(rel_result.get("negated", False)),
-                            "condition": rel_result.get("condition"),
-                            "quantitative": rel_result.get("quantitative"),
-                            "confidence": rel_result.get("confidence"),
-                            "question_ids": rel_result.get("question_ids") or [],
-                            "passage_keys": rel_result.get("passage_keys") or [],
-                            "provenance_positions": rel_result.get("provenance_positions") or [],
-                        })
+                    if not any(
+                        r.get("key") == rel_key for r in context["relationships"]
+                    ):
+                        context["relationships"].append(
+                            {
+                                "key": rel_key,
+                                "source": rel_result["source"],
+                                "source_element_id": rel_result["source_element_id"],
+                                "target": rel_result["target"],
+                                "target_element_id": rel_result["target_element_id"],
+                                "type": rel_result["relationship_type"],
+                                "element_id": rel_result["relationship_element_id"],
+                                "negated": bool(rel_result.get("negated", False)),
+                                "condition": rel_result.get("condition"),
+                                "quantitative": rel_result.get("quantitative"),
+                                "confidence": rel_result.get("confidence"),
+                                "question_ids": rel_result.get("question_ids") or [],
+                                "passage_keys": rel_result.get("passage_keys") or [],
+                                "provenance_positions": rel_result.get(
+                                    "provenance_positions"
+                                )
+                                or [],
+                            }
+                        )
 
             context["documents"] = list(context["documents"])
             context["entity_count"] = len(context["entities"])
@@ -676,13 +739,23 @@ class VectorSearchMixin:
                 "documents": [],
                 "total_score": 0,
                 "search_method": "text_similarity_fallback",
-                "error": str(e)
+                "error": str(e),
             }
 
-    def _vector_similarity_search(self, graph, query: str, document_names: List[str] = None, similarity_threshold: float = 0.08, max_chunks: int = 20, kg_name: str = None, max_hops: int = 2, question_id: str = None) -> Dict[str, Any]:
+    def _vector_similarity_search(
+        self,
+        graph,
+        query: str,
+        document_names: List[str] = None,
+        similarity_threshold: float = 0.08,
+        max_chunks: int = 20,
+        kg_name: str = None,
+        max_hops: int = 2,
+        question_id: str = None,
+    ) -> Dict[str, Any]:
         """
         Vector similarity search using real sentence transformer embeddings.
-        
+
         Args:
             graph: Neo4j graph connection
             query: The search query
@@ -692,10 +765,14 @@ class VectorSearchMixin:
             kg_name: Optional KG name to filter retrieval to a specific named KG
         """
         try:
-            logging.info(f"Using vector similarity search with real embeddings (kg_name: {kg_name})")
+            logging.info(
+                f"Using vector similarity search with real embeddings (kg_name: {kg_name})"
+            )
 
             query_embedding = self._generate_query_embedding(query)
-            logging.info(f"Generated query embedding with shape: {len(query_embedding)}")
+            logging.info(
+                f"Generated query embedding with shape: {len(query_embedding)}"
+            )
             if not self.check_vector_index():
                 return {
                     "query": query,
@@ -713,18 +790,18 @@ class VectorSearchMixin:
             # Build the vector search query with optional filtering by kg_name and/or document_names
             # Relationship is: Chunk -[PART_OF]-> Document
             # We need to filter by either document_names or kg_name (or both)
-            
+
             # Build one WHERE clause that always includes score threshold
             where_conditions = ["score >= $similarity_threshold"]
             params = {
                 "query_vector": query_embedding,
-                "similarity_threshold": similarity_threshold
+                "similarity_threshold": similarity_threshold,
             }
-            
+
             if kg_name:
                 where_conditions.append("d.kgName = $kg_name")
                 params["kg_name"] = kg_name
-                
+
             if document_names:
                 where_conditions.append("d.fileName IN $document_names")
                 params["document_names"] = document_names
@@ -741,7 +818,11 @@ class VectorSearchMixin:
             # didn't rank in the global top-N.
             # Overfetch so KG-filtered chunks aren't excluded by global top-N,
             # but cap at 500 to avoid timeouts on large statistical queries.
-            retrieval_count = min(max_chunks * 20, 500) if (kg_name or document_names or question_id) else max_chunks
+            retrieval_count = (
+                min(max_chunks * 20, 500)
+                if (kg_name or document_names or question_id)
+                else max_chunks
+            )
 
             if vector_index_name == "retrieval_vector":
                 if question_id:
@@ -881,7 +962,7 @@ class VectorSearchMixin:
                     "retrieval_span_similarity"
                     if vector_index_name == "retrieval_vector"
                     else "vector_similarity"
-                )
+                ),
             }
 
             for result in results:
@@ -913,7 +994,7 @@ class VectorSearchMixin:
                 context["total_score"] += result["score"]
 
                 # Collect unique entities
-                for entity in (result.get("entities") or []):
+                for entity in result.get("entities") or []:
                     entity_id = entity["id"]
                     if entity_id not in context["entities"]:
                         context["entities"][entity_id] = {
@@ -921,10 +1002,12 @@ class VectorSearchMixin:
                             "element_id": entity["element_id"],
                             "type": entity["type"],
                             "description": entity["description"],
-                            "mentioned_in_chunks": []
+                            "mentioned_in_chunks": [],
                         }
                     if result.get("chunk_id"):
-                        context["entities"][entity_id]["mentioned_in_chunks"].append(result["chunk_id"])
+                        context["entities"][entity_id]["mentioned_in_chunks"].append(
+                            result["chunk_id"]
+                        )
 
             # Multi-hop graph traversal from seed entities found in chunks
             seed_ids = list(context["entities"].keys())
@@ -968,23 +1051,30 @@ class VectorSearchMixin:
                         or f"{rel_result['source']}-{rel_result['relationship_type']}-{rel_result['target']}"
                         f"-negated={bool(rel_result.get('negated', False))}"
                     )
-                    if not any(r.get('key') == rel_key for r in context["relationships"]):
-                        context["relationships"].append({
-                            "key": rel_key,
-                            "source": rel_result["source"],
-                            "source_element_id": rel_result["source_element_id"],
-                            "target": rel_result["target"],
-                            "target_element_id": rel_result["target_element_id"],
-                            "type": rel_result["relationship_type"],
-                            "element_id": rel_result["relationship_element_id"],
-                            "negated": bool(rel_result.get("negated", False)),
-                            "condition": rel_result.get("condition"),
-                            "quantitative": rel_result.get("quantitative"),
-                            "confidence": rel_result.get("confidence"),
-                            "question_ids": rel_result.get("question_ids") or [],
-                            "passage_keys": rel_result.get("passage_keys") or [],
-                            "provenance_positions": rel_result.get("provenance_positions") or [],
-                        })
+                    if not any(
+                        r.get("key") == rel_key for r in context["relationships"]
+                    ):
+                        context["relationships"].append(
+                            {
+                                "key": rel_key,
+                                "source": rel_result["source"],
+                                "source_element_id": rel_result["source_element_id"],
+                                "target": rel_result["target"],
+                                "target_element_id": rel_result["target_element_id"],
+                                "type": rel_result["relationship_type"],
+                                "element_id": rel_result["relationship_element_id"],
+                                "negated": bool(rel_result.get("negated", False)),
+                                "condition": rel_result.get("condition"),
+                                "quantitative": rel_result.get("quantitative"),
+                                "confidence": rel_result.get("confidence"),
+                                "question_ids": rel_result.get("question_ids") or [],
+                                "passage_keys": rel_result.get("passage_keys") or [],
+                                "provenance_positions": rel_result.get(
+                                    "provenance_positions"
+                                )
+                                or [],
+                            }
+                        )
 
             context["documents"] = list(context["documents"])
             context["entity_count"] = len(context["entities"])

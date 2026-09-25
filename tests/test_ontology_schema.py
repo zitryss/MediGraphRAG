@@ -21,7 +21,8 @@ def _load_validate_ontology_schema():
     source = app_path.read_text(encoding="utf-8")
     module = ast.parse(source, filename=str(app_path))
     fn_node = next(
-        node for node in module.body
+        node
+        for node in module.body
         if isinstance(node, ast.FunctionDef) and node.name == "validate_ontology_schema"
     )
     fn_source = ast.get_source_segment(source, fn_node)
@@ -46,13 +47,15 @@ def _load_builder_methods():
     source = builder_path.read_text(encoding="utf-8")
     module = ast.parse(source, filename=str(builder_path))
     class_node = next(
-        node for node in module.body
+        node
+        for node in module.body
         if isinstance(node, ast.ClassDef) and node.name == "OntologySchemaMixin"
     )
     wanted = {
         node.name: ast.get_source_segment(source, node)
         for node in class_node.body
-        if isinstance(node, ast.FunctionDef) and node.name in {"_prop_type", "_load_ontology_owl", "_build_schema_card"}
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {"_prop_type", "_load_ontology_owl", "_build_schema_card"}
     }
     namespace = {
         "ET": ET,
@@ -91,7 +94,9 @@ def test_compatible_relationships_ranks_full_then_partial_then_unconstrained():
         relationship_types=[
             RelationshipType(id="generic", label="generic"),
             RelationshipType(id="treats_any", label="treatsAny", domain="Drug"),
-            RelationshipType(id="treats", label="treats", domain="Drug", range="Disease"),
+            RelationshipType(
+                id="treats", label="treats", domain="Drug", range="Disease"
+            ),
         ],
     )
 
@@ -165,7 +170,9 @@ def test_load_ontology_owl_parses_datatype_properties_and_rel_attributes(tmp_pat
     rel = next(rt for rt in schema.relationship_types if rt.id == "hasEncounter")
 
     assert any(p.name == "patientId" and p.identifier for p in patient.properties)
-    assert any(p.name == "status" and p.type == PropertyType.ENUM for p in encounter.properties)
+    assert any(
+        p.name == "status" and p.type == PropertyType.ENUM for p in encounter.properties
+    )
     assert rel.cardinality == "one_to_many"
     assert any(a.name == "note" for a in rel.attributes)
 
@@ -263,7 +270,9 @@ def test_validate_ontology_schema_rejects_missing_identifier_property():
         "relationships": [],
     }
 
-    errors = validate_ontology_schema(json.dumps(ontology).encode("utf-8"), "ontology.json")
+    errors = validate_ontology_schema(
+        json.dumps(ontology).encode("utf-8"), "ontology.json"
+    )
 
     assert any("missing identifier property" in err for err in errors)
 
@@ -295,6 +304,8 @@ def test_validate_ontology_schema_rejects_invalid_cardinality():
         ],
     }
 
-    errors = validate_ontology_schema(json.dumps(ontology).encode("utf-8"), "ontology.json")
+    errors = validate_ontology_schema(
+        json.dumps(ontology).encode("utf-8"), "ontology.json"
+    )
 
     assert any("invalid cardinality" in err for err in errors)

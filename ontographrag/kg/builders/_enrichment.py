@@ -4,6 +4,7 @@ import hashlib
 from typing import Dict, Any, List, Optional, Tuple
 import logging
 
+
 class EnrichmentMixin:
     """Anchor grounding, relationship recovery, verification, and graph repair.
 
@@ -59,7 +60,9 @@ class EnrichmentMixin:
         return merged
 
     @classmethod
-    def _merge_anchor_grounding(cls, *groundings: Any) -> Dict[str, List[Dict[str, Any]]]:
+    def _merge_anchor_grounding(
+        cls, *groundings: Any
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """Merge nested anchor grounding dicts component-wise."""
         merged: Dict[str, List[Dict[str, Any]]] = {}
         for grounding in groundings:
@@ -105,7 +108,9 @@ class EnrichmentMixin:
         grounded_count = len(grounded_components)
         if grounded_count == 3:
             status = "full"
-        elif grounded_count >= 2 and {"source", "target"}.issubset(set(grounded_components)):
+        elif grounded_count >= 2 and {"source", "target"}.issubset(
+            set(grounded_components)
+        ):
             status = "partial"
         elif grounded_count >= 1:
             status = "minimal"
@@ -131,8 +136,12 @@ class EnrichmentMixin:
     ) -> Dict[str, Any]:
         """Restoration-style verification using exact spans across scoped evidence chunks."""
         properties = dict(rel.get("properties") or {})
-        source_candidates = [source_name] + [alias for alias in (source_aliases or []) if isinstance(alias, str)]
-        target_candidates = [target_name] + [alias for alias in (target_aliases or []) if isinstance(alias, str)]
+        source_candidates = [source_name] + [
+            alias for alias in (source_aliases or []) if isinstance(alias, str)
+        ]
+        target_candidates = [target_name] + [
+            alias for alias in (target_aliases or []) if isinstance(alias, str)
+        ]
         relation_candidates = self._relationship_anchor_candidates(
             {"type": relation_type, "properties": properties}
         )
@@ -288,7 +297,9 @@ class EnrichmentMixin:
             return result
 
         all_entity_texts = [anchor["text"] for anchor in entity_anchors]
-        relation_texts = [anchor["text"] for anchor in anchor_inventory.get("relation_anchors", [])]
+        relation_texts = [
+            anchor["text"] for anchor in anchor_inventory.get("relation_anchors", [])
+        ]
         attribute_lines = [
             f"- {anchor['text']} (role: {anchor['role']})"
             for anchor in anchor_inventory.get("attribute_anchors", [])
@@ -406,11 +417,17 @@ Return ONLY the JSON object.
             scope_label=scope_label,
             relationship_scope_metadata={
                 "dataset": chunks[0].get("dataset") if chunks else None,
-                "question_id": str(chunks[0].get("question_id")) if chunks and chunks[0].get("question_id") is not None else None,
-                "passage_index": int(chunks[0].get("passage_index")) if chunks and chunks[0].get("passage_index") is not None else None,
+                "question_id": str(chunks[0].get("question_id"))
+                if chunks and chunks[0].get("question_id") is not None
+                else None,
+                "passage_index": int(chunks[0].get("passage_index"))
+                if chunks and chunks[0].get("passage_index") is not None
+                else None,
                 "source": chunks[0].get("source") if chunks else None,
                 "source_title": chunks[0].get("source_title") if chunks else None,
-                "source_scope_key": chunks[0].get("source_scope_key") if chunks else None,
+                "source_scope_key": chunks[0].get("source_scope_key")
+                if chunks
+                else None,
             },
         )
 
@@ -487,27 +504,39 @@ Return ONLY the JSON object.
         # still matched correctly.  e.g. "gleason score (gs)" ends with ')' which
         # is not a word char — \b would fail there, but (?!\w) does not.
         def _boundary_pattern(name: str) -> re.Pattern:
-            prefix = r'(?<!\w)' if not name[:1].isalnum() and name[:1] != '_' else r'\b'
-            suffix = r'(?!\w)' if not name[-1:].isalnum() and name[-1:] != '_' else r'\b'
+            prefix = r"(?<!\w)" if not name[:1].isalnum() and name[:1] != "_" else r"\b"
+            suffix = (
+                r"(?!\w)" if not name[-1:].isalnum() and name[-1:] != "_" else r"\b"
+            )
             return re.compile(prefix + re.escape(name) + suffix)
 
         def _surface_forms(name: str) -> set:
             """Return the name plus underscore↔space variants so LLM IDs like
             'United_States' match chunk text 'United States' and vice versa."""
             forms = {name}
-            forms.add(name.replace('_', ' '))
-            forms.add(name.replace(' ', '_'))
+            forms.add(name.replace("_", " "))
+            forms.add(name.replace(" ", "_"))
             return {f for f in forms if f}
 
         # Build a list of patterns for each entity — canonical name plus all aliases,
         # including underscore/space variants to survive LLM ID normalisation differences.
         _src_forms = list(
             _surface_forms(src_lower)
-            | {v for a in (source_aliases or []) if a for v in _surface_forms(a.strip().lower())}
+            | {
+                v
+                for a in (source_aliases or [])
+                if a
+                for v in _surface_forms(a.strip().lower())
+            }
         )
         _tgt_forms = list(
             _surface_forms(tgt_lower)
-            | {v for a in (target_aliases or []) if a for v in _surface_forms(a.strip().lower())}
+            | {
+                v
+                for a in (target_aliases or [])
+                if a
+                for v in _surface_forms(a.strip().lower())
+            }
         )
         src_pats = [_boundary_pattern(f) for f in _src_forms if f]
         tgt_pats = [_boundary_pattern(f) for f in _tgt_forms if f]
@@ -519,7 +548,7 @@ Return ONLY the JSON object.
         found_src, found_tgt, same_chunk, same_sentence = False, False, False, False
 
         for chunk in chunks:
-            text = chunk.get('text', '').lower()
+            text = chunk.get("text", "").lower()
             has_src = any(p.search(text) for p in src_pats)
             has_tgt = any(p.search(text) for p in tgt_pats)
 
@@ -531,9 +560,10 @@ Return ONLY the JSON object.
             if has_src and has_tgt:
                 # Both entities present in this single chunk — check for sentence co-occurrence
                 same_chunk = True
-                sentences = re.split(r'(?<=[.!?])\s+', text)
+                sentences = re.split(r"(?<=[.!?])\s+", text)
                 if any(
-                    any(sp.search(s) for sp in src_pats) and any(tp.search(s) for tp in tgt_pats)
+                    any(sp.search(s) for sp in src_pats)
+                    and any(tp.search(s) for tp in tgt_pats)
                     for s in sentences
                 ):
                     same_sentence = True
@@ -574,7 +604,9 @@ Return ONLY the JSON object.
             return None
 
         cache_key = hashlib.sha1(
-            f"{source_name}|{relationship_type}|{target_name}|{evidence}".encode("utf-8")
+            f"{source_name}|{relationship_type}|{target_name}|{evidence}".encode(
+                "utf-8"
+            )
         ).hexdigest()
         if cache_key in self._triple_reverification_cache:
             return self._triple_reverification_cache[cache_key]
@@ -616,18 +648,29 @@ Rules:
     ) -> str:
         """Produce a deterministic prose summary for one connected component."""
         entity_labels = [
-            str((node_lookup.get(entity_id, {}).get("properties") or {}).get("name") or entity_id)
+            str(
+                (node_lookup.get(entity_id, {}).get("properties") or {}).get("name")
+                or entity_id
+            )
             for entity_id in component.get("top_entities") or []
         ]
         rel_phrases: List[str] = []
         for rel in component.get("relationships") or []:
             source_id = str(rel.get("source") or rel.get("from") or "").strip()
             target_id = str(rel.get("target") or rel.get("to") or "").strip()
-            source_name = str((node_lookup.get(source_id, {}).get("properties") or {}).get("name") or source_id)
-            target_name = str((node_lookup.get(target_id, {}).get("properties") or {}).get("name") or target_id)
+            source_name = str(
+                (node_lookup.get(source_id, {}).get("properties") or {}).get("name")
+                or source_id
+            )
+            target_name = str(
+                (node_lookup.get(target_id, {}).get("properties") or {}).get("name")
+                or target_id
+            )
             relation = str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
             if rel.get("negated"):
-                rel_phrases.append(f"{source_name} is not linked by {relation} to {target_name}")
+                rel_phrases.append(
+                    f"{source_name} is not linked by {relation} to {target_name}"
+                )
             else:
                 rel_phrases.append(f"{source_name} {relation} {target_name}")
 
@@ -635,9 +678,19 @@ Rules:
             f"Component with {component.get('entity_count', 0)} entities and {component.get('relationship_count', 0)} relationships.",
         ]
         if entity_labels:
-            summary_lines.append("Central entities: " + ", ".join(entity_labels[: getattr(self, "max_summary_entities", 6)]) + ".")
+            summary_lines.append(
+                "Central entities: "
+                + ", ".join(entity_labels[: getattr(self, "max_summary_entities", 6)])
+                + "."
+            )
         if rel_phrases:
-            summary_lines.append("Key relations: " + "; ".join(rel_phrases[: getattr(self, "max_summary_relationships", 6)]) + ".")
+            summary_lines.append(
+                "Key relations: "
+                + "; ".join(
+                    rel_phrases[: getattr(self, "max_summary_relationships", 6)]
+                )
+                + "."
+            )
         return " ".join(summary_lines)
 
     def _claim_records_from_component(
@@ -655,8 +708,14 @@ Rules:
         for rel_index, rel in enumerate(component.get("relationships") or []):
             source_id = str(rel.get("source") or rel.get("from") or "").strip()
             target_id = str(rel.get("target") or rel.get("to") or "").strip()
-            source_name = str((node_lookup.get(source_id, {}).get("properties") or {}).get("name") or source_id)
-            target_name = str((node_lookup.get(target_id, {}).get("properties") or {}).get("name") or target_id)
+            source_name = str(
+                (node_lookup.get(source_id, {}).get("properties") or {}).get("name")
+                or source_id
+            )
+            target_name = str(
+                (node_lookup.get(target_id, {}).get("properties") or {}).get("name")
+                or target_id
+            )
             relation = str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
             if rel.get("negated"):
                 text = f"{source_name} is not supported to {relation} {target_name}."
@@ -665,7 +724,9 @@ Rules:
                 text = f"{source_name} {relation} {target_name}."
                 polarity = "affirmed"
             claim_id = hashlib.sha1(
-                f"{component_index}:{source_id}:{relation}:{target_id}:{polarity}".encode("utf-8")
+                f"{component_index}:{source_id}:{relation}:{target_id}:{polarity}".encode(
+                    "utf-8"
+                )
             ).hexdigest()
             claims.append(
                 {
@@ -675,7 +736,9 @@ Rules:
                     "confidence": self._confidence_score(
                         (rel.get("properties") or {}).get("confidence")
                     ),
-                    "entity_ids": [entity_id for entity_id in [source_id, target_id] if entity_id],
+                    "entity_ids": [
+                        entity_id for entity_id in [source_id, target_id] if entity_id
+                    ],
                     "provenance_positions": list(rel.get("provenance_positions") or []),
                     "component_index": component_index,
                     "relationship_index": rel_index,
@@ -698,12 +761,25 @@ Rules:
         generic_types = {"concept", "entity", "unknown", "other", ""}
 
         for left_index, left_component in enumerate(components):
-            for right_index, right_component in enumerate(components[left_index + 1:], start=left_index + 1):
+            for right_index, right_component in enumerate(
+                components[left_index + 1 :], start=left_index + 1
+            ):
                 best_bridge = None
                 for left_entity_id in left_component.get("top_entities") or []:
                     left_node = node_lookup.get(left_entity_id, {})
-                    left_name = str((left_node.get("properties") or {}).get("name") or left_entity_id)
-                    left_type = str((left_node.get("properties") or {}).get("type") or left_node.get("label") or "").strip().lower()
+                    left_name = str(
+                        (left_node.get("properties") or {}).get("name")
+                        or left_entity_id
+                    )
+                    left_type = (
+                        str(
+                            (left_node.get("properties") or {}).get("type")
+                            or left_node.get("label")
+                            or ""
+                        )
+                        .strip()
+                        .lower()
+                    )
                     left_alias_keys = {
                         key
                         for candidate in self._entity_candidate_names(left_node)
@@ -711,15 +787,28 @@ Rules:
                     }
                     for right_entity_id in right_component.get("top_entities") or []:
                         right_node = node_lookup.get(right_entity_id, {})
-                        right_name = str((right_node.get("properties") or {}).get("name") or right_entity_id)
-                        right_type = str((right_node.get("properties") or {}).get("type") or right_node.get("label") or "").strip().lower()
+                        right_name = str(
+                            (right_node.get("properties") or {}).get("name")
+                            or right_entity_id
+                        )
+                        right_type = (
+                            str(
+                                (right_node.get("properties") or {}).get("type")
+                                or right_node.get("label")
+                                or ""
+                            )
+                            .strip()
+                            .lower()
+                        )
                         right_alias_keys = {
                             key
                             for candidate in self._entity_candidate_names(right_node)
                             for key in self._soft_entity_alias_keys(candidate)
                         }
                         alias_overlap = sorted(left_alias_keys & right_alias_keys)
-                        lexical_guard = bool(alias_overlap) or self._names_pass_synonym_guard(
+                        lexical_guard = bool(
+                            alias_overlap
+                        ) or self._names_pass_synonym_guard(
                             left_name,
                             right_name,
                         )
@@ -752,12 +841,17 @@ Rules:
                             "source_name": left_name,
                             "target_name": right_name,
                             "confidence": round(float(confidence), 4),
-                            "reason": "alias_overlap" if alias_overlap else "lexical_guard",
+                            "reason": "alias_overlap"
+                            if alias_overlap
+                            else "lexical_guard",
                             "shared_alias_keys": alias_overlap,
                             "left_component": left_index,
                             "right_component": right_index,
                         }
-                        if best_bridge is None or bridge["confidence"] > best_bridge["confidence"]:
+                        if (
+                            best_bridge is None
+                            or bridge["confidence"] > best_bridge["confidence"]
+                        ):
                             best_bridge = bridge
                 if best_bridge:
                     candidate_bridges.append(best_bridge)
@@ -769,4 +863,6 @@ Rules:
                 str(bridge.get("target_name") or ""),
             )
         )
-        return candidate_bridges[: max(0, getattr(self, "max_fragmentation_bridges", 8))]
+        return candidate_bridges[
+            : max(0, getattr(self, "max_fragmentation_bridges", 8))
+        ]

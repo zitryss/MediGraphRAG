@@ -23,6 +23,7 @@ from experiments.dataset_adapters import (
     GoldRecord,
     validate_no_leakage,
 )
+
 # Import from the dependency-light module — no wandb/dotenv/neo4j pulled in.
 from experiments.summary_utils import (
     accumulate_track_accuracy,
@@ -35,6 +36,7 @@ from experiments.summary_utils import (
 # ---------------------------------------------------------------------------
 # Helpers — minimal dataset block builder
 # ---------------------------------------------------------------------------
+
 
 def _cfg_res(name: str, vanilla_acc: float, kg_acc: float) -> dict:
     return {
@@ -62,12 +64,11 @@ def _run_track_aggregation(dataset_blocks):
 # 1. track_aggregates — correct accumulation
 # ---------------------------------------------------------------------------
 
-class TestTrackAggregates:
 
+class TestTrackAggregates:
     def test_single_config_single_dataset(self):
         blocks = [
-            _dataset_block("pubmedqa", "biomedical",
-                           _cfg_res("default", 0.6, 0.7)),
+            _dataset_block("pubmedqa", "biomedical", _cfg_res("default", 0.6, 0.7)),
         ]
         agg = _run_track_aggregation(blocks)
         assert "biomedical" in agg
@@ -79,21 +80,24 @@ class TestTrackAggregates:
     def test_single_config_two_datasets_macro_average(self):
         # macro = mean of per-dataset accuracies, not pooled
         blocks = [
-            _dataset_block("pubmedqa", "biomedical",   _cfg_res("default", 0.6, 0.7)),
-            _dataset_block("bioasq",   "biomedical",   _cfg_res("default", 0.8, 0.9)),
+            _dataset_block("pubmedqa", "biomedical", _cfg_res("default", 0.6, 0.7)),
+            _dataset_block("bioasq", "biomedical", _cfg_res("default", 0.8, 0.9)),
         ]
         agg = _run_track_aggregation(blocks)
         row = agg["biomedical"][0]
-        assert row["vanilla_macro_accuracy"] == pytest.approx(0.7)   # (0.6+0.8)/2
-        assert row["kg_macro_accuracy"]      == pytest.approx(0.8)   # (0.7+0.9)/2
+        assert row["vanilla_macro_accuracy"] == pytest.approx(0.7)  # (0.6+0.8)/2
+        assert row["kg_macro_accuracy"] == pytest.approx(0.8)  # (0.7+0.9)/2
         assert row["num_datasets"] == 2
 
     def test_multi_config_produces_one_row_per_config(self):
         # Two configs on the same dataset must not collapse into one row
         blocks = [
-            _dataset_block("pubmedqa", "biomedical",
-                           _cfg_res("threshold_0.1", 0.5, 0.6),
-                           _cfg_res("threshold_0.2", 0.55, 0.65)),
+            _dataset_block(
+                "pubmedqa",
+                "biomedical",
+                _cfg_res("threshold_0.1", 0.5, 0.6),
+                _cfg_res("threshold_0.2", 0.55, 0.65),
+            ),
         ]
         agg = _run_track_aggregation(blocks)
         rows = agg["biomedical"]
@@ -106,9 +110,12 @@ class TestTrackAggregates:
         # Config A appears first; config B second.  With the old first-wins logic,
         # config B's accuracy would be lost.  Each must appear separately.
         blocks = [
-            _dataset_block("pubmedqa", "biomedical",
-                           _cfg_res("cfg_a", 0.4, 0.5),
-                           _cfg_res("cfg_b", 0.8, 0.9)),
+            _dataset_block(
+                "pubmedqa",
+                "biomedical",
+                _cfg_res("cfg_a", 0.4, 0.5),
+                _cfg_res("cfg_b", 0.8, 0.9),
+            ),
         ]
         agg = _run_track_aggregation(blocks)
         rows = {r["config_name"]: r for r in agg["biomedical"]}
@@ -128,18 +135,17 @@ class TestTrackAggregates:
 
     def test_two_tracks_independent(self):
         blocks = [
-            _dataset_block("pubmedqa",   "biomedical", _cfg_res("default", 0.6, 0.7)),
-            _dataset_block("hotpotqa",   "multihop",   _cfg_res("default", 0.4, 0.5)),
+            _dataset_block("pubmedqa", "biomedical", _cfg_res("default", 0.6, 0.7)),
+            _dataset_block("hotpotqa", "multihop", _cfg_res("default", 0.4, 0.5)),
         ]
         agg = _run_track_aggregation(blocks)
         assert "biomedical" in agg
         assert "multihop" in agg
         assert agg["biomedical"][0]["kg_macro_accuracy"] == pytest.approx(0.7)
-        assert agg["multihop"][0]["kg_macro_accuracy"]   == pytest.approx(0.5)
+        assert agg["multihop"][0]["kg_macro_accuracy"] == pytest.approx(0.5)
 
 
 class TestRetrievalConfigSelection:
-
     def test_selects_best_config_per_dataset_and_system(self):
         blocks = [
             _dataset_block(
@@ -176,8 +182,13 @@ class TestRetrievalConfigSelection:
 
         selection = select_best_retrieval_configs(blocks)
 
-        assert selection["per_dataset"]["pubmedqa"]["vanilla_rag"]["config_name"] == "kg_hybrid"
-        assert selection["per_dataset"]["pubmedqa"]["kg_rag"]["config_name"] == "kg_hybrid"
+        assert (
+            selection["per_dataset"]["pubmedqa"]["vanilla_rag"]["config_name"]
+            == "kg_hybrid"
+        )
+        assert (
+            selection["per_dataset"]["pubmedqa"]["kg_rag"]["config_name"] == "kg_hybrid"
+        )
 
     def test_macro_selection_uses_clean_accuracy_then_f1(self):
         blocks = [
@@ -245,13 +256,16 @@ class TestRetrievalConfigSelection:
 
         selection = select_best_retrieval_configs(blocks)
 
-        assert selection["overall"]["vanilla_rag"]["best_config"]["config_name"] == "cfg_b"
+        assert (
+            selection["overall"]["vanilla_rag"]["best_config"]["config_name"] == "cfg_b"
+        )
         assert selection["overall"]["kg_rag"]["best_config"]["config_name"] == "cfg_b"
 
 
 # ---------------------------------------------------------------------------
 # 2. judge_independent logic
 # ---------------------------------------------------------------------------
+
 
 class TestJudgeIndependent:
     """
@@ -281,17 +295,18 @@ class TestJudgeIndependent:
 # 3. validate_no_leakage
 # ---------------------------------------------------------------------------
 
+
 def _inf(id_: str, question: str, contexts) -> InferenceRecord:
     return InferenceRecord(id=id_, dataset="test", question=question, contexts=contexts)
 
 
 def _gold(id_: str, short_answer: str, aliases=None, long_answer=None) -> GoldRecord:
-    return GoldRecord(id=id_, short_answer=short_answer, aliases=aliases,
-                      long_answer=long_answer)
+    return GoldRecord(
+        id=id_, short_answer=short_answer, aliases=aliases, long_answer=long_answer
+    )
 
 
 class TestValidateNoLeakage:
-
     def test_clean_records_pass(self):
         inf = _inf("1", "Does aspirin treat fever?", ["Aspirin is an NSAID."])
         gold = _gold("1", "yes")
@@ -300,36 +315,46 @@ class TestValidateNoLeakage:
     def test_schema_leakage_detected(self):
         # Add an answer-bearing field directly to the InferenceRecord instance
         inf = _inf("1", "Some question?", ["Some context."])
-        inf.short_answer = "leaked"   # type: ignore[attr-defined]
+        inf.short_answer = "leaked"  # type: ignore[attr-defined]
         gold = _gold("1", "leaked")
         assert validate_no_leakage([inf], [gold]) is False
 
     def test_answer_text_leakage_detected(self):
         # Gold answer appears verbatim inside context passage
-        inf  = _inf("1", "Who invented the telephone?", ["Alexander Graham Bell invented the telephone in 1876."])
+        inf = _inf(
+            "1",
+            "Who invented the telephone?",
+            ["Alexander Graham Bell invented the telephone in 1876."],
+        )
         gold = _gold("1", "Alexander Graham Bell")
         assert validate_no_leakage([inf], [gold]) is False
 
     def test_alias_leakage_detected(self):
         # Gold answer itself is generic but alias appears verbatim in context
-        inf  = _inf("1", "Who invented the telephone?", ["A.G. Bell invented the telephone."])
+        inf = _inf(
+            "1", "Who invented the telephone?", ["A.G. Bell invented the telephone."]
+        )
         gold = _gold("1", "Alexander Graham Bell", aliases=["A.G. Bell"])
         assert validate_no_leakage([inf], [gold]) is False
 
     def test_binary_answer_exempt(self):
         # "yes" / "no" appear legitimately in any passage — must not flag as leakage
-        inf  = _inf("1", "Does aspirin reduce fever?", ["Studies show this is yes, aspirin reduces fever."])
+        inf = _inf(
+            "1",
+            "Does aspirin reduce fever?",
+            ["Studies show this is yes, aspirin reduces fever."],
+        )
         gold = _gold("1", "yes")
         assert validate_no_leakage([inf], [gold]) is True
 
     def test_long_answer_leakage_detected(self):
         long = "Aspirin inhibits cyclooxygenase enzymes"
-        inf  = _inf("1", "How does aspirin work?", [long])
+        inf = _inf("1", "How does aspirin work?", [long])
         gold = _gold("1", "COX inhibitor", long_answer=long)
         assert validate_no_leakage([inf], [gold]) is False
 
     def test_no_match_passes(self):
-        inf  = _inf("1", "What is metformin?", ["Insulin is a hormone."])
+        inf = _inf("1", "What is metformin?", ["Insulin is a hormone."])
         gold = _gold("1", "biguanide antidiabetic")
         assert validate_no_leakage([inf], [gold]) is True
 
@@ -338,14 +363,34 @@ class TestValidateNoLeakage:
 # 4. clean accuracy excluding generation failures
 # ---------------------------------------------------------------------------
 
-class TestComputeAccuracyBreakdown:
 
+class TestComputeAccuracyBreakdown:
     def test_reports_raw_and_clean_accuracy(self):
         rows = [
-            {"vanilla_correct": True,  "kg_correct": True,  "vanilla_generation_failed": False, "kg_generation_failed": False},
-            {"vanilla_correct": False, "kg_correct": True,  "vanilla_generation_failed": False, "kg_generation_failed": False},
-            {"vanilla_correct": False, "kg_correct": False, "vanilla_generation_failed": True,  "kg_generation_failed": False},
-            {"vanilla_correct": False, "kg_correct": False, "vanilla_generation_failed": False, "kg_generation_failed": True},
+            {
+                "vanilla_correct": True,
+                "kg_correct": True,
+                "vanilla_generation_failed": False,
+                "kg_generation_failed": False,
+            },
+            {
+                "vanilla_correct": False,
+                "kg_correct": True,
+                "vanilla_generation_failed": False,
+                "kg_generation_failed": False,
+            },
+            {
+                "vanilla_correct": False,
+                "kg_correct": False,
+                "vanilla_generation_failed": True,
+                "kg_generation_failed": False,
+            },
+            {
+                "vanilla_correct": False,
+                "kg_correct": False,
+                "vanilla_generation_failed": False,
+                "kg_generation_failed": True,
+            },
         ]
 
         out = compute_accuracy_breakdown(rows)
@@ -373,7 +418,6 @@ class TestComputeAccuracyBreakdown:
 
 
 class TestComputeHopAccuracyBreakdown:
-
     def test_groups_rows_by_hop_and_averages_key_metrics(self):
         rows = [
             {
@@ -442,8 +486,12 @@ class TestComputeHopAccuracyBreakdown:
         assert out["2-hop"]["kg_accuracy"] == pytest.approx(0.5)
         assert out["2-hop"]["vanilla_answer_em"] == pytest.approx(0.5)
         assert out["2-hop"]["kg_answer_em"] == pytest.approx(0.5)
-        assert out["2-hop"]["metrics_by_approach"]["vanilla_rag"]["sd_uq"] == pytest.approx(0.3)
-        assert out["2-hop"]["metrics_by_approach"]["kg_rag"]["vn_entropy"] == pytest.approx(0.45)
+        assert out["2-hop"]["metrics_by_approach"]["vanilla_rag"][
+            "sd_uq"
+        ] == pytest.approx(0.3)
+        assert out["2-hop"]["metrics_by_approach"]["kg_rag"][
+            "vn_entropy"
+        ] == pytest.approx(0.45)
         assert out["3-hop"]["n"] == 1
         assert out["3-hop"]["kg_answer_f1"] == pytest.approx(1.0)
 

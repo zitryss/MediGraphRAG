@@ -44,7 +44,8 @@ def _result_details(dataset: str, policy: str) -> List[Dict[str, Any]]:
     doc = json.load(open(path))
     cfg_prefix = "kg_entity_first" if policy == "kg" else "dense_floor"
     return next(
-        cfg["details"] for cfg in doc["config_results"]
+        cfg["details"]
+        for cfg in doc["config_results"]
         if cfg["config"]["name"].startswith(cfg_prefix)
     )
 
@@ -74,18 +75,20 @@ def select_candidates(
         route = str(row.get("kg_retrieval_route", "") or "")
         if require_populated_route and (not route or route.endswith("_empty")):
             continue
-        candidates.append({
-            "question_id": str(row.get("question_id")),
-            "question": row.get("question", ""),
-            "expected": row.get("expected", ""),
-            "task_type": row.get("task_type", ""),
-            "saved_response": row.get("kg_response", ""),
-            "saved_correct": bool(row.get("kg_correct")),
-            "saved_sd_uq": float(sd),
-            "saved_seu": float(seu),
-            "saved_route": route,
-            "saved_route_reason": row.get("kg_route_reason", ""),
-        })
+        candidates.append(
+            {
+                "question_id": str(row.get("question_id")),
+                "question": row.get("question", ""),
+                "expected": row.get("expected", ""),
+                "task_type": row.get("task_type", ""),
+                "saved_response": row.get("kg_response", ""),
+                "saved_correct": bool(row.get("kg_correct")),
+                "saved_sd_uq": float(sd),
+                "saved_seu": float(seu),
+                "saved_route": route,
+                "saved_route_reason": row.get("kg_route_reason", ""),
+            }
+        )
         if len(candidates) >= limit:
             break
     return candidates
@@ -101,7 +104,9 @@ def _make_kg_system(policy: str) -> EnhancedRAGSystem:
             allow_vector_fallback=False,
             embedding_model=os.getenv("EMBEDDING_PROVIDER", "sentence_transformers"),
         )
-    return EnhancedRAGSystem(embedding_model=os.getenv("EMBEDDING_PROVIDER", "sentence_transformers"))
+    return EnhancedRAGSystem(
+        embedding_model=os.getenv("EMBEDDING_PROVIDER", "sentence_transformers")
+    )
 
 
 def _question_id_for_scope(dataset: str, qid: str) -> Optional[str]:
@@ -204,7 +209,9 @@ def _sample_diversity(
     )
     diversity = graph_state_diversity(graph_states)
     diversity["chunk_text_jaccard"] = float(chunk_jaccard or 0.0)
-    diversity["discrete_semantic_entropy"] = float(uq.get("discrete_semantic_entropy", 0.0))
+    diversity["discrete_semantic_entropy"] = float(
+        uq.get("discrete_semantic_entropy", 0.0)
+    )
     diversity["sd_uq"] = float(uq.get("sd_uq", 0.0))
     diversity["responses"] = samples
     return diversity
@@ -272,21 +279,27 @@ def run_intervention(args, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
                 allow_decomposition=allow_decomposition,
                 anchor_mask_entity_ids=[anchor],
             )
-        results.append({
-            **row,
-            "intervention_anchor_entity_id": anchor,
-            "baseline_rerun": baseline,
-            "baseline_diversity": baseline_diversity,
-            "masked_rerun": masked,
-            "masked_diversity": masked_diversity,
-            "answer_changed": bool(masked and masked["response"] != baseline["response"]),
-            "state_changed": bool(
-                masked
-                and masked["graph_state"].get("subgraph_signature")
-                != baseline["graph_state"].get("subgraph_signature")
-            ),
-            "correctness_improved": bool(masked and (not baseline["correct"]) and masked["correct"]),
-        })
+        results.append(
+            {
+                **row,
+                "intervention_anchor_entity_id": anchor,
+                "baseline_rerun": baseline,
+                "baseline_diversity": baseline_diversity,
+                "masked_rerun": masked,
+                "masked_diversity": masked_diversity,
+                "answer_changed": bool(
+                    masked and masked["response"] != baseline["response"]
+                ),
+                "state_changed": bool(
+                    masked
+                    and masked["graph_state"].get("subgraph_signature")
+                    != baseline["graph_state"].get("subgraph_signature")
+                ),
+                "correctness_improved": bool(
+                    masked and (not baseline["correct"]) and masked["correct"]
+                ),
+            }
+        )
     return {"results": results}
 
 
@@ -310,7 +323,9 @@ def main():
     parser.add_argument("--llm-model", default="gpt-4o-mini")
     parser.add_argument(
         "--out",
-        default=os.path.join(REPO, "results", "analyses", "anchor_masking_intervention.json"),
+        default=os.path.join(
+            REPO, "results", "analyses", "anchor_masking_intervention.json"
+        ),
     )
     args = parser.parse_args()
 

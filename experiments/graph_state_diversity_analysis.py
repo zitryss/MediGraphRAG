@@ -14,6 +14,7 @@ import numpy as np
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 except Exception:  # pragma: no cover - plotting is optional
@@ -25,7 +26,9 @@ from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS  # noqa:
 from ontographrag.rag.graph_state import graph_state_diversity  # noqa: E402
 
 
-OUT_JSON = os.path.join(REPO, "results", "analyses", "graph_state_diversity_analysis.json")
+OUT_JSON = os.path.join(
+    REPO, "results", "analyses", "graph_state_diversity_analysis.json"
+)
 FIG_DIR = os.path.join(REPO, "paper", "figures")
 
 
@@ -66,19 +69,23 @@ def collect_rows() -> List[Dict[str, Any]]:
             output_entropy = row.get("kg_discrete_semantic_entropy")
             if output_entropy is None:
                 continue
-            rows.append({
-                "dataset": dataset,
-                "policy": policy,
-                "question_id": str(row.get("question_id")),
-                "correct": bool(row.get("kg_correct")),
-                "output_discrete_semantic_entropy": float(output_entropy),
-                "sd_uq": float(row.get("kg_sd_uq") or 0.0),
-                "subgraph_entropy": float(diversity.get("subgraph_entropy") or 0.0),
-                "path_entropy": float(diversity.get("path_entropy") or 0.0),
-                "seed_entity_entropy": float(diversity.get("seed_entity_entropy") or 0.0),
-                "subgraph_jaccard": float(diversity.get("subgraph_jaccard") or 0.0),
-                "sample_count": int(diversity.get("sample_count") or 0),
-            })
+            rows.append(
+                {
+                    "dataset": dataset,
+                    "policy": policy,
+                    "question_id": str(row.get("question_id")),
+                    "correct": bool(row.get("kg_correct")),
+                    "output_discrete_semantic_entropy": float(output_entropy),
+                    "sd_uq": float(row.get("kg_sd_uq") or 0.0),
+                    "subgraph_entropy": float(diversity.get("subgraph_entropy") or 0.0),
+                    "path_entropy": float(diversity.get("path_entropy") or 0.0),
+                    "seed_entity_entropy": float(
+                        diversity.get("seed_entity_entropy") or 0.0
+                    ),
+                    "subgraph_jaccard": float(diversity.get("subgraph_jaccard") or 0.0),
+                    "sample_count": int(diversity.get("sample_count") or 0),
+                }
+            )
     return rows
 
 

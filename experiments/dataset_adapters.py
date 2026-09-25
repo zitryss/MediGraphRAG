@@ -101,14 +101,15 @@ DATASET_CORPUS_PROFILES: Dict[str, Dict[str, Any]] = {
 
 
 class TaskType(Enum):
-    BINARY = "binary"      # yes/no/maybe (PubMedQA, BioASQ yesno, HotpotQA comparison)
-    MCQ = "mcq"            # multiple choice (MedQA, MedMCQA, MMLU)
-    FREE_TEXT = "free_text" # open-ended (HotpotQA bridge, 2WikiMultiHopQA)
+    BINARY = "binary"  # yes/no/maybe (PubMedQA, BioASQ yesno, HotpotQA comparison)
+    MCQ = "mcq"  # multiple choice (MedQA, MedMCQA, MMLU)
+    FREE_TEXT = "free_text"  # open-ended (HotpotQA bridge, 2WikiMultiHopQA)
 
 
 @dataclass
 class InferenceRecord:
     """Canonical record for model inference (what the model can see)."""
+
     id: str
     dataset: str
     question: str
@@ -124,6 +125,7 @@ class InferenceRecord:
 @dataclass
 class GoldRecord:
     """Canonical record for evaluation (ground truth)."""
+
     id: str
     short_answer: str
     long_answer: Optional[str] = None
@@ -137,28 +139,33 @@ class GoldRecord:
 # Per-Dataset Adapters
 # =============================================================================
 
-def adapt_pubmedqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+
+def adapt_pubmedqa(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt PubMedQA format.
-    
-    Raw keys: QUESTION, CONTEXTS, LABELS, MESHES, YEAR, 
+
+    Raw keys: QUESTION, CONTEXTS, LABELS, MESHES, YEAR,
               final_decision, LONG_ANSWER, reasoning_*
-    
+
     Note: q_id is passed explicitly because PubMedQA uses dict key as PMID.
     """
     # Use explicitly passed q_id (dict key), fallback to PMID field
     if q_id is None:
         q_id = raw_data.get("PMID", "")
     question = raw_data.get("QUESTION", "")
-    
+
     # Extract contexts (list of strings)
     raw_contexts = raw_data.get("CONTEXTS", [])
-    contexts = [c.get("text", "") if isinstance(c, dict) else str(c) for c in raw_contexts]
-    
+    contexts = [
+        c.get("text", "") if isinstance(c, dict) else str(c) for c in raw_contexts
+    ]
+
     # Gold fields
     short_answer = raw_data.get("final_decision", "").lower()
     long_answer = raw_data.get("LONG_ANSWER", "")
-    
+
     return (
         InferenceRecord(
             id=str(q_id),
@@ -166,14 +173,14 @@ def adapt_pubmedqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[Inferenc
             question=question,
             contexts=contexts,
             options={"A": "yes", "B": "no", "C": "maybe"},
-            task_type=TaskType.BINARY.value
+            task_type=TaskType.BINARY.value,
         ),
         GoldRecord(
             id=str(q_id),
             short_answer=short_answer,
             long_answer=long_answer,
-            aliases=None
-        )
+            aliases=None,
+        ),
     )
 
 
@@ -190,15 +197,23 @@ def _normalize_realmedqa_verdict(value: Any) -> str:
 
 def _is_realmedqa_ideal_record(raw_data: Dict[str, Any]) -> bool:
     plausible = _normalize_realmedqa_verdict(
-        raw_data.get("_normalized_plausible", raw_data.get("Plausible", raw_data.get("plausible", "")))
+        raw_data.get(
+            "_normalized_plausible",
+            raw_data.get("Plausible", raw_data.get("plausible", "")),
+        )
     )
     answered = _normalize_realmedqa_verdict(
-        raw_data.get("_normalized_answered", raw_data.get("Answered", raw_data.get("answered", "")))
+        raw_data.get(
+            "_normalized_answered",
+            raw_data.get("Answered", raw_data.get("answered", "")),
+        )
     )
     return plausible == "completely" and answered == "completely"
 
 
-def adapt_realmedqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_realmedqa(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt RealMedQA format.
 
@@ -215,7 +230,12 @@ def adapt_realmedqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[Inferen
     """
     question = str(raw_data.get("Question", raw_data.get("question", ""))).strip()
     recommendation = str(
-        raw_data.get("Recommendation", raw_data.get("recommendation", raw_data.get("Answer", raw_data.get("answer", ""))))
+        raw_data.get(
+            "Recommendation",
+            raw_data.get(
+                "recommendation", raw_data.get("Answer", raw_data.get("answer", ""))
+            ),
+        )
     ).strip()
 
     if q_id is None:
@@ -244,21 +264,23 @@ def adapt_realmedqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[Inferen
     )
 
 
-def adapt_bioasq(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_bioasq(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt BioASQ format.
-    
+
     Raw keys: id, body, type, exact_answer, ideal_answer, snippets, documents, ...
     """
     if q_id is None:
         q_id = raw_data.get("id", "")
     question = raw_data.get("body", "")
     q_type = raw_data.get("type", "")
-    
+
     # Extract contexts from snippets
     raw_snippets = raw_data.get("snippets", [])
     contexts = [s.get("text", "") for s in raw_snippets if s.get("text")]
-    
+
     # For yes/no questions
     if q_type == "yesno":
         exact_answer = raw_data.get("exact_answer", "")
@@ -276,12 +298,16 @@ def adapt_bioasq(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceR
             short_answer = exact_answer[0][0].lower().strip()
             for group in exact_answer:
                 if isinstance(group, list):
-                    alias_values.extend(str(x).lower().strip() for x in group if str(x).strip())
+                    alias_values.extend(
+                        str(x).lower().strip() for x in group if str(x).strip()
+                    )
                 elif isinstance(group, str):
                     alias_values.append(group.lower().strip())
         elif exact_answer and isinstance(exact_answer[0], str):
             short_answer = exact_answer[0].lower().strip()
-            alias_values = [str(x).lower().strip() for x in exact_answer if str(x).strip()]
+            alias_values = [
+                str(x).lower().strip() for x in exact_answer if str(x).strip()
+            ]
         else:
             short_answer = ""
         task_type = TaskType.FREE_TEXT.value
@@ -293,10 +319,10 @@ def adapt_bioasq(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceR
         task_type = TaskType.FREE_TEXT.value
         options = None
         aliases = None
-    
+
     # Ideal answer serves as long answer
     long_answer = raw_data.get("ideal_answer", "")
-    
+
     return (
         InferenceRecord(
             id=str(q_id),
@@ -304,21 +330,23 @@ def adapt_bioasq(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceR
             question=question,
             contexts=contexts,
             options=options,
-            task_type=task_type
+            task_type=task_type,
         ),
         GoldRecord(
             id=str(q_id),
             short_answer=short_answer,
             long_answer=long_answer,
-            aliases=aliases
-        )
+            aliases=aliases,
+        ),
     )
 
 
-def adapt_medqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_medqa(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedQA (USMLE) format.
-    
+
     Raw keys: question, options, answer_idx, (answer text in options)
     """
     if q_id is None:
@@ -327,7 +355,7 @@ def adapt_medqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRe
     raw_options = raw_data.get("options", {})
     answer_idx = raw_data.get("answer_idx", 0)
     explicit_answer = str(raw_data.get("answer", "")).strip()
-    
+
     # Options are like {"0": "option text", "1": "...", ...} or {"A": "...", "B": "...", ...}
     # Map to A, B, C, D format
     options = {}
@@ -335,11 +363,11 @@ def adapt_medqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRe
         # Normalize key to A, B, C, D
         if k.isdigit():
             idx = int(k)
-            key = chr(ord('A') + idx)
+            key = chr(ord("A") + idx)
         else:
             key = k.upper()
         options[key] = v
-    
+
     # Prefer the explicit answer text when the release provides it.
     if explicit_answer:
         short_answer = explicit_answer.lower()
@@ -361,10 +389,10 @@ def adapt_medqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRe
                     correct_key = letter_key
 
         short_answer = options.get(correct_key, "").lower()
-    
+
     # MedQA has no explicit long answer or contexts in the question file
     # (context is the question itself for some formats)
-    
+
     return (
         InferenceRecord(
             id=str(q_id),
@@ -372,39 +400,38 @@ def adapt_medqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRe
             question=question,
             contexts=[],  # No explicit contexts in MedQA question file
             options=options,
-            task_type=TaskType.MCQ.value
+            task_type=TaskType.MCQ.value,
         ),
         GoldRecord(
-            id=str(q_id),
-            short_answer=short_answer,
-            long_answer=None,
-            aliases=None
-        )
+            id=str(q_id), short_answer=short_answer, long_answer=None, aliases=None
+        ),
     )
 
 
-def adapt_medmcqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_medmcqa(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedMCQA format.
-    
+
     Raw keys: id, question, opa, opb, opc, opd, cop (correct option index)
     """
     if q_id is None:
         q_id = raw_data.get("id", "")
     question = raw_data.get("question", "")
-    
+
     options = {
         "A": raw_data.get("opa", ""),
         "B": raw_data.get("opb", ""),
         "C": raw_data.get("opc", ""),
-        "D": raw_data.get("opd", "")
+        "D": raw_data.get("opd", ""),
     }
-    
+
     # cop is 1-indexed (1=A, 2=B, etc.)
     cop = raw_data.get("cop", 1)
-    correct_key = chr(ord('A') + cop - 1)
+    correct_key = chr(ord("A") + cop - 1)
     short_answer = options.get(correct_key, "").lower()
-    
+
     return (
         InferenceRecord(
             id=str(q_id),
@@ -412,38 +439,37 @@ def adapt_medmcqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[Inference
             question=question,
             contexts=[],
             options=options,
-            task_type=TaskType.MCQ.value
+            task_type=TaskType.MCQ.value,
         ),
         GoldRecord(
-            id=str(q_id),
-            short_answer=short_answer,
-            long_answer=None,
-            aliases=None
-        )
+            id=str(q_id), short_answer=short_answer, long_answer=None, aliases=None
+        ),
     )
 
 
-def adapt_mmlu(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_mmlu(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MMLU format (single row).
-    
+
     Raw keys: question, A, B, C, D, answer
     """
     if q_id is None:
         q_id = raw_data.get("id", "")
     question = raw_data.get("question", "")
-    
+
     options = {
         "A": raw_data.get("A", ""),
         "B": raw_data.get("B", ""),
         "C": raw_data.get("C", ""),
-        "D": raw_data.get("D", "")
+        "D": raw_data.get("D", ""),
     }
-    
+
     # Answer is single letter A, B, C, or D
     answer_letter = raw_data.get("answer", "A").upper()
     short_answer = options.get(answer_letter, "").lower()
-    
+
     return (
         InferenceRecord(
             id=str(q_id),
@@ -451,18 +477,17 @@ def adapt_mmlu(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRec
             question=question,
             contexts=[],
             options=options,
-            task_type=TaskType.MCQ.value
+            task_type=TaskType.MCQ.value,
         ),
         GoldRecord(
-            id=str(q_id),
-            short_answer=short_answer,
-            long_answer=None,
-            aliases=None
-        )
+            id=str(q_id), short_answer=short_answer, long_answer=None, aliases=None
+        ),
     )
 
 
-def adapt_hotpotqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_hotpotqa(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt HotpotQA (fullwiki) format.
 
@@ -515,14 +540,18 @@ def adapt_hotpotqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[Inferenc
     )
 
 
-def adapt_hotpotqa_fullwiki(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_hotpotqa_fullwiki(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """Adapt HotpotQA FullWiki while keeping a distinct dataset label."""
     inf_rec, gold_rec = adapt_hotpotqa(raw_data, q_id=q_id)
     inf_rec.dataset = "hotpotqa_fullwiki"
     return inf_rec, gold_rec
 
 
-def adapt_2wikimultihopqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_2wikimultihopqa(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt 2WikiMultiHopQA format.
 
@@ -582,7 +611,9 @@ def adapt_2wikimultihopqa(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[I
     )
 
 
-def adapt_musique(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_musique(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MuSiQue format.
 
@@ -631,13 +662,17 @@ def adapt_musique(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[Inference
             for entry in raw_context:
                 if isinstance(entry, (list, tuple)) and len(entry) >= 2:
                     title = str(entry[0]).strip()
-                    body = " ".join(str(x).strip() for x in (entry[1] or []) if str(x).strip())
+                    body = " ".join(
+                        str(x).strip() for x in (entry[1] or []) if str(x).strip()
+                    )
                     if body:
                         contexts.append(f"{title}. {body}" if title else body)
                         context_titles.append(title or None)
                 elif isinstance(entry, dict):
                     title = str(entry.get("title", "")).strip()
-                    body = str(entry.get("text", entry.get("paragraph_text", ""))).strip()
+                    body = str(
+                        entry.get("text", entry.get("paragraph_text", ""))
+                    ).strip()
                     if body:
                         contexts.append(f"{title}. {body}" if title else body)
                         context_titles.append(title or None)
@@ -647,7 +682,11 @@ def adapt_musique(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[Inference
                         contexts.append(txt)
                         context_titles.append(None)
 
-    aliases = [str(a).lower().strip() for a in (raw_data.get("answer_aliases", []) or []) if str(a).strip()]
+    aliases = [
+        str(a).lower().strip()
+        for a in (raw_data.get("answer_aliases", []) or [])
+        if str(a).strip()
+    ]
     aliases = [a for a in aliases if a and a != short_answer]
 
     return (
@@ -669,7 +708,9 @@ def adapt_musique(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[Inference
     )
 
 
-def adapt_medhop(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_medhop(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedHop format.
 
@@ -702,8 +743,7 @@ def adapt_medhop(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceR
         if str(candidate).strip()
     ]
     options = {
-        chr(ord("A") + idx): candidate
-        for idx, candidate in enumerate(candidates)
+        chr(ord("A") + idx): candidate for idx, candidate in enumerate(candidates)
     } or None
 
     return (
@@ -787,7 +827,9 @@ def _format_multihoprag_corpus_document(doc: Dict[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-def adapt_multihoprag(raw_data: Dict[str, Any], q_id: str = None) -> Tuple[InferenceRecord, GoldRecord]:
+def adapt_multihoprag(
+    raw_data: Dict[str, Any], q_id: str = None
+) -> Tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MultiHop-RAG format.
 
@@ -940,11 +982,11 @@ def get_dataset_corpus_profile(dataset_name: str) -> Dict[str, Any]:
 def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
     """
     Load raw dataset from MIRAGE rawdata directory.
-    
+
     Returns dict mapping id -> raw record.
     """
     dataset_name = dataset_name.lower()
-    
+
     file_paths = {
         "pubmedqa": "MIRAGE/rawdata/pubmedqa/data/test_set.json",
         "realmedqa": "MIRAGE/rawdata/realmedqa/RealMedQA.json",
@@ -963,7 +1005,7 @@ def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
         # Download: https://github.com/stonybrooknlp/musique
         "musique": "MIRAGE/rawdata/musique/dev.jsonl",
     }
-    
+
     file_path = file_paths.get(dataset_name)
     if not file_path:
         raise ValueError(f"Unknown dataset: {dataset_name}")
@@ -984,7 +1026,11 @@ def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
             )
         ideal_rows = [row for row in rows if _is_realmedqa_ideal_record(row)]
         return {
-            str(row.get("id", row.get("_id", row.get("_fallback_id", f"realmedqa_{idx}")))): row
+            str(
+                row.get(
+                    "id", row.get("_id", row.get("_fallback_id", f"realmedqa_{idx}"))
+                )
+            ): row
             for idx, row in enumerate(ideal_rows)
         }
 
@@ -1004,26 +1050,26 @@ def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
             raise FileNotFoundError(
                 "MuSiQue dataset file not found. Looked for: " + ", ".join(candidates)
             )
-    
+
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Dataset file not found: {file_path}")
-    
+
     if dataset_name == "pubmedqa":
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             return json.load(f)
-    
+
     elif dataset_name == "bioasq":
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             data = json.load(f)
         # BioASQ has "questions" key with list
         if "questions" in data:
             return {q["id"]: q for q in data["questions"]}
         return data
-    
+
     elif dataset_name == "medqa":
         # JSONL format
         data = {}
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             for idx, line in enumerate(f):
                 line = line.strip()
                 if line:
@@ -1034,43 +1080,58 @@ def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
                     except json.JSONDecodeError:
                         continue
         return data
-    
+
     elif dataset_name == "medmcqa":
         # JSON format with list
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             data = json.load(f)
         if isinstance(data, list):
             return {item["id"]: item for item in data}
         return data
-    
+
     elif dataset_name == "mmlu":
         # MMLU is special - directory with multiple CSV files
         import pandas as pd
+
         data = {}
         mmlu_dir = file_path
         domain_files = [
-            "anatomy_test.csv", "clinical_knowledge_test.csv", 
-            "college_biology_test.csv", "college_medicine_test.csv",
-            "medical_genetics_test.csv", "professional_medicine_test.csv"
+            "anatomy_test.csv",
+            "clinical_knowledge_test.csv",
+            "college_biology_test.csv",
+            "college_medicine_test.csv",
+            "medical_genetics_test.csv",
+            "professional_medicine_test.csv",
         ]
         for domain_file in domain_files:
             full_path = os.path.join(mmlu_dir, domain_file)
             if os.path.exists(full_path):
-                df = pd.read_csv(full_path, names=["question", "A", "B", "C", "D", "answer"])
+                df = pd.read_csv(
+                    full_path, names=["question", "A", "B", "C", "D", "answer"]
+                )
                 domain = domain_file.replace("_test.csv", "")
                 for idx, row in df.iterrows():
                     q_id = f"{domain}_{idx}"
                     data[q_id] = {
                         "id": q_id,
                         "question": row["question"],
-                        "A": row["A"], "B": row["B"], "C": row["C"], "D": row["D"],
-                        "answer": row["answer"]
+                        "A": row["A"],
+                        "B": row["B"],
+                        "C": row["C"],
+                        "D": row["D"],
+                        "answer": row["answer"],
                     }
         return data
-    
-    elif dataset_name in {"hotpotqa", "hotpotqa_fullwiki", "2wikimultihopqa", "medhop", "multihoprag"}:
+
+    elif dataset_name in {
+        "hotpotqa",
+        "hotpotqa_fullwiki",
+        "2wikimultihopqa",
+        "medhop",
+        "multihoprag",
+    }:
         # Both use JSON list format: [{_id, question, answer, context, ...}, ...]
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             items = json.load(f)
         if isinstance(items, list):
             return {
@@ -1090,7 +1151,7 @@ def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
         data = {}
 
         if file_path.endswith(".jsonl"):
-            with open(file_path, 'r') as f:
+            with open(file_path, "r") as f:
                 for idx, line in enumerate(f):
                     line = line.strip()
                     if not line:
@@ -1104,7 +1165,7 @@ def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
             return data
 
         # JSON list/dict fallback
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             items = json.load(f)
         if isinstance(items, list):
             return {
@@ -1112,7 +1173,11 @@ def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
                 for idx, item in enumerate(items)
             }
         for key in ("data", "questions"):
-            if isinstance(items, dict) and key in items and isinstance(items[key], list):
+            if (
+                isinstance(items, dict)
+                and key in items
+                and isinstance(items[key], list)
+            ):
                 return {
                     str(item.get("id", item.get("_id", f"musique_{idx}"))): item
                     for idx, item in enumerate(items[key])
@@ -1122,24 +1187,28 @@ def load_raw_dataset(dataset_name: str) -> Dict[str, Any]:
     raise ValueError(f"Unsupported dataset: {dataset_name}")
 
 
-def normalize_dataset(dataset_name: str) -> Tuple[List[InferenceRecord], List[GoldRecord]]:
+def normalize_dataset(
+    dataset_name: str,
+) -> Tuple[List[InferenceRecord], List[GoldRecord]]:
     """
     Load and normalize a dataset to canonical schema.
-    
+
     Returns:
         (inference_records, gold_records) - paired by id
     """
     dataset_name = dataset_name.lower()
-    
+
     if dataset_name not in ADAPTERS:
-        raise ValueError(f"Unknown dataset: {dataset_name}. Available: {list(ADAPTERS.keys())}")
-    
+        raise ValueError(
+            f"Unknown dataset: {dataset_name}. Available: {list(ADAPTERS.keys())}"
+        )
+
     adapter = ADAPTERS[dataset_name]
     raw_data = load_raw_dataset(dataset_name)
-    
+
     inference_records = []
     gold_records = []
-    
+
     for q_id, raw_record in raw_data.items():
         try:
             # Pass q_id explicitly for PubMedQA which uses dict key as ID
@@ -1149,7 +1218,7 @@ def normalize_dataset(dataset_name: str) -> Tuple[List[InferenceRecord], List[Go
         except Exception as e:
             logger.warning(f"Failed to adapt record {q_id}: {e}")
             continue
-    
+
     # Validate ID sets match
     inf_ids = set(r.id for r in inference_records)
     gold_ids = set(r.id for r in gold_records)
@@ -1157,18 +1226,25 @@ def normalize_dataset(dataset_name: str) -> Tuple[List[InferenceRecord], List[Go
         missing_gold = inf_ids - gold_ids
         missing_inf = gold_ids - inf_ids
         if missing_gold:
-            logger.warning(f"Missing gold records for {len(missing_gold)} inference records")
+            logger.warning(
+                f"Missing gold records for {len(missing_gold)} inference records"
+            )
         if missing_inf:
-            logger.warning(f"Missing inference records for {len(missing_inf)} gold records")
-    
-    logger.info(f"Normalized {dataset_name}: {len(inference_records)} inference, {len(gold_records)} gold records")
-    
+            logger.warning(
+                f"Missing inference records for {len(missing_inf)} gold records"
+            )
+
+    logger.info(
+        f"Normalized {dataset_name}: {len(inference_records)} inference, {len(gold_records)} gold records"
+    )
+
     return inference_records, gold_records
 
 
 @dataclass
 class ContextPassage:
     """One source passage from a benchmark dataset, carrying its provenance."""
+
     text: str
     dataset: str
     question_id: str
@@ -1204,19 +1280,19 @@ def build_passage_corpus(
             if not ctx_stripped:
                 continue
             dedupe_key = (
-                ctx_stripped
-                if dedupe_across_questions
-                else (str(rec.id), ctx_stripped)
+                ctx_stripped if dedupe_across_questions else (str(rec.id), ctx_stripped)
             )
             if dedupe_key not in seen:
                 seen.add(dedupe_key)
-                passages.append(ContextPassage(
-                    text=ctx_stripped,
-                    dataset=rec.dataset,
-                    question_id=rec.id,
-                    passage_index=idx,
-                    source_title=rec_titles[idx] if idx < len(rec_titles) else None,
-                ))
+                passages.append(
+                    ContextPassage(
+                        text=ctx_stripped,
+                        dataset=rec.dataset,
+                        question_id=rec.id,
+                        passage_index=idx,
+                        source_title=rec_titles[idx] if idx < len(rec_titles) else None,
+                    )
+                )
     return passages
 
 
@@ -1267,7 +1343,9 @@ def _load_optional_json_records(paths: List[str]) -> Optional[List[Dict[str, Any
     return None
 
 
-def _load_realmedqa_records(candidate_paths: List[str]) -> Optional[List[Dict[str, Any]]]:
+def _load_realmedqa_records(
+    candidate_paths: List[str],
+) -> Optional[List[Dict[str, Any]]]:
     """Load RealMedQA records from JSON/JSONL/CSV and normalize verifier fields."""
     records = _load_optional_json_records(candidate_paths)
     if records is None:
@@ -1279,7 +1357,10 @@ def _load_realmedqa_records(candidate_paths: List[str]) -> Optional[List[Dict[st
             continue
         question = str(row.get("Question", row.get("question", ""))).strip()
         recommendation = str(
-            row.get("Recommendation", row.get("recommendation", row.get("Answer", row.get("answer", ""))))
+            row.get(
+                "Recommendation",
+                row.get("recommendation", row.get("Answer", row.get("answer", ""))),
+            )
         ).strip()
         if not question or not recommendation:
             continue
@@ -1291,14 +1372,19 @@ def _load_realmedqa_records(candidate_paths: List[str]) -> Optional[List[Dict[st
         item["_normalized_answered"] = _normalize_realmedqa_verdict(
             row.get("Answered", row.get("answered", ""))
         )
-        item["_fallback_id"] = _stable_record_id("realmedqa", idx, question, recommendation)
+        item["_fallback_id"] = _stable_record_id(
+            "realmedqa", idx, question, recommendation
+        )
         normalized.append(item)
     return normalized
 
 
 def _format_realmedqa_recommendation_document(doc: Dict[str, Any]) -> str:
     recommendation = str(
-        doc.get("Recommendation", doc.get("recommendation", doc.get("Answer", doc.get("answer", ""))))
+        doc.get(
+            "Recommendation",
+            doc.get("recommendation", doc.get("Answer", doc.get("answer", ""))),
+        )
     ).strip()
     return f"Recommendation:\n{recommendation}" if recommendation else ""
 
@@ -1357,7 +1443,9 @@ def _build_optional_shared_corpus_passages(
                 ContextPassage(
                     text=text,
                     dataset=dataset_name,
-                    question_id=str(doc.get("pmid", doc.get("PMID", doc.get("id", f"doc_{idx}")))),
+                    question_id=str(
+                        doc.get("pmid", doc.get("PMID", doc.get("id", f"doc_{idx}")))
+                    ),
                     passage_index=idx,
                 )
             )
@@ -1417,7 +1505,15 @@ def build_global_corpus_passages(dataset_name: str) -> Optional[List[ContextPass
                     ContextPassage(
                         text=text,
                         dataset="realmedqa",
-                        question_id=str(doc.get("id", doc.get("_id", doc.get("_fallback_id", f"realmedqa_doc_{idx}")))),
+                        question_id=str(
+                            doc.get(
+                                "id",
+                                doc.get(
+                                    "_id",
+                                    doc.get("_fallback_id", f"realmedqa_doc_{idx}"),
+                                ),
+                            )
+                        ),
                         passage_index=idx,
                     )
                 )
@@ -1445,9 +1541,14 @@ def build_global_corpus_passages(dataset_name: str) -> Optional[List[ContextPass
                 ContextPassage(
                     text=text,
                     dataset="hotpotqa_fullwiki",
-                    question_id=str(doc.get("id", doc.get("doc_id", f"hotpot_doc_{idx}"))),
+                    question_id=str(
+                        doc.get("id", doc.get("doc_id", f"hotpot_doc_{idx}"))
+                    ),
                     passage_index=idx,
-                    source_title=str(doc.get("title", doc.get("source_title", ""))).strip() or None,
+                    source_title=str(
+                        doc.get("title", doc.get("source_title", ""))
+                    ).strip()
+                    or None,
                 )
             )
         return passages
@@ -1471,12 +1572,14 @@ def build_global_corpus_passages(dataset_name: str) -> Optional[List[ContextPass
         text = _format_multihoprag_corpus_document(doc)
         if text and text not in seen:
             seen.add(text)
-            passages.append(ContextPassage(
-                text=text,
-                dataset="multihoprag",
-                question_id=f"doc_{idx}",
-                passage_index=idx,
-            ))
+            passages.append(
+                ContextPassage(
+                    text=text,
+                    dataset="multihoprag",
+                    question_id=f"doc_{idx}",
+                    passage_index=idx,
+                )
+            )
     return passages
 
 
@@ -1484,7 +1587,10 @@ def build_global_corpus_passages(dataset_name: str) -> Optional[List[ContextPass
 # Validation Helpers
 # =============================================================================
 
-def validate_no_leakage(inference_records: List[InferenceRecord], gold_records: List[GoldRecord]) -> bool:
+
+def validate_no_leakage(
+    inference_records: List[InferenceRecord], gold_records: List[GoldRecord]
+) -> bool:
     """
     Validate that inference records don't contain gold fields and that gold
     answers don't appear verbatim inside the provided context passages.
@@ -1507,7 +1613,7 @@ def validate_no_leakage(inference_records: List[InferenceRecord], gold_records: 
 
     # Check 1: schema leakage
     for rec in inference_records:
-        if hasattr(rec, 'short_answer') or hasattr(rec, 'long_answer'):
+        if hasattr(rec, "short_answer") or hasattr(rec, "long_answer"):
             logger.error(f"Leakage: Inference record {rec.id} has answer fields")
             return False
 
@@ -1522,18 +1628,21 @@ def validate_no_leakage(inference_records: List[InferenceRecord], gold_records: 
         if gold is None:
             continue
         # Collect all answer surface forms from the gold record
-        primary = str(getattr(gold, 'short_answer', '') or getattr(gold, 'answer', '') or '').strip()
-        long_ans = str(getattr(gold, 'long_answer', '') or '').strip()
-        aliases = list(getattr(gold, 'aliases', None) or [])
-        all_answers = {primary, long_ans, *aliases} - {''}
+        primary = str(
+            getattr(gold, "short_answer", "") or getattr(gold, "answer", "") or ""
+        ).strip()
+        long_ans = str(getattr(gold, "long_answer", "") or "").strip()
+        aliases = list(getattr(gold, "aliases", None) or [])
+        all_answers = {primary, long_ans, *aliases} - {""}
         # Filter: skip empty, binary, or too-short strings
         candidates = [
-            a.lower() for a in all_answers
+            a.lower()
+            for a in all_answers
             if a and a.lower() not in _binary and len(a) > 3
         ]
         if not candidates:
             continue
-        contexts = getattr(rec, 'contexts', []) or []
+        contexts = getattr(rec, "contexts", []) or []
         ctx_texts = [str(c).lower() for c in contexts]
         for surface in candidates:
             if any(surface in ctx for ctx in ctx_texts):

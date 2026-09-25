@@ -14,7 +14,9 @@ experiment_mod = pytest.importorskip(
 
 def _make_benchmark():
     benchmark = MIRAGEEvaluationPipeline.__new__(MIRAGEEvaluationPipeline)
-    benchmark.QUESTION_SCOPED_DATASETS = frozenset({"musique", "hotpotqa", "2wikimultihopqa", "pubmedqa"})
+    benchmark.QUESTION_SCOPED_DATASETS = frozenset(
+        {"musique", "hotpotqa", "2wikimultihopqa", "pubmedqa"}
+    )
     return benchmark
 
 
@@ -23,17 +25,25 @@ def test_validate_retrieval_scope_rejects_cross_question_chunks():
     rag_result = {
         "context": {
             "chunks": [
-                {"chunk_id": "c1", "kg_name": "musique", "question_id": "q_other", "document": "doc1"},
+                {
+                    "chunk_id": "c1",
+                    "kg_name": "musique",
+                    "question_id": "q_other",
+                    "document": "doc1",
+                },
             ]
         }
     }
 
-    assert benchmark._validate_retrieval_scope(
-        rag_result=rag_result,
-        dataset_name="musique",
-        system_name="KG-RAG",
-        question_id="q_target",
-    ) is False
+    assert (
+        benchmark._validate_retrieval_scope(
+            rag_result=rag_result,
+            dataset_name="musique",
+            system_name="KG-RAG",
+            question_id="q_target",
+        )
+        is False
+    )
 
 
 def test_validate_retrieval_scope_allows_matching_question_scope():
@@ -41,18 +51,31 @@ def test_validate_retrieval_scope_allows_matching_question_scope():
     rag_result = {
         "context": {
             "chunks": [
-                {"chunk_id": "c1", "kg_name": "musique", "question_id": "q_target", "document": "doc1"},
-                {"chunk_id": "c2", "kg_name": "musique", "question_id": "q_target", "document": "doc1"},
+                {
+                    "chunk_id": "c1",
+                    "kg_name": "musique",
+                    "question_id": "q_target",
+                    "document": "doc1",
+                },
+                {
+                    "chunk_id": "c2",
+                    "kg_name": "musique",
+                    "question_id": "q_target",
+                    "document": "doc1",
+                },
             ]
         }
     }
 
-    assert benchmark._validate_retrieval_scope(
-        rag_result=rag_result,
-        dataset_name="musique",
-        system_name="KG-RAG",
-        question_id="q_target",
-    ) is True
+    assert (
+        benchmark._validate_retrieval_scope(
+            rag_result=rag_result,
+            dataset_name="musique",
+            system_name="KG-RAG",
+            question_id="q_target",
+        )
+        is True
+    )
 
 
 def test_collect_sample_responses_preserves_question_scope_and_sampling_pool():
@@ -199,7 +222,11 @@ def test_kg_routing_distribution_counts_entity_first_and_dense_fallback():
         {"kg_retrieval_route": "entity_first", "kg_route_reason": "success"},
         {"kg_retrieval_route": "semantic_only", "kg_route_reason": "no_graph_signal"},
         {"kg_retrieval_route": "rfge", "kg_route_reason": "entity_first_failed"},
-        {"kg_retrieval_route": "entity_first", "kg_route_reason": "success", "kg_generation_failed": True},
+        {
+            "kg_retrieval_route": "entity_first",
+            "kg_route_reason": "success",
+            "kg_generation_failed": True,
+        },
     ]
 
     dist = MIRAGEEvaluationPipeline._compute_kg_routing_distribution(details)

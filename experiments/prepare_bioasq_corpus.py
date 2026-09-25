@@ -27,7 +27,9 @@ import requests
 logger = logging.getLogger(__name__)
 
 NCBI_EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-DEFAULT_BIOASQ_PATH = Path("MIRAGE/rawdata/bioasq/Task10BGoldenEnriched/10B1_golden.json")
+DEFAULT_BIOASQ_PATH = Path(
+    "MIRAGE/rawdata/bioasq/Task10BGoldenEnriched/10B1_golden.json"
+)
 DEFAULT_OUTPUT_PATH = Path("MIRAGE/rawdata/bioasq/pubmed_abstracts.jsonl")
 PMID_RE = re.compile(r"/pubmed/(\d+)")
 
@@ -160,7 +162,7 @@ def load_existing_corpus(output_path: Path) -> Dict[str, Dict[str, str]]:
 
 def _chunked(values: Sequence[str], size: int) -> Iterable[List[str]]:
     for idx in range(0, len(values), size):
-        yield list(values[idx: idx + size])
+        yield list(values[idx : idx + size])
 
 
 def build_bioasq_shared_corpus(
@@ -271,7 +273,9 @@ def main() -> None:
         default=os.getenv("NCBI_API_KEY"),
         help="Optional NCBI API key for higher rate limits.",
     )
-    parser.add_argument("--batch-size", type=int, default=100, help="PMIDs to fetch per EFetch request.")
+    parser.add_argument(
+        "--batch-size", type=int, default=100, help="PMIDs to fetch per EFetch request."
+    )
     parser.add_argument(
         "--sleep-seconds",
         type=float,

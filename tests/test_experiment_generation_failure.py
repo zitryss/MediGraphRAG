@@ -15,21 +15,27 @@ def _make_pipeline():
 def test_exact_insufficient_information_is_failure_when_gold_is_specific():
     pipeline = _make_pipeline()
 
-    assert pipeline._is_generation_failure(
-        {"response": "Insufficient Information."},
-        "insufficient information.",
-        expected_answer="atorvastatin",
-    ) is True
+    assert (
+        pipeline._is_generation_failure(
+            {"response": "Insufficient Information."},
+            "insufficient information.",
+            expected_answer="atorvastatin",
+        )
+        is True
+    )
 
 
 def test_exact_insufficient_information_is_not_failure_when_gold_matches():
     pipeline = _make_pipeline()
 
-    assert pipeline._is_generation_failure(
-        {"response": "Insufficient Information."},
-        "insufficient information.",
-        expected_answer="insufficient information.",
-    ) is False
+    assert (
+        pipeline._is_generation_failure(
+            {"response": "Insufficient Information."},
+            "insufficient information.",
+            expected_answer="insufficient information.",
+        )
+        is False
+    )
 
 
 def test_small_retrieval_study_builds_expected_variants():

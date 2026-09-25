@@ -12,6 +12,7 @@ from ontographrag.schemas.models import (
     PropertyType,
 )
 
+
 class ExtractionMixin:
     """LLM entity/relationship extraction, prompt construction, and chunk preparation.
 
@@ -66,8 +67,10 @@ class ExtractionMixin:
             return set()
         tokens = re.findall(r"[a-z0-9]+", text.lower())
         return {
-            token for token in tokens
-            if len(token) >= 4 and token not in {"with", "from", "that", "this", "were", "which"}
+            token
+            for token in tokens
+            if len(token) >= 4
+            and token not in {"with", "from", "that", "this", "were", "which"}
         }
 
     def _rank_entity_types_for_prompt(
@@ -93,7 +96,9 @@ class ExtractionMixin:
                     " ".join(p.name for p in et.properties),
                 ]
             )
-            overlap = len(chunk_tokens & self._ontology_prompt_keyword_set(candidate_text))
+            overlap = len(
+                chunk_tokens & self._ontology_prompt_keyword_set(candidate_text)
+            )
             score += min(overlap, 4)
             ranked.append((score, idx, et))
         ranked.sort(key=lambda item: (-item[0], item[1]))
@@ -108,7 +113,9 @@ class ExtractionMixin:
     ) -> int:
         """Grow the cap when many items are relevant, while keeping a hard ceiling."""
         positive = sum(1 for score, _, _ in ranked_items if score > 0)
-        return min(len(ranked_items), max(base_cap, min(base_cap + positive, absolute_cap)))
+        return min(
+            len(ranked_items), max(base_cap, min(base_cap + positive, absolute_cap))
+        )
 
     @staticmethod
     def _render_prompt_lines_with_budget(
@@ -146,13 +153,12 @@ class ExtractionMixin:
         passage_index = chunk.get("passage_index")
         source_label = chunk.get("source")
         source_title = chunk.get("source_title")
-        source_scope_key = (
-            chunk.get("source_scope_key")
-            or self._build_passage_scope_key(
-                dataset=dataset,
-                question_id=question_id,
-                passage_index=passage_index,
-            )
+        source_scope_key = chunk.get(
+            "source_scope_key"
+        ) or self._build_passage_scope_key(
+            dataset=dataset,
+            question_id=question_id,
+            passage_index=passage_index,
         )
 
         grounded_entities: List[Dict[str, Any]] = []
@@ -204,7 +210,9 @@ class ExtractionMixin:
             target_entity = entity_by_id.get(str(rel_copy.get("target") or ""))
             source_spans = self._merge_anchor_spans(
                 properties.get("source_anchor_spans"),
-                (source_entity.get("properties") or {}).get("anchor_spans") if source_entity else None,
+                (source_entity.get("properties") or {}).get("anchor_spans")
+                if source_entity
+                else None,
                 self._find_exact_text_spans(
                     chunk_text,
                     [str(rel_copy.get("source") or "")],
@@ -214,7 +222,9 @@ class ExtractionMixin:
             )
             target_spans = self._merge_anchor_spans(
                 properties.get("target_anchor_spans"),
-                (target_entity.get("properties") or {}).get("anchor_spans") if target_entity else None,
+                (target_entity.get("properties") or {}).get("anchor_spans")
+                if target_entity
+                else None,
                 self._find_exact_text_spans(
                     chunk_text,
                     [str(rel_copy.get("target") or "")],
@@ -271,7 +281,9 @@ class ExtractionMixin:
                 properties["quantitative_anchor_spans"] = quantitative_spans
             properties["restoration_status"] = restoration["status"]
             properties["restoration_verified"] = restoration["verified"]
-            properties["restoration_grounded_components"] = restoration["grounded_components"]
+            properties["restoration_grounded_components"] = restoration[
+                "grounded_components"
+            ]
             properties["restoration_grounded_count"] = restoration["grounded_count"]
             if dataset:
                 properties.setdefault("dataset", dataset)
@@ -348,7 +360,9 @@ Rules:
                 return chunk_text
             return resolved
         except Exception as e:
-            logging.warning("Coreference resolution failed, using original chunk: %s", e)
+            logging.warning(
+                "Coreference resolution failed, using original chunk: %s", e
+            )
             return chunk_text
 
     def _chunk_text_with_section_boundaries(
@@ -437,7 +451,9 @@ Rules:
             and self._has_coreference_markers(extraction_text)
         ):
             coref_context = "\n\n".join(
-                text for text in (previous_texts or []) if isinstance(text, str) and text.strip()
+                text
+                for text in (previous_texts or [])
+                if isinstance(text, str) and text.strip()
             )
             if coref_context:
                 logging.info("Running LLM coreference resolution on remaining markers")
@@ -468,7 +484,9 @@ Rules:
         if not chunk_text.strip():
             return []
 
-        retrieval_chunk_size = max(64, int(getattr(self, "retrieval_chunk_size", 256) or 256))
+        retrieval_chunk_size = max(
+            64, int(getattr(self, "retrieval_chunk_size", 256) or 256)
+        )
         retrieval_chunk_overlap = max(
             0,
             min(
@@ -486,26 +504,32 @@ Rules:
         retrieval_subchunks: List[Dict[str, Any]] = []
         parent_start = int(chunk.get("start_pos") or 0)
         for subchunk in raw_subchunks:
-            retrieval_subchunks.append({
-                "id": hashlib.sha1(
-                    f"{parent_chunk_id}:{subchunk['position']}:{subchunk['text']}".encode()
-                ).hexdigest(),
-                "text": subchunk["text"],
-                "embedding": subchunk.get("embedding"),
-                "retrieval_local_index": subchunk["position"],
-                "start_pos": parent_start + int(subchunk.get("start_pos") or 0),
-                "end_pos": parent_start + int(subchunk.get("end_pos") or 0),
-                "position": int(chunk.get("position") or 0),
-                "source": chunk.get("source"),
-                "dataset": chunk.get("dataset"),
-                "question_id": chunk.get("question_id"),
-                "passage_index": chunk.get("passage_index"),
-                "chunk_local_index": chunk.get("chunk_local_index", chunk.get("chunk_id", 0)),
-                "parent_chunk_id": parent_chunk_id,
-            })
+            retrieval_subchunks.append(
+                {
+                    "id": hashlib.sha1(
+                        f"{parent_chunk_id}:{subchunk['position']}:{subchunk['text']}".encode()
+                    ).hexdigest(),
+                    "text": subchunk["text"],
+                    "embedding": subchunk.get("embedding"),
+                    "retrieval_local_index": subchunk["position"],
+                    "start_pos": parent_start + int(subchunk.get("start_pos") or 0),
+                    "end_pos": parent_start + int(subchunk.get("end_pos") or 0),
+                    "position": int(chunk.get("position") or 0),
+                    "source": chunk.get("source"),
+                    "dataset": chunk.get("dataset"),
+                    "question_id": chunk.get("question_id"),
+                    "passage_index": chunk.get("passage_index"),
+                    "chunk_local_index": chunk.get(
+                        "chunk_local_index", chunk.get("chunk_id", 0)
+                    ),
+                    "parent_chunk_id": parent_chunk_id,
+                }
+            )
         return retrieval_subchunks
 
-    def _build_ontology_prompt_section(self, chunk_text: str, max_entity_types: int = 30, max_rel_types: int = 25) -> str:
+    def _build_ontology_prompt_section(
+        self, chunk_text: str, max_entity_types: int = 30, max_rel_types: int = 25
+    ) -> str:
         """Build the ontology section of the extraction prompt.
 
         When a typed OntologySchema is available, emits:
@@ -546,7 +570,11 @@ Rules:
                             extra = f" [{', '.join(p.enum_values)}]"
                         if p.unit:
                             extra += f" ({p.unit})"
-                        flag = " [identifier]" if p.identifier else (" [required]" if p.required else "")
+                        flag = (
+                            " [identifier]"
+                            if p.identifier
+                            else (" [required]" if p.required else "")
+                        )
                         prop_parts.append(f"{p.name}:{pt}{extra}{flag}")
                     line += f"\n      properties: {', '.join(prop_parts)}"
                 entity_line_pairs.append((et, line))
@@ -557,7 +585,10 @@ Rules:
                 hard_cap=entity_hard_cap,
             )
             selected_et = [et for et, line in entity_line_pairs if line in et_lines]
-            entity_section = "ENTITY TYPES (id — description; properties with types):\n" + "\n".join(et_lines)
+            entity_section = (
+                "ENTITY TYPES (id — description; properties with types):\n"
+                + "\n".join(et_lines)
+            )
         else:
             lines = [
                 f"  {c['id']} — {c.get('description') or c.get('label', '')}"
@@ -574,9 +605,26 @@ Rules:
                 self._adaptive_prompt_item_cap(
                     [
                         (
-                            (4 if (rt.id.lower() in chunk_text.lower() or rt.label.lower() in chunk_text.lower()) else 0)
-                            + (2 if rt.domain and any(rt.domain == et.id for et in selected_et) else 0)
-                            + (2 if rt.range and any(rt.range == et.id for et in selected_et) else 0),
+                            (
+                                4
+                                if (
+                                    rt.id.lower() in chunk_text.lower()
+                                    or rt.label.lower() in chunk_text.lower()
+                                )
+                                else 0
+                            )
+                            + (
+                                2
+                                if rt.domain
+                                and any(rt.domain == et.id for et in selected_et)
+                                else 0
+                            )
+                            + (
+                                2
+                                if rt.range
+                                and any(rt.range == et.id for et in selected_et)
+                                else 0
+                            ),
                             idx,
                             rt,
                         )
@@ -608,11 +656,18 @@ Rules:
                 min_items=min(10, len(rel_line_pairs)),
                 hard_cap=len(rel_line_pairs),
             )
-            rel_section = "RELATIONSHIP TYPES (id — description; domain→range [cardinality]):\n" + "\n".join(rel_lines)
+            rel_section = (
+                "RELATIONSHIP TYPES (id — description; domain→range [cardinality]):\n"
+                + "\n".join(rel_lines)
+            )
         else:
             lines = [
                 f"  {r['id']} — {r.get('description') or r.get('label', '')}"
-                + (f" ({r.get('domain', '')} → {r.get('range', '')})" if r.get('domain') or r.get('range') else "")
+                + (
+                    f" ({r.get('domain', '')} → {r.get('range', '')})"
+                    if r.get("domain") or r.get("range")
+                    else ""
+                )
                 for r in self.ontology_relationships[:max_rel_types]
                 if isinstance(r, dict)
             ]
@@ -651,7 +706,9 @@ Rules:
             for entity in sample.get("entities", []) or []:
                 if not isinstance(entity, dict):
                     continue
-                key = self._normalize_entity_text(entity.get("id") or entity.get("name") or "")
+                key = self._normalize_entity_text(
+                    entity.get("id") or entity.get("name") or ""
+                )
                 if not key or key in seen_entity_keys:
                     continue
                 entity_votes[key].append(entity)
@@ -669,7 +726,9 @@ Rules:
                     len(str(e.get("id") or "")),
                 ),
             ).copy()
-            type_counts = Counter(str(e.get("type") or "Concept") for e in voted_entities)
+            type_counts = Counter(
+                str(e.get("type") or "Concept") for e in voted_entities
+            )
             representative["type"] = type_counts.most_common(1)[0][0]
             properties = dict(representative.get("properties") or {})
             all_names = {
@@ -699,7 +758,9 @@ Rules:
             str(entity.get("id") or ""): str(entity.get("type") or "")
             for entity in kept_entities
         }
-        relationship_votes: Dict[Tuple[str, str, str, bool], List[Dict[str, Any]]] = defaultdict(list)
+        relationship_votes: Dict[Tuple[str, str, str, bool], List[Dict[str, Any]]] = (
+            defaultdict(list)
+        )
         for sample in samples:
             seen_relationship_keys = set()
             for rel in sample.get("relationships", []) or []:
@@ -711,11 +772,18 @@ Rules:
                     continue
                 canonical_src = entity_alias_map[src_key]
                 canonical_tgt = entity_alias_map[tgt_key]
-                canonical_type = self._canonicalize_relationship_type(
-                    rel.get("type", ""),
-                    source_type=entity_type_by_name.get(canonical_src),
-                    target_type=entity_type_by_name.get(canonical_tgt),
-                ) or str(rel.get("type") or "").strip().replace(" ", "_").replace("-", "_").upper()
+                canonical_type = (
+                    self._canonicalize_relationship_type(
+                        rel.get("type", ""),
+                        source_type=entity_type_by_name.get(canonical_src),
+                        target_type=entity_type_by_name.get(canonical_tgt),
+                    )
+                    or str(rel.get("type") or "")
+                    .strip()
+                    .replace(" ", "_")
+                    .replace("-", "_")
+                    .upper()
+                )
                 vote_key = (
                     canonical_src,
                     canonical_type,
@@ -737,7 +805,9 @@ Rules:
                 continue
             representative = max(
                 voted_relationships,
-                key=lambda rel: len(str((rel.get("properties") or {}).get("description") or "")),
+                key=lambda rel: len(
+                    str((rel.get("properties") or {}).get("description") or "")
+                ),
             ).copy()
             representative_properties = dict(representative.get("properties") or {})
             provenance = sorted(
@@ -758,11 +828,19 @@ Rules:
             )
             if merged_anchor_grounding:
                 representative_properties["anchor_grounding"] = merged_anchor_grounding
-                restoration = self._restoration_from_anchor_grounding(merged_anchor_grounding)
+                restoration = self._restoration_from_anchor_grounding(
+                    merged_anchor_grounding
+                )
                 representative_properties["restoration_status"] = restoration["status"]
-                representative_properties["restoration_verified"] = restoration["verified"]
-                representative_properties["restoration_grounded_components"] = restoration["grounded_components"]
-                representative_properties["restoration_grounded_count"] = restoration["grounded_count"]
+                representative_properties["restoration_verified"] = restoration[
+                    "verified"
+                ]
+                representative_properties["restoration_grounded_components"] = (
+                    restoration["grounded_components"]
+                )
+                representative_properties["restoration_grounded_count"] = restoration[
+                    "grounded_count"
+                ]
             representative["properties"] = representative_properties
             kept_relationships.append(representative)
 
@@ -795,7 +873,9 @@ Rules:
                              "Results").  Helps the LLM interpret claims correctly.
         """
         if llm is None:
-            logging.warning("_extract_entities_and_relationships_with_llm called with llm=None; returning empty.")
+            logging.warning(
+                "_extract_entities_and_relationships_with_llm called with llm=None; returning empty."
+            )
             return {"entities": [], "relationships": []}
 
         if getattr(self, "self_consistency_n", 1) > 1 and _self_consistency_depth == 0:
@@ -845,12 +925,22 @@ Rules:
             try:
                 ontology_section = self._build_ontology_prompt_section(chunk_text)
             except Exception as _oe:
-                logging.warning("Failed to build schema-aware ontology prompt section: %s", _oe)
+                logging.warning(
+                    "Failed to build schema-aware ontology prompt section: %s", _oe
+                )
                 ontology_section = (
                     "ENTITY TYPES:\n"
-                    + "\n".join(f"- {c['label']} ({c['id']})" for c in self.ontology_classes[:100] if isinstance(c, dict))
+                    + "\n".join(
+                        f"- {c['label']} ({c['id']})"
+                        for c in self.ontology_classes[:100]
+                        if isinstance(c, dict)
+                    )
                     + "\n\nRELATIONSHIP TYPES:\n"
-                    + "\n".join(f"- {r['label']} ({r['id']})" for r in self.ontology_relationships[:50] if isinstance(r, dict))
+                    + "\n".join(
+                        f"- {r['label']} ({r['id']})"
+                        for r in self.ontology_relationships[:50]
+                        if isinstance(r, dict)
+                    )
                 )
 
             system_message = f"""
@@ -978,13 +1068,15 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
 
         try:
             if self.enable_anchor_constrained_extraction:
-                anchored_result = self._extract_entities_and_relationships_with_anchor_constraints(
-                    chunk_text,
-                    llm,
-                    model_name=model_name,
-                    context_preamble=context_preamble,
-                    ontology_section=ontology_section,
-                    has_ontology=has_ontology,
+                anchored_result = (
+                    self._extract_entities_and_relationships_with_anchor_constraints(
+                        chunk_text,
+                        llm,
+                        model_name=model_name,
+                        context_preamble=context_preamble,
+                        ontology_section=ontology_section,
+                        has_ontology=has_ontology,
+                    )
                 )
                 if anchored_result is not None:
                     return anchored_result
@@ -992,9 +1084,14 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
             try:
                 response = llm.generate(system_message, "", model_name)
             except Exception as timeout_error:
-                if "timeout" in str(timeout_error).lower() or "read operation timed out" in str(timeout_error).lower():
-                    logging.warning("LLM request timed out for chunk. Returning empty result to continue processing.")
-                    return {'entities': [], 'relationships': []}
+                if (
+                    "timeout" in str(timeout_error).lower()
+                    or "read operation timed out" in str(timeout_error).lower()
+                ):
+                    logging.warning(
+                        "LLM request timed out for chunk. Returning empty result to continue processing."
+                    )
+                    return {"entities": [], "relationships": []}
                 raise timeout_error
 
             logging.info("Raw LLM response length: %d", len(str(response)))
@@ -1026,6 +1123,7 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
         This prevents silently discarding an entire chunk just because a trailing
         comma or stray character made the top-level JSON invalid.
         """
+
         def _extract_array(key: str, src: str):
             """Regex-extract the JSON array for a given key from a potentially broken JSON string."""
             pattern = rf'"{key}"\s*:\s*(\[.*?\])'
@@ -1036,20 +1134,22 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
                 return json.loads(match.group(1))
             except json.JSONDecodeError:
                 # Try to clean common issues: trailing commas before ]
-                cleaned = re.sub(r',\s*]', ']', match.group(1))
-                cleaned = re.sub(r',\s*}', '}', cleaned)
+                cleaned = re.sub(r",\s*]", "]", match.group(1))
+                cleaned = re.sub(r",\s*}", "}", cleaned)
                 try:
                     return json.loads(cleaned)
                 except json.JSONDecodeError:
                     return None
 
-        entities = _extract_array('entities', text)
-        relationships = _extract_array('relationships', text)
+        entities = _extract_array("entities", text)
+        relationships = _extract_array("relationships", text)
 
         if entities is not None or relationships is not None:
             recovered = {
-                'entities': entities if isinstance(entities, list) else [],
-                'relationships': relationships if isinstance(relationships, list) else [],
+                "entities": entities if isinstance(entities, list) else [],
+                "relationships": relationships
+                if isinstance(relationships, list)
+                else [],
             }
             logging.info(
                 f"Partial JSON recovery succeeded: {len(recovered['entities'])} entities, "
@@ -1057,8 +1157,10 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
             )
             return recovered
 
-        logging.warning("Partial JSON recovery failed; returning empty extraction for this chunk.")
-        return {'entities': [], 'relationships': []}
+        logging.warning(
+            "Partial JSON recovery failed; returning empty extraction for this chunk."
+        )
+        return {"entities": [], "relationships": []}
 
     def _parse_llm_json_response(
         self,
@@ -1074,15 +1176,15 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
             return dict(empty_result)
 
         response_text = str(response).strip()
-        if response_text.startswith('```json'):
+        if response_text.startswith("```json"):
             response_text = response_text[7:]
-        if response_text.startswith('```'):
+        if response_text.startswith("```"):
             response_text = response_text[3:]
-        if response_text.endswith('```'):
+        if response_text.endswith("```"):
             response_text = response_text[:-3]
         response_text = response_text.strip()
 
-        json_start = response_text.find('{')
+        json_start = response_text.find("{")
         if json_start == -1:
             return dict(empty_result)
 
@@ -1096,16 +1198,16 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
             if escape_next:
                 escape_next = False
                 continue
-            if char == '\\':
+            if char == "\\":
                 escape_next = True
                 continue
             if char == '"' and not escape_next:
                 in_string = not in_string
                 continue
             if not in_string:
-                if char == '{':
+                if char == "{":
                     brace_count += 1
-                elif char == '}':
+                elif char == "}":
                     brace_count -= 1
                     if brace_count == 0:
                         json_end = i + 1
@@ -1114,7 +1216,7 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
         if brace_count == 0 and json_end > json_start:
             json_content = response_text[json_start:json_end]
         else:
-            json_end = response_text.rfind('}') + 1
+            json_end = response_text.rfind("}") + 1
             if json_end > json_start:
                 json_content = response_text[json_start:json_end]
             else:
@@ -1195,24 +1297,31 @@ Return ONLY the JSON object.
     ) -> str:
         """Stage 2 of anchor-constrained extraction: compose triples only from anchors."""
         schema_block = f"{ontology_section}\n\n" if ontology_section else ""
-        entity_lines = "\n".join(
-            f"- {anchor['text']} (type: {anchor['type']})"
-            for anchor in anchor_inventory.get("entity_anchors", [])
-        ) or "- none"
-        relation_lines = "\n".join(
-            f"- {anchor['text']} (type hint: {anchor['type_hint']})"
-            for anchor in anchor_inventory.get("relation_anchors", [])
-        ) or "- none"
-        attribute_lines = "\n".join(
-            f"- {anchor['text']} (role: {anchor['role']})"
-            for anchor in anchor_inventory.get("attribute_anchors", [])
-        ) or "- none"
+        entity_lines = (
+            "\n".join(
+                f"- {anchor['text']} (type: {anchor['type']})"
+                for anchor in anchor_inventory.get("entity_anchors", [])
+            )
+            or "- none"
+        )
+        relation_lines = (
+            "\n".join(
+                f"- {anchor['text']} (type hint: {anchor['type_hint']})"
+                for anchor in anchor_inventory.get("relation_anchors", [])
+            )
+            or "- none"
+        )
+        attribute_lines = (
+            "\n".join(
+                f"- {anchor['text']} (role: {anchor['role']})"
+                for anchor in anchor_inventory.get("attribute_anchors", [])
+            )
+            or "- none"
+        )
 
         schema_rules = ""
         if has_ontology:
-            schema_rules = (
-                "Use schema-compatible relationship types and prefer domain/range-consistent choices.\n"
-            )
+            schema_rules = "Use schema-compatible relationship types and prefer domain/range-consistent choices.\n"
 
         return f"""
 You are performing grounded knowledge graph extraction from a closed anchor inventory.
@@ -1368,7 +1477,10 @@ Return ONLY the JSON object.
             )
             return grounded_result
         except Exception as exc:
-            logging.warning("Anchor-constrained extraction failed; falling back to direct extraction: %s", exc)
+            logging.warning(
+                "Anchor-constrained extraction failed; falling back to direct extraction: %s",
+                exc,
+            )
             return None
 
     def _postprocess_extraction_result(
@@ -1380,72 +1492,88 @@ Return ONLY the JSON object.
         model_name: str,
     ) -> Dict[str, Any]:
         """Normalize parsed extraction JSON into entity/relationship records."""
-        if not isinstance(result, dict) or ('entities' not in result and 'relationships' not in result):
+        if not isinstance(result, dict) or (
+            "entities" not in result and "relationships" not in result
+        ):
             logging.warning("Invalid response structure. Returning empty result.")
-            return {'entities': [], 'relationships': []}
+            return {"entities": [], "relationships": []}
         result = dict(result)
-        result.setdefault('entities', [])
-        result.setdefault('relationships', [])
+        result.setdefault("entities", [])
+        result.setdefault("relationships", [])
 
         medical_entities = []
-        entities_raw = result.get('entities', [])
+        entities_raw = result.get("entities", [])
         if not isinstance(entities_raw, list):
             logging.warning(
                 "LLM returned entities as %s instead of list: %s. Skipping chunk.",
                 type(entities_raw),
                 entities_raw,
             )
-            return {'entities': [], 'relationships': []}
+            return {"entities": [], "relationships": []}
 
         for entity in entities_raw:
             if isinstance(entity, str):
                 try:
                     entity_type = self._coerce_entity_type_with_ontology(None, entity)
                     if not entity_type:
-                        logging.info("Skipping string entity with no schema-compatible type: %s", entity)
+                        logging.info(
+                            "Skipping string entity with no schema-compatible type: %s",
+                            entity,
+                        )
                         continue
                     entity = {
                         "id": entity,
                         "type": entity_type,
                         "properties": {
                             "name": entity,
-                            "description": f"{entity_type}: {entity}"
-                        }
+                            "description": f"{entity_type}: {entity}",
+                        },
                     }
                 except Exception as e:
-                    logging.warning("Error processing string entity '%s': %s. Skipping.", entity, e)
+                    logging.warning(
+                        "Error processing string entity '%s': %s. Skipping.", entity, e
+                    )
                     continue
             elif isinstance(entity, dict):
-                if 'id' not in entity:
+                if "id" not in entity:
                     logging.warning("Entity missing 'id' field: %s. Skipping.", entity)
                     continue
-                if not isinstance(entity['id'], str):
+                if not isinstance(entity["id"], str):
                     logging.warning(
                         "Entity id is not a string: %s = %s. Converting to string.",
-                        type(entity['id']),
-                        entity['id'],
+                        type(entity["id"]),
+                        entity["id"],
                     )
-                    entity['id'] = str(entity['id'])
+                    entity["id"] = str(entity["id"])
 
                 try:
                     entity_type = self._coerce_entity_type_with_ontology(
-                        entity.get('type'),
-                        entity.get('id'),
+                        entity.get("type"),
+                        entity.get("id"),
                     )
                     if not entity_type:
-                        logging.info("Skipping entity with no schema-compatible type: %s", entity.get("id"))
+                        logging.info(
+                            "Skipping entity with no schema-compatible type: %s",
+                            entity.get("id"),
+                        )
                         continue
-                    entity['type'] = entity_type
-                    if 'properties' not in entity:
-                        entity['properties'] = {
-                            "name": entity['id'],
-                            "description": f"{entity['type']}: {entity['id']}"
+                    entity["type"] = entity_type
+                    if "properties" not in entity:
+                        entity["properties"] = {
+                            "name": entity["id"],
+                            "description": f"{entity['type']}: {entity['id']}",
                         }
                 except Exception as e:
-                    logging.warning("Error processing dict entity %s: %s. Skipping.", entity, e)
+                    logging.warning(
+                        "Error processing dict entity %s: %s. Skipping.", entity, e
+                    )
                     continue
             else:
-                logging.warning("Entity is neither string nor dict: %s = %s. Skipping.", type(entity), entity)
+                logging.warning(
+                    "Entity is neither string nor dict: %s = %s. Skipping.",
+                    type(entity),
+                    entity,
+                )
                 continue
 
             medical_entities.append(entity)
@@ -1453,7 +1581,7 @@ Return ONLY the JSON object.
         medical_relationships = []
         relationship_drop_count = 0
         relationship_fuzzy_resolutions = 0
-        relationships_raw = result.get('relationships', [])
+        relationships_raw = result.get("relationships", [])
 
         if not isinstance(relationships_raw, list):
             logging.warning(
@@ -1468,29 +1596,42 @@ Return ONLY the JSON object.
                     logging.warning("Relationship is string: %s. Skipping.", rel)
                     continue
                 if not isinstance(rel, dict):
-                    logging.warning("Relationship is neither string nor dict: %s = %s. Skipping.", type(rel), rel)
+                    logging.warning(
+                        "Relationship is neither string nor dict: %s = %s. Skipping.",
+                        type(rel),
+                        rel,
+                    )
                     continue
-                raw_src = rel.get('source', '')
-                raw_tgt = rel.get('target', '')
+                raw_src = rel.get("source", "")
+                raw_tgt = rel.get("target", "")
                 if not isinstance(raw_src, str) or not isinstance(raw_tgt, str):
-                    logging.warning("Relationship source/target not strings: %s. Skipping.", rel)
+                    logging.warning(
+                        "Relationship source/target not strings: %s. Skipping.", rel
+                    )
                     continue
-                canonical_src = self._resolve_relationship_endpoint(raw_src, medical_entities)
-                canonical_tgt = self._resolve_relationship_endpoint(raw_tgt, medical_entities)
+                canonical_src = self._resolve_relationship_endpoint(
+                    raw_src, medical_entities
+                )
+                canonical_tgt = self._resolve_relationship_endpoint(
+                    raw_tgt, medical_entities
+                )
                 if canonical_src and canonical_tgt:
                     rel_copy = dict(rel)
-                    rel_copy['source'] = canonical_src
-                    rel_copy['target'] = canonical_tgt
-                    rel_props = dict(rel_copy.get('properties') or {})
-                    rel_props.setdefault('source_name', raw_src)
-                    rel_props.setdefault('target_name', raw_tgt)
-                    rel_copy['properties'] = rel_props
+                    rel_copy["source"] = canonical_src
+                    rel_copy["target"] = canonical_tgt
+                    rel_props = dict(rel_copy.get("properties") or {})
+                    rel_props.setdefault("source_name", raw_src)
+                    rel_props.setdefault("target_name", raw_tgt)
+                    rel_copy["properties"] = rel_props
                     if canonical_src != raw_src or canonical_tgt != raw_tgt:
                         relationship_fuzzy_resolutions += 1
                     medical_relationships.append(rel_copy)
                 else:
                     relationship_drop_count += 1
-                    logging.warning("Invalid relationship (source/target not in entities): %s. Skipping.", rel)
+                    logging.warning(
+                        "Invalid relationship (source/target not in entities): %s. Skipping.",
+                        rel,
+                    )
 
         if relationships_raw:
             logging.info(
@@ -1502,12 +1643,12 @@ Return ONLY the JSON object.
 
         if not getattr(self, "enable_self_reflection", True):
             return {
-                'entities': medical_entities,
-                'relationships': medical_relationships
+                "entities": medical_entities,
+                "relationships": medical_relationships,
             }
 
         try:
-            existing_entity_names = [e['id'] for e in medical_entities]
+            existing_entity_names = [e["id"] for e in medical_entities]
             reflection_prompt = f"""You are a quality-control agent for a knowledge graph extraction pipeline.
 
 ORIGINAL TEXT:
@@ -1540,42 +1681,47 @@ Return ONLY the JSON object."""
                 allow_partial_extraction=False,
                 empty_result={"new_entities": []},
             )
-            new_entities_raw = reflection_data.get('new_entities', [])
-            existing_ids_lower = {e['id'].lower() for e in medical_entities}
+            new_entities_raw = reflection_data.get("new_entities", [])
+            existing_ids_lower = {e["id"].lower() for e in medical_entities}
             chunk_text_lower = chunk_text.lower()
             added = 0
             added_entity_ids = []
             for entity in new_entities_raw:
-                if not isinstance(entity, dict) or 'id' not in entity:
+                if not isinstance(entity, dict) or "id" not in entity:
                     continue
-                if not isinstance(entity['id'], str):
-                    entity['id'] = str(entity['id'])
-                if entity['id'].lower() in existing_ids_lower:
+                if not isinstance(entity["id"], str):
+                    entity["id"] = str(entity["id"])
+                if entity["id"].lower() in existing_ids_lower:
                     continue
-                if entity['id'].lower() not in chunk_text_lower:
+                if entity["id"].lower() not in chunk_text_lower:
                     logging.info(
                         "Self-reflection: skipping hallucinated entity not in chunk text: %s",
-                        entity['id'],
+                        entity["id"],
                     )
                     continue
                 entity_type = self._coerce_entity_type_with_ontology(
-                    entity.get('type'),
-                    entity['id'],
+                    entity.get("type"),
+                    entity["id"],
                 )
                 if not entity_type:
-                    logging.info("Skipping reflected entity with no schema-compatible type: %s", entity['id'])
+                    logging.info(
+                        "Skipping reflected entity with no schema-compatible type: %s",
+                        entity["id"],
+                    )
                     continue
-                entity['type'] = entity_type
-                entity.setdefault('properties', {'name': entity['id'], 'description': entity['type']})
+                entity["type"] = entity_type
+                entity.setdefault(
+                    "properties", {"name": entity["id"], "description": entity["type"]}
+                )
                 medical_entities.append(entity)
-                existing_ids_lower.add(entity['id'].lower())
-                added_entity_ids.append(entity['id'])
+                existing_ids_lower.add(entity["id"].lower())
+                added_entity_ids.append(entity["id"])
                 added += 1
             if added:
                 logging.info("Self-reflection added %d new entities", added)
 
             if added_entity_ids:
-                all_known_ids = [e['id'] for e in medical_entities]
+                all_known_ids = [e["id"] for e in medical_entities]
                 recon_prompt = f"""You are extracting relationships for a knowledge graph.
 
 TEXT:
@@ -1620,10 +1766,15 @@ Rules:
                     allow_partial_extraction=True,
                     empty_result={"relationships": []},
                 )
-                new_rels = recon_data.get('relationships', [])
+                new_rels = recon_data.get("relationships", [])
                 new_rels_added = 0
                 for rel in new_rels:
-                    if isinstance(rel, dict) and rel.get('source') and rel.get('target') and rel.get('type'):
+                    if (
+                        isinstance(rel, dict)
+                        and rel.get("source")
+                        and rel.get("target")
+                        and rel.get("type")
+                    ):
                         medical_relationships.append(rel)
                         new_rels_added += 1
                 if new_rels_added:
@@ -1634,12 +1785,11 @@ Rules:
         except Exception as refl_err:
             logging.debug("Self-reflection pass failed (non-fatal): %s", refl_err)
 
-        return {
-            'entities': medical_entities,
-            'relationships': medical_relationships
-        }
+        return {"entities": medical_entities, "relationships": medical_relationships}
 
-    def _extract_relationships_only(self, combined_text: str, known_entities: List[Dict], llm, model_name: str) -> List[Dict]:
+    def _extract_relationships_only(
+        self, combined_text: str, known_entities: List[Dict], llm, model_name: str
+    ) -> List[Dict]:
         """
         Given a combined text (two adjacent chunks) and entities already known from those chunks,
         ask the LLM only for relationships between those entities — no new entity extraction.
@@ -1694,20 +1844,20 @@ Rules:
         try:
             response = llm.generate(prompt, "", model_name)
             response = response.strip()
-            if response.startswith('```json'):
+            if response.startswith("```json"):
                 response = response[7:]
-            if response.startswith('```'):
+            if response.startswith("```"):
                 response = response[3:]
-            if response.endswith('```'):
+            if response.endswith("```"):
                 response = response[:-3]
             response = response.strip()
 
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
+            json_start = response.find("{")
+            json_end = response.rfind("}") + 1
             if json_start < 0 or json_end <= json_start:
                 return []
             result = json.loads(response[json_start:json_end])
-            return result.get('relationships', [])
+            return result.get("relationships", [])
         except Exception as e:
             logging.warning(f"Cross-chunk relationship extraction failed: {e}")
             return []
@@ -1724,7 +1874,9 @@ Rules:
         seen_entity_ids = set()
         for entity in entities:
             entity_id = entity.get("id")
-            dedupe_key = entity_id if isinstance(entity_id, str) and entity_id else id(entity)
+            dedupe_key = (
+                entity_id if isinstance(entity_id, str) and entity_id else id(entity)
+            )
             if dedupe_key in seen_entity_ids:
                 continue
             if self._entity_appears_in_text(entity, text):
@@ -1736,11 +1888,15 @@ Rules:
         def _support_score(entity: Dict[str, Any]) -> Tuple[int, int]:
             names = self._entity_candidate_names(entity)
             longest_name = max((len(name) for name in names), default=0)
-            mentions = sum(1 for name in names if isinstance(name, str) and name.lower() in text.lower())
+            mentions = sum(
+                1
+                for name in names
+                if isinstance(name, str) and name.lower() in text.lower()
+            )
             return (mentions, longest_name)
 
         deduped.sort(key=_support_score, reverse=True)
-        return deduped[:getattr(self, "max_relationship_prompt_entities", 40)]
+        return deduped[: getattr(self, "max_relationship_prompt_entities", 40)]
 
     def _extract_relationships_for_segment_windows(
         self,
@@ -1821,5 +1977,9 @@ Rules:
                 time.sleep(0.5)
 
         if total_rels:
-            logging.info("%s extraction complete: %d additional relationships found", scope_label, total_rels)
+            logging.info(
+                "%s extraction complete: %d additional relationships found",
+                scope_label,
+                total_rels,
+            )
         return recovered

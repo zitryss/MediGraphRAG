@@ -48,7 +48,7 @@ RETURN count(DISTINCT e) as nodes, count(DISTINCT rel) as rels
 """
 
 # GCS upload bucket for document sources
-BUCKET_UPLOAD = 'llm-graph-builder-upload'
+BUCKET_UPLOAD = "llm-graph-builder-upload"
 
 # Node/relationship count queries
 NODEREL_COUNT_QUERY_WITH_COMMUNITY = """

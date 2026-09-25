@@ -9,7 +9,10 @@ import sys
 
 import pytest
 
-pytest.importorskip("langchain_neo4j", reason="langchain_neo4j not installed — skipping retrieval helper tests")
+pytest.importorskip(
+    "langchain_neo4j",
+    reason="langchain_neo4j not installed — skipping retrieval helper tests",
+)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -57,5 +60,8 @@ class TestEnhancedGroundingHelpers:
 
         assert "toLower(coalesce(e.name, '')) AS entity_name" in query
         assert "entity_name," in query
-        assert "[tok IN $query_tokens WHERE entity_name CONTAINS tok] AS matched_tokens" in query
+        assert (
+            "[tok IN $query_tokens WHERE entity_name CONTAINS tok] AS matched_tokens"
+            in query
+        )
         assert "coalesce(e.all_names, [])" in query

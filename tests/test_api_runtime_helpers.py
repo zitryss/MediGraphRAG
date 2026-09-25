@@ -32,9 +32,18 @@ def test_configured_provider_names_from_env_detects_keys():
 
 
 def test_guardrail_forces_abstention_only_on_non_keep_verdicts():
-    assert guardrail_forces_abstention({"enabled": True, "final_decision": "abstain"}) is True
-    assert guardrail_forces_abstention({"enabled": True, "final_decision": "retry_keep"}) is False
-    assert guardrail_forces_abstention({"enabled": False, "final_decision": "abstain"}) is False
+    assert (
+        guardrail_forces_abstention({"enabled": True, "final_decision": "abstain"})
+        is True
+    )
+    assert (
+        guardrail_forces_abstention({"enabled": True, "final_decision": "retry_keep"})
+        is False
+    )
+    assert (
+        guardrail_forces_abstention({"enabled": False, "final_decision": "abstain"})
+        is False
+    )
     assert guardrail_forces_abstention(None) is False
 
 

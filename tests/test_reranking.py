@@ -21,7 +21,9 @@ def test_rerank_chunks_for_query_sorts_by_model_score(monkeypatch):
 
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER_MODEL", "fake-reranker")
-    monkeypatch.setattr(rerank_mod, "_load_cross_encoder", lambda model_name: FakeModel())
+    monkeypatch.setattr(
+        rerank_mod, "_load_cross_encoder", lambda model_name: FakeModel()
+    )
 
     chunks = [
         {"text": "Generic background.", "chunk_id": "c1", "score": 0.9},
@@ -64,15 +66,21 @@ def test_resolve_late_interaction_model_name_uses_accuracy_profile_default(monke
 def test_late_interaction_rescore_chunks_for_query_sorts_by_model_score(monkeypatch):
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
-    monkeypatch.setattr(rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True})
-    monkeypatch.setattr(rerank_mod, "_late_interaction_scores", lambda bundle, query, chunks: [0.2, 0.8])
+    monkeypatch.setattr(
+        rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True}
+    )
+    monkeypatch.setattr(
+        rerank_mod, "_late_interaction_scores", lambda bundle, query, chunks: [0.2, 0.8]
+    )
 
     chunks = [
         {"text": "Generic background.", "chunk_id": "c1", "score": 0.9},
         {"text": "Direct answer evidence.", "chunk_id": "c2", "score": 0.5},
     ]
 
-    reranked, meta = rerank_mod.late_interaction_rescore_chunks_for_query("Question?", chunks)
+    reranked, meta = rerank_mod.late_interaction_rescore_chunks_for_query(
+        "Question?", chunks
+    )
 
     assert reranked[0]["chunk_id"] == "c2"
     assert reranked[1]["chunk_id"] == "c1"
@@ -83,8 +91,12 @@ def test_late_interaction_rescore_chunks_for_query_sorts_by_model_score(monkeypa
 def test_late_interaction_rescore_chunks_can_replace_score(monkeypatch):
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
-    monkeypatch.setattr(rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True})
-    monkeypatch.setattr(rerank_mod, "_late_interaction_scores", lambda bundle, query, chunks: [0.2, 0.8])
+    monkeypatch.setattr(
+        rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True}
+    )
+    monkeypatch.setattr(
+        rerank_mod, "_late_interaction_scores", lambda bundle, query, chunks: [0.2, 0.8]
+    )
 
     chunks = [
         {"text": "Generic background.", "chunk_id": "c1", "score": 0.9},
@@ -102,17 +114,23 @@ def test_late_interaction_rescore_chunks_can_replace_score(monkeypatch):
     assert meta["replace_score"] is True
 
 
-def test_late_interaction_rescore_chunks_for_query_fails_soft_when_model_unavailable(monkeypatch):
+def test_late_interaction_rescore_chunks_for_query_fails_soft_when_model_unavailable(
+    monkeypatch,
+):
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
-    monkeypatch.setattr(rerank_mod, "_load_late_interaction_model", lambda model_name: None)
+    monkeypatch.setattr(
+        rerank_mod, "_load_late_interaction_model", lambda model_name: None
+    )
 
     chunks = [
         {"text": "First.", "chunk_id": "c1", "score": 0.9},
         {"text": "Second.", "chunk_id": "c2", "score": 0.8},
     ]
 
-    reranked, meta = rerank_mod.late_interaction_rescore_chunks_for_query("Question?", chunks)
+    reranked, meta = rerank_mod.late_interaction_rescore_chunks_for_query(
+        "Question?", chunks
+    )
 
     assert [chunk["chunk_id"] for chunk in reranked] == ["c1", "c2"]
     assert meta["applied"] is False
@@ -122,7 +140,9 @@ def test_late_interaction_rescore_chunks_for_query_fails_soft_when_model_unavail
 def test_late_interaction_rescore_chunks_for_query_uses_indexed_backend(monkeypatch):
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
-    monkeypatch.setattr(rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True})
+    monkeypatch.setattr(
+        rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True}
+    )
     monkeypatch.setattr(
         rerank_mod,
         "_late_interaction_scores_indexed",
@@ -240,11 +260,13 @@ def test_late_interaction_scores_indexed_prefilters_large_corpus(monkeypatch):
         torch.tensor([[0.9, 0.0]], dtype=torch.float32),
         torch.tensor([[0.8, 0.0]], dtype=torch.float32),
     ]
-    doc_pooled = torch.stack([
-        torch.tensor([0.1, 0.0], dtype=torch.float32),
-        torch.tensor([0.9, 0.0], dtype=torch.float32),
-        torch.tensor([0.8, 0.0], dtype=torch.float32),
-    ])
+    doc_pooled = torch.stack(
+        [
+            torch.tensor([0.1, 0.0], dtype=torch.float32),
+            torch.tensor([0.9, 0.0], dtype=torch.float32),
+            torch.tensor([0.8, 0.0], dtype=torch.float32),
+        ]
+    )
     bundle = {"torch": torch}
 
     monkeypatch.setattr(
@@ -265,7 +287,9 @@ def test_late_interaction_scores_indexed_prefilters_large_corpus(monkeypatch):
     )
     monkeypatch.setattr(rerank_mod, "_late_interaction_prefilter_min_docs", lambda: 1)
     monkeypatch.setattr(rerank_mod, "_late_interaction_shortlist_cap", lambda: 2)
-    monkeypatch.setattr(rerank_mod, "_late_interaction_default_shortlist_factor", lambda: 1)
+    monkeypatch.setattr(
+        rerank_mod, "_late_interaction_default_shortlist_factor", lambda: 1
+    )
 
     scored, meta = rerank_mod._late_interaction_scores_indexed(
         bundle,

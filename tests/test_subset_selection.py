@@ -24,7 +24,9 @@ def test_deterministic_subset_ids_is_seeded_and_order_preserving():
     assert selected_once == selected_twice
     assert len(selected_once) == 4
     # The returned subset should preserve original dataset order.
-    assert selected_once == [question_id for question_id in ordered_ids if question_id in set(selected_once)]
+    assert selected_once == [
+        question_id for question_id in ordered_ids if question_id in set(selected_once)
+    ]
 
 
 def test_selection_file_path_is_seed_specific(tmp_path: Path):
@@ -68,7 +70,9 @@ def test_resolve_question_subset_creates_and_then_reuses_saved_ids(tmp_path: Pat
     assert created.payload["subset_id"].startswith("musique__n3_seed11_h")
 
 
-def test_resolve_question_subset_reuses_persisted_ids_when_params_change(tmp_path: Path):
+def test_resolve_question_subset_reuses_persisted_ids_when_params_change(
+    tmp_path: Path,
+):
     selection_path = selection_file_path(
         tmp_path,
         "hotpotqa",
@@ -99,7 +103,9 @@ def test_resolve_question_subset_reuses_persisted_ids_when_params_change(tmp_pat
     assert "num_samples=5" in reused.warnings[1]
 
 
-def test_resolve_question_subset_force_resample_overwrites_existing_selection(tmp_path: Path):
+def test_resolve_question_subset_force_resample_overwrites_existing_selection(
+    tmp_path: Path,
+):
     selection_path = selection_file_path(
         tmp_path,
         "pubmedqa",

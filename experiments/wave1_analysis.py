@@ -25,14 +25,22 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.trust_analysis import (rows_for, gps_scores, REPO, MANIFEST,  # noqa: E402
-                                        KEY, STRICT_RUNS, SD_FLOOR)
+from experiments.trust_analysis import (
+    rows_for,
+    gps_scores,
+    REPO,
+    MANIFEST,  # noqa: E402
+    KEY,
+    STRICT_RUNS,
+    SD_FLOOR,
+)
 from experiments.gps_v2_paper_numbers import percentile_ranks  # noqa: E402
 
 RNG = np.random.default_rng(42)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def wilson_ci(k, n, z=1.96):
     if n == 0:
@@ -57,6 +65,7 @@ def all_rows(policy):
 
 # ── V1.2: threshold sensitivity ──────────────────────────────────────────────
 
+
 def threshold_sensitivity():
     """Silent rate among wrong answers under nested relaxations of 'calm'.
 
@@ -70,25 +79,38 @@ def threshold_sensitivity():
     policies = ("vanilla", "kg", "strict")
     rows_by_policy = {p: all_rows(p) for p in policies}
     conditions = [
-        ("paper definition: DSE=0 and SD-UQ at floor",
-         lambda r: r["dse"] is not None and abs(r["dse"]) < 1e-9
-         and r["sd"] is not None and r["sd"] <= SD_FLOOR),
-        ("unanimous: DSE=0, any SD-UQ",
-         lambda r: r["dse"] is not None and abs(r["dse"]) < 1e-9),
-        ("near-unanimous: <=1 dissenting sample (DSE<=0.51)",
-         lambda r: r["dse"] is not None and r["dse"] <= 0.51),
+        (
+            "paper definition: DSE=0 and SD-UQ at floor",
+            lambda r: (
+                r["dse"] is not None
+                and abs(r["dse"]) < 1e-9
+                and r["sd"] is not None
+                and r["sd"] <= SD_FLOOR
+            ),
+        ),
+        (
+            "unanimous: DSE=0, any SD-UQ",
+            lambda r: r["dse"] is not None and abs(r["dse"]) < 1e-9,
+        ),
+        (
+            "near-unanimous: <=1 dissenting sample (DSE<=0.51)",
+            lambda r: r["dse"] is not None and r["dse"] <= 0.51,
+        ),
     ]
     for name, cond in conditions:
         defs[name] = {}
         for p in policies:
             wrong = [r for _, r in rows_by_policy[p] if not r["correct"]]
             calm = [1 for r in wrong if cond(r)]
-            defs[name][p] = {"rate": (sum(calm) / len(wrong)) if wrong else None,
-                             "n_wrong": len(wrong)}
+            defs[name][p] = {
+                "rate": (sum(calm) / len(wrong)) if wrong else None,
+                "n_wrong": len(wrong),
+            }
     return defs
 
 
 # ── T7: Wilson CIs for the paper-definition silent rates ─────────────────────
+
 
 def silent_cis():
     out = {}
@@ -98,24 +120,36 @@ def silent_cis():
                 continue
             rows = rows_for(slug, policy)
             wrong = [r for r in rows if not r["correct"]]
-            calm = [r for r in wrong
-                    if r["dse"] is not None and abs(r["dse"]) < 1e-9
-                    and r["sd"] is not None and r["sd"] <= SD_FLOOR]
+            calm = [
+                r
+                for r in wrong
+                if r["dse"] is not None
+                and abs(r["dse"]) < 1e-9
+                and r["sd"] is not None
+                and r["sd"] <= SD_FLOOR
+            ]
             out.setdefault(slug, {})[policy] = {
-                "k": len(calm), "n": len(wrong),
+                "k": len(calm),
+                "n": len(wrong),
                 "rate": len(calm) / len(wrong) if wrong else None,
-                "ci95": wilson_ci(len(calm), len(wrong))}
+                "ci95": wilson_ci(len(calm), len(wrong)),
+            }
     # pooled
     out["pooled"] = {}
     for policy in ("vanilla", "kg", "strict"):
         k = sum(out[s][policy]["k"] for s in KEY if policy in out.get(s, {}))
         n = sum(out[s][policy]["n"] for s in KEY if policy in out.get(s, {}))
-        out["pooled"][policy] = {"k": k, "n": n, "rate": k / n if n else None,
-                                 "ci95": wilson_ci(k, n)}
+        out["pooled"][policy] = {
+            "k": k,
+            "n": n,
+            "rate": k / n if n else None,
+            "ci95": wilson_ci(k, n),
+        }
     return out
 
 
 # ── T16: SEU-gated selective risk at 80% coverage (adaptive) ────────────────
+
 
 def seu_at_coverage(draws=200, cov=0.8):
     out = {}
@@ -133,20 +167,24 @@ def seu_at_coverage(draws=200, cov=0.8):
             order = np.argsort(seu + jitter)
             errs.append(1.0 - corr[order][:k].mean())
         tie_mass = float((seu == np.median(seu)).mean())
-        out[slug] = {"n": n, "err_at_80": float(np.mean(errs)),
-                     "err_sd_over_draws": float(np.std(errs)),
-                     "frac_at_modal_seu": float((seu == 0.5).mean())}
+        out[slug] = {
+            "n": n,
+            "err_at_80": float(np.mean(errs)),
+            "err_sd_over_draws": float(np.std(errs)),
+            "frac_at_modal_seu": float((seu == 0.5).mean()),
+        }
     return out
 
 
 # ── T6b: taxonomy cell prevalence (proxy operationalisation) ─────────────────
 
+
 def taxonomy_prevalence():
     """Among answered rows per policy (pooled):
-       calm  = DSE=0 & SD at floor (high answer agreement)
-       For wrong answers: calm-wrong = lock-in cell candidates;
-         flagged = SEU>0.5 or GPS>0.5 or GPS abstained (discordant signal).
-       For correct answers: certificate-pass share (trustworthy cell)."""
+    calm  = DSE=0 & SD at floor (high answer agreement)
+    For wrong answers: calm-wrong = lock-in cell candidates;
+      flagged = SEU>0.5 or GPS>0.5 or GPS abstained (discordant signal).
+    For correct answers: certificate-pass share (trustworthy cell)."""
     out = {}
     gps_cache = {}
     for policy in ("vanilla", "kg", "strict"):
@@ -171,11 +209,16 @@ def taxonomy_prevalence():
             sd_med = float(np.median(sd_vals)) if sd_vals else None
             for r in rows:
                 tot += 1
-                calm = (r["dse"] is not None and abs(r["dse"]) < 1e-9
-                        and r["sd"] is not None and r["sd"] <= SD_FLOOR)
+                calm = (
+                    r["dse"] is not None
+                    and abs(r["dse"]) < 1e-9
+                    and r["sd"] is not None
+                    and r["sd"] <= SD_FLOOR
+                )
                 g = gps.get(r["qid"])
-                flagged = ((r["seu"] is not None and r["seu"] > 0.5)
-                           or (policy != "vanilla" and (g is None or g > 0.5)))
+                flagged = (r["seu"] is not None and r["seu"] > 0.5) or (
+                    policy != "vanilla" and (g is None or g > 0.5)
+                )
                 if not r["correct"]:
                     wrong += 1
                     if calm:
@@ -186,26 +229,34 @@ def taxonomy_prevalence():
                         noisy_wrong += 1
                 else:
                     correct_n += 1
-                    cert = (sd_med is not None and r["sd"] is not None
-                            and r["sd"] <= sd_med
-                            and r["seu"] is not None and r["seu"] <= 0.5
-                            and (policy == "vanilla" or (g is not None and g <= 0.5)))
+                    cert = (
+                        sd_med is not None
+                        and r["sd"] is not None
+                        and r["sd"] <= sd_med
+                        and r["seu"] is not None
+                        and r["seu"] <= 0.5
+                        and (policy == "vanilla" or (g is not None and g <= 0.5))
+                    )
                     if cert:
                         correct_cert += 1
         out[policy] = {
-            "answered": tot, "wrong": wrong,
+            "answered": tot,
+            "wrong": wrong,
             "calm_wrong": calm_wrong,
             "calm_wrong_share_of_errors": calm_wrong / wrong if wrong else None,
-            "calm_wrong_flagged_by_other_families":
-                calm_wrong_flagged / calm_wrong if calm_wrong else None,
+            "calm_wrong_flagged_by_other_families": calm_wrong_flagged / calm_wrong
+            if calm_wrong
+            else None,
             "noisy_wrong_share_of_errors": noisy_wrong / wrong if wrong else None,
-            "correct_passing_certificate_share":
-                correct_cert / correct_n if correct_n else None,
+            "correct_passing_certificate_share": correct_cert / correct_n
+            if correct_n
+            else None,
         }
     return out
 
 
 # ── V1.4: learned certificate (leave-one-dataset-out) ───────────────────────
+
 
 def hard_certificate_mask(slug, rows, gps):
     sd_vals = [r["sd"] for r in rows if r["sd"] is not None]
@@ -213,28 +264,44 @@ def hard_certificate_mask(slug, rows, gps):
     mask = []
     for r in rows:
         g = gps.get(r["qid"])
-        mask.append(r["sd"] is not None and r["sd"] <= sd_med
-                    and r["seu"] is not None and r["seu"] <= 0.5
-                    and g is not None and g <= 0.5)
+        mask.append(
+            r["sd"] is not None
+            and r["sd"] <= sd_med
+            and r["seu"] is not None
+            and r["seu"] <= 0.5
+            and g is not None
+            and g <= 0.5
+        )
     return np.array(mask)
 
 
 def learned_certificate():
     data = {}
     for slug in KEY:
-        rows = [r for r in rows_for(slug, "kg")
-                if r["sd"] is not None and r["seu"] is not None]
+        rows = [
+            r
+            for r in rows_for(slug, "kg")
+            if r["sd"] is not None and r["seu"] is not None
+        ]
         gps = gps_scores(slug)
         sd_rank = percentile_ranks([float(r["sd"]) for r in rows])
         feats, labels = [], []
         for r, sr in zip(rows, sd_rank):
             g = gps.get(r["qid"])
-            feats.append([sr, float(r["seu"]),
-                          0.5 if g is None else float(g),
-                          1.0 if g is None else 0.0])
+            feats.append(
+                [
+                    sr,
+                    float(r["seu"]),
+                    0.5 if g is None else float(g),
+                    1.0 if g is None else 0.0,
+                ]
+            )
             labels.append(int(r["correct"]))
-        data[slug] = {"X": np.array(feats), "y": np.array(labels),
-                      "hard": hard_certificate_mask(slug, rows, gps)}
+        data[slug] = {
+            "X": np.array(feats),
+            "y": np.array(labels),
+            "hard": hard_certificate_mask(slug, rows, gps),
+        }
 
     per_ds, pooled = {}, {"hard": [0, 0], "learned": [0, 0], "n": 0}
     for held in KEY:
@@ -265,16 +332,22 @@ def learned_certificate():
             "learned_prec": float(y[sel].mean()) if sel.sum() else None,
             "auroc_p_correct": float(roc_auc_score(y, p)) if len(set(y)) > 1 else None,
         }
-        pooled["hard"][0] += int(y[hard].sum()); pooled["hard"][1] += int(hard.sum())
-        pooled["learned"][0] += int(y[sel].sum()); pooled["learned"][1] += int(sel.sum())
+        pooled["hard"][0] += int(y[hard].sum())
+        pooled["hard"][1] += int(hard.sum())
+        pooled["learned"][0] += int(y[sel].sum())
+        pooled["learned"][1] += int(sel.sum())
         pooled["n"] += len(y)
     summary = {
         "per_dataset": per_ds,
         "pooled": {
-            "hard": {"coverage": pooled["hard"][1] / pooled["n"],
-                     "precision": pooled["hard"][0] / pooled["hard"][1]},
-            "learned": {"coverage": pooled["learned"][1] / pooled["n"],
-                        "precision": pooled["learned"][0] / pooled["learned"][1]},
+            "hard": {
+                "coverage": pooled["hard"][1] / pooled["n"],
+                "precision": pooled["hard"][0] / pooled["hard"][1],
+            },
+            "learned": {
+                "coverage": pooled["learned"][1] / pooled["n"],
+                "precision": pooled["learned"][0] / pooled["learned"][1],
+            },
             "n": pooled["n"],
         },
     }
@@ -283,6 +356,7 @@ def learned_certificate():
 
 # ── T8: hopwise wrong counts ─────────────────────────────────────────────────
 
+
 def hopwise_wrong_counts():
     path = os.path.join(REPO, "results", "analyses", "current_hopwise_2wiki.json")
     art = json.load(open(path))
@@ -290,7 +364,8 @@ def hopwise_wrong_counts():
     for row in art:
         if not isinstance(row, dict):
             continue
-        n = row.get("n"); acc = row.get("accuracy", row.get("acc"))
+        n = row.get("n")
+        acc = row.get("accuracy", row.get("acc"))
         rec = {k: row.get(k) for k in ("policy", "hop", "n", "accuracy", "acc")}
         if n is not None and acc is not None:
             rec["n_wrong"] = int(round(n * (1 - acc)))
@@ -300,17 +375,27 @@ def hopwise_wrong_counts():
 
 # ── V1.3: compute-time aggregation ───────────────────────────────────────────
 
+
 def compute_times():
     agg = {}
     for slug in KEY:
         doc = json.load(open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])))
-        cfg = next(c for c in doc["config_results"]
-                   if c["config"]["name"].startswith("kg_entity_first"))
+        cfg = next(
+            c
+            for c in doc["config_results"]
+            if c["config"]["name"].startswith("kg_entity_first")
+        )
         for k, v in (cfg.get("kg_avg_compute_times") or {}).items():
             agg.setdefault(k, []).append(float(v))
-    return {k: {"mean_s": float(np.mean(v)), "min_s": float(np.min(v)),
-                "max_s": float(np.max(v)), "n_runs": len(v)}
-            for k, v in agg.items()}
+    return {
+        k: {
+            "mean_s": float(np.mean(v)),
+            "min_s": float(np.min(v)),
+            "max_s": float(np.max(v)),
+            "n_runs": len(v),
+        }
+        for k, v in agg.items()
+    }
 
 
 def main():

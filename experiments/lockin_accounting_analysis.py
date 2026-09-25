@@ -23,7 +23,9 @@ from experiments.gps_v3_depth_matched import scores_for as gps_scores_for  # noq
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_JSON = os.path.join(REPO, "results", "analyses", "lockin_accounting.json")
 OUT_TEX = os.path.join(REPO, "results", "analyses", "lockin_accounting_tables.tex")
-MANIFEST = json.load(open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")))
+MANIFEST = json.load(
+    open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
+)
 
 KEY = {
     "pubmedqa": "Pubmedqa",
@@ -43,11 +45,11 @@ LABEL = {
 }
 STRICT_RUNS = {
     "realmedqa": "results/latest_kg_design_final_metrics/runs/"
-                 "20260528-174538-realmedqa-n230-full-metrics-evaluation-subset/"
-                 "mirage_realmedqa_results.json",
+    "20260528-174538-realmedqa-n230-full-metrics-evaluation-subset/"
+    "mirage_realmedqa_results.json",
     "2wikimultihopqa": "results/latest_kg_design_final_metrics/runs/"
-                       "20260529-120453-2wikimultihopqa-n250-full-metrics-evaluation-subset/"
-                       "mirage_2wikimultihopqa_results.json",
+    "20260529-120453-2wikimultihopqa-n250-full-metrics-evaluation-subset/"
+    "mirage_2wikimultihopqa_results.json",
 }
 
 SD_FLOOR = 1e-9
@@ -87,7 +89,8 @@ def rows_for(slug: str, policy: str) -> List[Dict[str, Any]]:
 
     doc = json.load(open(path))
     details = next(
-        cfg["details"] for cfg in doc["config_results"]
+        cfg["details"]
+        for cfg in doc["config_results"]
         if cfg["config"]["name"].startswith(cfg_prefix)
     )
     gps = gps_cache(slug, policy, prefix)
@@ -96,25 +99,34 @@ def rows_for(slug: str, policy: str) -> List[Dict[str, Any]]:
         if r.get(f"{prefix}_generation_failed") or r.get(f"{prefix}_system_skipped"):
             continue
         qid = str(r["question_id"])
-        out.append({
-            "qid": qid,
-            "slug": slug,
-            "policy": policy,
-            "correct": bool(r.get(f"{prefix}_correct")),
-            "dse": r.get(f"{prefix}_discrete_semantic_entropy"),
-            "sd": r.get(f"{prefix}_sd_uq"),
-            "seu": r.get(f"{prefix}_support_entailment_uncertainty"),
-            "gps": gps.get(qid) if policy != "vanilla" else None,
-            "route": str(r.get("kg_retrieval_route") or "") if prefix == "kg" else "",
-            "route_reason": str(r.get("kg_route_reason") or "") if prefix == "kg" else "",
-        })
+        out.append(
+            {
+                "qid": qid,
+                "slug": slug,
+                "policy": policy,
+                "correct": bool(r.get(f"{prefix}_correct")),
+                "dse": r.get(f"{prefix}_discrete_semantic_entropy"),
+                "sd": r.get(f"{prefix}_sd_uq"),
+                "seu": r.get(f"{prefix}_support_entailment_uncertainty"),
+                "gps": gps.get(qid) if policy != "vanilla" else None,
+                "route": str(r.get("kg_retrieval_route") or "")
+                if prefix == "kg"
+                else "",
+                "route_reason": str(r.get("kg_route_reason") or "")
+                if prefix == "kg"
+                else "",
+            }
+        )
     return out
 
 
 def route_state(row: Dict[str, Any]) -> str:
     route = row.get("route") or ""
     reason = row.get("route_reason") or ""
-    if route in {"entity_first_empty", "empty", "no_graph"} or reason == "strict_no_graph_signal":
+    if (
+        route in {"entity_first_empty", "empty", "no_graph"}
+        or reason == "strict_no_graph_signal"
+    ):
         return "empty"
     if route:
         return "populated"
@@ -130,7 +142,9 @@ def gps_flags(row: Dict[str, Any]) -> bool:
     # is unavailable rather than graph evidence.
     if row["policy"] == "vanilla":
         return False
-    return row.get("gps") is None or (finite(row.get("gps")) and float(row["gps"]) > 0.5)
+    return row.get("gps") is None or (
+        finite(row.get("gps")) and float(row["gps"]) > 0.5
+    )
 
 
 def silent_bucket(row: Dict[str, Any]) -> str:
@@ -159,11 +173,11 @@ def account(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     buckets = Counter(silent_bucket(r) for r in rows)
     route_known_silent = [r for r in silent if route_state(r) != "unknown"]
     inspectable = [
-        r for r in silent
-        if route_state(r) == "empty" or seu_flags(r) or gps_flags(r)
+        r for r in silent if route_state(r) == "empty" or seu_flags(r) or gps_flags(r)
     ]
     fully_calm = [
-        r for r in silent
+        r
+        for r in silent
         if route_state(r) != "empty" and not seu_flags(r) and not gps_flags(r)
     ]
     return {
@@ -171,12 +185,18 @@ def account(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         "wrong": len(wrong),
         "silent_wrong": len(silent),
         "not_silent_wrong": len(wrong) - len(silent),
-        "answer_state_max_recall": (len(wrong) - len(silent)) / len(wrong) if wrong else None,
+        "answer_state_max_recall": (len(wrong) - len(silent)) / len(wrong)
+        if wrong
+        else None,
         "silent_upper_bound_rate": len(silent) / len(wrong) if wrong else None,
         "inspectable_lower_bound": len(inspectable),
-        "inspectable_lower_bound_rate": len(inspectable) / len(wrong) if wrong else None,
+        "inspectable_lower_bound_rate": len(inspectable) / len(wrong)
+        if wrong
+        else None,
         "fully_deceptive_residue": len(fully_calm),
-        "fully_deceptive_residue_rate_of_silent": len(fully_calm) / len(silent) if silent else None,
+        "fully_deceptive_residue_rate_of_silent": len(fully_calm) / len(silent)
+        if silent
+        else None,
         "route_known_silent": len(route_known_silent),
         "buckets": dict(buckets),
         "silent_flags": {
@@ -232,10 +252,10 @@ def table_row(label: str, d: Dict[str, Any]) -> str:
 def bounds_row(label: str, d: Dict[str, Any]) -> str:
     return (
         f"{label} & {d['wrong']} & {d['silent_wrong']} "
-        f"({100*d['silent_upper_bound_rate']:.0f}\\%) & "
-        f"{d['inspectable_lower_bound']} ({100*d['inspectable_lower_bound_rate']:.0f}\\%) & "
+        f"({100 * d['silent_upper_bound_rate']:.0f}\\%) & "
+        f"{d['inspectable_lower_bound']} ({100 * d['inspectable_lower_bound_rate']:.0f}\\%) & "
         f"{d['fully_deceptive_residue']} "
-        f"({100*d['fully_deceptive_residue_rate_of_silent']:.0f}\\% of silent) \\\\"
+        f"({100 * d['fully_deceptive_residue_rate_of_silent']:.0f}\\% of silent) \\\\"
     )
 
 
@@ -301,10 +321,7 @@ def main() -> None:
             pooled_rows[policy].extend(rows)
 
     pooled = {policy: account(rows) for policy, rows in pooled_rows.items()}
-    migration = {
-        slug: paired_migration(slug)
-        for slug in STRICT_RUNS
-    }
+    migration = {slug: paired_migration(slug) for slug in STRICT_RUNS}
     out = {
         "note": "Saved-artifact analysis only; no retrieval/generation reruns.",
         "definitions": {

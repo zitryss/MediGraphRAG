@@ -40,7 +40,9 @@ def compute_accuracy_breakdown(details: List[Dict[str, Any]]) -> Dict[str, Any]:
         and not bool(row.get("kg_generation_failed", False))
     )
 
-    vanilla_correct = sum(1 for row in details if bool(row.get("vanilla_correct", False)))
+    vanilla_correct = sum(
+        1 for row in details if bool(row.get("vanilla_correct", False))
+    )
     kg_correct = sum(1 for row in details if bool(row.get("kg_correct", False)))
 
     vanilla_correct_clean = sum(
@@ -147,7 +149,10 @@ def compute_hop_accuracy_breakdown(
         by_bucket.setdefault(_bucket_label(hop), []).append(row)
 
     output: Dict[str, Dict[str, Any]] = {}
-    for bucket in sorted(by_bucket.keys(), key=lambda b: (999 if b == "5+-hop" else int(b.split("-", 1)[0]))):
+    for bucket in sorted(
+        by_bucket.keys(),
+        key=lambda b: 999 if b == "5+-hop" else int(b.split("-", 1)[0]),
+    ):
         rows = by_bucket[bucket]
         acc = compute_accuracy_breakdown(rows)
         output[bucket] = {
@@ -220,13 +225,15 @@ def accumulate_track_accuracy(
     result: Dict[str, List[Dict[str, Any]]] = {}
     for (track, cfg_name), ta in track_accumulators.items():
         n = len(ta["datasets"])
-        result.setdefault(track, []).append({
-            "config_name": cfg_name,
-            "num_datasets": n,
-            "datasets": ta["datasets"],
-            "vanilla_macro_accuracy": sum(ta["vanilla_acc"]) / n if n else None,
-            "kg_macro_accuracy": sum(ta["kg_acc"]) / n if n else None,
-        })
+        result.setdefault(track, []).append(
+            {
+                "config_name": cfg_name,
+                "num_datasets": n,
+                "datasets": ta["datasets"],
+                "vanilla_macro_accuracy": sum(ta["vanilla_acc"]) / n if n else None,
+                "kg_macro_accuracy": sum(ta["kg_acc"]) / n if n else None,
+            }
+        )
     return result
 
 
@@ -238,7 +245,9 @@ def _system_metric_prefix(system_name: str) -> str:
     raise ValueError(f"Unsupported system_name={system_name!r}")
 
 
-def _candidate_rank_tuple(cfg_res: Dict[str, Any], system_name: str) -> Tuple[float, float, float, int, float]:
+def _candidate_rank_tuple(
+    cfg_res: Dict[str, Any], system_name: str
+) -> Tuple[float, float, float, int, float]:
     prefix = _system_metric_prefix(system_name)
     return (
         float(cfg_res.get(f"{prefix}_accuracy", 0.0) or 0.0),
@@ -279,15 +288,22 @@ def select_best_retrieval_configs(
             prefix = _system_metric_prefix(system_name)
             best_cfg = max(
                 config_results,
-                key=lambda cfg: (_candidate_rank_tuple(cfg, system_name), str(cfg.get("config", {}).get("name", ""))),
+                key=lambda cfg: (
+                    _candidate_rank_tuple(cfg, system_name),
+                    str(cfg.get("config", {}).get("name", "")),
+                ),
             )
             per_dataset[dataset_name][system_name] = {
                 "config_name": best_cfg.get("config", {}).get("name", "default"),
                 "accuracy": float(best_cfg.get(f"{prefix}_accuracy", 0.0) or 0.0),
                 "answer_f1": float(best_cfg.get(f"{prefix}_answer_f1", 0.0) or 0.0),
                 "answer_em": float(best_cfg.get(f"{prefix}_answer_em", 0.0) or 0.0),
-                "answered_questions": int(best_cfg.get(f"{prefix}_answered_questions", 0) or 0),
-                "accuracy_raw": float(best_cfg.get(f"{prefix}_accuracy_raw", 0.0) or 0.0),
+                "answered_questions": int(
+                    best_cfg.get(f"{prefix}_answered_questions", 0) or 0
+                ),
+                "accuracy_raw": float(
+                    best_cfg.get(f"{prefix}_accuracy_raw", 0.0) or 0.0
+                ),
             }
 
             for cfg_res in config_results:
@@ -304,27 +320,39 @@ def select_best_retrieval_configs(
                     },
                 )
                 row["datasets"].append(dataset_name)
-                row["accuracy"].append(float(cfg_res.get(f"{prefix}_accuracy", 0.0) or 0.0))
-                row["answer_f1"].append(float(cfg_res.get(f"{prefix}_answer_f1", 0.0) or 0.0))
-                row["answer_em"].append(float(cfg_res.get(f"{prefix}_answer_em", 0.0) or 0.0))
-                row["answered_questions"].append(int(cfg_res.get(f"{prefix}_answered_questions", 0) or 0))
-                row["accuracy_raw"].append(float(cfg_res.get(f"{prefix}_accuracy_raw", 0.0) or 0.0))
+                row["accuracy"].append(
+                    float(cfg_res.get(f"{prefix}_accuracy", 0.0) or 0.0)
+                )
+                row["answer_f1"].append(
+                    float(cfg_res.get(f"{prefix}_answer_f1", 0.0) or 0.0)
+                )
+                row["answer_em"].append(
+                    float(cfg_res.get(f"{prefix}_answer_em", 0.0) or 0.0)
+                )
+                row["answered_questions"].append(
+                    int(cfg_res.get(f"{prefix}_answered_questions", 0) or 0)
+                )
+                row["accuracy_raw"].append(
+                    float(cfg_res.get(f"{prefix}_accuracy_raw", 0.0) or 0.0)
+                )
 
     overall: Dict[str, Any] = {}
     for system_name, cfg_map in macro_rows.items():
         candidates: List[Dict[str, Any]] = []
         for cfg_name, row in cfg_map.items():
             n = max(1, len(row["datasets"]))
-            candidates.append({
-                "config_name": cfg_name,
-                "num_datasets": len(row["datasets"]),
-                "datasets": list(row["datasets"]),
-                "macro_accuracy": sum(row["accuracy"]) / n,
-                "macro_answer_f1": sum(row["answer_f1"]) / n,
-                "macro_answer_em": sum(row["answer_em"]) / n,
-                "macro_answered_questions": sum(row["answered_questions"]) / n,
-                "macro_accuracy_raw": sum(row["accuracy_raw"]) / n,
-            })
+            candidates.append(
+                {
+                    "config_name": cfg_name,
+                    "num_datasets": len(row["datasets"]),
+                    "datasets": list(row["datasets"]),
+                    "macro_accuracy": sum(row["accuracy"]) / n,
+                    "macro_answer_f1": sum(row["answer_f1"]) / n,
+                    "macro_answer_em": sum(row["answer_em"]) / n,
+                    "macro_answered_questions": sum(row["answered_questions"]) / n,
+                    "macro_accuracy_raw": sum(row["accuracy_raw"]) / n,
+                }
+            )
         if not candidates:
             continue
         best = max(

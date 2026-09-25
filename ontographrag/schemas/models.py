@@ -26,32 +26,35 @@ from pydantic import BaseModel, Field
 # Ontology schema  (steps 1–2: typed schema models)
 # ---------------------------------------------------------------------------
 
+
 class PropertyType(str, Enum):
-    STRING      = "string"
-    INTEGER     = "integer"
-    DECIMAL     = "decimal"
-    DOUBLE      = "double"
-    FLOAT       = "float"
-    BOOLEAN     = "boolean"
-    DATE        = "date"
-    DATETIME    = "datetime"
-    ENUM        = "enum"
-    ID          = "id"
+    STRING = "string"
+    INTEGER = "integer"
+    DECIMAL = "decimal"
+    DOUBLE = "double"
+    FLOAT = "float"
+    BOOLEAN = "boolean"
+    DATE = "date"
+    DATETIME = "datetime"
+    ENUM = "enum"
+    ID = "id"
 
 
 class DataBinding(BaseModel):
     """A typed property bound to an EntityType."""
+
     name: str
     type: PropertyType = PropertyType.STRING
     description: Optional[str] = None
-    identifier: bool = False        # is this the primary lookup key?
+    identifier: bool = False  # is this the primary lookup key?
     required: bool = False
     enum_values: List[str] = Field(default_factory=list)
-    unit: Optional[str] = None      # e.g. "mg", "years", "mmHg"
+    unit: Optional[str] = None  # e.g. "mg", "years", "mmHg"
 
 
 class RelationshipAttribute(BaseModel):
     """A typed attribute that qualifies a RelationshipType edge."""
+
     name: str
     type: PropertyType = PropertyType.STRING
     description: Optional[str] = None
@@ -60,6 +63,7 @@ class RelationshipAttribute(BaseModel):
 
 class EntityType(BaseModel):
     """An ontology class with full property schema."""
+
     id: str
     label: str
     description: Optional[str] = None
@@ -69,18 +73,20 @@ class EntityType(BaseModel):
 
 class RelationshipType(BaseModel):
     """An ontology relationship with domain/range/cardinality/attributes."""
+
     id: str
     label: str
     description: Optional[str] = None
     uri: Optional[str] = None
-    domain: Optional[str] = None       # EntityType.id of the source class
-    range: Optional[str] = None        # EntityType.id of the target class
+    domain: Optional[str] = None  # EntityType.id of the source class
+    range: Optional[str] = None  # EntityType.id of the target class
     cardinality: Optional[str] = None  # "one_to_one" | "one_to_many" | "many_to_many"
     attributes: List[RelationshipAttribute] = Field(default_factory=list)
 
 
 class OntologySchema(BaseModel):
     """Full parsed ontology — the single internal representation for both OWL and JSON input."""
+
     entity_types: List[EntityType] = Field(default_factory=list)
     relationship_types: List[RelationshipType] = Field(default_factory=list)
     # "owl" | "json" | "inferred" — records which parser produced this
@@ -119,7 +125,7 @@ class OntologySchema(BaseModel):
         for rt in self.relationship_types:
             d = (rt.domain or "").lower()
             r = (rt.range or "").lower()
-            dom_ok  = not d or d == src
+            dom_ok = not d or d == src
             rang_ok = not r or r == tgt
             if not dom_ok or not rang_ok:
                 continue
@@ -135,6 +141,7 @@ class OntologySchema(BaseModel):
 # ---------------------------------------------------------------------------
 # Chunk
 # ---------------------------------------------------------------------------
+
 
 class Chunk(BaseModel):
     """A text chunk retrieved from the vector/text index or entity-first search."""
@@ -155,6 +162,7 @@ class Chunk(BaseModel):
 # ---------------------------------------------------------------------------
 # Entity
 # ---------------------------------------------------------------------------
+
 
 class Entity(BaseModel):
     """A KG entity, as returned by entity-first search and graph traversal."""
@@ -180,11 +188,12 @@ class Entity(BaseModel):
 # Relationship
 # ---------------------------------------------------------------------------
 
+
 class Relationship(BaseModel):
     """A KG relationship between two entities."""
 
-    source: str   # entity ID
-    target: str   # entity ID
+    source: str  # entity ID
+    target: str  # entity ID
     type: str = "RELATED_TO"
 
     # Composite key used for deduplication in the result set.
@@ -205,10 +214,11 @@ class Relationship(BaseModel):
 # TraversalPath
 # ---------------------------------------------------------------------------
 
+
 class TraversalPath(BaseModel):
     """A single multi-hop traversal path discovered by graph walk."""
 
-    path: str   # human-readable, e.g. "Aspirin --TREATS--> Fever"
+    path: str  # human-readable, e.g. "Aspirin --TREATS--> Fever"
     hops: int = 1
 
     # Entity IDs along the path — used to prune paths after chunk truncation.
@@ -220,6 +230,7 @@ class TraversalPath(BaseModel):
 # ---------------------------------------------------------------------------
 # KGContext
 # ---------------------------------------------------------------------------
+
 
 class KGContext(BaseModel):
     """
@@ -266,6 +277,7 @@ class KGContext(BaseModel):
 # ---------------------------------------------------------------------------
 # RetrievalResult
 # ---------------------------------------------------------------------------
+
 
 class RetrievalResult(BaseModel):
     """
