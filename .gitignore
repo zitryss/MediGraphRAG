@@ -1,4 +1,7 @@
 # Superpowers / agent artifacts
+/.scratch/
+/docs/agents/
+/AGENTS.md
 .superpowers/
 .agents/skills/
 .firecrawl/
