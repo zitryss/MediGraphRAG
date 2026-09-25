@@ -1,0 +1,1080 @@
+{
+  "components": {
+    "schemas": {
+      "Body_bulk_process_csv_bulk_process_csv_post": {
+        "properties": {
+          "batch_size": {
+            "default": 50,
+            "description": "Number of documents to process per batch",
+            "title": "Batch Size",
+            "type": "integer"
+          },
+          "csv_file": {
+            "format": "binary",
+            "title": "Csv File",
+            "type": "string"
+          },
+          "id_column": {
+            "description": "CSV column to use as document ID (defaults to row index)",
+            "title": "Id Column",
+            "type": "string"
+          },
+          "kg_name": {
+            "description": "Name for the resulting knowledge graph (auto-generated if omitted)",
+            "title": "Kg Name",
+            "type": "string"
+          },
+          "max_chunks": {
+            "default": 20,
+            "description": "Maximum number of chunks to process per document (for testing)",
+            "title": "Max Chunks",
+            "type": "integer"
+          },
+          "start_row": {
+            "default": 0,
+            "description": "Starting row number (0-based)",
+            "title": "Start Row",
+            "type": "integer"
+          },
+          "text_column": {
+            "default": "full_report_text",
+            "description": "CSV column containing the document text",
+            "title": "Text Column",
+            "type": "string"
+          }
+        },
+        "required": [
+          "csv_file"
+        ],
+        "title": "Body_bulk_process_csv_bulk_process_csv_post",
+        "type": "object"
+      },
+      "Body_clear_kg_clear_kg_post": {
+        "properties": {
+          "kg_name": {
+            "title": "Kg Name",
+            "type": "string"
+          }
+        },
+        "title": "Body_clear_kg_clear_kg_post",
+        "type": "object"
+      },
+      "Body_create_kg_kg_create_post": {
+        "properties": {
+          "data_source": {
+            "title": "Data Source",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "kg_name": {
+            "title": "Kg Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kg_name"
+        ],
+        "title": "Body_create_kg_kg_create_post",
+        "type": "object"
+      },
+      "Body_create_ontology_guided_kg_create_ontology_guided_kg_post": {
+        "properties": {
+          "embedding_model": {
+            "default": "sentence_transformers",
+            "title": "Embedding Model",
+            "type": "string"
+          },
+          "enable_coreference_resolution": {
+            "default": false,
+            "title": "Enable Coreference Resolution",
+            "type": "boolean"
+          },
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          },
+          "kg_name": {
+            "title": "Kg Name",
+            "type": "string"
+          },
+          "max_chunks": {
+            "title": "Max Chunks",
+            "type": "integer"
+          },
+          "model": {
+            "default": "gpt-3.5-turbo",
+            "title": "Model",
+            "type": "string"
+          },
+          "neo4j_database": {
+            "title": "Neo4J Database",
+            "type": "string"
+          },
+          "neo4j_password": {
+            "title": "Neo4J Password",
+            "type": "string"
+          },
+          "neo4j_uri": {
+            "title": "Neo4J Uri",
+            "type": "string"
+          },
+          "neo4j_user": {
+            "title": "Neo4J User",
+            "type": "string"
+          },
+          "ontology_file": {
+            "anyOf": [
+              {
+                "format": "binary",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ontology File"
+          },
+          "provider": {
+            "default": "openai",
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_ontology_guided_kg_create_ontology_guided_kg_post",
+        "type": "object"
+      },
+      "Body_extract_graph_extract_graph_post": {
+        "properties": {
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          },
+          "kg_name": {
+            "title": "Kg Name",
+            "type": "string"
+          },
+          "model": {
+            "default": "gpt-3.5-turbo",
+            "title": "Model",
+            "type": "string"
+          },
+          "neo4j_database": {
+            "title": "Neo4J Database",
+            "type": "string"
+          },
+          "neo4j_password": {
+            "title": "Neo4J Password",
+            "type": "string"
+          },
+          "neo4j_uri": {
+            "title": "Neo4J Uri",
+            "type": "string"
+          },
+          "neo4j_user": {
+            "title": "Neo4J User",
+            "type": "string"
+          },
+          "provider": {
+            "default": "openai",
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_extract_graph_extract_graph_post",
+        "type": "object"
+      },
+      "Body_load_kg_from_file_load_kg_from_file_post": {
+        "properties": {
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          },
+          "kg_name": {
+            "title": "Kg Name",
+            "type": "string"
+          },
+          "model": {
+            "default": "gpt-3.5-turbo",
+            "title": "Model",
+            "type": "string"
+          },
+          "neo4j_database": {
+            "title": "Neo4J Database",
+            "type": "string"
+          },
+          "neo4j_password": {
+            "title": "Neo4J Password",
+            "type": "string"
+          },
+          "neo4j_uri": {
+            "title": "Neo4J Uri",
+            "type": "string"
+          },
+          "neo4j_user": {
+            "title": "Neo4J User",
+            "type": "string"
+          },
+          "provider": {
+            "default": "openai",
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_load_kg_from_file_load_kg_from_file_post",
+        "type": "object"
+      },
+      "Body_load_kg_from_neo4j_load_kg_from_neo4j_post": {
+        "properties": {
+          "kg_label": {
+            "title": "Kg Label",
+            "type": "string"
+          },
+          "limit": {
+            "default": 1000,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "load_complete": {
+            "default": false,
+            "title": "Load Complete",
+            "type": "boolean"
+          },
+          "sample_mode": {
+            "default": false,
+            "title": "Sample Mode",
+            "type": "boolean"
+          }
+        },
+        "title": "Body_load_kg_from_neo4j_load_kg_from_neo4j_post",
+        "type": "object"
+      },
+      "Body_save_kg_to_neo4j_save_kg_to_neo4j_post": {
+        "properties": {
+          "kg_id": {
+            "title": "Kg Id",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          },
+          "uri": {
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kg_id",
+          "uri",
+          "user",
+          "password"
+        ],
+        "title": "Body_save_kg_to_neo4j_save_kg_to_neo4j_post",
+        "type": "object"
+      },
+      "Body_validate_csv_validate_csv_post": {
+        "properties": {
+          "csv_file": {
+            "format": "binary",
+            "title": "Csv File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "csv_file"
+        ],
+        "title": "Body_validate_csv_validate_csv_post",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Turn unstructured documents into schema-consistent knowledge graphs. Query them with hybrid vector + graph RAG. Measure answer confidence with output, grounding, and structural diagnostics.",
+    "title": "OntographRAG",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root"
+      }
+    },
+    "/bulk_process_csv": {
+      "post": {
+        "description": "Process documents from any CSV in bulk batches, guided by the loaded ontology.\n\nThe ontology defines what entities and relationships to extract.\nOnly `text_column` needs to match a column in your CSV.",
+        "operationId": "bulk_process_csv_bulk_process_csv_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_bulk_process_csv_bulk_process_csv_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Process Csv"
+      }
+    },
+    "/chat": {
+      "post": {
+        "description": "Enhanced KG-focused RAG chat that ensures responses come from KG alone.\nSupports optional kg_name parameter to filter retrieval to a specific named KG.",
+        "operationId": "chat_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "maxProperties": 65536,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chat"
+      }
+    },
+    "/clear_kg": {
+      "post": {
+        "description": "Delete a knowledge graph from Neo4j.\n\nWhen *kg_name* is provided, only nodes (``__Entity__`` and ``Document``)\nwhose ``kgName`` property matches are removed together with their\nrelationships.  When omitted, the entire database is wiped (all nodes,\nrelationships, constraints, and indexes).",
+        "operationId": "clear_kg_clear_kg_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_clear_kg_clear_kg_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Kg"
+      }
+    },
+    "/create_ontology_guided_kg": {
+      "post": {
+        "description": "Create knowledge graph with optional ontology guidance.\nIf ontology file is provided, uses it to ensure consistent entity types and relationships.\nIf no ontology is provided, performs basic LLM-based entity extraction.",
+        "operationId": "create_ontology_guided_kg_create_ontology_guided_kg_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_ontology_guided_kg_create_ontology_guided_kg_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Ontology Guided Kg"
+      }
+    },
+    "/doctor": {
+      "get": {
+        "operationId": "doctor_doctor_get",
+        "parameters": [
+          {
+            "description": "Actively probe configured model providers",
+            "in": "query",
+            "name": "probe_models",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Actively probe configured model providers",
+              "title": "Probe Models",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Directory used for the write-permission probe",
+            "in": "query",
+            "name": "write_probe_dir",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Directory used for the write-permission probe",
+              "title": "Write Probe Dir"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Doctor"
+      }
+    },
+    "/extract_graph": {
+      "post": {
+        "description": "Extract a KG from the uploaded file using OntologyGuidedKGCreator and\nreturn the extraction result (nodes, relationships, metadata) without\npersisting to Neo4j.  Nodes are returned in visualization format\n(label, properties, color, size, font, title fields); use node.properties.name\nto access the raw entity name.",
+        "operationId": "extract_graph_extract_graph_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_extract_graph_extract_graph_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Extract Graph"
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Lightweight liveness probe for container/platform healthchecks.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/health/neo4j": {
+      "get": {
+        "operationId": "neo4j_health_health_neo4j_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Neo4J Health"
+      }
+    },
+    "/kg/create": {
+      "post": {
+        "description": "Create a new named Knowledge Graph.",
+        "operationId": "create_kg_kg_create_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_kg_kg_create_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Kg"
+      }
+    },
+    "/kg/list": {
+      "get": {
+        "description": "List all named Knowledge Graphs by querying Document nodes with kgName property.",
+        "operationId": "list_kgs_kg_list_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Kgs"
+      }
+    },
+    "/kg/{kg_name}": {
+      "delete": {
+        "description": "Delete a named Knowledge Graph.",
+        "operationId": "delete_kg_kg__kg_name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kg_name",
+            "required": true,
+            "schema": {
+              "title": "Kg Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "delete_entities",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Delete Entities",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Kg"
+      },
+      "get": {
+        "description": "Get details of a specific Knowledge Graph.",
+        "operationId": "get_kg_kg__kg_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kg_name",
+            "required": true,
+            "schema": {
+              "title": "Kg Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Kg"
+      }
+    },
+    "/kg/{kg_name}/entities": {
+      "get": {
+        "description": "Get entities from a specific Knowledge Graph.",
+        "operationId": "get_kg_entities_kg__kg_name__entities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kg_name",
+            "required": true,
+            "schema": {
+              "title": "Kg Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Kg Entities"
+      }
+    },
+    "/kg_progress_stream": {
+      "get": {
+        "description": "SSE endpoint \u2014 streams KG build progress to the browser.",
+        "operationId": "kg_progress_stream_kg_progress_stream_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Kg Progress Stream"
+      }
+    },
+    "/load_kg_from_file": {
+      "post": {
+        "description": "Build a KG from the uploaded file using OntologyGuidedKGCreator and return\nthe resulting nodes and relationships from Neo4j.",
+        "operationId": "load_kg_from_file_load_kg_from_file_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_load_kg_from_file_load_kg_from_file_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Load Kg From File"
+      }
+    },
+    "/load_kg_from_neo4j": {
+      "post": {
+        "description": "Load the entire KG from Neo4j with optional sampling and filtering.",
+        "operationId": "load_kg_from_neo4j_load_kg_from_neo4j_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_load_kg_from_neo4j_load_kg_from_neo4j_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Load Kg From Neo4J"
+      }
+    },
+    "/models/{provider}": {
+      "get": {
+        "description": "Return available models for provider.",
+        "operationId": "list_models_models__provider__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Models"
+      }
+    },
+    "/ready": {
+      "get": {
+        "description": "Fast readiness probe for orchestration and production health checks.",
+        "operationId": "ready_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ready"
+      }
+    },
+    "/save_kg_to_neo4j": {
+      "post": {
+        "description": "Save knowledge graph data to Neo4j database.",
+        "operationId": "save_kg_to_neo4j_save_kg_to_neo4j_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_save_kg_to_neo4j_save_kg_to_neo4j_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Kg To Neo4J"
+      }
+    },
+    "/static/medical_reports_template.csv": {
+      "get": {
+        "description": "Serve the medical reports CSV template for download.",
+        "operationId": "serve_csv_template_static_medical_reports_template_csv_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Serve Csv Template"
+      }
+    },
+    "/validate_csv": {
+      "post": {
+        "description": "Validate CSV file format and structure for medical reports.",
+        "operationId": "validate_csv_validate_csv_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_validate_csv_validate_csv_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Csv"
+      }
+    }
+  }
+}

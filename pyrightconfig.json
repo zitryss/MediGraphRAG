@@ -100,6 +100,8 @@
     "tests/test_official_answer_metrics.py",
     "tests/test_ontology_schema.py",
     "tests/test_prepare_bioasq_corpus.py",
+    "tests/test_quality_baseline_api.py",
+    "tests/test_quality_baseline_cli_providers.py",
     "tests/test_reranking.py",
     "tests/test_retrieval.py",
     "tests/test_retrieval_hardening.py",

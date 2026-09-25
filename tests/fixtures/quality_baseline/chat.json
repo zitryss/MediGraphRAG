@@ -1,0 +1,76 @@
+{
+  "info": {
+    "answer_instructions": null,
+    "chunk_count": 0,
+    "confidence": 0.8,
+    "dataset_name": null,
+    "entities": {
+      "entityids": [],
+      "reasoning_edges": [],
+      "relationshipids": [],
+      "used_entities": []
+    },
+    "entity_count": 0,
+    "grounding_support": 0.9,
+    "guardrail": {
+      "available_signal_count": 2,
+      "enabled": false,
+      "final_decision": "keep",
+      "metric_values": {
+        "confidence": 0.8,
+        "grounding_support": 0.9,
+        "structural_support": null
+      },
+      "mode": "retry_then_abstain",
+      "reason": "Support signals remain above abstention thresholds.",
+      "required_weak_signals": 2,
+      "retried": false,
+      "strategy": "support_threshold_gate",
+      "supported_by_context": true,
+      "thresholds": {
+        "confidence": 0.4,
+        "grounding_support": 0.5,
+        "structural_support": 0.4
+      },
+      "weak_signal_count": 0,
+      "weak_signals": [],
+      "would_abstain": false
+    },
+    "kg_confidence": null,
+    "kg_confidence_null_reason": null,
+    "kg_only": true,
+    "metric_details": {
+      "answer": "answer",
+      "answer_raw": null,
+      "contexts": [
+        "evidence"
+      ],
+      "displayed_answer": "answer",
+      "question": "test"
+    },
+    "mode": "default",
+    "model": "openai/gpt-oss-120b:free",
+    "nodedetails": {
+      "chunkdetails": [
+        {
+          "text": "evidence"
+        }
+      ],
+      "communitydetails": [],
+      "entitydetails": {}
+    },
+    "relationship_count": 0,
+    "response_time": null,
+    "sources": [
+      "doc"
+    ],
+    "structural_support": null,
+    "structural_support_null_reason": null,
+    "task_type": null,
+    "total_tokens": null
+  },
+  "message": "answer",
+  "request_id": "baseline",
+  "session_id": "default_session",
+  "user": "chatbot"
+}
