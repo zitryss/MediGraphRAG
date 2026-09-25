@@ -227,6 +227,6 @@ def get_bedrock_embeddings():
             model_id=model_name.strip(), client=bedrock_client
         )
         return bedrock_embeddings
-    except Exception as e:
+    except Exception as _e:
         logging.exception("Unexpected error while loading Bedrock embeddings")
         raise

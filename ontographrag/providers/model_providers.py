@@ -149,7 +149,7 @@ class OllamaProvider(ModelProvider):
             if "not found" in str(e).lower():
                 return f"Error: Model '{model}' not found. Please run 'ollama pull {model}' to download it."
             else:
-                return f"Ollama error: {str(e)}"
+                return f"Ollama error: {e!s}"
 
 
 class GeminiProvider(ModelProvider):

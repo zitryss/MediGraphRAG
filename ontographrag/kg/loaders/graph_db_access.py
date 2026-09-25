@@ -473,13 +473,13 @@ class graphDBdataAccess:
         param = {"filename_list": filename_list, "source_types_list": source_types_list}
         community_param = {"max_level": MAX_COMMUNITY_LEVELS}
         if deleteEntities == "true":
-            result = self.execute_query(query_to_delete_document_and_entities, param)
+            _result = self.execute_query(query_to_delete_document_and_entities, param)
             _ = self.execute_query(query_to_delete_communities, community_param)
             logging.info(
                 f"Deleting {len(filename_list)} documents = '{filename_list}' from '{source_types_list}' from database"
             )
         else:
-            result = self.execute_query(query_to_delete_document, param)
+            _result = self.execute_query(query_to_delete_document, param)
             logging.info(
                 f"Deleting {len(filename_list)} documents = '{filename_list}' from '{source_types_list}' with their entities from database"
             )
@@ -609,7 +609,7 @@ class graphDBdataAccess:
         drop and create the vector index when vector index dimesion are different.
         """
         embedding_model = os.getenv("EMBEDDING_MODEL")
-        embeddings, dimension = load_embedding_model(embedding_model)
+        _embeddings, dimension = load_embedding_model(embedding_model)
 
         if isVectorIndexExist == "true":
             self.graph.query(

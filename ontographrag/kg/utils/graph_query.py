@@ -69,6 +69,6 @@ def get_graphDB_driver(uri, username, password, database="neo4j"):
         logging.info("Connection successful")
         return driver
     except Exception as e:
-        error_message = f"Failed to connect to Neo4j at {uri}: {str(e)}"
+        error_message = f"Failed to connect to Neo4j at {uri}: {e!s}"
         logging.error(error_message, exc_info=True)
         return None

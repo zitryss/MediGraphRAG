@@ -308,7 +308,7 @@ class KGLoader:
                 session, kg_label, total_nodes, total_relationships
             )
         except Exception as e:
-            return {"status": "error", "message": f"Sample loading failed: {str(e)}"}
+            return {"status": "error", "message": f"Sample loading failed: {e!s}"}
         finally:
             if session:
                 session.close()
@@ -433,7 +433,7 @@ class KGLoader:
             }
 
         except Exception as e:
-            return {"status": "error", "message": f"Sample loading failed: {str(e)}"}
+            return {"status": "error", "message": f"Sample loading failed: {e!s}"}
 
     def _create_graph_with_ontology(
         self, text: str, ontology: Dict
