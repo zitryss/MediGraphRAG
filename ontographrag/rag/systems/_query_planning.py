@@ -468,10 +468,12 @@ class QueryPlanningMixin:
             [
                 (
                     "system",
-                    "Extract all named entities (people, organisations, places, concepts, "
-                    "medical terms, genes, chemicals, events) mentioned in the question. "
-                    "Return ONLY a JSON array of strings, nothing else. "
-                    'Example: ["Marie Curie", "Poland", "radioactivity"]',
+                    (
+                        "Extract all named entities (people, organisations, places, concepts, "
+                        "medical terms, genes, chemicals, events) mentioned in the question. "
+                        "Return ONLY a JSON array of strings, nothing else. "
+                        'Example: ["Marie Curie", "Poland", "radioactivity"]'
+                    ),
                 ),
                 ("human", "{question}"),
             ]

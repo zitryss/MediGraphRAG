@@ -1820,7 +1820,7 @@ class TestTraversalRelevanceGate:
         s._TRAVERSAL_CHUNK_MIN_SIM = 0.0
         s._MAX_CHUNKS_PER_PASSAGE = 0
 
-        chunks = self._make_chunks([(1, "x"), (1, "y")])
+        _chunks = self._make_chunks([(1, "x"), (1, "y")])
         # With threshold 0 the gate is not entered; all chunks survive
         min_sim = s._TRAVERSAL_CHUNK_MIN_SIM
         assert min_sim == 0.0
@@ -1876,7 +1876,7 @@ class TestPerPassageChunkCap:
 
     def test_cap_zero_disables(self):
         """cap=0 means the guard `if _passage_cap > 0` is False; all chunks pass."""
-        chunks = self._chunks_from_passages([("q1", 0)] * 10)
+        _chunks = self._chunks_from_passages([("q1", 0)] * 10)
         # With cap=0 the guard is skipped; simulate by not calling _apply_cap
         s = _make_system()
         s._MAX_CHUNKS_PER_PASSAGE = 0

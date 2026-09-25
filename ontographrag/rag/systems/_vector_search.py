@@ -620,7 +620,7 @@ class VectorSearchMixin:
             }
 
             for result in results:
-                result_entities = result.get("entities") or []
+                _result_entities = result.get("entities") or []
                 chunk_info = {
                     "text": result["text"],
                     "chunk_id": result["chunk_id"],

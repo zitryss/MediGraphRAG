@@ -842,8 +842,10 @@ class ContextAssemblyMixin:
                 ungrounded_paths.append(f"  {path_info['hops']} hop: {path_str}")
             else:
                 lines = [
-                    f"Chain {chain_idx} ({path_info['hops']} hop{'s' if path_info['hops'] != 1 else ''}): "
-                    f"{path_str}"
+                    (
+                        f"Chain {chain_idx} ({path_info['hops']} hop{'s' if path_info['hops'] != 1 else ''}): "
+                        f"{path_str}"
+                    )
                 ]
                 for i, chunk in enumerate(supporting[:3], 1):
                     text = (chunk.get("text") or "").strip()[:400]
@@ -911,7 +913,7 @@ class ContextAssemblyMixin:
             doc = chunk.get("document", "unknown")
             chunk_text = f"[Source: {doc}]\n{chunk['text']}\n"
             chunk_texts.append(chunk_text)
-        formatted_context = "\n".join(chunk_texts)
+        _formatted_context = "\n".join(chunk_texts)
 
         # --- graph paths (flat, for backward compat) ---
         path_lines = []

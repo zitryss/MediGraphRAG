@@ -808,7 +808,7 @@ Question: {question}""",
         extra_context_texts: Optional[List[str]] = None,
         kg_name: Optional[str] = None,
     ) -> str:
-        evidence_block, formatted_entities, formatted_paths = (
+        evidence_block, _formatted_entities, formatted_paths = (
             self.format_context_for_llm(context)
         )
         if self._should_use_passage_only_answer_prompt(kg_name):
