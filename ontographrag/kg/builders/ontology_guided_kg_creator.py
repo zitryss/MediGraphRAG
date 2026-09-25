@@ -2187,7 +2187,7 @@ class OntologyGuidedKGCreator(
             # regardless of which order entity_groups iterates the split buckets.
             # The dominant type was pre-computed in the split phase above.
             for entity in entities:
-                norm = self._normalize_entity_text(entity["id"])
+                _norm = self._normalize_entity_text(entity["id"])
                 is_dominant = (
                     dominant_for_surface.get(str(dominant_lookup_key))
                     == representative_entity.get("type")

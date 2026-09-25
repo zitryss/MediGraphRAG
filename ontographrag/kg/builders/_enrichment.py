@@ -542,8 +542,8 @@ Return ONLY the JSON object.
         tgt_pats = [_boundary_pattern(f) for f in _tgt_forms if f]
 
         # Keep single-pattern aliases for backwards compatibility
-        src_pat = src_pats[0] if src_pats else _boundary_pattern(src_lower)
-        tgt_pat = tgt_pats[0] if tgt_pats else _boundary_pattern(tgt_lower)
+        _src_pat = src_pats[0] if src_pats else _boundary_pattern(src_lower)
+        _tgt_pat = tgt_pats[0] if tgt_pats else _boundary_pattern(tgt_lower)
 
         found_src, found_tgt, same_chunk, same_sentence = False, False, False, False
 

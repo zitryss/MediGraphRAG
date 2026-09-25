@@ -571,7 +571,7 @@ class EvaluationMixin:
             f"  Mean degree     : {em['mean_degree']}  |  Max: {em['max_degree']}",
             f"  Top-10 hub share: {em['top10_entity_degree_share_pct']}% of all edges",
             f"  Degree buckets  : {em['degree_distribution']}",
-            f"  Type distribution (top 10):",
+            "  Type distribution (top 10):",
         ]
         for etype, cnt in list(em["type_distribution"].items())[:10]:
             lines.append(f"    {etype:<30} {cnt}")
@@ -591,7 +591,7 @@ class EvaluationMixin:
             f"  Anchor relation phrase: {rm['anchor_relation_phrase_pct']}%",
             f"  Anchor grounding      : {rm['anchor_grounding_pct']}%",
             f"  Restoration (full/partial/failed): {rm['restoration_full']} / {rm['restoration_partial']} / {rm['restoration_failed']}",
-            f"  Evidence scope:",
+            "  Evidence scope:",
         ]
         for scope, cnt in sorted(
             rm["evidence_scope_distribution"].items(), key=lambda x: -x[1]

@@ -714,20 +714,18 @@ class OntologySchemaMixin:
                 source_name = self._example_surface_form_for_type(source_type.label)
                 target_name = self._example_surface_form_for_type(target_type.label)
                 examples.append(
-                    (
-                        f"Example {len(examples) + 1}\n"
-                        f'TEXT: "{source_name} {rt.label.lower().replace("_", " ")} {target_name}."\n'
-                        "JSON:\n"
-                        "{\n"
-                        '  "relationships": [\n'
-                        f'    {{"source": "{source_name}", "target": "{target_name}", "type": "{rt.id}", "negated": false, "properties": {{"description": "{source_name} {rt.label.lower().replace("_", " ")} {target_name}", "condition": null, "quantitative": null, "confidence": "demonstrated"}}}}\n'
-                        "  ],\n"
-                        '  "entities": [\n'
-                        f'    {{"id": "{source_name}", "type": "{source_type.id}", "properties": {{"name": "{source_name}", "description": "{source_type.label}: {source_name}"}}}},\n'
-                        f'    {{"id": "{target_name}", "type": "{target_type.id}", "properties": {{"name": "{target_name}", "description": "{target_type.label}: {target_name}"}}}}\n'
-                        "  ]\n"
-                        "}"
-                    )
+                    f"Example {len(examples) + 1}\n"
+                    f'TEXT: "{source_name} {rt.label.lower().replace("_", " ")} {target_name}."\n'
+                    "JSON:\n"
+                    "{\n"
+                    '  "relationships": [\n'
+                    f'    {{"source": "{source_name}", "target": "{target_name}", "type": "{rt.id}", "negated": false, "properties": {{"description": "{source_name} {rt.label.lower().replace("_", " ")} {target_name}", "condition": null, "quantitative": null, "confidence": "demonstrated"}}}}\n'
+                    "  ],\n"
+                    '  "entities": [\n'
+                    f'    {{"id": "{source_name}", "type": "{source_type.id}", "properties": {{"name": "{source_name}", "description": "{source_type.label}: {source_name}"}}}},\n'
+                    f'    {{"id": "{target_name}", "type": "{target_type.id}", "properties": {{"name": "{target_name}", "description": "{target_type.label}: {target_name}"}}}}\n'
+                    "  ]\n"
+                    "}"
                 )
                 if len(examples) >= self.few_shot_example_count:
                     break
@@ -737,17 +735,15 @@ class OntologySchemaMixin:
                     cls.get("label", cls.get("id", "Entity"))
                 )
                 examples.append(
-                    (
-                        f"Example {len(examples) + 1}\n"
-                        f'TEXT: "{entity_name} is mentioned in the document."\n'
-                        "JSON:\n"
-                        "{\n"
-                        '  "relationships": [],\n'
-                        '  "entities": [\n'
-                        f'    {{"id": "{entity_name}", "type": "{cls.get("id", "Concept")}", "properties": {{"name": "{entity_name}", "description": "{cls.get("label", cls.get("id", "Concept"))}: {entity_name}"}}}}\n'
-                        "  ]\n"
-                        "}"
-                    )
+                    f"Example {len(examples) + 1}\n"
+                    f'TEXT: "{entity_name} is mentioned in the document."\n'
+                    "JSON:\n"
+                    "{\n"
+                    '  "relationships": [],\n'
+                    '  "entities": [\n'
+                    f'    {{"id": "{entity_name}", "type": "{cls.get("id", "Concept")}", "properties": {{"name": "{entity_name}", "description": "{cls.get("label", cls.get("id", "Concept"))}: {entity_name}"}}}}\n'
+                    "  ]\n"
+                    "}"
                 )
 
         return "\n\n".join(examples)
