@@ -66,6 +66,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
 
 logger = logging.getLogger(__name__)
 
@@ -409,16 +410,16 @@ def _resolve_structural_entities(
     }
 
 
-def _safe_prob_entropy(probabilities: np.ndarray) -> float:
+def _safe_prob_entropy(probabilities: ArrayLike | None) -> float:
     """Numerically stable entropy in nats — matches Farquhar et al. cluster_assignment_entropy."""
     if probabilities is None:
         return 0.0
-    p = np.array(probabilities, dtype=float)
+    p: NDArray[np.float64] = np.array(probabilities, dtype=float)
     p = p[np.isfinite(p)]
     p = p[p > 0]
     if len(p) == 0:
         return 0.0
-    total = p.sum()
+    total: np.float64 = p.sum()
     if total <= 0:
         return 0.0
     p = p / total
@@ -533,14 +534,14 @@ def _cluster_responses_by_lexical_similarity(
     if not responses:
         return []
 
-    token_sets = []
+    token_sets: list[set[str]] = []
     for r in responses:
-        text = str(r or "").lower()
-        tokens = {tok for tok in text.split() if tok}
+        text: str = str(r or "").lower()
+        tokens: set[str] = {tok for tok in text.split() if tok}
         token_sets.append(tokens)
 
-    cluster_ids = [-1] * len(responses)
-    next_cluster = 0
+    cluster_ids: list[int] = [-1] * len(responses)
+    next_cluster: int = 0
 
     for i in range(len(responses)):
         if cluster_ids[i] != -1:
@@ -551,12 +552,12 @@ def _cluster_responses_by_lexical_similarity(
             if cluster_ids[j] != -1:
                 continue
 
-            a = token_sets[i]
-            b = token_sets[j]
+            a: set[str] = token_sets[i]
+            b: set[str] = token_sets[j]
             if not a and not b:
-                sim = 1.0
+                sim: float = 1.0
             else:
-                union = len(a | b)
+                union: int = len(a | b)
                 sim = (len(a & b) / union) if union else 0.0
 
             if sim >= similarity_threshold:
@@ -575,7 +576,7 @@ def _cluster_responses_by_lexical_similarity(
 def compute_semantic_entropy(
     responses: list[str],
     cluster_ids: list[int],
-    log_likelihoods: np.ndarray | None = None,
+    log_likelihoods: NDArray[np.float64] | None = None,
 ) -> float:
     """Semantic Entropy — Farquhar et al. (Nature 2024).
 
@@ -589,30 +590,32 @@ def compute_semantic_entropy(
     if not responses or not cluster_ids:
         return 0.0
 
-    unique_ids = sorted(set(cluster_ids))
+    unique_ids: list[int] = sorted(set(cluster_ids))
 
     if log_likelihoods is not None and len(log_likelihoods) == len(cluster_ids):
-        ll = np.array(log_likelihoods, dtype=float)
+        ll: NDArray[np.float64] = np.array(log_likelihoods, dtype=float)
         # Normalise: log p(x_i) = log_ll_i - logsumexp(all log_ll)
-        log_total = np.log(np.sum(np.exp(ll - ll.max()))) + ll.max()  # stable logsumexp
-        log_cluster_probs = []
+        log_total: np.float64 = (
+            np.log(np.sum(np.exp(ll - ll.max()))) + ll.max()
+        )  # stable logsumexp
+        log_cluster_probs: list[np.float64] = []
         for uid in unique_ids:
-            indices = [k for k, x in enumerate(cluster_ids) if x == uid]
-            ll_cluster = ll[indices]
+            indices: list[int] = [k for k, x in enumerate(cluster_ids) if x == uid]
+            ll_cluster: NDArray[np.float64] = ll[indices]
             # log p(cluster) = logsumexp(log p(x_i) for i in cluster)
-            lse = (
+            lse: np.float64 = (
                 np.log(np.sum(np.exp(ll_cluster - ll_cluster.max()))) + ll_cluster.max()
             )
             log_cluster_probs.append(lse - log_total)
-        log_p = np.array(log_cluster_probs)
-        p = np.exp(log_p)
+        log_p: NDArray[np.float64] = np.array(log_cluster_probs)
+        p: NDArray[np.float64] = np.exp(log_p)
         # H = -Σ p log p  (nats)
         return float(-np.sum(p * log_p))
 
     # Fallback: uniform weights → same as discrete_semantic_entropy
-    n = len(responses)
-    counts = np.array([cluster_ids.count(uid) for uid in unique_ids])
-    probabilities = counts / n
+    n: int = len(responses)
+    counts: NDArray[np.int_] = np.array([cluster_ids.count(uid) for uid in unique_ids])
+    probabilities: NDArray[np.float64] = counts / n
     return _safe_prob_entropy(probabilities)
 
 
@@ -620,9 +623,9 @@ def compute_discrete_semantic_entropy(cluster_ids: list[int]) -> float:
     """Discrete Semantic Entropy - Cluster assignment entropy only."""
     if not cluster_ids:
         return 0.0
-    n = len(cluster_ids)
-    counts = np.bincount(cluster_ids)
-    probabilities = counts / n
+    n: int = len(cluster_ids)
+    counts: NDArray[np.intp] = np.bincount(cluster_ids)
+    probabilities: NDArray[np.float64] = counts / n
     return _safe_prob_entropy(probabilities)
 
 
@@ -660,13 +663,13 @@ def compute_p_true(
         return 0.5
 
     try:
-        cluster_ids = (
+        cluster_ids: list[int] = (
             precomputed_cluster_ids
             if precomputed_cluster_ids is not None
             else _cluster_responses_by_nli(responses)
         )
-        target_cluster = cluster_ids[0]
-        consistent = sum(1 for cid in cluster_ids if cid == target_cluster)
+        target_cluster: int = cluster_ids[0]
+        consistent: int = sum(1 for cid in cluster_ids if cid == target_cluster)
         return consistent / len(responses)
     except Exception as e:
         logger.warning(f"P(True) NLI consistency failed: {e}")
