@@ -23,15 +23,20 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, overload
+
+from typing_extensions import ReadOnly, TypedDict
 
 if TYPE_CHECKING:
     from neo4j import Driver
+    from langchain_core.language_models import LanguageModelLike
+    from ontographrag.rag.systems._response_records import GenerationResponse
+    from ontographrag.rag.systems._records import RetrievalContext
 
 try:
     import matplotlib
@@ -55,6 +60,7 @@ from ontographrag.rag.systems.vanilla_rag_system import VanillaRAGSystem
 from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
 from ontographrag.rag.graph_state import (
     graph_state_diversity,
+    GraphStateSummary,
     summarize_context_graph_state,
 )
 from ontographrag.providers.model_providers import (
@@ -215,6 +221,36 @@ from experiments.summary_utils import (
     compute_hop_accuracy_breakdown,
     select_best_retrieval_configs,
 )
+
+
+class ChunkTextProjection(TypedDict, total=False):
+    text: ReadOnly[str]
+
+
+class ChunkContextProjection(TypedDict, total=False):
+    chunks: ReadOnly[Sequence[ChunkTextProjection | str]]
+
+
+class SamplingAnchor(TypedDict, total=False):
+    response: ReadOnly[str]
+    used_chunks: ReadOnly[Sequence[ChunkTextProjection | str]]
+    context: ReadOnly[ChunkContextProjection]
+
+
+class SamplingGenerateOptions(TypedDict, total=False):
+    allow_decomposition: bool
+    runtime_guardrail: bool | None
+    runtime_guardrail_mode: str | None
+    anchor_mask_entity_ids: list[str] | None
+    anchor_mask_entity_names: list[str] | None
+    max_hops: int
+    timeout: float | None
+
+
+SampleResponses: TypeAlias = tuple[list[str], list[str], float]
+TracedSampleResponses: TypeAlias = tuple[
+    list[str], list[str], float, list[GraphStateSummary]
+]
 
 
 class MIRAGEEvaluationPipeline:
@@ -2079,12 +2115,15 @@ class MIRAGEEvaluationPipeline:
             self.wandb_run.log_artifact(artifact)
             self.wandb_run.summary["summary/final_json_path"] = summary_path
 
-    def _extract_chunk_texts_from_result(self, rag_result: dict[str, Any]) -> list[str]:
+    def _extract_chunk_texts_from_result(self, rag_result: SamplingAnchor) -> list[str]:
         """Extract retrieved chunk texts robustly from a RAG result."""
         chunk_texts: list[str] = []
 
         # Prefer used_chunks when available
-        used_chunks = rag_result.get("used_chunks", [])
+        used_chunks: Sequence[ChunkTextProjection | str] = rag_result.get(
+            "used_chunks", []
+        )
+        text: str
         for c in used_chunks:
             if isinstance(c, dict):
                 text = c.get("text", "")
@@ -2095,10 +2134,10 @@ class MIRAGEEvaluationPipeline:
 
         # Fall back to context.chunks
         if not chunk_texts:
-            context = (
+            context: ChunkContextProjection = (
                 rag_result.get("context", {}) if isinstance(rag_result, dict) else {}
             )
-            context_chunks = (
+            context_chunks: Sequence[ChunkTextProjection | str] = (
                 context.get("chunks", []) if isinstance(context, dict) else []
             )
             for c in context_chunks:
@@ -2110,10 +2149,10 @@ class MIRAGEEvaluationPipeline:
                     chunk_texts.append(text)
 
         # Deduplicate while preserving order
-        unique_chunk_texts = []
-        seen = set()
+        unique_chunk_texts: list[str] = []
+        seen: set[str] = set()
         for t in chunk_texts:
-            key = t.strip()
+            key: str = t.strip()
             if key and key not in seen:
                 seen.add(key)
                 unique_chunk_texts.append(key)
@@ -2121,7 +2160,7 @@ class MIRAGEEvaluationPipeline:
         return unique_chunk_texts
 
     @staticmethod
-    def _mean_pairwise_jaccard(chunk_sets: list[set]) -> float:
+    def _mean_pairwise_jaccard(chunk_sets: list[set[str]]) -> float:
         """Mean pairwise Jaccard similarity across a list of chunk sets.
 
         Returns 1.0 if there is only one sample (trivially identical) and 0.0
@@ -2148,24 +2187,85 @@ class MIRAGEEvaluationPipeline:
             self._base_llm_provider, model=self.llm_model, temperature=temperature
         )
 
+    @overload
     def _collect_sample_responses(
         self,
-        rag_system,
+        rag_system: VanillaRAGSystem | EnhancedRAGSystem,
         question: str,
         answer_instructions: str = "",
-        base_result: dict[str, Any] | None = None,
+        base_result: SamplingAnchor | None = None,
         document_names: list[str] | None = None,
         similarity_threshold: float = 0.1,
         max_chunks: int = 10,
         extra_context_texts: list[str] | None = None,
         kg_name: str | None = None,
         question_id: str | None = None,
-        llm=None,
+        llm: "LanguageModelLike | None" = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
-        generate_kwargs: dict[str, Any] | None = None,
+        generate_kwargs: SamplingGenerateOptions | None = None,
+        *,
+        return_graph_state_traces: Literal[True],
+    ) -> TracedSampleResponses: ...
+
+    @overload
+    def _collect_sample_responses(
+        self,
+        rag_system: VanillaRAGSystem | EnhancedRAGSystem,
+        question: str,
+        answer_instructions: str = "",
+        base_result: SamplingAnchor | None = None,
+        document_names: list[str] | None = None,
+        similarity_threshold: float = 0.1,
+        max_chunks: int = 10,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
+        question_id: str | None = None,
+        llm: "LanguageModelLike | None" = None,
+        retrieval_temperature: float = 0.0,
+        retrieval_shortlist_factor: int = 4,
+        generate_kwargs: SamplingGenerateOptions | None = None,
+        return_graph_state_traces: Literal[False] = False,
+    ) -> SampleResponses: ...
+
+    @overload
+    def _collect_sample_responses(
+        self,
+        rag_system: VanillaRAGSystem | EnhancedRAGSystem,
+        question: str,
+        answer_instructions: str = "",
+        base_result: SamplingAnchor | None = None,
+        document_names: list[str] | None = None,
+        similarity_threshold: float = 0.1,
+        max_chunks: int = 10,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
+        question_id: str | None = None,
+        llm: "LanguageModelLike | None" = None,
+        retrieval_temperature: float = 0.0,
+        retrieval_shortlist_factor: int = 4,
+        generate_kwargs: SamplingGenerateOptions | None = None,
         return_graph_state_traces: bool = False,
-    ):
+    ) -> SampleResponses | TracedSampleResponses: ...
+
+    def _collect_sample_responses(
+        self,
+        rag_system: VanillaRAGSystem | EnhancedRAGSystem,
+        question: str,
+        answer_instructions: str = "",
+        base_result: SamplingAnchor | None = None,
+        document_names: list[str] | None = None,
+        similarity_threshold: float = 0.1,
+        max_chunks: int = 10,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
+        question_id: str | None = None,
+        llm: "LanguageModelLike | None" = None,
+        retrieval_temperature: float = 0.0,
+        retrieval_shortlist_factor: int = 4,
+        generate_kwargs: SamplingGenerateOptions | None = None,
+        return_graph_state_traces: bool = False,
+    ) -> SampleResponses | TracedSampleResponses:
         """Collect multiple responses for proper semantic-entropy estimation.
 
         extra_context_texts is NOT forwarded to sampling calls — retrieval must
@@ -2183,8 +2283,8 @@ class MIRAGEEvaluationPipeline:
         """
         responses: list[str] = []
         retrieved_chunk_texts: list[str] = []
-        per_sample_chunk_sets: list[set] = []
-        graph_state_traces: list[dict[str, Any]] = []
+        per_sample_chunk_sets: list[set[str]] = []
+        graph_state_traces: list[GraphStateSummary] = []
 
         # Base result is only used as a retrieval-context anchor. The output-side
         # UQ sample set must come from one consistent sampling policy, so we do
@@ -2196,12 +2296,12 @@ class MIRAGEEvaluationPipeline:
         sampling_llm = llm if llm is not None else self.llm
 
         # Generate additional samples if requested
-        remaining = max(0, self.entropy_samples)
+        remaining: int = max(0, self.entropy_samples)
         base_sample_id: int = 0
-        extra_generate_kwargs = dict(generate_kwargs or {})
+        extra_generate_kwargs: SamplingGenerateOptions = (generate_kwargs or {}).copy()
         for offset in range(remaining):
             try:
-                sampled_result = rag_system.generate_response(
+                sampled_result: GenerationResponse = rag_system.generate_response(
                     question=question,
                     llm=sampling_llm,
                     document_names=document_names,
@@ -2216,14 +2316,18 @@ class MIRAGEEvaluationPipeline:
                     retrieval_sample_id=base_sample_id + offset,
                     **extra_generate_kwargs,
                 )
-                sampled_response = str(sampled_result.get("response", "")).strip()
+                sampled_response: str = str(sampled_result.get("response", "")).strip()
                 if sampled_response:
                     responses.append(sampled_response)
 
-                sample_chunks = self._extract_chunk_texts_from_result(sampled_result)
+                sample_chunks: list[str] = self._extract_chunk_texts_from_result(
+                    sampled_result
+                )
                 per_sample_chunk_sets.append(set(sample_chunks))
                 if return_graph_state_traces:
-                    sample_context = sampled_result.get("context", {}) or {}
+                    sample_context: RetrievalContext = (
+                        sampled_result.get("context", {}) or {}
+                    )
                     graph_state_traces.append(
                         sample_context.get("graph_state")
                         or summarize_context_graph_state(sample_context)
@@ -2239,7 +2343,7 @@ class MIRAGEEvaluationPipeline:
         if not responses and base_result:
             responses = [str(base_result.get("response", "")).strip()]
 
-        mean_jaccard = self._mean_pairwise_jaccard(per_sample_chunk_sets)
+        mean_jaccard: float = self._mean_pairwise_jaccard(per_sample_chunk_sets)
         if return_graph_state_traces:
             return responses, retrieved_chunk_texts, mean_jaccard, graph_state_traces
         return responses, retrieved_chunk_texts, mean_jaccard
