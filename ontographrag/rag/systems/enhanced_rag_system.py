@@ -373,7 +373,7 @@ Question: {question}""",
             # First check if we have any data in the knowledge graph
             # If kg_name is specified, check only for that KG
             if kg_name:
-                check_query = """
+                check_query: str = """
                 MATCH (d:Document {kgName: $kg_name})<-[:PART_OF]-(c:Chunk)
                 RETURN count(c) as chunk_count
                 """
@@ -1282,7 +1282,7 @@ Question: {question}""",
         try:
             graph = self._create_neo4j_connection()
 
-            query = """
+            query: str = """
             MATCH (e:__Entity__ {id: $entity_id})
             OPTIONAL MATCH (e)-[r]-(related:__Entity__)
             OPTIONAL MATCH (e)<-[:HAS_ENTITY|MENTIONS]-(c:Chunk)-[:PART_OF]->(d:Document)
@@ -1329,7 +1329,7 @@ Question: {question}""",
         try:
             graph = self._create_neo4j_connection()
 
-            stats_query = """
+            stats_query: str = """
             MATCH (d:Document)
             OPTIONAL MATCH (d)<-[:PART_OF]-(c:Chunk)
             OPTIONAL MATCH (c)-[:HAS_ENTITY]->(e:__Entity__)
@@ -1375,7 +1375,7 @@ Question: {question}""",
         try:
             graph = self._create_neo4j_connection()
 
-            search_query = """
+            search_query: str = """
             MATCH (e:__Entity__)
             WHERE toLower(e.name) CONTAINS toLower($query)
             OPTIONAL MATCH (e)<-[:HAS_ENTITY]-(c:Chunk)-[:PART_OF]->(d:Document)

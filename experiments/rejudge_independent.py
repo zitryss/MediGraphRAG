@@ -82,7 +82,7 @@ def load_run(policy):
     if policy == "strict":
         doc = json.load(open(os.path.join(REPO, STRICT_RUNS["realmedqa"])))
         details = doc["config_results"][0]["details"]
-        prefix = "kg"
+        prefix: str = "kg"
         out = [
             (
                 str(r["question_id"]),

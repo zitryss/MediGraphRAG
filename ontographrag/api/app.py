@@ -234,7 +234,7 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
             errors.append(f"Duplicate entity type id: '{eid}'")
         class_ids.add(eid)
 
-        has_identifier = False
+        has_identifier: bool = False
         for j, p in enumerate(cls.get("properties") or []):
             pname = (p.get("name") or p.get("id") or "") if isinstance(p, dict) else ""
             if not pname:
@@ -825,7 +825,7 @@ def health():
 @app.get("/ready")
 async def ready():
     """Fast readiness probe for orchestration and production health checks."""
-    rag_runtime_ready = False
+    rag_runtime_ready: bool = False
     rag_runtime_detail = ""
     if neo4j_ready:
         try:
@@ -1285,7 +1285,7 @@ async def create_ontology_guided_kg(
             from ontographrag.kg.loaders.kg_loader import KGLoader
 
             kg_loader = KGLoader()
-            reload_success = False
+            reload_success: bool = False
             if kg_name:
                 # Load by KG name (ontology label) - now includes Document nodes
                 loaded_kg = kg_loader.load_from_neo4j(
@@ -2115,7 +2115,7 @@ async def load_kg_from_neo4j(
             ]  # application-level id strings, not Neo4j internal IDs
 
             relationships = []
-            query = "MATCH (n:__Entity__)-[r]->(m:__Entity__) WHERE n.id IN $node_ids AND m.id IN $node_ids RETURN r, n AS start, m AS end"
+            query: str = "MATCH (n:__Entity__)-[r]->(m:__Entity__) WHERE n.id IN $node_ids AND m.id IN $node_ids RETURN r, n AS start, m AS end"
             rel_params = {"node_ids": loaded_node_ids}
 
             for record in session.run(query, rel_params):

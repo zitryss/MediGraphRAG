@@ -903,7 +903,7 @@ class OntologyGuidedKGCreator(
                         # Then use apoc.refactor.mergeNodes to atomically rewire all relationships
                         # and delete the duplicate.  {properties: 'discard'} means the first
                         # node in the list (canonical) wins all property conflicts.
-                        merge_q = """
+                        merge_q: str = """
                         MATCH (can:__Entity__) WHERE elementId(can) = $can_eid
                         MATCH (dup:__Entity__) WHERE elementId(dup) = $dup_eid
                         SET can.synonyms = coalesce(can.synonyms, []) + [dup.id]
@@ -3596,7 +3596,7 @@ class OntologyGuidedKGCreator(
             query_embedding = self.embedding_function.embed_query(query)
 
             # Vector search query
-            search_query = """
+            search_query: str = """
             CALL db.index.vector.queryNodes('vector', $top_k, $query_vector)
             YIELD node AS chunk, score
             MATCH (chunk)-[:PART_OF]->(d:Document)

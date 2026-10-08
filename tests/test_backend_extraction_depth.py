@@ -178,7 +178,7 @@ def test_reverification_caches_only_explicit_decisions(
 def test_coreference_plausibility_gate(
     creator: module.OntologyGuidedKGCreator, response: Any
 ) -> None:
-    original = "These cells survived during treatment."
+    original: str = "These cells survived during treatment."
     llm = Mock()
     if isinstance(response, Exception):
         llm.generate.side_effect = response
@@ -330,7 +330,7 @@ def test_anchor_inventory_only_retains_exact_grounded_spans(
     creator: module.OntologyGuidedKGCreator, schema_file: Path
 ) -> None:
     creator._load_ontology(str(schema_file))
-    text = "Aspirin treats Pain at 5 mg."
+    text: str = "Aspirin treats Pain at 5 mg."
     inventory = creator._normalize_anchor_inventory(
         {
             "entity_anchors": [

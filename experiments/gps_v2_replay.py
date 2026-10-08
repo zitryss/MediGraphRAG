@@ -240,7 +240,7 @@ def replay_question(
 ) -> dict[str, Any]:
     """Resolve links + path lengths once, at the loose threshold (store row)."""
     q_matches = index.surface_match(question)
-    q_source = "surface"
+    q_source: str = "surface"
     if not q_matches:
         q_matches = [
             {"id": m["id"], "name": m["name"]}

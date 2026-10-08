@@ -1204,7 +1204,7 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
         brace_count = 0
         json_end = json_start
         in_string = False
-        escape_next = False
+        escape_next: bool = False
 
         for i, char in enumerate(response_text[json_start:], json_start):
             if escape_next:
@@ -1256,7 +1256,7 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
     ) -> str:
         """Stage 1 of anchor-constrained extraction: discover exact text anchors."""
         schema_block = f"{ontology_section}\n\n" if ontology_section else ""
-        schema_rules = ""
+        schema_rules: str = ""
         if has_ontology:
             schema_rules = (
                 "Use the schema to type entity anchors and to propose relation type hints.\n"
@@ -1331,7 +1331,7 @@ Return ONLY the JSON object.
             or "- none"
         )
 
-        schema_rules = ""
+        schema_rules: str = ""
         if has_ontology:
             schema_rules = "Use schema-compatible relationship types and prefer domain/range-consistent choices.\n"
 

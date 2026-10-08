@@ -46,7 +46,7 @@ def test_realmedqa_instructions_expect_concise_recommendation() -> None:
 
 
 def test_realmedqa_contract_truncates_to_concise_recommendation() -> None:
-    text = (
+    text: str = (
         "Recommend dialectical behavior therapy. "
         "Do not exclude people with BPD from services. "
         "Offer crisis planning. "
@@ -112,7 +112,7 @@ def test_generic_binary_contract_normalizes_leading_label() -> None:
 
 
 def test_free_text_answers_are_left_unchanged() -> None:
-    text = "Lost and Delirious"
+    text: str = "Lost and Delirious"
     assert normalize_answer_to_contract("musique", "free_text", text) == text
 
 
@@ -188,5 +188,5 @@ def test_multihop_club_answers_strip_common_suffixes() -> None:
 
 
 def test_generic_fallback_keeps_chat_like_answer_intact() -> None:
-    text = "The study suggests a modest benefit, but confidence is limited."
+    text: str = "The study suggests a modest benefit, but confidence is limited."
     assert normalize_answer_to_contract("", "free_text", text) == text

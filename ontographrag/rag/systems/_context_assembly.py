@@ -822,7 +822,7 @@ class ContextAssemblyMixin:
         # Associate each chunk with up to two supporting chains so shared bridge
         # evidence can appear in multiple reasoning chains without flooding all of them.
         chunk_chain_count: dict[str, int] = {}
-        _MAX_CHAINS_PER_CHUNK = 2
+        _MAX_CHAINS_PER_CHUNK: int = 2
         chain_blocks: list[str] = []
         ungrounded_paths: list[str] = []  # paths with no supporting passage
         for chain_idx, path_info in enumerate(all_paths, 1):
@@ -925,7 +925,7 @@ class ContextAssemblyMixin:
             eid: (info.get("description") or eid)
             for eid, info in context.get("entities", {}).items()
         }
-        MAX_RELATIONSHIPS = 25
+        MAX_RELATIONSHIPS: int = 25
         for rel in context.get("relationships", [])[:MAX_RELATIONSHIPS]:
             src_name = entity_name_lookup.get(rel["source"], rel["source"])[:50]
             tgt_name = entity_name_lookup.get(rel["target"], rel["target"])[:50]
@@ -948,8 +948,8 @@ class ContextAssemblyMixin:
             if info.get("source") == "graph_traversal"
         }
 
-        MAX_SEED_ENTITIES = 15
-        MAX_NEIGHBOR_ENTITIES = 10
+        MAX_SEED_ENTITIES: int = 15
+        MAX_NEIGHBOR_ENTITIES: int = 10
 
         if seed_entities:
             entity_texts.append("Seed entities (directly from retrieved chunks):")

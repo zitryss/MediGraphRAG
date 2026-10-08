@@ -108,7 +108,7 @@ def _question_local_pair_support_predicate(
     if not question_id:
         return "true"
 
-    kg_filters = ""
+    kg_filters: str = ""
     if kg_name:
         kg_filters = """
           AND d1.kgName = $kg_name
@@ -144,7 +144,7 @@ def _question_local_path_support_predicate(
     if not question_id:
         return ""
 
-    kg_filters = ""
+    kg_filters: str = ""
     if kg_name:
         kg_filters = """
                   AND d1.kgName = $kg_name
@@ -1007,7 +1007,7 @@ def compute_sre_uq(
         eigenvalues = s[:k] ** 2  # top-k eigenvalues of Σ_E
 
         # Entropy power: geometric mean of eigenvalues ∝ exp(H(E) / k)
-        eps = 1e-12
+        eps: float = 1e-12
         log_geomean = float(np.mean(np.log(eigenvalues + eps)))
         return float(np.exp(log_geomean))
 

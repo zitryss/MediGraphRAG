@@ -26,7 +26,7 @@ def creator(monkeypatch: pytest.MonkeyPatch) -> UnifiedOntologyGuidedKGCreator:
 def test_patient_demographics_and_hybrid_graph(
     creator: UnifiedOntologyGuidedKGCreator,
 ) -> None:
-    text = """Name: Synthetic Person
+    text: str = """Name: Synthetic Person
 Unit No: U1
 Date of Birth: 1980-01-01
 Admission Date: 2026-01-01

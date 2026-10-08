@@ -154,13 +154,13 @@ class TestChunkIdScoping:
     """chunk_id must be unique across different (kg_name, file_name, text) tuples."""
 
     def test_same_text_different_kg_gives_different_id(self) -> None:
-        t = "Aspirin reduces fever."
+        t: str = "Aspirin reduces fever."
         id1 = _chunk_id("kg_a", "doc.txt", t)
         id2 = _chunk_id("kg_b", "doc.txt", t)
         assert id1 != id2
 
     def test_same_text_different_file_gives_different_id(self) -> None:
-        t = "Aspirin reduces fever."
+        t: str = "Aspirin reduces fever."
         id1 = _chunk_id("kg_a", "doc1.txt", t)
         id2 = _chunk_id("kg_a", "doc2.txt", t)
         assert id1 != id2
@@ -999,7 +999,7 @@ class TestSectionAwareChunking:
 
         monkeypatch.setattr(extraction_mod, "_chunk_text_fn", _fake_chunk_text_fn)
 
-        text = "History\nalpha finding\n\nMedications\nbeta dose"
+        text: str = "History\nalpha finding\n\nMedications\nbeta dose"
         med_start = text.index("Medications")
         chunks = creator._chunk_text_with_section_boundaries(
             text,
@@ -1015,7 +1015,7 @@ class TestSectionAwareChunking:
     def test_cross_section_recovery_uses_section_segments(self) -> None:
         creator = _make_creator()
 
-        text = "Introduction\nalpha finding\n\nResults\nbeta outcome"
+        text: str = "Introduction\nalpha finding\n\nResults\nbeta outcome"
         results_start = text.index("Results")
         chunks = [
             {
@@ -1193,7 +1193,7 @@ class TestVerifyTripleConfidence:
 
     def test_same_chunk_different_sentence_returns_0_7(self) -> None:
         # Two sentences in one chunk — not the same sentence
-        text = "Metformin is a biguanide drug. Type 2 diabetes affects millions."
+        text: str = "Metformin is a biguanide drug. Type 2 diabetes affects millions."
         chunks = self._chunks(text)
         score = self.creator._verify_triple_confidence(
             "Metformin", "type 2 diabetes", "TREATS", chunks

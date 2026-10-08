@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class KGLoader:
     def __init__(self) -> None:
         # Handle both Docker and local environments
-        default_uri = "bolt://localhost:7687"
+        default_uri: str = "bolt://localhost:7687"
         configured_uri = os.getenv("NEO4J_URI", default_uri)
 
         # If running in Docker, use the configured URI, otherwise use localhost
@@ -556,7 +556,7 @@ class KGLoader:
                     # Use MERGE based on a unique identifier
                     # If node has an 'id' property, use that, otherwise use a combination of properties
                     if "id" in properties:
-                        unique_key = "id"
+                        unique_key: str = "id"
                         unique_value = properties["id"]
                     elif "name" in properties:
                         unique_key = "name"
@@ -572,7 +572,7 @@ class KGLoader:
 
                     # Use MERGE to create if doesn't exist, or match if it does
                     merge_clause = f"MERGE (n:{labels} {{{unique_key}: $unique_value}})"
-                    set_clause = "SET n += $properties"
+                    set_clause: str = "SET n += $properties"
 
                     result = session.run(
                         f"{merge_clause} {set_clause} RETURN elementId(n) as node_id",

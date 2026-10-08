@@ -416,7 +416,7 @@ class GraphSearchMixin:
             # RoG-style: when an allowed relation type list is provided, constrain
             # traversal to only follow those relation types (in addition to the
             # standard structural-edge exclusion).
-            rog_rel_filter = ""
+            rog_rel_filter: str = ""
             if allowed_rel_types:
                 params["rog_allowed_rel_types"] = allowed_rel_types
                 rog_rel_filter = (
@@ -643,7 +643,7 @@ class GraphSearchMixin:
             local_filters = f"""
                   AND {source_support}
                   AND {target_support}"""
-        qid_filter = ""
+        qid_filter: str = ""
         if question_id:
             qid_filter = """
             AND ANY(pid IN coalesce(r.questionIds, []) WHERE pid = $question_id)"""
@@ -1469,7 +1469,7 @@ class GraphSearchMixin:
             }
             vec_entity_ids: list[str] = []
             cosine_by_chunk: dict[str, float] = {}
-            _MAX_ENTITIES_PER_CHUNK = (
+            _MAX_ENTITIES_PER_CHUNK: int = (
                 4  # cap seeds per chunk to avoid generic-entity flooding
             )
             for chunk in vec_ctx["chunks"]:

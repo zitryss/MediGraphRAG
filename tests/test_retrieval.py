@@ -344,7 +344,7 @@ class TestDecomposeQuestion:
         assert result == ["Some question?"]
 
     def test_result_capped_to_max_hops(self) -> None:
-        many = '["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"]'
+        many: str = '["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"]'
         llm = self._llm(many)
         result = self.sys_._decompose_question("Multi hop question?", llm, max_hops=3)
         assert len(result) <= 3
@@ -1072,7 +1072,7 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(
 ) -> None:
     system = _make_system()
 
-    question = "Which film has the director born later, Riding The California Trail or Lost And Delirious?"
+    question: str = "Which film has the director born later, Riding The California Trail or Lost And Delirious?"
     base_context = {
         "query": question,
         "chunks": [
@@ -1177,7 +1177,7 @@ def test_vanilla_query_fusion_supplements_missing_comparison_branch(
 ) -> None:
     system = VanillaRAGSystem.__new__(VanillaRAGSystem)
 
-    question = "Which film has the director born later, Riding The California Trail or Lost And Delirious?"
+    question: str = "Which film has the director born later, Riding The California Trail or Lost And Delirious?"
     base_context = {
         "query": question,
         "chunks": [

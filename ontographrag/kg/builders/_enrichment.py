@@ -107,7 +107,7 @@ class EnrichmentMixin:
         ]
         grounded_count = len(grounded_components)
         if grounded_count == 3:
-            status = "full"
+            status: str = "full"
         elif grounded_count >= 2 and {"source", "target"}.issubset(
             set(grounded_components)
         ):
@@ -717,7 +717,7 @@ Rules:
             relation = str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
             if rel.get("negated"):
                 text = f"{source_name} is not supported to {relation} {target_name}."
-                polarity = "negated"
+                polarity: str = "negated"
             else:
                 text = f"{source_name} {relation} {target_name}."
                 polarity = "affirmed"

@@ -117,9 +117,9 @@ class VectorSearchMixin:
             params["question_id"] = question_id
         where_clause = "WHERE " + " AND ".join(filters) if filters else ""
 
-        entity_match = ""
-        with_clause = "WITH retrieval, chunk, d"
-        entity_return = "[] AS entities"
+        entity_match: str = ""
+        with_clause: str = "WITH retrieval, chunk, d"
+        entity_return: str = "[] AS entities"
         if include_entities:
             entity_match = "OPTIONAL MATCH (chunk)-[:HAS_ENTITY]->(entity:__Entity__)"
             with_clause = (

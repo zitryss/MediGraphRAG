@@ -347,7 +347,7 @@ class TestValidateNoLeakage:
         assert validate_no_leakage([inf], [gold]) is True
 
     def test_long_answer_leakage_detected(self) -> None:
-        long = "Aspirin inhibits cyclooxygenase enzymes"
+        long: str = "Aspirin inhibits cyclooxygenase enzymes"
         inf = _inf("1", "How does aspirin work?", [long])
         gold = _gold("1", "COX inhibitor", long_answer=long)
         assert validate_no_leakage([inf], [gold]) is False

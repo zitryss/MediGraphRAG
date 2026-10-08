@@ -880,7 +880,7 @@ User Query: {question}""",
 
             # Check if we have data - optionally filter by kg_name
             if kg_name:
-                check_query = """
+                check_query: str = """
                 MATCH (c:Chunk)-[:PART_OF]->(d:Document {kgName: $kg_name})
                 RETURN count(c) as chunk_count LIMIT 1
                 """

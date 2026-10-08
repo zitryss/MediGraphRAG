@@ -553,7 +553,7 @@ def plot_ppv_bars(
     n_fams = len(families)
 
     fig, ax = plt.subplots(figsize=(9, 4.5))
-    bar_width = 0.22
+    bar_width: float = 0.22
     x = np.arange(n_hops)
 
     for fi, family in enumerate(families):

@@ -29,7 +29,7 @@ class TestEnhancedGroundingHelpers:
         assert tokens == ["owns", "manufacturer", "learjet"]
 
     def test_matched_query_tokens_do_not_inflate_with_many_entities(self) -> None:
-        query = "What company owns the manufacturer of Learjet 60?"
+        query: str = "What company owns the manufacturer of Learjet 60?"
         matched = self.system._count_matched_query_tokens(
             query,
             [
@@ -46,7 +46,7 @@ class TestEnhancedGroundingHelpers:
         assert grounding == pytest.approx(1 / 3)
 
     def test_grounding_quality_caps_at_one(self) -> None:
-        query = "Which province borders the province containing Lago District?"
+        query: str = "Which province borders the province containing Lago District?"
         matched = self.system._count_matched_query_tokens(
             query,
             ["Lago District", "Province", "Border Province", "Containing Province"],

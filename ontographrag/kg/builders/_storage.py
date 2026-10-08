@@ -381,7 +381,7 @@ class StorageMixin:
             kg_version = str(uuid.uuid4())
             schema_card = self._build_schema_card()
             schema_card_json = json.dumps(schema_card, ensure_ascii=False)
-            doc_query = """
+            doc_query: str = """
             MERGE (d:Document {fileName: $fileName, kgName: $kgName})
             SET d.kgVersion = $kgVersion,
                 d.kgName = $kgName,
@@ -471,7 +471,7 @@ class StorageMixin:
                 chunk_id = hashlib.sha1(
                     f"{kg_name_value}:{file_name}:{chunk['position']}:{chunk['text']}".encode()
                 ).hexdigest()
-                chunk_query = """
+                chunk_query: str = """
                 MERGE (c:Chunk {id: $chunk_id})
                 SET c.text = $text,
                     c.kgName = $kg_name,
@@ -506,7 +506,7 @@ class StorageMixin:
                 )
 
                 # Link chunk to document
-                chunk_doc_query = """
+                chunk_doc_query: str = """
                 MATCH (c:Chunk {id: $chunk_id})
                 MATCH (d:Document {fileName: $fileName, kgName: $kgName})
                 MERGE (c)-[:PART_OF]->(d)
@@ -528,7 +528,7 @@ class StorageMixin:
                     parent_chunk_id=chunk_id,
                 )
                 for subchunk in retrieval_subchunks:
-                    retrieval_chunk_query = """
+                    retrieval_chunk_query: str = """
                     MERGE (rc:RetrievalChunk {id: $retrieval_chunk_id})
                     SET rc.text = $text,
                         rc.kgName = $kg_name,
@@ -869,7 +869,7 @@ class StorageMixin:
                         triple_confidence,
                     )
 
-                    llm_reverified = False
+                    llm_reverified: bool = False
                     if (
                         self.enable_low_confidence_triple_reverification
                         and llm is not None
@@ -1181,7 +1181,7 @@ class StorageMixin:
                         mention_id = hashlib.sha256(
                             f"{node['id']}::{chunk_id}".encode()
                         ).hexdigest()
-                        mention_query = """
+                        mention_query: str = """
                         MATCH (c:Chunk {id: $chunk_id})
                         MATCH (e:__Entity__ {id: $entity_id})
                         MERGE (m:Mention {id: $mention_id})
@@ -1270,20 +1270,20 @@ class StorageMixin:
         """
         try:
             # Create unique constraint for entity IDs to prevent duplicates
-            entity_constraint_query = """
+            entity_constraint_query: str = """
             CREATE CONSTRAINT unique_entity_id IF NOT EXISTS
             FOR (e:__Entity__) REQUIRE e.id IS UNIQUE
             """
             graph.query(entity_constraint_query)
 
             # Create unique constraint for chunk IDs
-            chunk_constraint_query = """
+            chunk_constraint_query: str = """
             CREATE CONSTRAINT unique_chunk_id IF NOT EXISTS
             FOR (c:Chunk) REQUIRE c.id IS UNIQUE
             """
             graph.query(chunk_constraint_query)
 
-            retrieval_chunk_constraint_query = """
+            retrieval_chunk_constraint_query: str = """
             CREATE CONSTRAINT unique_retrieval_chunk_id IF NOT EXISTS
             FOR (rc:RetrievalChunk) REQUIRE rc.id IS UNIQUE
             """
@@ -1291,26 +1291,26 @@ class StorageMixin:
 
             # Create composite uniqueness for dataset-scoped documents
             # (same fileName may exist in different kgName datasets)
-            doc_constraint_query = """
+            doc_constraint_query: str = """
             CREATE CONSTRAINT unique_document_filename_kgname IF NOT EXISTS
             FOR (d:Document) REQUIRE (d.fileName, d.kgName) IS UNIQUE
             """
             graph.query(doc_constraint_query)
 
             # Unique constraint for Mention nodes (entity × chunk pair)
-            mention_constraint_query = """
+            mention_constraint_query: str = """
             CREATE CONSTRAINT unique_mention_id IF NOT EXISTS
             FOR (m:Mention) REQUIRE m.id IS UNIQUE
             """
             graph.query(mention_constraint_query)
 
-            summary_constraint_query = """
+            summary_constraint_query: str = """
             CREATE CONSTRAINT unique_summary_id IF NOT EXISTS
             FOR (s:Summary) REQUIRE s.id IS UNIQUE
             """
             graph.query(summary_constraint_query)
 
-            claim_constraint_query = """
+            claim_constraint_query: str = """
             CREATE CONSTRAINT unique_claim_id IF NOT EXISTS
             FOR (c:Claim) REQUIRE c.id IS UNIQUE
             """
@@ -1355,13 +1355,13 @@ class StorageMixin:
             graph.query(entity_index_query)
 
             # Create keyword index for full-text search
-            keyword_index_query = """
+            keyword_index_query: str = """
             CREATE FULLTEXT INDEX keyword IF NOT EXISTS
             FOR (c:Chunk) ON EACH [c.text]
             """
             graph.query(keyword_index_query)
 
-            retrieval_keyword_index_query = """
+            retrieval_keyword_index_query: str = """
             CREATE FULLTEXT INDEX retrieval_keyword IF NOT EXISTS
             FOR (rc:RetrievalChunk) ON EACH [rc.text]
             """
@@ -1369,20 +1369,20 @@ class StorageMixin:
 
             # Index on entity name for fast text-matching and multi-hop traversal
             # lookups (EnhancedRAGSystem._expand_entities_via_graph seeds from e.id)
-            entity_id_index_query = """
+            entity_id_index_query: str = """
             CREATE INDEX entity_id_index IF NOT EXISTS
             FOR (e:__Entity__) ON (e.id)
             """
             graph.query(entity_id_index_query)
 
-            entity_name_index_query = """
+            entity_name_index_query: str = """
             CREATE INDEX entity_name_index IF NOT EXISTS
             FOR (e:__Entity__) ON (e.name)
             """
             graph.query(entity_name_index_query)
 
             # Composite index for chunk→document lookup used in kg_name filtering
-            chunk_kg_index_query = """
+            chunk_kg_index_query: str = """
             CREATE INDEX chunk_document_index IF NOT EXISTS
             FOR ()-[r:PART_OF]-() ON (r)
             """

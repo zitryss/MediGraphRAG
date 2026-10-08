@@ -208,12 +208,12 @@ class OntologySchemaMixin:
             "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
             "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
         }
-        _rdf_about = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about"
-        _rdfs_label = "{http://www.w3.org/2000/01/rdf-schema#}label"
-        _rdfs_cmt = "{http://www.w3.org/2000/01/rdf-schema#}comment"
-        _rdfs_dom = "{http://www.w3.org/2000/01/rdf-schema#}domain"
-        _rdfs_rng = "{http://www.w3.org/2000/01/rdf-schema#}range"
-        _rdf_rsrc = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}resource"
+        _rdf_about: str = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about"
+        _rdfs_label: str = "{http://www.w3.org/2000/01/rdf-schema#}label"
+        _rdfs_cmt: str = "{http://www.w3.org/2000/01/rdf-schema#}comment"
+        _rdfs_dom: str = "{http://www.w3.org/2000/01/rdf-schema#}domain"
+        _rdfs_rng: str = "{http://www.w3.org/2000/01/rdf-schema#}range"
+        _rdf_rsrc: str = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}resource"
 
         def _local(uri: str) -> str:
             return uri.split("#")[-1] if "#" in uri else uri.split("/")[-1]
@@ -903,7 +903,7 @@ class OntologySchemaMixin:
                 return cls["id"]
 
         # Strategy 3: keyword heuristics
-        fallback = "Concept"
+        fallback: str = "Concept"
         if any(
             word in entity_lower
             for word in [

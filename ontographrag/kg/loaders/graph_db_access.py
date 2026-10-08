@@ -38,7 +38,7 @@ class graphDBdataAccess:
 
     def update_exception_db(self, file_name, exp_msg, retry_condition=None) -> None:
         try:
-            job_status = "Failed"
+            job_status: str = "Failed"
             result = self.get_current_status_document_node(file_name)
             if len(result) > 0:
                 is_cancelled_status = result[0]["is_cancelled"]
@@ -73,7 +73,7 @@ class graphDBdataAccess:
         self, obj_source_node: sourceNode, kg_name: str = None
     ) -> None:
         try:
-            job_status = "New"
+            job_status: str = "New"
             logging.info(
                 f"creating source node if does not exist in database {self.graph._database}"
             )
@@ -179,7 +179,7 @@ class graphDBdataAccess:
             param = {"props": params}
 
             logging.info(f"Base Param value 1 : {param}")
-            query = "MERGE(d:Document {fileName :$props.fileName}) SET d += $props"
+            query: str = "MERGE(d:Document {fileName :$props.fileName}) SET d += $props"
             logging.info("Update source node properties")
             self.graph.query(
                 query, param, session_params={"database": self.graph._database}
@@ -203,7 +203,7 @@ class graphDBdataAccess:
         sorting the list by the last updated date.
         """
         logging.info("Get existing files list from graph")
-        query = "MATCH(d:Document) WHERE d.fileName IS NOT NULL RETURN d ORDER BY d.updatedAt DESC"
+        query: str = "MATCH(d:Document) WHERE d.fileName IS NOT NULL RETURN d ORDER BY d.updatedAt DESC"
         result = self.graph.query(
             query, session_params={"database": self.graph._database}
         )
@@ -236,13 +236,13 @@ class graphDBdataAccess:
 
     def check_account_access(self, database):
         try:
-            query_dbms_componenet = "call dbms.components() yield edition"
+            query_dbms_componenet: str = "call dbms.components() yield edition"
             result_dbms_componenet = self.graph.query(
                 query_dbms_componenet, session_params={"database": self.graph._database}
             )
 
             if result_dbms_componenet[0]["edition"] == "enterprise":
-                query = """
+                query: str = """
                 SHOW USER PRIVILEGES 
                 YIELD * 
                 WHERE graph = $database AND action IN ['read'] 
@@ -277,7 +277,7 @@ class graphDBdataAccess:
 
     def check_gds_version(self):
         try:
-            gds_procedure_count = """
+            gds_procedure_count: str = """
             SHOW FUNCTIONS YIELD name WHERE name STARTS WITH 'gds.version' RETURN COUNT(*) AS totalGdsProcedures
             """
             result = self.graph.query(
@@ -396,7 +396,7 @@ class graphDBdataAccess:
         )
 
     def get_current_status_document_node(self, file_name):
-        query = """
+        query: str = """
                 MATCH(d:Document {fileName : $file_name}) RETURN d.status AS Status , d.processingTime AS processingTime, 
                 d.nodeCount AS nodeCount, d.model as model, d.relationshipCount as relationshipCount,
                 d.total_chunks AS total_chunks , d.fileSize as fileSize, 
@@ -431,7 +431,7 @@ class graphDBdataAccess:
                 )
                 delete_uploaded_local_file(merged_file_path, file_name)
 
-        query_to_delete_document = """
+        query_to_delete_document: str = """
             MATCH (d:Document)
             WHERE d.fileName IN $filename_list AND coalesce(d.fileSource, "None") IN $source_types_list
             WITH COLLECT(d) AS documents
@@ -441,7 +441,7 @@ class graphDBdataAccess:
             detach delete c, d
             } IN TRANSACTIONS OF 1 ROWS
             """
-        query_to_delete_document_and_entities = """
+        query_to_delete_document_and_entities: str = """
             MATCH (d:Document)
             WHERE d.fileName IN $filename_list AND coalesce(d.fileSource, "None") IN $source_types_list
             WITH COLLECT(d) AS documents
@@ -460,7 +460,7 @@ class graphDBdataAccess:
             DETACH DELETE d
             } IN TRANSACTIONS OF 1 ROWS
             """
-        query_to_delete_communities = """
+        query_to_delete_communities: str = """
             MATCH (c:`__Community__`)
             WHERE c.level = 0 AND NOT EXISTS { ()-[:IN_COMMUNITY]->(c) }
             DETACH DELETE c
@@ -488,7 +488,7 @@ class graphDBdataAccess:
         return len(filename_list)
 
     def list_unconnected_nodes(self):
-        query = """
+        query: str = """
         MATCH (e:!Chunk&!Document&!`__Community__`) 
         WHERE NOT exists { (e)--(:!Chunk&!Document&!`__Community__`) }
         OPTIONAL MATCH (doc:Document)<-[:PART_OF]-(c:Chunk)-[:HAS_ENTITY]->(e)
@@ -509,7 +509,7 @@ class graphDBdataAccess:
         ORDER BY e.id ASC
         LIMIT 100
         """
-        query_total_nodes = """
+        query_total_nodes: str = """
         MATCH (e:!Chunk&!Document&!`__Community__`) 
         WHERE NOT exists { (e)--(:!Chunk&!Document&!`__Community__`) }
         RETURN count(*) as total
@@ -520,7 +520,7 @@ class graphDBdataAccess:
 
     def delete_unconnected_nodes(self, unconnected_entities_list):
         entities_list = list(map(str.strip, json.loads(unconnected_entities_list)))
-        query = """
+        query: str = """
         MATCH (e) WHERE elementId(e) IN $elementIds
         DETACH DELETE e
         """
@@ -530,7 +530,7 @@ class graphDBdataAccess:
     def get_duplicate_nodes_list(self):
         score_value = float(os.environ.get("DUPLICATE_SCORE_VALUE"))
         text_distance = int(os.environ.get("DUPLICATE_TEXT_DISTANCE"))
-        query_duplicate_nodes = """
+        query_duplicate_nodes: str = """
                 MATCH (n:!Chunk&!Session&!Document&!`__Community__`) with n 
                 WHERE n.embedding is not null and n.id is not null // and size(toString(n.id)) > 3
                 WITH n ORDER BY count {{ (n)--() }} DESC, size(toString(n.id)) DESC // updated
@@ -562,14 +562,14 @@ class graphDBdataAccess:
                 OPTIONAL MATCH (doc:Document)<-[:PART_OF]-(c:Chunk)-[:HAS_ENTITY]->(n)
                 {return_statement}
                 """
-        return_query_duplicate_nodes = """
+        return_query_duplicate_nodes: str = """
                 RETURN n {.*, embedding:null, elementId:elementId(n), labels:labels(n)} as e, 
                 [s in similar | s {.id, .description, labels:labels(s), elementId: elementId(s)}] as similar,
                 collect(distinct doc.fileName) as documents, count(distinct c) as chunkConnections
                 ORDER BY e.id ASC
                 LIMIT 100
                 """
-        total_duplicate_nodes = "RETURN COUNT(DISTINCT(n)) as total"
+        total_duplicate_nodes: str = "RETURN COUNT(DISTINCT(n)) as total"
 
         param = {
             "duplicate_score_value": score_value,
@@ -589,7 +589,7 @@ class graphDBdataAccess:
     def merge_duplicate_nodes(self, duplicate_nodes_list):
         nodes_list = json.loads(duplicate_nodes_list)
         logging.info(f"Nodes list to merge {nodes_list}")
-        query = """
+        query: str = """
         UNWIND $rows AS row
         CALL { with row
         MATCH (first) WHERE elementId(first) = row.firstElementId
@@ -633,7 +633,7 @@ class graphDBdataAccess:
 
     def update_node_relationship_count(self, document_name):
         logging.info("updating node and relationship count")
-        label_query = """CALL db.labels"""
+        label_query: str = """CALL db.labels"""
         community_flag = {"label": "__Community__"} in self.execute_query(label_query)
         if (not document_name) and (community_flag):
             result = self.execute_query(NODEREL_COUNT_QUERY_WITH_COMMUNITY)
@@ -664,7 +664,7 @@ class graphDBdataAccess:
                     + int(entityEntityRelCount)
                     + int(communityRelCount)
                 )
-                update_query = """
+                update_query: str = """
                 MATCH (d:Document {fileName: $filename})
                 SET d.chunkNodeCount = $chunkNodeCount,
                     d.chunkRelCount = $chunkRelCount,
@@ -704,7 +704,7 @@ class graphDBdataAccess:
         return response
 
     def get_nodelabels_relationships(self):
-        node_query = """
+        node_query: str = """
                     CALL db.labels() YIELD label
                     WITH label
                     WHERE NOT label IN ['Document', 'Chunk', '_Bloom_Perspective_', '__Community__', '__Entity__']
@@ -713,7 +713,7 @@ class graphDBdataAccess:
                     RETURN label order by label
                     """
 
-        relation_query = """
+        relation_query: str = """
                 CALL db.relationshipTypes() yield relationshipType
                 WHERE NOT relationshipType  IN ['PART_OF', 'NEXT_CHUNK', 'HAS_ENTITY', '_Bloom_Perspective_','FIRST_CHUNK','SIMILAR','IN_COMMUNITY','PARENT_COMMUNITY'] 
                 return relationshipType order by relationshipType
@@ -733,7 +733,7 @@ class graphDBdataAccess:
 
     def get_websource_url(self, file_name):
         logging.info("Checking if same title with different URL exist in db ")
-        query = """
+        query: str = """
                 MATCH(d:Document {fileName : $file_name}) WHERE d.fileSource = "web-url"
                 RETURN d.url AS url
                 """
@@ -745,7 +745,7 @@ class graphDBdataAccess:
         Get list of all knowledge graphs in the database
         """
         logging.info("Get existing KG list from graph")
-        query = """
+        query: str = """
         MATCH(d:Document)
         WHERE d.fileName IS NOT NULL AND d.kgName IS NOT NULL
         RETURN DISTINCT d.kgName AS kgName,
@@ -778,7 +778,7 @@ class graphDBdataAccess:
         Document nodes remain the source of truth for built KGs; this metadata node
         lets the API expose an explicit KG record before documents are attached.
         """
-        query = """
+        query: str = """
         MERGE (kg:KnowledgeGraph {kgName: $kg_name})
         ON CREATE SET kg.createdAt = datetime()
         SET kg.name = $kg_name,
@@ -807,7 +807,7 @@ class graphDBdataAccess:
         """
         Return metadata for a named KG, falling back to Document-derived metadata.
         """
-        query = """
+        query: str = """
         OPTIONAL MATCH (kg:KnowledgeGraph {kgName: $kg_name})
         OPTIONAL MATCH (d:Document {kgName: $kg_name})
         WITH kg, collect(d) AS docs
@@ -830,7 +830,7 @@ class graphDBdataAccess:
         Get list of sources for a specific knowledge graph
         """
         logging.info(f"Get existing files list for KG: {kg_name}")
-        query = """
+        query: str = """
         MATCH(d:Document)
         WHERE d.fileName IS NOT NULL AND d.kgName = $kg_name
         RETURN d ORDER BY d.updatedAt DESC
@@ -849,7 +849,7 @@ class graphDBdataAccess:
         logging.info(f"Deleting KG: {kg_name}")
 
         # Get all documents in this KG
-        docs_query = """
+        docs_query: str = """
         MATCH(d:Document {kgName: $kg_name})
         RETURN d.fileName AS fileName, d.fileSource AS fileSource
         """
@@ -895,7 +895,7 @@ class graphDBdataAccess:
         """
         Return entities associated with a KG via entity kgName or document provenance.
         """
-        query = """
+        query: str = """
         MATCH (e:__Entity__)
         WHERE e.kgName = $kg_name
            OR EXISTS {
@@ -925,7 +925,7 @@ class graphDBdataAccess:
         Get statistics for a specific KG or all KGs
         """
         if kg_name:
-            query = """
+            query: str = """
             MATCH(d:Document {kgName: $kg_name})
             RETURN
                 $kg_name AS kgName,

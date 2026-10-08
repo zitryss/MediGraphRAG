@@ -316,7 +316,7 @@ def create_comparison_chart(
     axes = np.array(axes).reshape(-1)
 
     x = np.arange(n_configs)
-    width = 0.35
+    width: float = 0.35
 
     colors = {"vanilla_rag": "#1f77b4", "kg_rag": "#ff7f0e"}
 
@@ -372,7 +372,7 @@ def create_overall_comparison_chart(
     kg_values = [overall["kg_rag"].get(m, 0) for m in metrics]
 
     x = np.arange(len(metrics))
-    width = 0.35
+    width: float = 0.35
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -470,7 +470,7 @@ def plot_metric_bar_charts(
                     float(kg_val) if kg_val is not None else np.nan
                 )
 
-    n_cols = 4
+    n_cols: int = 4
     n_rows = ceil(len(panels) / n_cols)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, max(10, n_rows * 3.2)))
     axes = np.atleast_1d(axes).flatten()
@@ -482,7 +482,7 @@ def plot_metric_bar_charts(
     )
     fig.subplots_adjust(top=0.93, hspace=0.55, wspace=0.35)
 
-    width = 0.35
+    width: float = 0.35
     colors = {"vanilla": "#4C72B0", "kg": "#DD8452"}
 
     for idx, (title, v_key, k_key, lower_is_better) in enumerate(panels):
@@ -896,8 +896,8 @@ def plot_reliability_diagrams(
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    n_bins = 5
-    n_cols = 4
+    n_bins: int = 5
+    n_cols: int = 4
     n_rows = ceil(len(metric_order) / n_cols)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, max(10, n_rows * 3.0)))
     axes = np.atleast_1d(axes).flatten()
@@ -1052,7 +1052,7 @@ def plot_compute_time_chart(
     n = len(labels)
     fig, ax = plt.subplots(figsize=(11, max(4, n * 0.65 + 1.5)))
 
-    bar_height = 0.35
+    bar_height: float = 0.35
     y = np.arange(n)
 
     bars_v = ax.barh(
@@ -1370,7 +1370,9 @@ def plot_query_type_stratification(
     out_dir.mkdir(parents=True, exist_ok=True)
     saved = []
 
-    _AUROC_METRIC = "semantic_entropy"  # representative metric for stratification plot
+    _AUROC_METRIC: str = (
+        "semantic_entropy"  # representative metric for stratification plot
+    )
 
     for dataset_block in all_results:
         dataset_name = dataset_block.get("dataset", "unknown")
@@ -1385,7 +1387,7 @@ def plot_query_type_stratification(
             sorted_types = sorted(by_type.keys(), key=lambda t: -by_type[t].get("n", 0))
 
             x = list(range(len(sorted_types)))
-            width = 0.38
+            width: float = 0.38
             v_acc = [by_type[t].get("vanilla_accuracy", 0) * 100 for t in sorted_types]
             k_acc = [by_type[t].get("kg_accuracy", 0) * 100 for t in sorted_types]
             n_labels = [f"{t}\n(n={by_type[t].get('n', 0)})" for t in sorted_types]
@@ -1781,7 +1783,7 @@ def plot_per_system_auroc_comparison(
 
             n = len(present)
             x = np.arange(n)
-            bar_w = 0.35
+            bar_w: float = 0.35
 
             fig, ax = plt.subplots(figsize=(max(10, n * 0.85 + 2), 5))
 

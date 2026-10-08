@@ -1729,7 +1729,7 @@ class MIRAGEEvaluationPipeline:
                 r.get("config", {}).get("name", "default") for r in config_results
             ]
             x = list(range(len(config_names)))
-            width = 0.36
+            width: float = 0.36
 
             metric_specs = [("clean_accuracy", "vanilla_accuracy", "kg_accuracy")]
             if self.compute_metrics:
@@ -2169,7 +2169,7 @@ class MIRAGEEvaluationPipeline:
 
         # Generate additional samples if requested
         remaining = max(0, self.entropy_samples)
-        base_sample_id = 0
+        base_sample_id: int = 0
         extra_generate_kwargs = dict(generate_kwargs or {})
         for offset in range(remaining):
             try:
@@ -2463,7 +2463,7 @@ class MIRAGEEvaluationPipeline:
         """Delete KG for a specific dataset from Neo4j"""
         logging.info(f"Deleting KG for dataset: {dataset_name}")
         driver = self._get_neo4j_driver()
-        batch_size = 200
+        batch_size: int = 200
 
         def _delete_in_batches(session, label: str, query: str) -> int:
             total_deleted = 0
@@ -2907,7 +2907,7 @@ class MIRAGEEvaluationPipeline:
             f'"{a}"' for a in accepted[:6]
         )  # cap to avoid token bloat
 
-        system_prompt = (
+        system_prompt: str = (
             "You are a strict answer evaluator for a factoid question answering task. "
             "Your job is to decide if a model's response is CORRECT.\n\n"
             "Rules:\n"
