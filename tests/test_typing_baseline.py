@@ -132,6 +132,10 @@ def test_complete_gate_records_exact_commands_hashes_and_versions(
     for name in ("python", "ruff", "mypy", "pyright"):
         assert (gate.output / f"{name}-version.stdout").read_text() == "tool 1.0\n"
     for argv in gate.calls:
+        if "--any-exprs-report" in argv:
+            assert argv[argv.index("--any-exprs-report") + 1] == str(
+                gate.output / "mypy-any",
+            )
         if any(
             item in argv for item in ("--strict", "--outputjson", "format", "check")
         ):

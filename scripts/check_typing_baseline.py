@@ -171,6 +171,8 @@ def commands(
                 "--strict",
                 "--cache-dir=/dev/null",
                 "--no-incremental",
+                "--any-exprs-report",
+                str(output / "mypy-any"),
                 *paths,
             ],
         ),
