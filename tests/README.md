@@ -44,15 +44,22 @@ report that script separately when comparing backend percentages.
 - `test_backend_*` suites cover numeric invariants, deterministic sampling, cache
   lifetimes, parameter scopes, HTTP/CLI boundaries, negative cases, CSV/PDF/ontology
   ingestion, experiment orchestration, failure denominators, and real plot outputs.
-- Two **strict xfails** document pre-existing bugs rather than codify bad behavior:
+- Four **strict xfails** document pre-existing bugs rather than codify bad behavior:
   empty CSV text becomes the document `"nan"`; API-key rejection returns HTTP 500
-  instead of 401. An unexpected pass fails the suite so fixes cannot go unnoticed.
+  instead of 401; real KG generation references undefined `provider`; the KG build
+  endpoint passes a provider argument absent from the real creator signature. The
+  latter two restrict expected failure to NameError / TypeError respectively. An
+  unexpected pass fails the suite so fixes cannot go unnoticed.
 
 ## Remaining coverage limits
 
-Coverage is not completeness. Large gaps remain in full-metrics experiment execution,
-advanced entity-first/RFGE graph traversal, ontology/coreference/reverification paths,
-model-backed reranking, and API KG-building/load routes. Live integration behavior is
+Coverage is not completeness. The depth suites run real entity-first/RFGE traversal,
+PPR, token MaxSim on tiny real tensors, schema import/extraction/coreference, API
+build/load/bulk failure handling, and experiment resume/rebuild/metrics orchestration
+with scoped dependency fakes. Remaining gaps include optional UMLS/entity-linking,
+some storage/enrichment paths, complete large-corpus retrieval, and metric-model
+semantics. Successful real KG creation is blocked by the two creator/API defects
+above; API lifecycle tests mock the builder and do not prove that path works. Live integration behavior is
 unverified. The standalone `generate_auroc_heatmap` script imports undeclared/uninstalled
 `seaborn` and performs plotting at import time; it remains explicitly uncovered, not
 excluded from coverage. Legacy YouTube chunk helpers reference unavailable timestamp

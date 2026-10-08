@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
 
@@ -251,3 +252,149 @@ def test_gds_detection(rows: list[dict[str, int]], expected: bool) -> None:
     assert access.check_gds_version() is expected
     graph.query.side_effect = RuntimeError("offline")
     assert not access.check_gds_version()
+
+
+@pytest.mark.parametrize("state", ["indexed", "empty", "unembedded", "embedded"])
+def test_connection_reports_index_and_chunk_readiness(
+    monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    monkeypatch.setattr(
+        graph_db_access, "load_embedding_model", Mock(return_value=(Mock(), 3))
+    )
+    index = [{"vector_dimensions": 3}] if state == "indexed" else []
+    chunks = (
+        []
+        if state == "empty"
+        else [{"hasEmbedding": 0 if state == "unembedded" else 2, "chunks": 2}]
+    )
+    graph = Mock(
+        _database="unit",
+        query=Mock(
+            side_effect=[
+                index,
+                chunks,
+                [{"totalGdsProcedures": 1}],
+                [{"edition": "community"}],
+            ]
+        ),
+    )
+    result = graphDBdataAccess(graph).connection_check_and_get_vector_dimensions("unit")
+    assert result is not None
+    assert result["message"] == "Connection Successful"
+    assert result["gds_status"] and result["write_access"]
+    if state == "indexed":
+        assert result["db_vector_dimension"] == 3
+    elif state != "embedded":
+        assert result["chunks_exists"] is (state == "unembedded")
+    assert all(
+        c.kwargs["session_params"] == {"database": "unit"}
+        for c in graph.query.call_args_list
+    )
+
+
+def test_knn_and_index_rebuild_pass_configured_dimensions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KNN_MIN_SCORE", "0.82")
+    monkeypatch.setattr(
+        graph_db_access, "load_embedding_model", Mock(return_value=(Mock(), 3))
+    )
+    graph = Mock(_database="unit", query=Mock(return_value=[{"name": "vector"}]))
+    db = graphDBdataAccess(graph)
+    db.update_KNN_graph()
+    assert graph.query.call_args.args[1] == {"score": 0.82}
+    db.drop_create_vector_index("true")
+    assert graph.query.call_args.args[1] == {"dimensions": 3}
+    assert "drop index vector" in graph.query.call_args_list[-2].args[0]
+    graph.query.reset_mock(return_value=True)
+    graph.query.return_value = []
+    db.update_KNN_graph()
+    assert graph.query.call_count == 1
+
+
+@pytest.mark.parametrize("delete_entities", ["true", "false"])
+def test_document_deletion_preserves_shared_entity_filter(
+    delete_entities: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graph = Mock(_database="unit", query=Mock(return_value=[]))
+    db = graphDBdataAccess(graph)
+    monkeypatch.setenv("GCS_FILE_CACHE", "False")
+    for name in ["a.pdf", "b.pdf"]:
+        (tmp_path / name).write_text("test")
+    count = db.delete_file_from_graph(
+        '["a.pdf", "b.pdf"]',
+        '["local", "local"]',
+        delete_entities,
+        str(tmp_path),
+        "bolt://unit.invalid",
+    )
+    assert not list(tmp_path.glob("*.pdf"))
+    assert count == 2
+    statement, params = graph.query.call_args_list[0].args[:2]
+    assert params["filename_list"] == ["a.pdf", "b.pdf"]
+    assert params["source_types_list"] == ["local", "local"]
+    if delete_entities == "true":
+        assert "WHERE NOT d2 IN documents" in statement
+        assert graph.query.call_count == 2
+    else:
+        assert graph.query.call_count == 1
+        assert "DETACH DELETE e" not in statement
+
+
+def test_orphan_and_duplicate_maintenance_records_explicit_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DUPLICATE_SCORE_VALUE", "0.9")
+    monkeypatch.setenv("DUPLICATE_TEXT_DISTANCE", "3")
+    graph = Mock(
+        _database="unit", query=Mock(side_effect=[[{"id": "a"}], [{"total": 1}]])
+    )
+    db = graphDBdataAccess(graph)
+    assert db.list_unconnected_nodes() == ([{"id": "a"}], {"total": 1})
+    graph.query.side_effect = [[{"id": "a"}], [{"total": 1}]]
+    assert db.get_duplicate_nodes_list()[1] == {"total": 1}
+    assert graph.query.call_args.args[1] == {
+        "duplicate_score_value": 0.9,
+        "duplicate_text_distance": 3,
+    }
+    graph.query.side_effect = None
+    graph.query.return_value = [{"totalMerged": 2}]
+    assert db.merge_duplicate_nodes(
+        '[{"firstElementId":"a","similarElementIds":["b"]}]'
+    ) == [{"totalMerged": 2}]
+    assert graph.query.call_args.args[1]["rows"][0]["similarElementIds"] == ["b"]
+    db.delete_unconnected_nodes('[" a "," b "]')
+    assert graph.query.call_args.args[1] == {"elementIds": ["a", "b"]}
+    with pytest.raises(ValueError):
+        db.delete_unconnected_nodes("not json")
+
+
+@pytest.mark.parametrize("community", [False, True])
+def test_count_update_sums_real_record_components(community: bool) -> None:
+    graph = Mock(
+        _database="unit",
+        query=Mock(
+            side_effect=[
+                [{"label": "__Community__"}] if community else [],
+                [
+                    {
+                        "filename": "doc",
+                        "chunkNodeCount": "2",
+                        "chunkRelCount": "1",
+                        "entityNodeCount": 3,
+                        "entityEntityRelCount": 4,
+                        "communityNodeCount": 5,
+                        "communityRelCount": 6,
+                    }
+                ],
+                [],
+            ]
+        ),
+    )
+    result = graphDBdataAccess(graph).update_node_relationship_count(
+        None if community else "doc"
+    )
+    assert isinstance(result, dict)
+    assert result["doc"]["nodeCount"] == (10 if community else 5)
+    assert result["doc"]["relationshipCount"] == (11 if community else 5)
+    assert graph.query.call_args.args[1]["filename"] == "doc"

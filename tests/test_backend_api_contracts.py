@@ -385,3 +385,338 @@ def test_authenticated_request_reaches_readiness_guard(
 ) -> None:
     monkeypatch.setattr(app_module, "_APP_API_KEY", "unit")
     assert client.get("/kg/list", headers={"X-API-Key": "unit"}).status_code == 503
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ["built", "reload_failed", "deduplicated", "builder_failed", "invalid_ontology"],
+)
+def test_kg_build_lifecycle_and_cleanup(
+    app_module: ModuleType,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    outcome: str,
+) -> None:
+    from ontographrag.kg.loaders import kg_loader
+
+    monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
+    driver = MagicMock()
+    session = driver.session.return_value.__enter__.return_value
+    session.run.return_value.single.return_value = (
+        {"kgName": "unit", "fileName": "doc.txt"} if outcome == "deduplicated" else None
+    )
+    monkeypatch.setattr(app_module, "get_graphDB_driver", Mock(return_value=driver))
+    builder = Mock(ontology_path=None, ontology_classes=[], ontology_relationships=[])
+    built = {
+        "nodes": [{"id": "new"}],
+        "metadata": {
+            "total_entities": 1,
+            "stored_relationships": 0,
+            "stored_in_neo4j": True,
+        },
+    }
+    builder.generate_knowledge_graph.return_value = built
+    if outcome == "builder_failed":
+        builder.generate_knowledge_graph.side_effect = RuntimeError(
+            "write transaction failed"
+        )
+    factory = Mock(return_value=builder)
+    monkeypatch.setattr(app_module, "UnifiedOntologyGuidedKGCreator", factory)
+    monkeypatch.setattr(app_module, "get_llm_provider", Mock(return_value=Mock()))
+    invalidated = Mock()
+    monkeypatch.setattr(app_module, "invalidate_rag_system", invalidated)
+    loaded = (
+        {"status": "error"}
+        if outcome == "reload_failed"
+        else {"status": "success", "nodes": [{"id": "persisted"}], "relationships": []}
+    )
+    loader = Mock(load_from_neo4j=Mock(return_value=loaded))
+    monkeypatch.setattr(kg_loader, "KGLoader", Mock(return_value=loader))
+    ontology = {
+        "classes": [{"id": "Drug", "properties": [{"name": "id", "identifier": True}]}]
+    }
+    if outcome == "invalid_ontology":
+        ontology = {"classes": [{}]}
+    response = client.post(
+        "/create_ontology_guided_kg",
+        data={"kg_name": "unit", "max_chunks": "2"},
+        files={
+            "file": ("doc.txt", b"Aspirin treats illness"),
+            "ontology_file": ("schema.json", json.dumps(ontology).encode()),
+        },
+    )
+    assert app_module._kg_building is False
+    assert list(tmp_path.glob("ontology_*")) == []
+    driver.close.assert_called_once()
+    if outcome in {"builder_failed", "invalid_ontology"}:
+        assert response.status_code == (500 if outcome == "builder_failed" else 422)
+        invalidated.assert_not_called()
+    else:
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["kg_name"] == "unit"
+        if outcome == "deduplicated":
+            assert data["deduplicated"] is True
+            factory.assert_not_called()
+        else:
+            assert data["method"] == "ontology_guided"
+            assert data["graph_data"] == (
+                built if outcome == "reload_failed" else loaded
+            )
+            assert factory.call_args.kwargs["strict_ontology"] is True
+            invalidated.assert_called_once()
+            assert builder.generate_knowledge_graph.call_args.args[5] == "unit"
+
+
+def test_kg_empty_input_and_chunk_limits_fail_before_build(
+    app_module: ModuleType, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
+    monkeypatch.setattr(
+        app_module,
+        "get_graphDB_driver",
+        Mock(side_effect=RuntimeError("dedup unavailable")),
+    )
+    factory = Mock()
+    monkeypatch.setattr(app_module, "UnifiedOntologyGuidedKGCreator", factory)
+    for limit, expected in [(0, 422), (501, 422), (1, 400)]:
+        response = client.post(
+            "/create_ontology_guided_kg",
+            data={"max_chunks": str(limit)},
+            files={"file": ("empty.txt", b" ")},
+        )
+        assert response.status_code == expected
+    factory.assert_not_called()
+    assert not app_module._kg_building
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_file_build_readback_and_worker_failure(
+    app_module: ModuleType,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    fails: bool,
+) -> None:
+    monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
+    monkeypatch.setattr(app_module, "get_llm_provider", Mock(return_value=Mock()))
+    builder = Mock()
+    if fails:
+        builder.generate_knowledge_graph.side_effect = RuntimeError("worker failed")
+    monkeypatch.setattr(
+        app_module, "UnifiedOntologyGuidedKGCreator", Mock(return_value=builder)
+    )
+    driver = MagicMock()
+    driver.session.return_value.__enter__.return_value.run.return_value = []
+    monkeypatch.setattr(app_module, "get_graphDB_driver", Mock(return_value=driver))
+    response = client.post(
+        "/load_kg_from_file",
+        data={"kg_name": "unit"},
+        files={"file": ("doc.txt", b"Aspirin treats illness")},
+    )
+    assert response.status_code == (500 if fails else 200), response.text
+    if not fails:
+        assert response.json()["graph_data"] == {"nodes": [], "relationships": []}
+        driver.close.assert_called_once()
+        assert all(
+            call.args[1]["kg_name"] == "unit"
+            for call in driver.session.return_value.__enter__.return_value.run.call_args_list
+        )
+
+
+@pytest.mark.parametrize("outcome", ["success", "missing_password", "worker_failure"])
+def test_bulk_job_cleans_csv_and_invalidates_only_success(
+    app_module: ModuleType,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    outcome: str,
+) -> None:
+    monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
+    monkeypatch.setenv("NEO4J_PASSWORD", "dummy")
+    if outcome == "missing_password":
+        monkeypatch.delenv("NEO4J_PASSWORD")
+    monkeypatch.setattr(app_module, "get_llm_provider", Mock(return_value=Mock()))
+    builder = Mock()
+    builder.bulk_process_documents.return_value = {
+        "metadata": {"total_documents_processed": 1, "total_knowledge_graphs": 1}
+    }
+    if outcome == "worker_failure":
+        builder.bulk_process_documents.side_effect = RuntimeError("worker unavailable")
+    monkeypatch.setattr(
+        app_module, "UnifiedOntologyGuidedKGCreator", Mock(return_value=builder)
+    )
+    invalidate = Mock()
+    monkeypatch.setattr(app_module, "invalidate_rag_system", invalidate)
+    response = client.post(
+        "/bulk_process_csv",
+        data={"kg_name": "unit", "text_column": "text", "batch_size": "2"},
+        files={"csv_file": ("doc.csv", b"text\nevidence\n")},
+    )
+    assert list(tmp_path.glob("bulk_*")) == []
+    if outcome == "success":
+        assert (
+            response.status_code == 200
+            and response.json()["total_documents_processed"] == 1
+        )
+        assert builder.bulk_process_documents.call_args.kwargs["kg_name"] == "unit"
+        invalidate.assert_called_once()
+    else:
+        assert response.status_code == 500
+        invalidate.assert_not_called()
+
+
+def test_preview_never_requests_persistence(
+    app_module: ModuleType, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
+    monkeypatch.setattr(app_module, "get_llm_provider", Mock(return_value=Mock()))
+    builder = Mock(
+        generate_knowledge_graph=Mock(
+            return_value={
+                "nodes": [],
+                "relationships": [],
+                "metadata": {"total_entities": 0},
+            }
+        )
+    )
+    monkeypatch.setattr(
+        app_module, "UnifiedOntologyGuidedKGCreator", Mock(return_value=builder)
+    )
+    invalidate = Mock()
+    monkeypatch.setattr(app_module, "invalidate_rag_system", invalidate)
+    response = client.post("/extract_graph", files={"file": ("doc.txt", b"evidence")})
+    assert response.status_code == 200
+    assert builder.generate_knowledge_graph.call_args.args[2] is None
+    invalidate.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "named,sample,complete",
+    [(True, False, False), (True, True, True), (False, False, False)],
+)
+def test_database_visualization_load_serializes_and_deduplicates(
+    app_module: ModuleType,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    named: bool,
+    sample: bool,
+    complete: bool,
+) -> None:
+    from datetime import date
+
+    class Node(dict):
+        def __init__(self, identity: int, label: str) -> None:
+            super().__init__(name=f"node-{identity}", created=date(2026, 1, 1))
+            self.id = identity
+            self.labels = {label}
+
+    class Relation(dict):
+        id = 3
+        type = "TREATS"
+
+    drug, disease, doc = Node(1, "Drug"), Node(2, "Disease"), Node(0, "Document")
+    relation = Relation(confidence=0.8)
+    monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
+    driver = MagicMock()
+    session = driver.session.return_value.__enter__.return_value
+
+    def run(statement: str, params: dict | None = None) -> object:
+        if "shared_count" in statement:
+            return Mock(single=Mock(return_value={"shared_count": 1}))
+        if "count(d) AS c" in statement:
+            return Mock(single=Mock(return_value={"c": int(named)}))
+        if "count(" in statement:
+            return Mock(single=Mock(return_value={"c": 4}))
+        if "AS provider" in statement:
+            return Mock(
+                single=Mock(
+                    return_value={
+                        "provider": "unit",
+                        "model": "fake",
+                        "embeddingModel": "fake",
+                        "maxChunks": 2,
+                    }
+                )
+            )
+        if "RETURN d" in statement:
+            return [{"d": doc}]
+        if "RETURN DISTINCT e" in statement:
+            return [{"e": drug}, {"e": drug}, {"e": disease}, {"e": None}]
+        if "RETURN n " in statement:
+            return [{"n": drug}, {"n": disease}]
+        if "RETURN r," in statement:
+            return [
+                {"r": relation, "start": drug, "end": disease},
+                {"r": None, "start": drug, "end": None},
+            ]
+        raise AssertionError(statement)
+
+    session.run.side_effect = run
+    monkeypatch.setattr(app_module, "get_graphDB_driver", Mock(return_value=driver))
+    response = client.post(
+        "/load_kg_from_neo4j",
+        data={
+            "kg_label": "unit" if named else "",
+            "sample_mode": str(sample).lower(),
+            "load_complete": str(complete).lower(),
+            "limit": "2",
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["stats"]["loaded_nodes"] == (3 if named else 2)
+    assert data["stats"]["loaded_relationships"] == 1
+    assert data["graph_data"]["nodes"][0]["properties"]["created"] == "2026-01-01"
+    assert data["graph_data"]["relationships"][0]["start"] == 1
+    driver.session.return_value.__exit__.assert_called_once()
+    if named:
+        assert data["kg_settings"]["provider"] == "unit"
+        entity_query = next(
+            c.args[0]
+            for c in session.run.call_args_list
+            if "RETURN DISTINCT e" in c.args[0]
+        )
+        assert ("LIMIT 2" in entity_query) is not complete
+        assert ("ORDER BY rand()" in entity_query) is sample
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=TypeError,
+    reason="KG build endpoint passes provider positional argument absent from real creator signature",
+)
+def test_kg_build_call_matches_actual_creator_signature(
+    app_module: ModuleType, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import inspect
+
+    from ontographrag.kg.builders.enhanced_kg_creator import (
+        UnifiedOntologyGuidedKGCreator,
+    )
+
+    monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
+    monkeypatch.setattr(
+        app_module,
+        "get_graphDB_driver",
+        Mock(side_effect=RuntimeError("dedup unavailable")),
+    )
+    monkeypatch.setattr(app_module, "get_llm_provider", Mock(return_value=Mock()))
+    builder = Mock(
+        ontology_path=None,
+        ontology_classes=[],
+        ontology_relationships=[],
+        generate_knowledge_graph=Mock(return_value={"metadata": {}}),
+    )
+    monkeypatch.setattr(
+        app_module, "UnifiedOntologyGuidedKGCreator", Mock(return_value=builder)
+    )
+    response = client.post(
+        "/create_ontology_guided_kg",
+        files={"file": ("doc.txt", b"Aspirin treats pain.")},
+    )
+    assert response.status_code == 200
+    call = builder.generate_knowledge_graph.call_args
+    inspect.signature(UnifiedOntologyGuidedKGCreator.generate_knowledge_graph).bind(
+        builder, *call.args, **call.kwargs
+    )

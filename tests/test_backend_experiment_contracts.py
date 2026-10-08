@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
 import pytest
@@ -270,7 +270,17 @@ def test_pipeline_run_artifacts_and_control_flow(
 
 
 @pytest.mark.parametrize(
-    "mode", ["success", "generation_failed", "kg_only", "missing_selection"]
+    "mode",
+    [
+        "success",
+        "generation_failed",
+        "kg_only",
+        "missing_selection",
+        "resume",
+        "rebuild",
+        "metrics",
+        "metrics_failed",
+    ],
 )
 def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
     pipeline: MIRAGEEvaluationPipeline,
@@ -281,6 +291,43 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     pipeline.use_llm_judge = False
+    if mode in {"metrics", "metrics_failed"}:
+        pipeline.compute_metrics = True
+
+        def collect(**kwargs: Any) -> tuple:
+            base = (["yes", "yes"], ["retrieved evidence"], 1.0)
+            assert kwargs["question_id"] == "q1" and kwargs["kg_name"] == "pubmedqa"
+            return (*base, []) if kwargs.get("return_graph_state_traces") else base
+
+        monkeypatch.setattr(pipeline, "_collect_sample_responses", collect)
+        monkeypatch.setattr(
+            experiment_module,
+            "compute_all_uncertainty_metrics",
+            Mock(
+                return_value={
+                    "semantic_entropy": 0.2,
+                    "compute_times": {"semantic_entropy": 0.01},
+                }
+            ),
+        )
+        for name in [
+            "compute_graph_path_support_detailed",
+            "compute_subgraph_perturbation_stability_detailed",
+        ]:
+            monkeypatch.setattr(
+                experiment_module,
+                name,
+                Mock(return_value={"score": 0.25, "null_reason": None}),
+            )
+        for name in [
+            "compute_graph_path_disagreement",
+            "compute_competing_answer_alternatives",
+            "compute_evidence_vn_entropy",
+            "compute_subgraph_informativeness",
+            "compute_support_entailment_uncertainty",
+            "compute_evidence_conflict_uncertainty",
+        ]:
+            monkeypatch.setattr(experiment_module, name, Mock(return_value=0.3))
     data = {
         "q1": {
             "question": "Does this work?",
@@ -327,11 +374,30 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
                 ]
             },
         }
-        if mode == "generation_failed":
+        if mode in {"generation_failed", "metrics_failed"}:
             rag.generate_response.side_effect = RuntimeError("provider unavailable")
     monkeypatch.setattr(
         pipeline, "_build_rag_systems_for_config", Mock(return_value=(vanilla, kg))
     )
+    if mode in {"resume", "rebuild"}:
+        checkpoint_dir = tmp_path / "results/checkpoints"
+        checkpoint_dir.mkdir(parents=True)
+        signature = pipeline._execution_signature({"name": "unit"})
+        checkpoint = checkpoint_dir / f"pubmedqa_unit_unit_{signature}.jsonl"
+        row = {
+            "question_id": "q1",
+            "question": "Does this work?",
+            "vanilla_correct": True,
+            "kg_correct": True,
+            "kg_generation_failed": False,
+            "vanilla_generation_failed": False,
+            "kg_response": "Yes",
+            "vanilla_response": "Yes",
+        }
+        checkpoint.write_text(
+            json.dumps(row) + "\nmalformed-line\n" + json.dumps(row) + "\n"
+        )
+        pipeline.rebuild_kg = mode == "rebuild"
     result = pipeline._run_evaluation_on_dataset(
         "pubmedqa",
         config={
@@ -343,13 +409,41 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
         assert result["error"] == "selection missing"
         kg.generate_response.assert_not_called()
         return
+    if mode in {"metrics", "metrics_failed"}:
+        detail = result["details"][0]
+        assert detail["kg_graph_path_support"] == (
+            0.5 if mode == "metrics_failed" else 0.25
+        )
+        if mode == "metrics":
+            assert detail["kg_semantic_entropy"] == 0.2
+            assert (
+                experiment_module.compute_graph_path_support_detailed.call_args.kwargs[
+                    "question_id"
+                ]
+                == "q1"
+            )
+        else:
+            experiment_module.compute_graph_path_support_detailed.assert_not_called()
     assert result["num_questions_logged"] == 1
-    assert result["kg_accuracy"] == (0 if mode == "generation_failed" else 1)
-    assert result["details"][0]["kg_generation_failed"] is (mode == "generation_failed")
+    assert result["kg_accuracy"] == (
+        0 if mode in {"generation_failed", "metrics_failed"} else 1
+    )
+    assert result["details"][0]["kg_generation_failed"] is (
+        mode in {"generation_failed", "metrics_failed"}
+    )
+    if mode == "resume":
+        kg.generate_response.assert_not_called()
+        vanilla.generate_response.assert_not_called()
+        assert not list((tmp_path / "results/checkpoints").glob("*.jsonl"))
+        return
     assert kg.generate_response.call_args.kwargs["question_id"] == "q1"
     assert kg.generate_response.call_args.kwargs["extra_context_texts"] is None
     assert kg.generate_response.call_args.kwargs["allow_decomposition"] is False
-    assert not list((tmp_path / "results/checkpoints").glob("*.jsonl"))
+    remaining = list((tmp_path / "results/checkpoints").glob("*.jsonl"))
+    if mode == "rebuild":
+        assert len(remaining) == 1 and ".pre_rebuild_" in remaining[0].name
+    else:
+        assert not remaining
     saved = json.loads(Path(result["question_details_file"]).read_text())
     assert saved["num_questions"] == 1
     assert saved["questions"][0]["question_id"] == "q1"

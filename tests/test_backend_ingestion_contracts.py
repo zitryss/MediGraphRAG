@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
-import pandas as pd
 import pytest
 
 from ontographrag.kg.csv_processor import (
@@ -59,7 +58,7 @@ def test_document_validation_and_blank_rows(tmp_path: Path) -> None:
         == "valid"
     )
     path.write_text("")
-    with pytest.raises(pd.errors.EmptyDataError):
+    with pytest.raises(ValueError, match="No columns to parse"):
         processor.validate_csv_format(str(path))
 
 
@@ -84,14 +83,10 @@ def test_medical_template_roundtrip_and_section_filter(tmp_path: Path) -> None:
     assert result["reports"][0]["metadata"]["patient_id"] == "PAT002"
     assert result["reports"][0]["row_index"] == 1
     assert "chief_complaint" in result["reports"][0]["sections"]
-    report = processor._process_single_report(
-        pd.Series(
-            {
-                "chief_complaint": "short",
-                "discharge_diagnosis": "   Long enough diagnosis  ",
-            }
-        )
+    path.write_text(
+        "patient_id|chief_complaint|discharge_diagnosis\nP1|short|   Long enough diagnosis  \n"
     )
+    report = processor.load_reports_bulk(str(path))["reports"][0]
     assert report["sections"] == {"discharge_diagnosis": "Long enough diagnosis"}
     assert "chief_complaint" in report["field_names"]
 
