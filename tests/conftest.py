@@ -6,9 +6,18 @@ Tests that need graph behaviour use the stub_graph fixture which
 records Cypher calls without executing them.
 """
 
+from __future__ import annotations
+
 import hashlib
+from collections.abc import Sequence
 
 import pytest
+
+from ontographrag.rag.systems._records import (
+    RetrievedChunk,
+    RetrievedEntity,
+    RetrievedRelationship,
+)
 
 # ---------------------------------------------------------------------------
 # Minimal chunk / entity / relationship factories
@@ -17,8 +26,8 @@ import pytest
 
 def make_chunk(
     text: str, kg_name: str = "test_kg", file_name: str = "doc.txt", score: float = 1.0
-) -> dict:
-    chunk_id = hashlib.sha1(f"{kg_name}:{file_name}:{text}".encode()).hexdigest()
+) -> RetrievedChunk:
+    chunk_id: str = hashlib.sha1(f"{kg_name}:{file_name}:{text}".encode()).hexdigest()
     return {
         "text": text,
         "chunk_id": chunk_id,
@@ -32,7 +41,7 @@ def make_chunk(
 
 def make_entity(
     eid: str, source: str = "entity_lookup", min_hops: int = 0, etype: str = "Disease"
-) -> dict:
+) -> RetrievedEntity:
     return {
         "id": eid,
         "name": eid,
@@ -50,8 +59,8 @@ def make_relationship(
     negated: bool = False,
     condition: str | None = None,
     quantitative: str | None = None,
-) -> dict:
-    key = f"{src}-{rel_type}-{tgt}"
+) -> RetrievedRelationship:
+    key: str = f"{src}-{rel_type}-{tgt}"
     return {
         "key": key,
         "source": src,
@@ -75,22 +84,28 @@ class StubGraph:
     Each call to .query() pops the first entry from the list.
     """
 
-    def __init__(self, query_results=None) -> None:
-        self._results = list(query_results or [])
-        self.queries = []  # recorded (query_str, params) pairs
+    def __init__(
+        self, query_results: Sequence[list[dict[str, object]]] | None = None
+    ) -> None:
+        self._results: list[list[dict[str, object]]] = list(query_results or [])
+        self.queries: list[
+            tuple[str, dict[str, object]]
+        ] = []  # recorded (query_str, params) pairs
 
-    def query(self, query: str, params: dict | None = None):
+    def query(
+        self, query: str, params: dict[str, object] | None = None
+    ) -> list[dict[str, object]]:
         self.queries.append((query, params or {}))
         if self._results:
             return self._results.pop(0)
         return []
 
-    def last_query(self):
+    def last_query(self) -> tuple[str, dict[str, object]] | None:
         return self.queries[-1] if self.queries else None
 
 
 @pytest.fixture
-def stub_graph():
+def stub_graph() -> StubGraph:
     return StubGraph()
 
 
@@ -103,9 +118,9 @@ class StubLLM:
     """Minimal stand-in for a LangChain Runnable that returns a fixed string."""
 
     def __init__(self, response: str = "[]") -> None:
-        self._response = response
+        self._response: str = response
 
-    def invoke(self, inputs):
+    def invoke(self, inputs: object) -> str:
         return self._response
 
     def __or__(self, other):
@@ -129,7 +144,7 @@ class _Chain:
 
 
 @pytest.fixture
-def stub_llm():
+def stub_llm() -> StubLLM:
     return StubLLM()
 
 

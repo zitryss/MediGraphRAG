@@ -1,7 +1,19 @@
 """Shared retrieval configuration constants."""
 
+from typing import NotRequired, TypedDict
+
+
+class RetrievalConfiguration(TypedDict):
+    default_max_chunks: int
+    threshold_floor: NotRequired[float]
+    threshold_factor: NotRequired[float]
+    threshold_ceiling: NotRequired[float]
+    threshold_boost: NotRequired[float]
+    default_threshold: NotRequired[float]
+
+
 # Configurable parameters for different question types
-RAG_CONFIG: dict[str, dict[str, float | int]] = {
+RAG_CONFIG: dict[str, RetrievalConfiguration] = {
     "statistical": {
         "default_max_chunks": 100,  # More chunks for statistical analysis
         "threshold_floor": 0.05,

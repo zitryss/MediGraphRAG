@@ -2,7 +2,25 @@ import os
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Literal, TypedDict
+
+from ontographrag.rag.systems._records import RetrievalContext, RetrievedChunk
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import LanguageModelLike
+    from langchain_core.runnables import Runnable
+    from ontographrag.rag.systems._constants import RetrievalConfiguration
+
+
+QuestionType = Literal["comparison", "bridge", "statistical", "semantic", "generic"]
+
+
+class AdaptiveRetrievalParameters(TypedDict):
+    question_type: QuestionType
+    similarity_threshold: float
+    max_chunks: int
+
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -16,13 +34,19 @@ class QueryPlanningMixin:
     from the original monolithic implementation.
     """
 
+    if TYPE_CHECKING:
+        _QUERY_FUSION_MAX_VARIANTS: int
+        _ENTITY_MATCH_STOPWORDS: set[str]
+        _MAX_EXTRACTED_QUERY_ENTITIES: int
+        _entity_extraction_cache: dict[tuple[str, str], list[str]]
+
     @staticmethod
     def _comparison_branches(query: str) -> list[str]:
         """Extract simple left/right comparison branches from `A or B` style questions."""
         query = str(query or "").strip().rstrip("?")
         if not query or " or " not in query.lower():
             return []
-        parts = re.split(r"\bor\b", query, maxsplit=1, flags=re.IGNORECASE)
+        parts: list[str] = re.split(r"\bor\b", query, maxsplit=1, flags=re.IGNORECASE)
         if len(parts) != 2:
             return []
         left, right = parts[0].strip(), parts[1].strip()
@@ -34,19 +58,19 @@ class QueryPlanningMixin:
             left,
             flags=re.IGNORECASE,
         ).strip()
-        branches = [branch.strip(" ,.;:") for branch in (left, right)]
+        branches: list[str] = [branch.strip(" ,.;:") for branch in (left, right)]
         return [branch for branch in branches if len(branch) >= 4]
 
     @classmethod
     def _comparison_branch_coverage(
-        cls, query: str, chunks: list[dict[str, Any]]
+        cls, query: str, chunks: list[RetrievedChunk]
     ) -> int:
-        branches = cls._comparison_branches(query)
+        branches: list[str] = cls._comparison_branches(query)
         if not branches:
             return 0
-        covered = 0
+        covered: int = 0
         for branch in branches:
-            branch_norm = branch.lower()
+            branch_norm: str = branch.lower()
             if any(
                 branch_norm in str(chunk.get("text", "")).lower()
                 or branch_norm in str(chunk.get("document", "")).lower()
@@ -56,11 +80,11 @@ class QueryPlanningMixin:
         return covered
 
     @classmethod
-    def _comparison_branch_match_count(cls, query: str, chunk: dict[str, Any]) -> int:
-        branches = cls._comparison_branches(query)
+    def _comparison_branch_match_count(cls, query: str, chunk: RetrievedChunk) -> int:
+        branches: list[str] = cls._comparison_branches(query)
         if not branches:
             return 0
-        haystack = " ".join(
+        haystack: str = " ".join(
             filter(
                 None,
                 [
@@ -72,11 +96,11 @@ class QueryPlanningMixin:
         return sum(1 for branch in branches if branch.lower() in haystack)
 
     @classmethod
-    def _lexical_query_overlap_count(cls, query: str, chunk: dict[str, Any]) -> int:
-        query_tokens = cls._content_query_tokens(query)
+    def _lexical_query_overlap_count(cls, query: str, chunk: RetrievedChunk) -> int:
+        query_tokens: list[str] = cls._content_query_tokens(query)
         if not query_tokens:
             return 0
-        haystack = " ".join(
+        haystack: str = " ".join(
             filter(
                 None,
                 [
@@ -104,16 +128,16 @@ class QueryPlanningMixin:
     def _should_run_query_fusion(
         cls,
         question: str,
-        context: dict[str, Any] | None,
+        context: RetrievalContext | None,
         *,
         max_hops: int,
     ) -> bool:
         if not cls._query_fusion_enabled():
             return False
 
-        branches = cls._comparison_branches(question)
+        branches: list[str] = cls._comparison_branches(question)
         if branches:
-            coverage = cls._comparison_branch_coverage(
+            coverage: int = cls._comparison_branch_coverage(
                 question, list((context or {}).get("chunks", []))
             )
             if coverage < len(branches):
@@ -125,7 +149,7 @@ class QueryPlanningMixin:
         ):
             return True
 
-        content_tokens = cls._content_query_tokens(question)
+        content_tokens: list[str] = cls._content_query_tokens(question)
         if (
             len(content_tokens) >= 8
             and len(list((context or {}).get("chunks", []))) < 4
@@ -136,7 +160,7 @@ class QueryPlanningMixin:
     def _generate_query_variants(
         self,
         question: str,
-        llm,
+        llm: "LanguageModelLike | None",
         *,
         max_hops: int,
     ) -> list[str]:
@@ -144,10 +168,10 @@ class QueryPlanningMixin:
         seen: set[str] = {self._normalize_retrieval_query(question).lower()}
 
         for branch in self._comparison_branches(question):
-            branch_query = self._normalize_retrieval_query(
+            branch_query: str = self._normalize_retrieval_query(
                 f"Focus on {branch}. Original question: {question}"
             )
-            branch_key = branch_query.lower()
+            branch_key: str = branch_query.lower()
             if branch_query and branch_key not in seen:
                 seen.add(branch_key)
                 variants.append(branch_query)
@@ -155,11 +179,11 @@ class QueryPlanningMixin:
         if llm is None:
             return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-        remaining = self._QUERY_FUSION_MAX_VARIANTS - len(variants)
+        remaining: int = self._QUERY_FUSION_MAX_VARIANTS - len(variants)
         if remaining <= 0:
             return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-        is_complex = (
+        is_complex: bool = (
             bool(self._comparison_branches(question))
             or max_hops >= 2
             or len(self._content_query_tokens(question)) >= 8
@@ -167,7 +191,7 @@ class QueryPlanningMixin:
         if not is_complex:
             return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-        prompt = ChatPromptTemplate.from_messages(
+        prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
@@ -187,15 +211,17 @@ class QueryPlanningMixin:
             ]
         )
         try:
-            chain = prompt | llm | StrOutputParser()
-            raw = chain.invoke({"question": question, "n": remaining})
-            match = re.search(r"\[.*\]", str(raw), re.DOTALL)
+            chain: "Runnable[dict[str, str | int], str]" = (
+                prompt | llm | StrOutputParser()
+            )
+            raw: str = chain.invoke({"question": question, "n": remaining})
+            match: re.Match[str] | None = re.search(r"\[.*\]", str(raw), re.DOTALL)
             if match:
-                parsed = json.loads(match.group(0))
+                parsed: object = json.loads(match.group(0))
                 if isinstance(parsed, list):
                     for item in parsed:
-                        candidate = self._normalize_retrieval_query(str(item))
-                        candidate_key = candidate.lower()
+                        candidate: str = self._normalize_retrieval_query(str(item))
+                        candidate_key: str = candidate.lower()
                         if (
                             not candidate
                             or candidate_key in seen
@@ -211,7 +237,7 @@ class QueryPlanningMixin:
 
         return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-    def classify_question_type(self, query: str) -> str:
+    def classify_question_type(self, query: str) -> QuestionType:
         """
         Classify the question type to determine retrieval strategy.
 
@@ -219,10 +245,10 @@ class QueryPlanningMixin:
         "comparison" and "bridge" are checked first because they drive hard routing
         decisions (comparison suppresses graph traversal; bridge enables it).
         """
-        query_lower = query.lower().strip().rstrip("?")
+        query_lower: str = query.lower().strip().rstrip("?")
 
         # --- Comparison: parallel attribute lookup across two named entities ---
-        comparison_patterns = [
+        comparison_patterns: list[str] = [
             # "are/do/did/were/is/have both ..."
             r"\bare both\b",
             r"\bdo both\b",
@@ -253,11 +279,11 @@ class QueryPlanningMixin:
         # that is itself defined by a chain through another entity.
         # Heuristic: wh-question that doesn't match comparison and contains
         # at least two named-entity-like tokens (capitalised mid-sentence tokens).
-        bridge_starters = ["who", "what", "which", "where", "when", "whose"]
+        bridge_starters: list[str] = ["who", "what", "which", "where", "when", "whose"]
         if any(query_lower.startswith(s) for s in bridge_starters):
             # Count plausible named entity tokens (title-case words not at start)
-            words = query.split()
-            ne_count = sum(
+            words: list[str] = query.split()
+            ne_count: int = sum(
                 1
                 for w in words[1:]
                 if w and w[0].isupper() and w.isalpha() and len(w) >= 3
@@ -266,7 +292,7 @@ class QueryPlanningMixin:
                 return "bridge"
 
         # --- Statistical ---
-        statistical_terms = [
+        statistical_terms: list[str] = [
             "statistic",
             "tendencies",
             "trend",
@@ -304,7 +330,7 @@ class QueryPlanningMixin:
         ]
         if any(term in query_lower for term in statistical_terms):
             return "statistical"
-        quantitative_starters = [
+        quantitative_starters: list[str] = [
             "how many",
             "how much",
             "what percentage",
@@ -314,7 +340,7 @@ class QueryPlanningMixin:
             return "statistical"
 
         # --- Semantic ---
-        semantic_terms = [
+        semantic_terms: list[str] = [
             "explain",
             "describe",
             "what is",
@@ -340,7 +366,7 @@ class QueryPlanningMixin:
         ]
         if any(term in query_lower for term in semantic_terms):
             return "semantic"
-        semantic_starters = ["what is", "how does", "explain", "describe"]
+        semantic_starters: list[str] = ["what is", "how does", "explain", "describe"]
         if any(query_lower.startswith(s) for s in semantic_starters):
             return "semantic"
 
@@ -350,12 +376,14 @@ class QueryPlanningMixin:
         """
         Calculate dynamic similarity threshold based on question type and context
         """
-        question_type = self.classify_question_type(query)
-        config = RAG_CONFIG.get(question_type, RAG_CONFIG["generic"])
+        question_type: QuestionType = self.classify_question_type(query)
+        config: "RetrievalConfiguration" = RAG_CONFIG.get(
+            question_type, RAG_CONFIG["generic"]
+        )
 
         if question_type == "statistical":
             # Lower threshold for statistical queries to catch more data
-            base_threshold = max(
+            base_threshold: float = max(
                 config["threshold_floor"],
                 0.08 - (entity_count * config["threshold_factor"]),
             )
@@ -371,21 +399,21 @@ class QueryPlanningMixin:
         else:  # generic
             return config["default_threshold"]
 
-    def get_adaptive_retrieval_params(self, query: str) -> dict[str, Any]:
+    def get_adaptive_retrieval_params(self, query: str) -> AdaptiveRetrievalParameters:
         """
         Get adaptive retrieval parameters based on question classification
         """
-        question_type = self.classify_question_type(query)
+        question_type: QuestionType = self.classify_question_type(query)
 
         # For statistical questions, use reasonable chunk limit to avoid timeouts
         if question_type == "statistical":
-            max_chunks = 200  # Aggressive limit to prevent timeouts - focus on quality over quantity
+            max_chunks: int = 200  # Aggressive limit to prevent timeouts - focus on quality over quantity
         else:
             max_chunks = RAG_CONFIG.get(question_type, RAG_CONFIG["generic"])[
                 "default_max_chunks"
             ]
 
-        params = {
+        params: AdaptiveRetrievalParameters = {
             "question_type": question_type,
             "similarity_threshold": self.calculate_dynamic_threshold(
                 query, entity_count=0
@@ -414,18 +442,18 @@ class QueryPlanningMixin:
     @classmethod
     def _count_matched_query_tokens(cls, query: str, entity_names: list[str]) -> int:
         """Count how many distinct content tokens from the query are covered by entity names."""
-        query_tokens = cls._content_query_tokens(query)
+        query_tokens: list[str] = cls._content_query_tokens(query)
         if not query_tokens:
             return 0
 
         covered: set[str] = set()
         for entity_name in entity_names:
-            entity_name_norm = re.sub(
+            entity_name_norm: str = re.sub(
                 r"\s+", " ", str(entity_name or "").lower()
             ).strip()
             if not entity_name_norm:
                 continue
-            entity_tokens = {
+            entity_tokens: set[str] = {
                 token
                 for token in re.findall(r"[A-Za-z0-9]+", entity_name_norm)
                 if len(token) >= 4
@@ -444,12 +472,14 @@ class QueryPlanningMixin:
         Used as a routing meta-signal: high grounding → structural metrics are reliable;
         low grounding → fall back to generative metrics.
         """
-        content_words = cls._content_query_tokens(query)
+        content_words: list[str] = cls._content_query_tokens(query)
         if not content_words:
             return 0.0
         return min(1.0, matched_query_token_count / len(content_words))
 
-    def _extract_query_entities(self, query: str, llm) -> list[str]:
+    def _extract_query_entities(
+        self, query: str, llm: "LanguageModelLike"
+    ) -> list[str]:
         """
         Extract named entity mentions from a question using the LLM.
 
@@ -457,14 +487,14 @@ class QueryPlanningMixin:
         Results are cached by query text.  On any failure returns an empty list
         so the caller falls back to the raw-query-embedding ANN pass.
         """
-        model_key = type(llm).__name__ + getattr(
+        model_key: str = type(llm).__name__ + getattr(
             llm, "model_name", getattr(llm, "model", "")
         )
-        cache_key = (query, model_key)
+        cache_key: tuple[str, str] = (query, model_key)
         if cache_key in self._entity_extraction_cache:
             return self._entity_extraction_cache[cache_key]
 
-        prompt = ChatPromptTemplate.from_messages(
+        prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
@@ -479,23 +509,25 @@ class QueryPlanningMixin:
             ]
         )
         try:
-            chain = prompt | llm | StrOutputParser()
-            raw = chain.invoke({"question": query})
+            chain: "Runnable[dict[str, str | int], str]" = (
+                prompt | llm | StrOutputParser()
+            )
+            raw: str = chain.invoke({"question": query})
             raw = raw.strip()
             # Strip markdown code fences if present
             if raw.startswith("```"):
                 raw = re.sub(r"^```[a-z]*\n?", "", raw)
                 raw = re.sub(r"\n?```$", "", raw.strip())
-            entities = json.loads(raw)
+            entities: object = json.loads(raw)
             if not isinstance(entities, list):
                 entities = []
             cleaned_entities: list[str] = []
             seen_entities: set[str] = set()
             for entity in entities:
-                normalized = re.sub(r"\s+", " ", str(entity).strip())
+                normalized: str = re.sub(r"\s+", " ", str(entity).strip())
                 if not normalized:
                     continue
-                entity_key = normalized.casefold()
+                entity_key: str = normalized.casefold()
                 if entity_key in seen_entities:
                     continue
                 seen_entities.add(entity_key)
@@ -513,7 +545,9 @@ class QueryPlanningMixin:
         self._entity_extraction_cache[cache_key] = entities
         return entities
 
-    def _decompose_question(self, question: str, llm, max_hops: int = 2) -> list[str]:
+    def _decompose_question(
+        self, question: str, llm: "LanguageModelLike", max_hops: int = 2
+    ) -> list[str]:
         """
         Decompose a multi-hop question into an ordered list of sub-questions.
 
@@ -521,8 +555,8 @@ class QueryPlanningMixin:
         is substituted into hop N+1's sub-question before retrieval.  Falls back
         to [question] on any failure so the caller always receives a usable list.
         """
-        n_hops = max(2, min(max_hops, 4))
-        prompt = ChatPromptTemplate.from_messages(
+        n_hops: int = max(2, min(max_hops, 4))
+        prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
@@ -547,12 +581,14 @@ class QueryPlanningMixin:
             ]
         )
         try:
-            chain = prompt | llm | StrOutputParser()
-            raw = chain.invoke({"question": question, "n": n_hops})
+            chain: "Runnable[dict[str, str | int], str]" = (
+                prompt | llm | StrOutputParser()
+            )
+            raw: str = chain.invoke({"question": question, "n": n_hops})
             # Extract JSON array from response (tolerate surrounding text)
-            m = re.search(r"\[.*\]", raw, re.DOTALL)
+            m: re.Match[str] | None = re.search(r"\[.*\]", raw, re.DOTALL)
             if m:
-                sub_qs = json.loads(m.group(0))
+                sub_qs: object = json.loads(m.group(0))
                 if isinstance(sub_qs, list) and len(sub_qs) >= 2:
                     # Hard-cap to n_hops so a verbose LLM can't silently exceed max_hops
                     sub_qs = sub_qs[:n_hops]

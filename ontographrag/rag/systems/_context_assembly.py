@@ -1,5 +1,19 @@
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
+
+from ontographrag.rag.systems._records import (
+    EvidencePath,
+    FusedChunkRecord,
+    RetrievalContext,
+    RetrievedChunk,
+    RetrievedEntity,
+    RetrievedRelationship,
+    RetrievalProvenance,
+    TraversalPath,
+)
+
+if TYPE_CHECKING:
+    from shared.common_fn import GraphQuery
 from ontographrag.rag.graph_state import summarize_context_graph_state
 from ontographrag.rag.retrieval_sampling import (
     compute_candidate_limit,
@@ -14,8 +28,32 @@ class ContextAssemblyMixin:
     from the original monolithic implementation.
     """
 
+    if TYPE_CHECKING:
+        _PASSAGE_ONLY_ANSWER_KGS: set[str]
+        _WEAK_GRAPH_GROUNDING_THRESHOLD: float
+        _QUERY_FUSION_RRF_K: int
+        _MAX_CHUNKS_PER_PASSAGE: int
+
+        @staticmethod
+        def _comparison_branches(query: str) -> list[str]: ...
+
+        @classmethod
+        def _comparison_branch_match_count(
+            cls, query: str, chunk: RetrievedChunk
+        ) -> int: ...
+
+        @classmethod
+        def _lexical_query_overlap_count(
+            cls, query: str, chunk: RetrievedChunk
+        ) -> int: ...
+
+        @classmethod
+        def _comparison_branch_coverage(
+            cls, query: str, chunks: list[RetrievedChunk]
+        ) -> int: ...
+
     @staticmethod
-    def _chunk_identity(chunk: dict[str, Any]) -> str:
+    def _chunk_identity(chunk: RetrievedChunk) -> str:
         return (
             chunk.get("chunk_id")
             or chunk.get("chunk_element_id")
@@ -23,7 +61,7 @@ class ContextAssemblyMixin:
         )
 
     @staticmethod
-    def _relationship_identity(rel: dict[str, Any]) -> str:
+    def _relationship_identity(rel: RetrievedRelationship) -> str:
         return (
             rel.get("key")
             or rel.get("element_id")
@@ -36,16 +74,16 @@ class ContextAssemblyMixin:
         )
 
     @staticmethod
-    def _format_relationship_label(rel: dict[str, Any] | None) -> str:
+    def _format_relationship_label(rel: RetrievedRelationship | None) -> str:
         if not isinstance(rel, dict):
             return "RELATED"
-        label = str(rel.get("type") or "RELATED").strip() or "RELATED"
+        label: str = str(rel.get("type") or "RELATED").strip() or "RELATED"
         if rel.get("negated"):
             label = f"NOT {label}"
-        condition = str(rel.get("condition") or "").strip()
+        condition: str = str(rel.get("condition") or "").strip()
         if condition:
             label = f"{label} [{condition}]"
-        quantitative = str(rel.get("quantitative") or "").strip()
+        quantitative: str = str(rel.get("quantitative") or "").strip()
         if quantitative and quantitative.lower() not in condition.lower():
             label = f"{label} ({quantitative})"
         return label
@@ -56,9 +94,9 @@ class ContextAssemblyMixin:
 
     @classmethod
     def _sort_chunks_for_query(
-        cls, query: str, chunks: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        branches = cls._comparison_branches(query)
+        cls, query: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
+        branches: list[str] = cls._comparison_branches(query)
         return sorted(
             chunks,
             key=lambda c: (
@@ -72,8 +110,9 @@ class ContextAssemblyMixin:
         )
 
     @classmethod
-    def _retained_entity_ids_from_chunks(cls, chunks: list[dict[str, Any]]) -> set[str]:
+    def _retained_entity_ids_from_chunks(cls, chunks: list[RetrievedChunk]) -> set[str]:
         retained_eids: set[str] = set()
+        eid: str | None
         for chunk in chunks:
             for eid in chunk.get("linked_entity_ids") or []:
                 if eid:
@@ -86,31 +125,31 @@ class ContextAssemblyMixin:
 
     @staticmethod
     def _selected_chunk_local_scope(
-        chunks: list[dict[str, Any]],
+        chunks: list[RetrievedChunk],
     ) -> tuple[set[int], set[str], set[str]]:
         positions: set[int] = set()
         question_ids: set[str] = set()
         passage_keys: set[str] = set()
         for chunk in chunks:
-            pos = chunk.get("position")
+            pos: int | None = chunk.get("position")
             if isinstance(pos, (int, float)):
                 positions.add(int(pos))
-            qid = chunk.get("question_id")
+            qid: str | None = chunk.get("question_id")
             if qid is not None and str(qid).strip():
-                qid_str = str(qid)
+                qid_str: str = str(qid)
                 question_ids.add(qid_str)
                 passage_keys.add(f"{qid_str}::p{chunk.get('passage_index', -1)}")
         return positions, question_ids, passage_keys
 
     @staticmethod
     def _relationship_supported_by_selected_chunks(
-        rel: dict[str, Any],
+        rel: RetrievalProvenance,
         *,
         selected_positions: set[int],
         selected_question_ids: set[str],
         selected_passage_keys: set[str],
     ) -> bool:
-        rel_positions = {
+        rel_positions: set[int] = {
             int(pos)
             for pos in (rel.get("provenance_positions") or [])
             if isinstance(pos, (int, float))
@@ -118,13 +157,13 @@ class ContextAssemblyMixin:
         if rel_positions:
             return bool(rel_positions & selected_positions)
 
-        rel_passage_keys = {
+        rel_passage_keys: set[str] = {
             str(key) for key in (rel.get("passage_keys") or []) if str(key).strip()
         }
         if rel_passage_keys:
             return bool(rel_passage_keys & selected_passage_keys)
 
-        rel_question_ids = {
+        rel_question_ids: set[str] = {
             str(qid) for qid in (rel.get("question_ids") or []) if str(qid).strip()
         }
         if rel_question_ids:
@@ -135,7 +174,7 @@ class ContextAssemblyMixin:
     @classmethod
     def _path_supported_by_selected_chunks(
         cls,
-        path_entry: dict[str, Any],
+        path_entry: TraversalPath,
         *,
         selected_positions: set[int],
         selected_question_ids: set[str],
@@ -153,15 +192,17 @@ class ContextAssemblyMixin:
         cls,
         *,
         query: str,
-        context: dict[str, Any],
+        context: RetrievalContext,
         max_chunks: int,
         retrieval_temperature: float,
         retrieval_shortlist_factor: int,
         retrieval_sample_id: int,
         kg_name: str | None,
-    ) -> dict[str, Any]:
-        chunks = cls._sort_chunks_for_query(query, list(context.get("chunks", [])))
-        selected_chunks = select_ranked_subset(
+    ) -> RetrievalContext:
+        chunks: list[RetrievedChunk] = cls._sort_chunks_for_query(
+            query, list(context.get("chunks", []))
+        )
+        selected_chunks: list[RetrievedChunk] = select_ranked_subset(
             chunks,
             max_items=max_chunks,
             retrieval_temperature=retrieval_temperature,
@@ -171,14 +212,18 @@ class ContextAssemblyMixin:
             score_getter=lambda chunk: float(chunk.get("score", 0.0)),
         )
 
-        pruned = dict(context)
+        pruned: RetrievalContext = context.copy()
         pruned["chunks"] = selected_chunks
-        retained_eids = cls._retained_entity_ids_from_chunks(selected_chunks)
+        retained_eids: set[str] = cls._retained_entity_ids_from_chunks(selected_chunks)
 
-        entities = context.get("entities", {}) or {}
-        graph_neighbors = context.get("graph_neighbors", {}) or {}
-        relationships = context.get("relationships", []) or []
-        traversal_paths = context.get("traversal_paths", []) or []
+        entities: dict[str, RetrievedEntity] = context.get("entities", {}) or {}
+        graph_neighbors: dict[str, RetrievedEntity] = (
+            context.get("graph_neighbors", {}) or {}
+        )
+        relationships: list[RetrievedRelationship] = (
+            context.get("relationships", []) or []
+        )
+        traversal_paths: list[TraversalPath] = context.get("traversal_paths", []) or []
 
         if retained_eids:
             selected_positions, selected_question_ids, selected_passage_keys = (
@@ -206,13 +251,13 @@ class ContextAssemblyMixin:
                     selected_passage_keys=selected_passage_keys,
                 )
             ]
-            filtered_paths: list[dict[str, Any]] = []
+            filtered_paths: list[TraversalPath] = []
             seen_paths: set[str] = set()
             for path_entry in traversal_paths:
-                path_str = path_entry.get("path", "")
+                path_str: str = path_entry.get("path", "")
                 if path_str in seen_paths:
                     continue
-                node_ids = path_entry.get("node_ids")
+                node_ids: list[str] | None = path_entry.get("node_ids")
                 if node_ids and not all(
                     node_id in retained_eids for node_id in node_ids
                 ):
@@ -262,7 +307,7 @@ class ContextAssemblyMixin:
 
     @classmethod
     def _graph_context_is_meaningful(
-        cls, query: str, context: dict[str, Any] | None
+        cls, query: str, context: RetrievalContext | None
     ) -> bool:
         """
         Decide whether the graph-centric retrieval signal is strong enough to stay primary.
@@ -274,8 +319,8 @@ class ContextAssemblyMixin:
         if not context or not context.get("chunks"):
             return False
 
-        grounding = context.get("grounding_quality")
-        has_structure = bool(context.get("relationships")) or bool(
+        grounding: float | None = context.get("grounding_quality")
+        has_structure: bool = bool(context.get("relationships")) or bool(
             context.get("traversal_paths")
         )
         if (
@@ -285,7 +330,7 @@ class ContextAssemblyMixin:
         ):
             return False
 
-        branches = cls._comparison_branches(query)
+        branches: list[str] = cls._comparison_branches(query)
         if branches:
             return cls._comparison_branch_coverage(
                 query, context.get("chunks", [])
@@ -298,25 +343,25 @@ class ContextAssemblyMixin:
     @classmethod
     def _append_adjacent_chunks_to_context(
         cls,
-        graph,
-        context: dict[str, Any],
+        graph: "GraphQuery",
+        context: RetrievalContext,
         *,
         kg_name: str | None,
         question_id: str | None,
         document_names: list[str] | None,
         max_adjacent: int,
-    ) -> dict[str, Any]:
+    ) -> RetrievalContext:
         """Append position-adjacent chunks so answer spans split across boundaries survive.
 
         Vanilla retrieval already recovers adjacent chunks from the same local passage.
         Apply the same recovery here so graph-first and vector-first KG retrieval paths
         do not lose answer-bearing sentences simply because the retriever hit a nearby span.
         """
-        chunks = list(context.get("chunks") or [])
+        chunks: list[RetrievedChunk] = list(context.get("chunks") or [])
         if not chunks:
             return context
 
-        seed_element_ids = [
+        seed_element_ids: list[str | None] = [
             chunk.get("parent_chunk_element_id") or chunk.get("chunk_element_id")
             for chunk in chunks
             if chunk.get("parent_chunk_element_id") or chunk.get("chunk_element_id")
@@ -324,7 +369,7 @@ class ContextAssemblyMixin:
         if not seed_element_ids:
             return context
 
-        seen_ids = {
+        seen_ids: set[str] = {
             str(chunk_id)
             for chunk in chunks
             for chunk_id in [chunk.get("chunk_element_id")]
@@ -333,7 +378,7 @@ class ContextAssemblyMixin:
         if not seen_ids:
             return context
 
-        params: dict[str, Any] = {
+        params: dict[str, object] = {
             "element_ids": seed_element_ids,
             "max_adjacent": max(1, int(max_adjacent or 1)),
         }
@@ -348,13 +393,13 @@ class ContextAssemblyMixin:
             scope_conditions.append("seed.questionId = $question_id")
             scope_conditions.append("adj.questionId = $question_id")
             params["question_id"] = question_id
-        scope_clause = ""
+        scope_clause: str = ""
         if scope_conditions:
             scope_clause = "\n                  AND " + "\n                  AND ".join(
                 scope_conditions
             )
 
-        adj_query = f"""
+        adj_query: str = f"""
         UNWIND $element_ids AS eid
         MATCH (seed:Chunk)-[:PART_OF]->(d:Document)
         WHERE elementId(seed) = eid
@@ -410,9 +455,9 @@ class ContextAssemblyMixin:
         if not adj_results:
             return context
 
-        updated = dict(context)
-        updated_chunks = list(chunks)
-        documents = set(context.get("documents") or [])
+        updated: RetrievalContext = context.copy()
+        updated_chunks: list[RetrievedChunk] = list(chunks)
+        documents: set[str | None] = set(context.get("documents") or [])
         for result in adj_results:
             chunk_element_id = result.get("chunk_element_id")
             if not chunk_element_id or str(chunk_element_id) in seen_ids:
@@ -451,22 +496,22 @@ class ContextAssemblyMixin:
     @classmethod
     def _merge_retrieval_contexts(
         cls,
-        primary: dict[str, Any],
-        secondary: dict[str, Any] | None,
+        primary: RetrievalContext,
+        secondary: RetrievalContext | None,
         *,
         max_chunks: int,
         search_method: str,
         secondary_limit: int | None = None,
         min_secondary_score: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> RetrievalContext:
         """Merge two retrieval contexts while keeping primary chunks dominant."""
         if not secondary or not secondary.get("chunks"):
-            merged = dict(primary)
+            merged: RetrievalContext = primary.copy()
             merged["search_method"] = search_method
             return merged
 
-        merged: dict[str, Any] = dict(primary)
-        merged["chunks"] = [dict(chunk) for chunk in primary.get("chunks", [])]
+        merged = primary.copy()
+        merged["chunks"] = [chunk.copy() for chunk in primary.get("chunks", [])]
         merged["entities"] = dict(primary.get("entities", {}))
         merged["relationships"] = list(primary.get("relationships", []))
         merged["graph_neighbors"] = dict(primary.get("graph_neighbors", {}))
@@ -474,16 +519,16 @@ class ContextAssemblyMixin:
 
         existing_chunk_ids: set[str] = set()
         for chunk in merged["chunks"]:
-            chunk_key = cls._chunk_identity(chunk)
+            chunk_key: str = cls._chunk_identity(chunk)
             if chunk_key:
                 existing_chunk_ids.add(str(chunk_key))
-            parent_chunk_key = chunk.get("parent_chunk_id")
+            parent_chunk_key: str | None = chunk.get("parent_chunk_id")
             if parent_chunk_key:
                 existing_chunk_ids.add(str(parent_chunk_key))
-        new_chunks: list[dict[str, Any]] = []
+        new_chunks: list[RetrievedChunk] = []
         for chunk in secondary.get("chunks", []):
-            cid = cls._chunk_identity(chunk)
-            parent_cid = chunk.get("parent_chunk_id")
+            cid: str = cls._chunk_identity(chunk)
+            parent_cid: str | None = chunk.get("parent_chunk_id")
             if cid in existing_chunk_ids or (
                 parent_cid and str(parent_cid) in existing_chunk_ids
             ):
@@ -491,7 +536,7 @@ class ContextAssemblyMixin:
             existing_chunk_ids.add(str(cid))
             if parent_cid:
                 existing_chunk_ids.add(str(parent_cid))
-            candidate = dict(chunk)
+            candidate: RetrievedChunk = chunk.copy()
             if min_secondary_score is not None:
                 candidate["score"] = max(
                     float(candidate.get("score", 0.0)), min_secondary_score
@@ -511,19 +556,21 @@ class ContextAssemblyMixin:
         for entity_id, entity_info in secondary.get("graph_neighbors", {}).items():
             merged["graph_neighbors"].setdefault(entity_id, entity_info)
 
-        seen_rel_keys = {
+        seen_rel_keys: set[str] = {
             cls._relationship_identity(rel) for rel in merged["relationships"]
         }
         for rel in secondary.get("relationships", []):
-            rel_key = cls._relationship_identity(rel)
+            rel_key: str = cls._relationship_identity(rel)
             if rel_key in seen_rel_keys:
                 continue
             seen_rel_keys.add(rel_key)
             merged["relationships"].append(rel)
 
-        seen_paths = {path.get("path", "") for path in merged["traversal_paths"]}
+        seen_paths: set[str] = {
+            path.get("path", "") for path in merged["traversal_paths"]
+        }
         for path_entry in secondary.get("traversal_paths", []):
-            path_str = path_entry.get("path", "")
+            path_str: str = path_entry.get("path", "")
             if not path_str or path_str in seen_paths:
                 continue
             seen_paths.add(path_str)
@@ -548,7 +595,7 @@ class ContextAssemblyMixin:
         merged["search_method"] = search_method
         # Always preserve the highest grounding_quality seen across both contexts
         # so that a weak-graph fallback to vector doesn't erase genuine entity grounding.
-        gq = max(
+        gq: float = max(
             primary.get("grounding_quality") or 0.0,
             (secondary.get("grounding_quality") if secondary else None) or 0.0,
         )
@@ -564,21 +611,23 @@ class ContextAssemblyMixin:
         cls,
         *,
         query: str,
-        contexts: list[dict[str, Any]],
+        contexts: list[RetrievalContext],
         max_chunks: int,
         kg_name: str | None,
         retrieval_temperature: float,
         retrieval_shortlist_factor: int,
         retrieval_sample_id: int,
         search_method: str,
-    ) -> dict[str, Any] | None:
-        usable_contexts = [ctx for ctx in contexts if ctx and ctx.get("chunks")]
+    ) -> RetrievalContext | None:
+        usable_contexts: list[RetrievalContext] = [
+            ctx for ctx in contexts if ctx and ctx.get("chunks")
+        ]
         if not usable_contexts:
             return None
         if len(usable_contexts) == 1:
             return usable_contexts[0]
 
-        merged: dict[str, Any] = {
+        merged: RetrievalContext = {
             "query": query,
             "chunks": [],
             "entities": {},
@@ -594,25 +643,25 @@ class ContextAssemblyMixin:
             "grounding_quality": 0.0,
             "seed_entity_count": 0,
         }
-        chunk_records: dict[str, dict[str, Any]] = {}
+        chunk_records: dict[str, FusedChunkRecord] = {}
         seen_rel_keys: set[str] = set()
         seen_paths: set[str] = set()
 
         for context in usable_contexts:
-            ranked_chunks = cls._sort_chunks_for_query(
+            ranked_chunks: list[RetrievedChunk] = cls._sort_chunks_for_query(
                 query, list(context.get("chunks", []))
             )
             for rank, chunk in enumerate(ranked_chunks, 1):
-                chunk_key = str(
+                chunk_key: str = str(
                     chunk.get("parent_chunk_id")
                     or chunk.get("chunk_id")
                     or chunk.get("chunk_element_id")
                     or str(chunk.get("text", ""))[:120]
                 )
-                record = chunk_records.get(chunk_key)
+                record: FusedChunkRecord | None = chunk_records.get(chunk_key)
                 if record is None:
                     record = {
-                        "chunk": dict(chunk),
+                        "chunk": chunk.copy(),
                         "rrf": 0.0,
                         "support_count": 0,
                         "best_score": float(chunk.get("score", 0.0)),
@@ -620,9 +669,9 @@ class ContextAssemblyMixin:
                     chunk_records[chunk_key] = record
                 record["rrf"] += 1.0 / float(cls._QUERY_FUSION_RRF_K + rank)
                 record["support_count"] += 1
-                current_score = float(chunk.get("score", 0.0))
+                current_score: float = float(chunk.get("score", 0.0))
                 if current_score >= record["best_score"]:
-                    record["chunk"] = dict(chunk)
+                    record["chunk"] = chunk.copy()
                     record["best_score"] = current_score
 
             for entity_id, entity_info in (context.get("entities") or {}).items():
@@ -632,13 +681,13 @@ class ContextAssemblyMixin:
             ).items():
                 merged["graph_neighbors"].setdefault(entity_id, entity_info)
             for rel in context.get("relationships", []) or []:
-                rel_key = cls._relationship_identity(rel)
+                rel_key: str = cls._relationship_identity(rel)
                 if rel_key in seen_rel_keys:
                     continue
                 seen_rel_keys.add(rel_key)
                 merged["relationships"].append(rel)
             for path_entry in context.get("traversal_paths", []) or []:
-                path_str = path_entry.get("path", "")
+                path_str: str = path_entry.get("path", "")
                 if not path_str or path_str in seen_paths:
                     continue
                 seen_paths.add(path_str)
@@ -652,9 +701,9 @@ class ContextAssemblyMixin:
                 int(context.get("seed_entity_count") or 0),
             )
 
-        fused_chunks: list[dict[str, Any]] = []
+        fused_chunks: list[RetrievedChunk] = []
         for record in chunk_records.values():
-            chunk = dict(record["chunk"])
+            chunk = record["chunk"].copy()
             chunk["rrf_score"] = record["rrf"]
             chunk["retrieval_support_count"] = record["support_count"]
             chunk["score"] = (
@@ -688,7 +737,7 @@ class ContextAssemblyMixin:
         )
 
     @staticmethod
-    def _chunk_rank_key(chunk: dict[str, Any]) -> tuple[float, float, int]:
+    def _chunk_rank_key(chunk: RetrievedChunk) -> tuple[float, float, int]:
         return (
             -float(chunk.get("score", 0.0)),
             -int(chunk.get("linked_entity_count", 0)),
@@ -696,24 +745,25 @@ class ContextAssemblyMixin:
         )
 
     def _apply_per_passage_chunk_cap(
-        self, chunks: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+        self, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
         """Keep the highest-ranked chunks from each source passage."""
-        _passage_cap = self._MAX_CHUNKS_PER_PASSAGE
+        _passage_cap: int = self._MAX_CHUNKS_PER_PASSAGE
         if _passage_cap <= 0:
             return list(chunks)
 
-        ranked_chunks = sorted(chunks, key=self._chunk_rank_key)
-        passage_counts: dict[str, int] = {}
-        capped_chunks: list[dict[str, Any]] = []
+        ranked_chunks: list[RetrievedChunk] = sorted(chunks, key=self._chunk_rank_key)
+        passage_counts: dict[str | int, int] = {}
+        capped_chunks: list[RetrievedChunk] = []
+        pkey: str | int
         for chunk in ranked_chunks:
-            qid_val = chunk.get("question_id") or ""
-            pidx_val = chunk.get("passage_index")
+            qid_val: str = chunk.get("question_id") or ""
+            pidx_val: int | None = chunk.get("passage_index")
             if pidx_val is not None and qid_val:
                 pkey = f"{qid_val}::p{pidx_val}"
             else:
                 pkey = chunk.get("chunk_id") or id(chunk)
-            count = passage_counts.get(pkey, 0)
+            count: int = passage_counts.get(pkey, 0)
             if count < _passage_cap:
                 capped_chunks.append(chunk)
                 passage_counts[pkey] = count + 1
@@ -725,7 +775,7 @@ class ContextAssemblyMixin:
                 )
         return capped_chunks or ranked_chunks
 
-    def _build_evidence_block(self, context: dict[str, Any]) -> str:
+    def _build_evidence_block(self, context: RetrievalContext) -> str:
         """
         KG2RAG-style evidence organization.
 
@@ -734,25 +784,25 @@ class ContextAssemblyMixin:
         "Additional Evidence".  This makes multi-hop reasoning chains explicit
         to the LLM and reduces the chance of hallucinated bridge steps.
         """
-        chunks = context.get("chunks", [])
-        traversal_paths = context.get("traversal_paths", [])
-        relationships = context.get("relationships", [])
-        entities = context.get("entities", {})
+        chunks: list[RetrievedChunk] = context.get("chunks", [])
+        traversal_paths: list[TraversalPath] = context.get("traversal_paths", [])
+        relationships: list[RetrievedRelationship] = context.get("relationships", [])
+        entities: dict[str, RetrievedEntity] = context.get("entities", {})
 
-        def _chunk_passage_key(chunk: dict[str, Any]) -> str | None:
-            qid = chunk.get("question_id")
+        def _chunk_passage_key(chunk: RetrievedChunk) -> str | None:
+            qid: str | None = chunk.get("question_id")
             if qid is None or not str(qid).strip():
                 return None
             return f"{qid}::p{chunk.get('passage_index', -1)}"
 
         def _chunk_supports_path(
-            chunk: dict[str, Any], path_info: dict[str, Any]
+            chunk: RetrievedChunk, path_info: EvidencePath
         ) -> bool:
-            chunk_positions = set()
-            pos = chunk.get("position")
+            chunk_positions: set[int] = set()
+            pos: int | None = chunk.get("position")
             if isinstance(pos, (int, float)):
                 chunk_positions.add(int(pos))
-            path_positions = {
+            path_positions: set[int] = {
                 int(p)
                 for p in (path_info.get("provenance_positions") or [])
                 if isinstance(p, (int, float))
@@ -760,8 +810,8 @@ class ContextAssemblyMixin:
             if path_positions:
                 return bool(chunk_positions & path_positions)
 
-            chunk_passage_key = _chunk_passage_key(chunk)
-            path_passage_keys = {
+            chunk_passage_key: str | None = _chunk_passage_key(chunk)
+            path_passage_keys: set[str] = {
                 str(key)
                 for key in (path_info.get("passage_keys") or [])
                 if str(key).strip()
@@ -769,27 +819,27 @@ class ContextAssemblyMixin:
             if path_passage_keys and chunk_passage_key is not None:
                 return chunk_passage_key in path_passage_keys
 
-            chunk_entity_ids = set(chunk.get("linked_entity_ids") or [])
-            path_nodes = set(path_info.get("node_ids") or [])
+            chunk_entity_ids: set[str] = set(chunk.get("linked_entity_ids") or [])
+            path_nodes: set[str] = set(path_info.get("node_ids") or [])
             if not chunk_entity_ids or not path_nodes:
                 return False
 
-            overlap = chunk_entity_ids & path_nodes
+            overlap: set[str] = chunk_entity_ids & path_nodes
             # When provenance metadata is absent, require at least two path
             # entities for a chunk to count as chain support. This avoids
             # treating a passage that merely mentions one endpoint as evidence
             # for the whole relation/path.
-            required_overlap = min(2, len(path_nodes))
+            required_overlap: int = min(2, len(path_nodes))
             return len(overlap) >= required_overlap
 
         # Index chunks by their linked entities for fast lookup.
-        chunk_by_id: dict[str, Any] = {
+        chunk_by_id: dict[str | None, RetrievedChunk] = {
             c["chunk_id"]: c for c in chunks if c.get("chunk_id")
         }
 
         # Build a unified path list from both traversal paths and direct relationships.
         # Each entry: {path_str, node_ids, hops}
-        all_paths: list[dict[str, Any]] = []
+        all_paths: list[EvidencePath] = []
         for p in sorted(traversal_paths, key=lambda x: x.get("hops", 99)):
             all_paths.append(
                 {
@@ -800,15 +850,15 @@ class ContextAssemblyMixin:
                     "passage_keys": list(p.get("passage_keys") or []),
                 }
             )
-        entity_name_lookup = {
+        entity_name_lookup: dict[str, str] = {
             eid: (info.get("name") or info.get("description") or eid)
             for eid, info in entities.items()
         }
-        MAX_REL_PATHS = max(0, 25 - len(all_paths))
+        MAX_REL_PATHS: int = max(0, 25 - len(all_paths))
         for rel in relationships[:MAX_REL_PATHS]:
-            src = entity_name_lookup.get(rel["source"], rel["source"])[:50]
-            tgt = entity_name_lookup.get(rel["target"], rel["target"])[:50]
-            rel_label = self._format_relationship_label(rel)
+            src: str = entity_name_lookup.get(rel["source"], rel["source"])[:50]
+            tgt: str = entity_name_lookup.get(rel["target"], rel["target"])[:50]
+            rel_label: str = self._format_relationship_label(rel)
             all_paths.append(
                 {
                     "path_str": f"{src} --{rel_label}--> {tgt}",
@@ -821,15 +871,15 @@ class ContextAssemblyMixin:
 
         # Associate each chunk with up to two supporting chains so shared bridge
         # evidence can appear in multiple reasoning chains without flooding all of them.
-        chunk_chain_count: dict[str, int] = {}
+        chunk_chain_count: dict[str | None, int] = {}
         _MAX_CHAINS_PER_CHUNK: int = 2
         chain_blocks: list[str] = []
         ungrounded_paths: list[str] = []  # paths with no supporting passage
         for chain_idx, path_info in enumerate(all_paths, 1):
-            path_str = path_info["path_str"]
+            path_str: str = path_info["path_str"]
             if not path_str:
                 continue
-            supporting: list[Any] = []
+            supporting: list[RetrievedChunk] = []
             for cid, chunk in chunk_by_id.items():
                 if chunk_chain_count.get(cid, 0) >= _MAX_CHAINS_PER_CHUNK:
                     continue
@@ -841,14 +891,14 @@ class ContextAssemblyMixin:
                 # not to treat them as confirmed textual evidence.
                 ungrounded_paths.append(f"  {path_info['hops']} hop: {path_str}")
             else:
-                lines = [
+                lines: list[str] = [
                     (
                         f"Chain {chain_idx} ({path_info['hops']} hop{'s' if path_info['hops'] != 1 else ''}): "
                         f"{path_str}"
                     )
                 ]
                 for i, chunk in enumerate(supporting[:3], 1):
-                    text = (chunk.get("text") or "").strip()[:400]
+                    text: str = (chunk.get("text") or "").strip()[:400]
                     lines.append(f"  [P{i}] {text}")
                     chunk_chain_count[chunk["chunk_id"]] = (
                         chunk_chain_count.get(chunk["chunk_id"], 0) + 1
@@ -881,20 +931,20 @@ class ContextAssemblyMixin:
 
         return "\n\n".join(sections)
 
-    def _build_passages_only_evidence_block(self, context: dict[str, Any]) -> str:
-        chunks = context.get("chunks", []) or []
+    def _build_passages_only_evidence_block(self, context: RetrievalContext) -> str:
+        chunks: list[RetrievedChunk] = context.get("chunks", []) or []
         if not chunks:
             return "(No passages retrieved)"
         lines: list[str] = []
         for idx, chunk in enumerate(chunks, 1):
-            text = (chunk.get("text") or "").strip()
+            text: str = (chunk.get("text") or "").strip()
             if text:
                 lines.append(f"[{idx}] {text}")
         if not lines:
             return "(No passages retrieved)"
         return "PASSAGES:\n" + "\n\n".join(lines)
 
-    def format_context_for_llm(self, context: dict[str, Any]) -> tuple:
+    def format_context_for_llm(self, context: RetrievalContext) -> tuple[str, str, str]:
         """
         Format the context for the LLM prompt.
 
@@ -905,44 +955,46 @@ class ContextAssemblyMixin:
         {evidence_block} in the prompt template.  formatted_entities and
         formatted_paths are retained for backward-compatible callers.
         """
-        evidence_block = self._build_evidence_block(context)
+        evidence_block: str = self._build_evidence_block(context)
 
         # --- legacy: flat chunk list (for callers that use formatted_context directly) ---
-        chunk_texts = []
+        chunk_texts: list[str] = []
         for i, chunk in enumerate(context["chunks"], 1):
-            doc = chunk.get("document", "unknown")
-            chunk_text = f"[Source: {doc}]\n{chunk['text']}\n"
+            doc: str = chunk.get("document", "unknown")
+            chunk_text: str = f"[Source: {doc}]\n{chunk['text']}\n"
             chunk_texts.append(chunk_text)
-        _formatted_context = "\n".join(chunk_texts)
+        _formatted_context: str = "\n".join(chunk_texts)
 
         # --- graph paths (flat, for backward compat) ---
-        path_lines = []
-        traversal_paths = context.get("traversal_paths", [])
+        path_lines: list[str] = []
+        traversal_paths: list[TraversalPath] = context.get("traversal_paths", [])
         if traversal_paths:
-            sorted_paths = sorted(traversal_paths, key=lambda p: p.get("hops", 99))
+            sorted_paths: list[TraversalPath] = sorted(
+                traversal_paths, key=lambda p: p.get("hops", 99)
+            )
             path_lines.extend([f"  {p['path']}" for p in sorted_paths])
-        entity_name_lookup = {
+        entity_name_lookup: dict[str, str] = {
             eid: (info.get("description") or eid)
             for eid, info in context.get("entities", {}).items()
         }
         MAX_RELATIONSHIPS: int = 25
         for rel in context.get("relationships", [])[:MAX_RELATIONSHIPS]:
-            src_name = entity_name_lookup.get(rel["source"], rel["source"])[:50]
-            tgt_name = entity_name_lookup.get(rel["target"], rel["target"])[:50]
-            rel_type = self._format_relationship_label(rel)
+            src_name: str = entity_name_lookup.get(rel["source"], rel["source"])[:50]
+            tgt_name: str = entity_name_lookup.get(rel["target"], rel["target"])[:50]
+            rel_type: str = self._format_relationship_label(rel)
             path_lines.append(f"  {src_name} --{rel_type}--> {tgt_name}")
-        formatted_paths = (
+        formatted_paths: str = (
             "\n".join(path_lines) if path_lines else "(No graph relationships found)"
         )
 
         # --- entities ---
-        entity_texts = []
-        seed_entities = {
+        entity_texts: list[str] = []
+        seed_entities: dict[str, RetrievedEntity] = {
             eid: info
             for eid, info in context["entities"].items()
             if info.get("source") != "graph_traversal"
         }
-        neighbor_entities = {
+        neighbor_entities: dict[str, RetrievedEntity] = {
             eid: info
             for eid, info in context["entities"].items()
             if info.get("source") == "graph_traversal"
@@ -954,10 +1006,10 @@ class ContextAssemblyMixin:
         if seed_entities:
             entity_texts.append("Seed entities (directly from retrieved chunks):")
             for entity_id, info in list(seed_entities.items())[:MAX_SEED_ENTITIES]:
-                eid = info.get("id") or entity_id or "Unknown"
-                etype = info.get("type") or "Unknown"
-                line = f"  - {eid} | Type: {etype}"
-                desc = info.get("description")
+                eid: str = info.get("id") or entity_id or "Unknown"
+                etype: str = info.get("type") or "Unknown"
+                line: str = f"  - {eid} | Type: {etype}"
+                desc: str | None = info.get("description")
                 if desc and desc != eid:
                     line += f" | {desc}"
                 entity_texts.append(line)
@@ -967,21 +1019,23 @@ class ContextAssemblyMixin:
                 )
 
         if neighbor_entities:
-            shown = list(neighbor_entities.items())[:MAX_NEIGHBOR_ENTITIES]
+            shown: list[tuple[str, RetrievedEntity]] = list(neighbor_entities.items())[
+                :MAX_NEIGHBOR_ENTITIES
+            ]
             entity_texts.append(
                 f"\nGraph-traversal neighbors ({len(neighbor_entities)} discovered, showing top {len(shown)}):"
             )
             for entity_id, info in shown:
                 eid = info.get("id") or entity_id or "Unknown"
                 etype = info.get("type") or "Unknown"
-                hops = info.get("min_hops", "?")
+                hops: int | str = info.get("min_hops", "?")
                 line = f"  - {eid} | Type: {etype} | {hops}-hop neighbor"
                 desc = info.get("description")
                 if desc and desc != eid:
                     line += f" | {desc}"
                 entity_texts.append(line)
 
-        formatted_entities = (
+        formatted_entities: str = (
             "\n".join(entity_texts) if entity_texts else "(No entities found)"
         )
 

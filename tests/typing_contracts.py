@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from ontographrag.rag.graph_state import GraphStateContext, StateChunk, StateEntity
 from ontographrag.rag.retrieval_sampling import select_ranked_subset
+from ontographrag.rag.systems._records import RetrievalContext
 
 if TYPE_CHECKING:
     from langchain_community.graphs.graph_document import GraphDocument
@@ -69,4 +70,8 @@ class ConcreteStateContext(GraphStateContext):
 
 
 def graph_state_projection(context: ConcreteStateContext) -> GraphStateContext:
+    return context
+
+
+def retrieval_graph_projection(context: RetrievalContext) -> GraphStateContext:
     return context

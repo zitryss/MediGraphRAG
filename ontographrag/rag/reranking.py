@@ -3,30 +3,133 @@ import logging
 import os
 from collections import OrderedDict
 from collections.abc import Sequence
-from typing import Any
+from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict
 
-_RERANKER_CACHE: dict[tuple[str, str, int], Any] = {}
-_RERANKER_FAILURES: set = set()
-_LATE_INTERACTION_CACHE: dict[tuple[str, str, int, int], Any] = {}
-_LATE_INTERACTION_FAILURES: set = set()
-_LATE_INTERACTION_INDEX_CACHE: "OrderedDict[tuple[str, str, int, str, str], dict[str, Any]]" = OrderedDict()
+from ontographrag.rag.systems._records import RetrievedChunk
+
+if TYPE_CHECKING:
+    from _hashlib import HASH
+    from sentence_transformers import CrossEncoder
+    from torch import Tensor, dtype
+    from torch.return_types import topk as TopKResult
+    from transformers.configuration_utils import PretrainedConfig
+
+
+class Tokenizer(Protocol):
+    def __call__(
+        self,
+        text: str | list[str],
+        *,
+        return_tensors: str,
+        truncation: bool,
+        max_length: int,
+        return_special_tokens_mask: bool,
+        padding: bool = False,
+    ) -> dict[str, "Tensor"]: ...
+
+
+class HiddenState(Protocol):
+    @property
+    def last_hidden_state(self) -> "Tensor": ...
+
+
+class EncoderModel(Protocol):
+    @property
+    def config(self) -> "PretrainedConfig": ...
+    def __call__(
+        self, *, input_ids: "Tensor", attention_mask: "Tensor"
+    ) -> HiddenState: ...
+    def to(self, device: str) -> "EncoderModel": ...
+    def eval(self) -> "EncoderModel": ...
+
+
+class TensorFunctional(Protocol):
+    def normalize(self, input: "Tensor", p: float = 2, dim: int = 1) -> "Tensor": ...
+
+
+class TensorNeuralNetwork(Protocol):
+    @property
+    def functional(self) -> TensorFunctional: ...
+
+
+class TensorBackend(Protocol):
+    @property
+    def nn(self) -> TensorNeuralNetwork: ...
+    @property
+    def float32(self) -> "dtype": ...
+    def no_grad(self) -> AbstractContextManager[None]: ...
+    def zeros_like(self, input: "Tensor", /) -> "Tensor": ...
+    def matmul(self, input: "Tensor", other: "Tensor") -> "Tensor": ...
+    def stack(self, tensors: list["Tensor"]) -> "Tensor": ...
+    def empty(self, size: tuple[int, int], /, *, dtype: "dtype") -> "Tensor": ...
+    def topk(self, input: "Tensor", /, k: int) -> "TopKResult": ...
+
+
+class LateInteractionBundle(TypedDict):
+    tokenizer: Tokenizer
+    model: EncoderModel
+    model_name: str
+    device: str
+    query_max_length: int
+    doc_max_length: int
+    torch: TensorBackend
+
+
+class EncodedQuery(TypedDict):
+    tokens: "Tensor"
+    pooled: "Tensor"
+
+
+class LateInteractionIndex(TypedDict):
+    doc_tokens: list["Tensor"]
+    doc_pooled: "Tensor"
+    count: int
+
+
+class IndexedScoringMetadata(TypedDict):
+    index_cached: bool
+    prefiltered: bool
+    shortlist_size: int
+    corpus_size: int
+
+
+class RerankingMetadata(TypedDict):
+    enabled: bool
+    applied: bool
+    reason: NotRequired[str]
+    model: NotRequired[str]
+    count: NotRequired[int]
+    replace_score: NotRequired[bool]
+    index_keyed: NotRequired[bool]
+    index_cached: NotRequired[bool]
+    prefiltered: NotRequired[bool]
+    shortlist_size: NotRequired[int]
+    corpus_size: NotRequired[int]
+
+
+_RERANKER_CACHE: dict[tuple[str, str, int], "CrossEncoder"] = {}
+_RERANKER_FAILURES: set[tuple[str, str, int]] = set()
+_LATE_INTERACTION_CACHE: dict[tuple[str, str, int, int], LateInteractionBundle] = {}
+_LATE_INTERACTION_FAILURES: set[tuple[str, str, int, int]] = set()
+_LATE_INTERACTION_INDEX_CACHE: "OrderedDict[tuple[str, str, int, str, str], LateInteractionIndex]" = OrderedDict()
 
 
 def reranker_enabled() -> bool:
-    explicit = os.getenv("ONTOGRAPHRAG_RERANKER", "").strip().lower()
+    explicit: str = os.getenv("ONTOGRAPHRAG_RERANKER", "").strip().lower()
     if explicit:
         return explicit in {"1", "true", "yes", "on"}
-    profile = (
+    profile: str = (
         str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
     )
     return profile in {"accuracy", "quality", "high_accuracy"}
 
 
 def resolve_reranker_model_name() -> str:
-    explicit = os.getenv("ONTOGRAPHRAG_RERANKER_MODEL", "").strip()
+    explicit: str = os.getenv("ONTOGRAPHRAG_RERANKER_MODEL", "").strip()
     if explicit:
         return explicit
-    profile = (
+    profile: str = (
         str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
     )
     if profile in {"accuracy", "quality", "high_accuracy"}:
@@ -35,23 +138,23 @@ def resolve_reranker_model_name() -> str:
 
 
 def late_interaction_enabled() -> bool:
-    explicit = os.getenv("ONTOGRAPHRAG_LATE_INTERACTION", "").strip().lower()
+    explicit: str = os.getenv("ONTOGRAPHRAG_LATE_INTERACTION", "").strip().lower()
     if explicit:
         return explicit in {"1", "true", "yes", "on"}
-    profile = (
+    profile: str = (
         str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
     )
     return profile in {"accuracy", "quality", "high_accuracy"}
 
 
 def resolve_late_interaction_model_name() -> str:
-    explicit = os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "").strip()
+    explicit: str = os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "").strip()
     if explicit:
         return explicit
-    embedding_model = os.getenv("HUGGINGFACE_EMBEDDING_MODEL", "").strip()
+    embedding_model: str = os.getenv("HUGGINGFACE_EMBEDDING_MODEL", "").strip()
     if embedding_model:
         return embedding_model
-    profile = (
+    profile: str = (
         str(os.getenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "balanced")).strip().lower()
     )
     if profile in {"accuracy", "quality", "high_accuracy"}:
@@ -59,15 +162,15 @@ def resolve_late_interaction_model_name() -> str:
     return ""
 
 
-def _load_cross_encoder(model_name: str):
+def _load_cross_encoder(model_name: str) -> "CrossEncoder | None":
     if not model_name:
         return None
 
-    device = os.getenv("ONTOGRAPHRAG_RERANKER_DEVICE", "cpu").strip() or "cpu"
-    max_length = int(
+    device: str = os.getenv("ONTOGRAPHRAG_RERANKER_DEVICE", "cpu").strip() or "cpu"
+    max_length: int = int(
         os.getenv("ONTOGRAPHRAG_RERANKER_MAX_LENGTH", "512").strip() or 512
     )
-    cache_key = (model_name, device, max_length)
+    cache_key: tuple[str, str, int] = (model_name, device, max_length)
     if cache_key in _RERANKER_CACHE:
         return _RERANKER_CACHE[cache_key]
     if cache_key in _RERANKER_FAILURES:
@@ -76,7 +179,9 @@ def _load_cross_encoder(model_name: str):
     try:
         from sentence_transformers import CrossEncoder
 
-        model = CrossEncoder(model_name, device=device, max_length=max_length)
+        model: CrossEncoder = CrossEncoder(
+            model_name, device=device, max_length=max_length
+        )
     except Exception as exc:
         logging.warning("Could not initialize reranker model '%s': %s", model_name, exc)
         _RERANKER_FAILURES.add(cache_key)
@@ -86,18 +191,25 @@ def _load_cross_encoder(model_name: str):
     return model
 
 
-def _load_late_interaction_model(model_name: str):
+def _load_late_interaction_model(model_name: str) -> LateInteractionBundle | None:
     if not model_name:
         return None
 
-    device = os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DEVICE", "cpu").strip() or "cpu"
-    query_max_length = int(
+    device: str = (
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DEVICE", "cpu").strip() or "cpu"
+    )
+    query_max_length: int = int(
         os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_QUERY_MAX_LENGTH", "48").strip() or 48
     )
-    doc_max_length = int(
+    doc_max_length: int = int(
         os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DOC_MAX_LENGTH", "256").strip() or 256
     )
-    cache_key = (model_name, device, query_max_length, doc_max_length)
+    cache_key: tuple[str, str, int, int] = (
+        model_name,
+        device,
+        query_max_length,
+        doc_max_length,
+    )
     if cache_key in _LATE_INTERACTION_CACHE:
         return _LATE_INTERACTION_CACHE[cache_key]
     if cache_key in _LATE_INTERACTION_FAILURES:
@@ -107,11 +219,11 @@ def _load_late_interaction_model(model_name: str):
         import torch
         from transformers import AutoModel, AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModel.from_pretrained(model_name)
+        tokenizer: Tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model: EncoderModel = AutoModel.from_pretrained(model_name)
         model.to(device)
         model.eval()
-        bundle = {
+        bundle: LateInteractionBundle = {
             "tokenizer": tokenizer,
             "model": model,
             "model_name": model_name,
@@ -132,21 +244,21 @@ def _load_late_interaction_model(model_name: str):
 
 
 def _late_interaction_scores(
-    bundle: dict[str, Any],
+    bundle: LateInteractionBundle,
     query: str,
-    chunks: Sequence[dict[str, Any]],
+    chunks: Sequence[RetrievedChunk],
 ) -> list[float]:
-    tokenizer = bundle["tokenizer"]
-    model = bundle["model"]
-    device = bundle["device"]
-    torch = bundle["torch"]
-    query_max_length = int(bundle["query_max_length"])
-    doc_max_length = int(bundle["doc_max_length"])
-    batch_size = int(
+    tokenizer: Tokenizer = bundle["tokenizer"]
+    model: EncoderModel = bundle["model"]
+    device: str = bundle["device"]
+    torch: TensorBackend = bundle["torch"]
+    query_max_length: int = int(bundle["query_max_length"])
+    doc_max_length: int = int(bundle["doc_max_length"])
+    batch_size: int = int(
         os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8
     )
 
-    query_inputs = tokenizer(
+    query_inputs: dict[str, "Tensor"] = tokenizer(
         query,
         return_tensors="pt",
         truncation=True,
@@ -156,28 +268,32 @@ def _late_interaction_scores(
     query_inputs = {key: value.to(device) for key, value in query_inputs.items()}
 
     with torch.no_grad():
-        query_outputs = model(
+        query_outputs: HiddenState = model(
             input_ids=query_inputs["input_ids"],
             attention_mask=query_inputs["attention_mask"],
         )
-    query_hidden = query_outputs.last_hidden_state[0]
-    query_special = query_inputs.get("special_tokens_mask")
+    query_hidden: "Tensor" = query_outputs.last_hidden_state[0]
+    query_special: "Tensor | None" = query_inputs.get("special_tokens_mask")
     if query_special is None:
         query_special = torch.zeros_like(query_inputs["attention_mask"])
-    query_mask = (query_inputs["attention_mask"][0] > 0) & (query_special[0] == 0)
+    query_mask: "Tensor" = (query_inputs["attention_mask"][0] > 0) & (
+        query_special[0] == 0
+    )
     if int(query_mask.sum().item()) == 0:
         query_mask = query_inputs["attention_mask"][0] > 0
-    query_tokens = torch.nn.functional.normalize(query_hidden[query_mask], p=2, dim=-1)
+    query_tokens: "Tensor" = torch.nn.functional.normalize(
+        query_hidden[query_mask], p=2, dim=-1
+    )
 
     scores: list[float] = []
     texts: list[str] = []
     for chunk in chunks:
-        doc = str(chunk.get("document", "")).strip()
-        text = str(chunk.get("text", "")).strip()
+        doc: str = str(chunk.get("document", "")).strip()
+        text: str = str(chunk.get("text", "")).strip()
         texts.append(f"[Document: {doc}]\n{text}" if doc else text)
 
     for start in range(0, len(texts), batch_size):
-        doc_inputs = tokenizer(
+        doc_inputs: dict[str, "Tensor"] = tokenizer(
             texts[start : start + batch_size],
             return_tensors="pt",
             padding=True,
@@ -187,31 +303,33 @@ def _late_interaction_scores(
         )
         doc_inputs = {key: value.to(device) for key, value in doc_inputs.items()}
         with torch.no_grad():
-            doc_outputs = model(
+            doc_outputs: HiddenState = model(
                 input_ids=doc_inputs["input_ids"],
                 attention_mask=doc_inputs["attention_mask"],
             )
-        doc_hidden = doc_outputs.last_hidden_state
-        doc_special = doc_inputs.get("special_tokens_mask")
+        doc_hidden: "Tensor" = doc_outputs.last_hidden_state
+        doc_special: "Tensor | None" = doc_inputs.get("special_tokens_mask")
         if doc_special is None:
             doc_special = torch.zeros_like(doc_inputs["attention_mask"])
-        doc_masks = (doc_inputs["attention_mask"] > 0) & (doc_special == 0)
+        doc_masks: "Tensor" = (doc_inputs["attention_mask"] > 0) & (doc_special == 0)
 
         for row_idx in range(doc_hidden.shape[0]):
-            doc_mask = doc_masks[row_idx]
+            doc_mask: "Tensor" = doc_masks[row_idx]
             if int(doc_mask.sum().item()) == 0:
                 doc_mask = doc_inputs["attention_mask"][row_idx] > 0
-            doc_tokens = torch.nn.functional.normalize(
+            doc_tokens: "Tensor" = torch.nn.functional.normalize(
                 doc_hidden[row_idx][doc_mask], p=2, dim=-1
             )
-            similarity = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
-            score = float(similarity.max(dim=1).values.mean().item())
+            similarity: "Tensor" = torch.matmul(
+                query_tokens, doc_tokens.transpose(0, 1)
+            )
+            score: float = float(similarity.max(dim=1).values.mean().item())
             scores.append(score)
 
     return scores
 
 
-def _late_interaction_chunk_identity(chunk: dict[str, Any], idx: int) -> str:
+def _late_interaction_chunk_identity(chunk: RetrievedChunk, idx: int) -> str:
     for key in (
         "chunk_element_id",
         "parent_chunk_element_id",
@@ -221,13 +339,13 @@ def _late_interaction_chunk_identity(chunk: dict[str, Any], idx: int) -> str:
         value = chunk.get(key)
         if value:
             return str(value)
-    text = str(chunk.get("text", "")).strip()
+    text: str = str(chunk.get("text", "")).strip()
     return f"row-{idx}:{text[:96]}"
 
 
-def _late_interaction_chunk_text(chunk: dict[str, Any]) -> str:
-    doc = str(chunk.get("document", "")).strip()
-    text = str(chunk.get("text", "")).strip()
+def _late_interaction_chunk_text(chunk: RetrievedChunk) -> str:
+    doc: str = str(chunk.get("document", "")).strip()
+    text: str = str(chunk.get("text", "")).strip()
     return f"[Document: {doc}]\n{text}" if doc else text
 
 
@@ -271,11 +389,11 @@ def _late_interaction_default_shortlist_factor() -> int:
     )
 
 
-def _late_interaction_index_signature(chunks: Sequence[dict[str, Any]]) -> str:
-    hasher = hashlib.sha1()
+def _late_interaction_index_signature(chunks: Sequence[RetrievedChunk]) -> str:
+    hasher: "HASH" = hashlib.sha1()
     for idx, chunk in enumerate(chunks):
-        chunk_id = _late_interaction_chunk_identity(chunk, idx)
-        text = _late_interaction_chunk_text(chunk)
+        chunk_id: str = _late_interaction_chunk_identity(chunk, idx)
+        text: str = _late_interaction_chunk_text(chunk)
         hasher.update(str(idx).encode("utf-8"))
         hasher.update(b"|")
         hasher.update(chunk_id.encode("utf-8", errors="ignore"))
@@ -288,11 +406,11 @@ def _late_interaction_index_signature(chunks: Sequence[dict[str, Any]]) -> str:
 
 
 def _late_interaction_index_cache_key(
-    bundle: dict[str, Any],
-    chunks: Sequence[dict[str, Any]],
-    index_key: Any,
+    bundle: LateInteractionBundle,
+    chunks: Sequence[RetrievedChunk],
+    index_key: object,
 ) -> tuple[str, str, int, str, str]:
-    scope_key = repr(index_key) if index_key is not None else ""
+    scope_key: str = repr(index_key) if index_key is not None else ""
     return (
         str(bundle.get("model_name", "")),
         str(bundle.get("device", "cpu")),
@@ -308,15 +426,15 @@ def _trim_late_interaction_index_cache() -> None:
 
 
 def _encode_late_interaction_query(
-    bundle: dict[str, Any], query: str
-) -> dict[str, Any]:
-    tokenizer = bundle["tokenizer"]
-    model = bundle["model"]
-    device = bundle["device"]
-    torch = bundle["torch"]
-    query_max_length = int(bundle["query_max_length"])
+    bundle: LateInteractionBundle, query: str
+) -> EncodedQuery:
+    tokenizer: Tokenizer = bundle["tokenizer"]
+    model: EncoderModel = bundle["model"]
+    device: str = bundle["device"]
+    torch: TensorBackend = bundle["torch"]
+    query_max_length: int = int(bundle["query_max_length"])
 
-    query_inputs = tokenizer(
+    query_inputs: dict[str, "Tensor"] = tokenizer(
         query,
         return_tensors="pt",
         truncation=True,
@@ -326,21 +444,25 @@ def _encode_late_interaction_query(
     query_inputs = {key: value.to(device) for key, value in query_inputs.items()}
 
     with torch.no_grad():
-        query_outputs = model(
+        query_outputs: HiddenState = model(
             input_ids=query_inputs["input_ids"],
             attention_mask=query_inputs["attention_mask"],
         )
 
-    query_hidden = query_outputs.last_hidden_state[0]
-    query_special = query_inputs.get("special_tokens_mask")
+    query_hidden: "Tensor" = query_outputs.last_hidden_state[0]
+    query_special: "Tensor | None" = query_inputs.get("special_tokens_mask")
     if query_special is None:
         query_special = torch.zeros_like(query_inputs["attention_mask"])
-    query_mask = (query_inputs["attention_mask"][0] > 0) & (query_special[0] == 0)
+    query_mask: "Tensor" = (query_inputs["attention_mask"][0] > 0) & (
+        query_special[0] == 0
+    )
     if int(query_mask.sum().item()) == 0:
         query_mask = query_inputs["attention_mask"][0] > 0
 
-    query_tokens = torch.nn.functional.normalize(query_hidden[query_mask], p=2, dim=-1)
-    pooled = torch.nn.functional.normalize(
+    query_tokens: "Tensor" = torch.nn.functional.normalize(
+        query_hidden[query_mask], p=2, dim=-1
+    )
+    pooled: "Tensor" = torch.nn.functional.normalize(
         query_tokens.mean(dim=0, keepdim=True), p=2, dim=-1
     )[0]
     return {
@@ -350,36 +472,38 @@ def _encode_late_interaction_query(
 
 
 def _build_late_interaction_index(
-    bundle: dict[str, Any],
-    chunks: Sequence[dict[str, Any]],
+    bundle: LateInteractionBundle,
+    chunks: Sequence[RetrievedChunk],
     *,
-    index_key: Any = None,
-) -> tuple[dict[str, Any] | None, bool]:
-    chunk_list = list(chunks)
+    index_key: object = None,
+) -> tuple[LateInteractionIndex | None, bool]:
+    chunk_list: list[RetrievedChunk] = list(chunks)
     if not chunk_list:
         return None, False
 
-    cache_key = _late_interaction_index_cache_key(bundle, chunk_list, index_key)
-    cached = _LATE_INTERACTION_INDEX_CACHE.get(cache_key)
+    cache_key: tuple[str, str, int, str, str] = _late_interaction_index_cache_key(
+        bundle, chunk_list, index_key
+    )
+    cached: LateInteractionIndex | None = _LATE_INTERACTION_INDEX_CACHE.get(cache_key)
     if cached is not None:
         _LATE_INTERACTION_INDEX_CACHE.move_to_end(cache_key)
         return cached, True
 
-    tokenizer = bundle["tokenizer"]
-    model = bundle["model"]
-    device = bundle["device"]
-    torch = bundle["torch"]
-    doc_max_length = int(bundle["doc_max_length"])
-    batch_size = int(
+    tokenizer: Tokenizer = bundle["tokenizer"]
+    model: EncoderModel = bundle["model"]
+    device: str = bundle["device"]
+    torch: TensorBackend = bundle["torch"]
+    doc_max_length: int = int(bundle["doc_max_length"])
+    batch_size: int = int(
         os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8
     )
 
-    texts = [_late_interaction_chunk_text(chunk) for chunk in chunk_list]
-    doc_tokens: list[Any] = []
-    pooled_vectors: list[Any] = []
+    texts: list[str] = [_late_interaction_chunk_text(chunk) for chunk in chunk_list]
+    doc_tokens: list["Tensor"] = []
+    pooled_vectors: list["Tensor"] = []
 
     for start in range(0, len(texts), batch_size):
-        doc_inputs = tokenizer(
+        doc_inputs: dict[str, "Tensor"] = tokenizer(
             texts[start : start + batch_size],
             return_tensors="pt",
             padding=True,
@@ -389,37 +513,37 @@ def _build_late_interaction_index(
         )
         doc_inputs = {key: value.to(device) for key, value in doc_inputs.items()}
         with torch.no_grad():
-            doc_outputs = model(
+            doc_outputs: HiddenState = model(
                 input_ids=doc_inputs["input_ids"],
                 attention_mask=doc_inputs["attention_mask"],
             )
-        doc_hidden = doc_outputs.last_hidden_state
-        doc_special = doc_inputs.get("special_tokens_mask")
+        doc_hidden: "Tensor" = doc_outputs.last_hidden_state
+        doc_special: "Tensor | None" = doc_inputs.get("special_tokens_mask")
         if doc_special is None:
             doc_special = torch.zeros_like(doc_inputs["attention_mask"])
-        doc_masks = (doc_inputs["attention_mask"] > 0) & (doc_special == 0)
+        doc_masks: "Tensor" = (doc_inputs["attention_mask"] > 0) & (doc_special == 0)
 
         for row_idx in range(doc_hidden.shape[0]):
-            doc_mask = doc_masks[row_idx]
+            doc_mask: "Tensor" = doc_masks[row_idx]
             if int(doc_mask.sum().item()) == 0:
                 doc_mask = doc_inputs["attention_mask"][row_idx] > 0
-            token_tensor = torch.nn.functional.normalize(
+            token_tensor: "Tensor" = torch.nn.functional.normalize(
                 doc_hidden[row_idx][doc_mask], p=2, dim=-1
             )
             token_tensor = token_tensor.detach().cpu()
-            pooled = torch.nn.functional.normalize(
+            pooled: "Tensor" = torch.nn.functional.normalize(
                 token_tensor.mean(dim=0, keepdim=True), p=2, dim=-1
             )[0]
             doc_tokens.append(token_tensor)
             pooled_vectors.append(pooled)
 
     if pooled_vectors:
-        pooled_matrix = torch.stack(pooled_vectors)
+        pooled_matrix: "Tensor" = torch.stack(pooled_vectors)
     else:
-        hidden_size = int(getattr(model.config, "hidden_size", 1) or 1)
+        hidden_size: int = int(getattr(model.config, "hidden_size", 1) or 1)
         pooled_matrix = torch.empty((0, hidden_size), dtype=torch.float32)
 
-    index = {
+    index: LateInteractionIndex = {
         "doc_tokens": doc_tokens,
         "doc_pooled": pooled_matrix,
         "count": len(doc_tokens),
@@ -442,7 +566,7 @@ def _resolve_late_interaction_shortlist_size(
     if total_docs < _late_interaction_prefilter_min_docs():
         return total_docs
 
-    requested = shortlist_size
+    requested: int | None = shortlist_size
     if requested is None:
         requested = (
             max(1, int(max_chunks)) * _late_interaction_default_shortlist_factor()
@@ -453,16 +577,16 @@ def _resolve_late_interaction_shortlist_size(
 
 
 def _late_interaction_scores_indexed(
-    bundle: dict[str, Any],
+    bundle: LateInteractionBundle,
     query: str,
-    chunks: Sequence[dict[str, Any]],
+    chunks: Sequence[RetrievedChunk],
     *,
     max_chunks: int | None = None,
-    index_key: Any = None,
+    index_key: object = None,
     shortlist_size: int | None = None,
-) -> tuple[list[tuple[int, float]], dict[str, Any]]:
-    torch = bundle["torch"]
-    query_repr = _encode_late_interaction_query(bundle, query)
+) -> tuple[list[tuple[int, float]], IndexedScoringMetadata]:
+    torch: TensorBackend = bundle["torch"]
+    query_repr: EncodedQuery = _encode_late_interaction_query(bundle, query)
     index, cache_hit = _build_late_interaction_index(
         bundle, chunks, index_key=index_key
     )
@@ -474,27 +598,27 @@ def _late_interaction_scores_indexed(
             "corpus_size": 0,
         }
 
-    total_docs = int(index.get("count", 0) or 0)
-    shortlist_n = _resolve_late_interaction_shortlist_size(
+    total_docs: int = int(index.get("count", 0) or 0)
+    shortlist_n: int = _resolve_late_interaction_shortlist_size(
         total_docs=total_docs,
         max_chunks=max_chunks,
         shortlist_size=shortlist_size,
     )
-    shortlisted_indices = list(range(total_docs))
-    prefiltered = shortlist_n < total_docs
+    shortlisted_indices: list[int] = list(range(total_docs))
+    prefiltered: bool = shortlist_n < total_docs
     if prefiltered and shortlist_n > 0:
-        pooled_scores = torch.matmul(
+        pooled_scores: "Tensor" = torch.matmul(
             index["doc_pooled"], query_repr["pooled"].detach().cpu()
         )
         topk = torch.topk(pooled_scores, k=shortlist_n)
         shortlisted_indices = [int(idx) for idx in topk.indices.tolist()]
 
-    query_tokens = query_repr["tokens"]
+    query_tokens: "Tensor" = query_repr["tokens"]
     scored: list[tuple[int, float]] = []
     for idx in shortlisted_indices:
-        doc_tokens = index["doc_tokens"][idx].to(query_tokens.device)
-        similarity = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
-        score = float(similarity.max(dim=1).values.mean().item())
+        doc_tokens: "Tensor" = index["doc_tokens"][idx].to(query_tokens.device)
+        similarity: "Tensor" = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
+        score: float = float(similarity.max(dim=1).values.mean().item())
         scored.append((idx, score))
 
     scored.sort(key=lambda item: item[1], reverse=True)
@@ -508,25 +632,25 @@ def _late_interaction_scores_indexed(
 
 def late_interaction_rescore_chunks_for_query(
     query: str,
-    chunks: Sequence[dict[str, Any]],
+    chunks: Sequence[RetrievedChunk],
     *,
     max_chunks: int | None = None,
     replace_score: bool = False,
-    index_key: Any = None,
+    index_key: object = None,
     shortlist_size: int | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[RetrievedChunk], RerankingMetadata]:
     """Reorder chunks with a ColBERT-style token late-interaction scorer."""
-    chunk_list = [dict(chunk) for chunk in chunks]
+    chunk_list: list[RetrievedChunk] = [chunk.copy() for chunk in chunks]
     if not chunk_list:
         return chunk_list, {"enabled": False, "applied": False, "reason": "no_chunks"}
     if not late_interaction_enabled():
         return chunk_list, {"enabled": False, "applied": False, "reason": "disabled"}
 
-    model_name = resolve_late_interaction_model_name()
+    model_name: str = resolve_late_interaction_model_name()
     if not model_name:
         return chunk_list, {"enabled": True, "applied": False, "reason": "no_model"}
 
-    bundle = _load_late_interaction_model(model_name)
+    bundle: LateInteractionBundle | None = _load_late_interaction_model(model_name)
     if bundle is None:
         return chunk_list, {
             "enabled": True,
@@ -546,9 +670,9 @@ def late_interaction_rescore_chunks_for_query(
                 shortlist_size=shortlist_size,
             )
             if indexed_scores:
-                scored_chunks: list[tuple[float, int, dict[str, Any]]] = []
+                scored_chunks: list[tuple[float, int, RetrievedChunk]] = []
                 for idx, score in indexed_scores:
-                    chunk = dict(chunk_list[idx])
+                    chunk = chunk_list[idx].copy()
                     chunk["late_interaction_score"] = float(score)
                     if replace_score:
                         chunk["score"] = float(score)
@@ -577,7 +701,7 @@ def late_interaction_rescore_chunks_for_query(
                     **indexed_meta,
                 }
 
-        scores = _late_interaction_scores(bundle, query, chunk_list)
+        scores: list[float] = _late_interaction_scores(bundle, query, chunk_list)
     except Exception as exc:
         logging.warning(
             "Late-interaction scoring failed for model '%s': %s", model_name, exc
@@ -589,7 +713,7 @@ def late_interaction_rescore_chunks_for_query(
             "model": model_name,
         }
 
-    scored_chunks: list[tuple[float, int, dict[str, Any]]] = []
+    scored_chunks = []
     for idx, (chunk, score) in enumerate(zip(chunk_list, scores)):
         chunk["late_interaction_score"] = float(score)
         if replace_score:
@@ -621,26 +745,26 @@ def late_interaction_rescore_chunks_for_query(
 
 def rerank_chunks_for_query(
     query: str,
-    chunks: Sequence[dict[str, Any]],
+    chunks: Sequence[RetrievedChunk],
     *,
     max_chunks: int | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[RetrievedChunk], RerankingMetadata]:
     """Reorder chunks for answer generation with an optional learned reranker.
 
     Returns `(chunks, metadata)`. If the reranker is disabled or unavailable,
     the input order is preserved.
     """
-    chunk_list = [dict(chunk) for chunk in chunks]
+    chunk_list: list[RetrievedChunk] = [chunk.copy() for chunk in chunks]
     if not chunk_list:
         return chunk_list, {"enabled": False, "applied": False, "reason": "no_chunks"}
     if not reranker_enabled():
         return chunk_list, {"enabled": False, "applied": False, "reason": "disabled"}
 
-    model_name = resolve_reranker_model_name()
+    model_name: str = resolve_reranker_model_name()
     if not model_name:
         return chunk_list, {"enabled": True, "applied": False, "reason": "no_model"}
 
-    model = _load_cross_encoder(model_name)
+    model: "CrossEncoder | None" = _load_cross_encoder(model_name)
     if model is None:
         return chunk_list, {
             "enabled": True,
@@ -651,8 +775,8 @@ def rerank_chunks_for_query(
 
     pair_texts: list[tuple[str, str]] = []
     for chunk in chunk_list:
-        doc = str(chunk.get("document", "")).strip()
-        text = str(chunk.get("text", "")).strip()
+        doc: str = str(chunk.get("document", "")).strip()
+        text: str = str(chunk.get("text", "")).strip()
         if doc:
             pair_texts.append((query, f"[Document: {doc}]\n{text}"))
         else:
@@ -670,11 +794,11 @@ def rerank_chunks_for_query(
         }
 
     try:
-        scores = [float(score) for score in raw_scores]
+        scores: list[float] = [float(score) for score in raw_scores]
     except Exception:
         scores = [float(score) for score in list(raw_scores)]
 
-    scored_chunks: list[tuple[float, int, dict[str, Any]]] = []
+    scored_chunks: list[tuple[float, int, RetrievedChunk]] = []
     for idx, (chunk, score) in enumerate(zip(chunk_list, scores)):
         chunk["reranker_score"] = score
         scored_chunks.append((score, idx, chunk))
