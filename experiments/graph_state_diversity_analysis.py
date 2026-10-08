@@ -8,7 +8,7 @@ fields and only draws the phase plot when enough rows are present.
 import json
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
@@ -22,8 +22,8 @@ except Exception:  # pragma: no cover - plotting is optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS  # noqa: E402
-from ontographrag.rag.graph_state import graph_state_diversity  # noqa: E402
+from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS
+from ontographrag.rag.graph_state import graph_state_diversity
 
 
 OUT_JSON = os.path.join(
@@ -44,7 +44,7 @@ def _iter_result_details():
         yield slug, "strict", doc["config_results"][0]["details"]
 
 
-def _row_diversity(row: Dict[str, Any]) -> Dict[str, Any]:
+def _row_diversity(row: dict[str, Any]) -> dict[str, Any]:
     if row.get("kg_graph_state_traces"):
         return graph_state_diversity(row.get("kg_graph_state_traces") or [])
     if row.get("kg_subgraph_entropy") is not None:
@@ -59,8 +59,8 @@ def _row_diversity(row: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
-def collect_rows() -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def collect_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     for dataset, policy, details in _iter_result_details():
         for row in details:
             diversity = _row_diversity(row)
@@ -89,7 +89,7 @@ def collect_rows() -> List[Dict[str, Any]]:
     return rows
 
 
-def plot(rows: List[Dict[str, Any]]) -> List[str]:
+def plot(rows: list[dict[str, Any]]) -> list[str]:
     if plt is None or len(rows) < 5:
         return []
     os.makedirs(FIG_DIR, exist_ok=True)
@@ -115,7 +115,7 @@ def plot(rows: List[Dict[str, Any]]) -> List[str]:
 
 def main():
     rows = collect_rows()
-    by_dataset: Dict[str, int] = {}
+    by_dataset: dict[str, int] = {}
     for row in rows:
         key = f"{row['dataset']}:{row['policy']}"
         by_dataset[key] = by_dataset.get(key, 0) + 1

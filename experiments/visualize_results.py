@@ -274,11 +274,11 @@ def print_per_dataset_summary(results: dict):
         vanilla_stats = analysis.get("vanilla_rag_stats", {})
         kg_stats = analysis.get("kg_rag_stats", {})
 
-        print(f"  Vanilla RAG:")
+        print("  Vanilla RAG:")
         for metric, value in vanilla_stats.items():
             print(f"    {metric}: {value:.2f}")
 
-        print(f"  KG-RAG:")
+        print("  KG-RAG:")
         for metric, value in kg_stats.items():
             print(f"    {metric}: {value:.2f}")
 

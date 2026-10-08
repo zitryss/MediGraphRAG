@@ -22,7 +22,7 @@ from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.gps_v2_replay import score_from_store  # noqa: E402
+from experiments.gps_v2_replay import score_from_store
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNS = os.path.join(REPO, "results", "latest_kg_design_final_metrics", "runs")

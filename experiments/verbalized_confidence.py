@@ -23,8 +23,8 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.trust_analysis import REPO, MANIFEST, KEY  # noqa: E402
-from experiments.rejudge_independent import get_client  # noqa: E402
+from experiments.trust_analysis import REPO, MANIFEST, KEY
+from experiments.rejudge_independent import get_client
 
 MODEL = "openai/gpt-4o-mini"
 SYSTEM = (

@@ -19,8 +19,8 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.gps_v2_paper_numbers import percentile_ranks  # noqa: E402
-from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for  # noqa: E402
+from experiments.gps_v2_paper_numbers import percentile_ranks
+from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = json.load(

@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import re
-from typing import Dict, Any, List, Optional, Set
+from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -17,7 +17,7 @@ class QueryPlanningMixin:
     """
 
     @staticmethod
-    def _comparison_branches(query: str) -> List[str]:
+    def _comparison_branches(query: str) -> list[str]:
         """Extract simple left/right comparison branches from `A or B` style questions."""
         query = str(query or "").strip().rstrip("?")
         if not query or " or " not in query.lower():
@@ -39,7 +39,7 @@ class QueryPlanningMixin:
 
     @classmethod
     def _comparison_branch_coverage(
-        cls, query: str, chunks: List[Dict[str, Any]]
+        cls, query: str, chunks: list[dict[str, Any]]
     ) -> int:
         branches = cls._comparison_branches(query)
         if not branches:
@@ -56,7 +56,7 @@ class QueryPlanningMixin:
         return covered
 
     @classmethod
-    def _comparison_branch_match_count(cls, query: str, chunk: Dict[str, Any]) -> int:
+    def _comparison_branch_match_count(cls, query: str, chunk: dict[str, Any]) -> int:
         branches = cls._comparison_branches(query)
         if not branches:
             return 0
@@ -72,7 +72,7 @@ class QueryPlanningMixin:
         return sum(1 for branch in branches if branch.lower() in haystack)
 
     @classmethod
-    def _lexical_query_overlap_count(cls, query: str, chunk: Dict[str, Any]) -> int:
+    def _lexical_query_overlap_count(cls, query: str, chunk: dict[str, Any]) -> int:
         query_tokens = cls._content_query_tokens(query)
         if not query_tokens:
             return 0
@@ -104,7 +104,7 @@ class QueryPlanningMixin:
     def _should_run_query_fusion(
         cls,
         question: str,
-        context: Optional[Dict[str, Any]],
+        context: dict[str, Any] | None,
         *,
         max_hops: int,
     ) -> bool:
@@ -139,9 +139,9 @@ class QueryPlanningMixin:
         llm,
         *,
         max_hops: int,
-    ) -> List[str]:
-        variants: List[str] = []
-        seen: Set[str] = {self._normalize_retrieval_query(question).lower()}
+    ) -> list[str]:
+        variants: list[str] = []
+        seen: set[str] = {self._normalize_retrieval_query(question).lower()}
 
         for branch in self._comparison_branches(question):
             branch_query = self._normalize_retrieval_query(
@@ -371,7 +371,7 @@ class QueryPlanningMixin:
         else:  # generic
             return config["default_threshold"]
 
-    def get_adaptive_retrieval_params(self, query: str) -> Dict[str, Any]:
+    def get_adaptive_retrieval_params(self, query: str) -> dict[str, Any]:
         """
         Get adaptive retrieval parameters based on question classification
         """
@@ -399,10 +399,10 @@ class QueryPlanningMixin:
         return params
 
     @classmethod
-    def _content_query_tokens(cls, query: str) -> List[str]:
+    def _content_query_tokens(cls, query: str) -> list[str]:
         """Return de-duplicated content-bearing query tokens for entity grounding."""
-        seen: Set[str] = set()
-        tokens: List[str] = []
+        seen: set[str] = set()
+        tokens: list[str] = []
         for token in re.findall(r"[A-Za-z0-9]+", query.lower()):
             if len(token) < 4 or token in cls._ENTITY_MATCH_STOPWORDS:
                 continue
@@ -412,13 +412,13 @@ class QueryPlanningMixin:
         return tokens
 
     @classmethod
-    def _count_matched_query_tokens(cls, query: str, entity_names: List[str]) -> int:
+    def _count_matched_query_tokens(cls, query: str, entity_names: list[str]) -> int:
         """Count how many distinct content tokens from the query are covered by entity names."""
         query_tokens = cls._content_query_tokens(query)
         if not query_tokens:
             return 0
 
-        covered: Set[str] = set()
+        covered: set[str] = set()
         for entity_name in entity_names:
             entity_name_norm = re.sub(
                 r"\s+", " ", str(entity_name or "").lower()
@@ -449,7 +449,7 @@ class QueryPlanningMixin:
             return 0.0
         return min(1.0, matched_query_token_count / len(content_words))
 
-    def _extract_query_entities(self, query: str, llm) -> List[str]:
+    def _extract_query_entities(self, query: str, llm) -> list[str]:
         """
         Extract named entity mentions from a question using the LLM.
 
@@ -489,8 +489,8 @@ class QueryPlanningMixin:
             entities = json.loads(raw)
             if not isinstance(entities, list):
                 entities = []
-            cleaned_entities: List[str] = []
-            seen_entities: Set[str] = set()
+            cleaned_entities: list[str] = []
+            seen_entities: set[str] = set()
             for entity in entities:
                 normalized = re.sub(r"\s+", " ", str(entity).strip())
                 if not normalized:
@@ -513,7 +513,7 @@ class QueryPlanningMixin:
         self._entity_extraction_cache[cache_key] = entities
         return entities
 
-    def _decompose_question(self, question: str, llm, max_hops: int = 2) -> List[str]:
+    def _decompose_question(self, question: str, llm, max_hops: int = 2) -> list[str]:
         """
         Decompose a multi-hop question into an ordered list of sub-questions.
 

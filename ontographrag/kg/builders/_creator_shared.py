@@ -1,7 +1,6 @@
 """Shared constants and helpers for the KG creator modules."""
 
 import re
-from typing import Optional
 
 # Minimum character length for an entity name (after stripping whitespace).
 # Single-character or two-character tokens are almost always stop-words or
@@ -120,7 +119,6 @@ _GENERIC_HUB_ENTITY_BLOCKLIST: frozenset = frozenset(
         "reports",
         "review",
         "reviews",
-        "analysis",
         "context",
         "information",
         "knowledge",
@@ -154,7 +152,6 @@ _GENERIC_HUB_ENTITY_BLOCKLIST: frozenset = frozenset(
         "ratios",
         "index",
         "indices",
-        "index",
         "mean",
         "median",
         "range",
@@ -245,7 +242,7 @@ def _is_valid_entity_name(name: str) -> bool:
     return True
 
 
-def _env_flag(value: Optional[str], default: bool) -> bool:
+def _env_flag(value: str | None, default: bool) -> bool:
     """Parse a boolean-like environment value safely."""
     if value is None:
         return default

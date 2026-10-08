@@ -1,6 +1,6 @@
 import re
-from typing import Dict, Any, List, Optional
 from collections import Counter
+from typing import Any
 
 
 class EvaluationMixin:
@@ -20,10 +20,10 @@ class EvaluationMixin:
     @classmethod
     def _kg_eval_entity_lookup(
         cls,
-        nodes: List[Dict[str, Any]],
-    ) -> Dict[str, Dict[str, str]]:
+        nodes: list[dict[str, Any]],
+    ) -> dict[str, dict[str, str]]:
         """Return id -> canonical entity metadata for evaluation helpers."""
-        lookup: Dict[str, Dict[str, str]] = {}
+        lookup: dict[str, dict[str, str]] = {}
         for node in nodes or []:
             props = node.get("properties") or {}
             entity_id = str(node.get("id") or props.get("id") or "").strip()
@@ -49,10 +49,10 @@ class EvaluationMixin:
     @classmethod
     def _kg_eval_entity_keys(
         cls,
-        nodes: List[Dict[str, Any]],
-    ) -> Dict[str, Dict[str, str]]:
+        nodes: list[dict[str, Any]],
+    ) -> dict[str, dict[str, str]]:
         """Return canonical entity key -> display metadata."""
-        records: Dict[str, Dict[str, str]] = {}
+        records: dict[str, dict[str, str]] = {}
         for info in cls._kg_eval_entity_lookup(nodes).values():
             key = f"{info['name_key']}||{info['type_key']}"
             records[key] = {
@@ -65,11 +65,11 @@ class EvaluationMixin:
     @classmethod
     def _kg_eval_relationship_records(
         cls,
-        relationships: List[Dict[str, Any]],
-        entity_lookup: Dict[str, Dict[str, str]],
-    ) -> List[Dict[str, Any]]:
+        relationships: list[dict[str, Any]],
+        entity_lookup: dict[str, dict[str, str]],
+    ) -> list[dict[str, Any]]:
         """Return canonical relationship records for evaluation comparisons."""
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         for rel in relationships or []:
             props = rel.get("properties") or {}
             rel_type = str(rel.get("type") or props.get("type") or "").strip()
@@ -133,7 +133,7 @@ class EvaluationMixin:
     def _kg_eval_pr_report(
         predicted_keys: set,
         gold_keys: set,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute precision / recall / F1 for canonical key sets."""
         tp = len(predicted_keys & gold_keys)
         fp = len(predicted_keys - gold_keys)
@@ -154,12 +154,12 @@ class EvaluationMixin:
 
     def evaluate_knowledge_graph(
         self,
-        kg: Dict[str, Any],
+        kg: dict[str, Any],
         *,
-        reference: Optional[Any] = None,
-        reference_triples: Optional[List[Dict[str, Any]]] = None,
+        reference: Any | None = None,
+        reference_triples: list[dict[str, Any]] | None = None,
         print_report: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute quality metrics for a built KG and optionally compare to a gold set.
 
         Operates entirely on the in-memory KG dict returned by
@@ -195,7 +195,7 @@ class EvaluationMixin:
         entity_lookup = self._kg_eval_entity_lookup(nodes)
 
         # ── Entity metrics ─────────────────────────────────────────────────
-        type_counts: Dict[str, int] = Counter(
+        type_counts: dict[str, int] = Counter(
             str(n.get("label") or n.get("type") or "Unknown") for n in nodes
         )
         anchor_grounded = sum(
@@ -212,7 +212,7 @@ class EvaluationMixin:
         n_entities = len(nodes)
 
         # degree distribution — entities appear as source/target in relationships
-        degree: Dict[str, int] = Counter()
+        degree: dict[str, int] = Counter()
         for rel in relationships:
             src = rel.get("source") or rel.get("from")
             tgt = rel.get("target") or rel.get("to")
@@ -256,7 +256,7 @@ class EvaluationMixin:
 
         # ── Relationship metrics ────────────────────────────────────────────
         n_rels = len(relationships)
-        rel_type_counts: Dict[str, int] = Counter(
+        rel_type_counts: dict[str, int] = Counter(
             str(r.get("type") or "UNKNOWN") for r in relationships
         )
         negated_count = sum(1 for r in relationships if r.get("negated"))
@@ -274,8 +274,8 @@ class EvaluationMixin:
         )
 
         # evidence scope distribution
-        scope_counts: Dict[str, int] = Counter()
-        confidence_values: List[float] = []
+        scope_counts: dict[str, int] = Counter()
+        confidence_values: list[float] = []
         for r in relationships:
             props = r.get("properties") or {}
             scope = props.get("evidence_scope") or "unknown"
@@ -356,11 +356,11 @@ class EvaluationMixin:
         rel_pass_rate = n_rels / max(1, raw_rels_approx)
 
         # ── Precision / recall vs. gold ─────────────────────────────────────
-        entity_precision_recall: Optional[Dict[str, Any]] = None
-        relationship_precision_recall: Optional[Dict[str, Any]] = None
-        qualified_relationship_precision_recall: Optional[Dict[str, Any]] = None
-        reference_nodes: List[Dict[str, Any]] = []
-        reference_relationships: List[Dict[str, Any]] = []
+        entity_precision_recall: dict[str, Any] | None = None
+        relationship_precision_recall: dict[str, Any] | None = None
+        qualified_relationship_precision_recall: dict[str, Any] | None = None
+        reference_nodes: list[dict[str, Any]] = []
+        reference_relationships: list[dict[str, Any]] = []
         if isinstance(reference, dict):
             reference_nodes = list(
                 reference.get("nodes") or reference.get("entities") or []
@@ -436,7 +436,7 @@ class EvaluationMixin:
                 )
 
         # ── Assemble report ─────────────────────────────────────────────────
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "summary": {
                 "entities": n_entities,
                 "relationships": n_rels,
@@ -540,7 +540,7 @@ class EvaluationMixin:
         return report
 
     @staticmethod
-    def _print_kg_evaluation_report(report: Dict[str, Any]) -> None:
+    def _print_kg_evaluation_report(report: dict[str, Any]) -> None:
         """Print a human-readable KG evaluation report to stdout."""
         sep = "─" * 60
         s = report["summary"]

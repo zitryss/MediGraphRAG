@@ -7,7 +7,6 @@ from neo4j import GraphDatabase, basic_auth
 from neo4j.exceptions import TransientError
 from langchain_neo4j import Neo4jGraph
 from langchain_community.graphs.graph_document import GraphDocument
-from typing import List
 import re
 import os
 import time

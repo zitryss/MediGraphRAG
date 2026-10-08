@@ -29,12 +29,12 @@ from experiments.trust_analysis import (
     rows_for,
     gps_scores,
     REPO,
-    MANIFEST,  # noqa: E402
+    MANIFEST,
     KEY,
     STRICT_RUNS,
     SD_FLOOR,
 )
-from experiments.gps_v2_paper_numbers import percentile_ranks  # noqa: E402
+from experiments.gps_v2_paper_numbers import percentile_ranks
 
 RNG = np.random.default_rng(42)
 

@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 import string
 from collections import Counter
-from typing import Iterable, List, Optional, Sequence, Tuple
-
+from collections.abc import Sequence
 
 OFFICIAL_ANSWER_METRIC_DATASETS = {
     "hotpotqa",
@@ -62,10 +61,10 @@ def _em_single(prediction: str, ground_truth: str) -> float:
 def compute_answer_em_f1(
     prediction: str,
     gold_answer: str,
-    aliases: Optional[Sequence[str]] = None,
-) -> Tuple[float, float]:
+    aliases: Sequence[str] | None = None,
+) -> tuple[float, float]:
     """Return max EM/F1 across the gold answer and any alias variants."""
-    candidates: List[str] = [str(gold_answer or "")]
+    candidates: list[str] = [str(gold_answer or "")]
     candidates.extend(str(a or "") for a in (aliases or []))
     candidates = [c for c in candidates if c.strip()]
     if not candidates:

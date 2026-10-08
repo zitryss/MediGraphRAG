@@ -38,7 +38,7 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def _make_driver(uri: str, user: str, password: str):
         sys.exit(1)
 
 
-def _run_query(driver, cypher: str, params: dict = None) -> List[Dict[str, Any]]:
+def _run_query(driver, cypher: str, params: dict = None) -> list[dict[str, Any]]:
     with driver.session() as session:
         result = session.run(cypher, params or {})
         return [dict(r) for r in result]
@@ -70,14 +70,14 @@ def _run_query(driver, cypher: str, params: dict = None) -> List[Dict[str, Any]]
 # ---------------------------------------------------------------------------
 
 
-def _load_raw_hotpotqa(raw_path: str) -> Dict[str, Dict[str, Any]]:
+def _load_raw_hotpotqa(raw_path: str) -> dict[str, dict[str, Any]]:
     """Return {question_id: raw_question_dict}."""
     with open(raw_path) as f:
         raw = json.load(f)
     return {q["_id"]: q for q in raw}
 
 
-def _get_supporting_facts(raw_q: Dict[str, Any]) -> List[Tuple[str, int]]:
+def _get_supporting_facts(raw_q: dict[str, Any]) -> list[tuple[str, int]]:
     """
     Return [(title, sent_id), ...] for each supporting fact.
 
@@ -95,7 +95,7 @@ def _get_supporting_facts(raw_q: Dict[str, Any]) -> List[Tuple[str, int]]:
     return []
 
 
-def _context_title_to_passage_index(raw_q: Dict[str, Any]) -> Dict[str, int]:
+def _context_title_to_passage_index(raw_q: dict[str, Any]) -> dict[str, int]:
     """Map passage title -> passageIndex (0-based position in context list)."""
     return {title: idx for idx, (title, _) in enumerate(raw_q.get("context", []))}
 
@@ -108,14 +108,14 @@ def _context_title_to_passage_index(raw_q: Dict[str, Any]) -> Dict[str, int]:
 def _check_chunks_in_graph(
     driver,
     question_id: str,
-    passage_indices: List[int],
+    passage_indices: list[int],
     kg_name: str,
-) -> Dict[int, Dict[str, Any]]:
+) -> dict[int, dict[str, Any]]:
     """
     For each passageIndex, return dict with:
       chunk_count, entity_count, has_embedding
     """
-    results: Dict[int, Dict[str, Any]] = {}
+    results: dict[int, dict[str, Any]] = {}
     for pidx in passage_indices:
         rows = _run_query(
             driver,
@@ -157,10 +157,10 @@ def _check_chunk_retrievable_via_vector(
     driver,
     question_id: str,
     passage_index: int,
-    query_embedding: List[float],
+    query_embedding: list[float],
     kg_name: str,
     top_k: int = 40,
-) -> Tuple[bool, Optional[float]]:
+) -> tuple[bool, float | None]:
     """
     Check whether the chunk at (questionId, passageIndex) ranks in the top-k
     of a vector similarity search for the question embedding.
@@ -188,7 +188,7 @@ def _check_chunk_retrievable_via_vector(
     try:
         vector_rows = _run_query(
             driver,
-            f"""
+            """
             CALL db.index.vector.queryNodes('vector', $k, $embedding)
             YIELD node AS chunk, score
             WHERE chunk.questionId = $qid
@@ -215,9 +215,9 @@ def _get_entity_seeds_for_question(
     driver,
     question_id: str,
     kg_name: str,
-    entity_names: List[str],
+    entity_names: list[str],
     limit: int = 12,
-) -> List[str]:
+) -> list[str]:
     """
     Look up entity IDs that match any of the entity_names for this question's scope.
     Approximates what the entity-first retriever would use as seeds.
@@ -249,7 +249,7 @@ def _check_passage_reachable_via_entity_traversal(
     driver,
     question_id: str,
     passage_index: int,
-    seed_entity_ids: List[str],
+    seed_entity_ids: list[str],
     kg_name: str,
     max_hops: int = 2,
 ) -> bool:
@@ -292,7 +292,7 @@ def _check_passage_reachable_via_entity_traversal(
 # ---------------------------------------------------------------------------
 
 
-def _get_embedding(text: str, model) -> Optional[List[float]]:
+def _get_embedding(text: str, model) -> list[float] | None:
     try:
         return model.encode(text).tolist()
     except Exception as e:
@@ -306,12 +306,12 @@ def _get_embedding(text: str, model) -> Optional[List[float]]:
 
 
 def _audit_question(
-    raw_q: Dict[str, Any],
-    eval_q: Dict[str, Any],
+    raw_q: dict[str, Any],
+    eval_q: dict[str, Any],
     driver,
     embed_model,
     kg_name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     question_id = eval_q["question_id"]
     question_text = eval_q["question"]
 
@@ -319,8 +319,8 @@ def _audit_question(
     title_to_idx = _context_title_to_passage_index(raw_q)
 
     # Deduplicate SF titles (a title can appear multiple times for different sentences)
-    sf_titles_in_context: Dict[str, int] = {}
-    sf_titles_missing: List[str] = []
+    sf_titles_in_context: dict[str, int] = {}
+    sf_titles_missing: list[str] = []
     for title, _sent_id in sf_pairs:
         if title in title_to_idx:
             sf_titles_in_context[title] = title_to_idx[title]
@@ -339,7 +339,7 @@ def _audit_question(
         _get_embedding(question_text, embed_model) if embed_model else None
     )
 
-    sf_details: List[Dict[str, Any]] = []
+    sf_details: list[dict[str, Any]] = []
     for title, pidx in sf_titles_in_context.items():
         gc = graph_checks.get(
             pidx, {"chunk_count": 0, "entity_count": 0, "has_embedding": False}
@@ -396,7 +396,7 @@ def _audit_question(
     }
 
 
-def _correctness_class(eval_q: Dict[str, Any]) -> str:
+def _correctness_class(eval_q: dict[str, Any]) -> str:
     v = eval_q.get("vanilla_correct")
     k = eval_q.get("kg_correct")
     if v and k:
@@ -413,16 +413,16 @@ def _correctness_class(eval_q: Dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _aggregate(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    by_class: Dict[str, List] = defaultdict(list)
+def _aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
+    by_class: dict[str, list] = defaultdict(list)
     for r in results:
         by_class[r["correctness_class"]].append(r)
 
-    def _avg(lst: List, key: str) -> Optional[float]:
+    def _avg(lst: list, key: str) -> float | None:
         vals = [x[key] for x in lst if x.get(key) is not None]
         return sum(vals) / len(vals) if vals else None
 
-    agg: Dict[str, Any] = {
+    agg: dict[str, Any] = {
         "total_questions": len(results),
         "correctness_breakdown": {cls: len(qs) for cls, qs in by_class.items()},
     }
@@ -494,7 +494,7 @@ def _aggregate(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     return agg
 
 
-def _print_report(agg: Dict[str, Any], results: List[Dict[str, Any]]) -> str:
+def _print_report(agg: dict[str, Any], results: list[dict[str, Any]]) -> str:
     lines = []
     lines.append("=" * 70)
     lines.append("RETRIEVAL AUDIT — Evidence-Level Diagnostic")
@@ -685,7 +685,7 @@ def main():
             )
 
     # Audit each question
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for i, eval_q in enumerate(eval_questions):
         qid = eval_q["question_id"]
         raw_q = raw_by_id.get(qid)

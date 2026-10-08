@@ -7,14 +7,15 @@ full experiment stack.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
-import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 
 def sanitize_selection_token(value: str) -> str:
@@ -23,12 +24,12 @@ def sanitize_selection_token(value: str) -> str:
     return token.strip("_") or "default"
 
 
-def sample_size_token(num_samples: Optional[int]) -> str:
+def sample_size_token(num_samples: int | None) -> str:
     """Return a stable token for the requested sample count."""
     return "all" if num_samples is None else str(int(num_samples))
 
 
-def selection_key(*, num_samples: Optional[int], subset_seed: int) -> str:
+def selection_key(*, num_samples: int | None, subset_seed: int) -> str:
     """Return the stable key for a seeded subset specification."""
     return f"n{sample_size_token(num_samples)}_seed{int(subset_seed)}"
 
@@ -37,7 +38,7 @@ def selection_file_path(
     base_dir: Path,
     dataset_name: str,
     *,
-    num_samples: Optional[int],
+    num_samples: int | None,
     subset_seed: int,
 ) -> Path:
     """Return the persisted selection path for one dataset/seed/sample-count subset."""
@@ -58,9 +59,9 @@ def subset_identity(
     *,
     dataset_name: str,
     question_ids: Sequence[str],
-    num_samples: Optional[int],
+    num_samples: int | None,
     subset_seed: int,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Return stable identifiers for a selected dataset subset."""
     key = selection_key(num_samples=num_samples, subset_seed=subset_seed)
     subset_hash = _subset_hash(question_ids)
@@ -75,9 +76,9 @@ def subset_identity(
 
 def deterministic_subset_ids(
     ordered_record_ids: Sequence[str],
-    num_samples: Optional[int],
+    num_samples: int | None,
     subset_seed: int,
-) -> List[str]:
+) -> list[str]:
     """
     Choose a deterministic random subset while preserving original dataset order.
 
@@ -104,20 +105,20 @@ def deterministic_subset_ids(
 class QuestionSubsetResolution:
     """Result of resolving a dataset question subset."""
 
-    question_ids: List[str]
-    payload: Dict[str, Any]
+    question_ids: list[str]
+    payload: dict[str, Any]
     created: bool
-    warnings: List[str]
+    warnings: list[str]
 
 
 def _enrich_payload_identity(
     *,
     dataset_name: str,
     question_ids: Sequence[str],
-    requested_num_samples: Optional[int],
+    requested_num_samples: int | None,
     subset_seed: int,
-    payload: Dict[str, Any],
-) -> Dict[str, Any]:
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     """Backfill stable subset identity fields into the persisted payload."""
     identity = subset_identity(
         dataset_name=dataset_name,
@@ -137,7 +138,7 @@ def resolve_question_subset(
     *,
     dataset_name: str,
     available_question_ids: Sequence[str],
-    num_samples: Optional[int],
+    num_samples: int | None,
     subset_seed: int,
     selection_path: Path,
     require_existing: bool = False,
@@ -174,7 +175,7 @@ def resolve_question_subset(
                 f"the current dataset '{dataset_name}': {preview}"
             )
 
-        warnings: List[str] = []
+        warnings: list[str] = []
         saved_seed = payload.get("subset_seed")
         saved_requested = payload.get("requested_num_samples")
         if saved_seed is not None and int(saved_seed) != int(subset_seed):

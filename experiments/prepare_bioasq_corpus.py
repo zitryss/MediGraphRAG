@@ -18,7 +18,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from collections.abc import Iterable, Sequence
 from xml.etree import ElementTree as ET
 
 import requests
@@ -34,7 +34,7 @@ DEFAULT_OUTPUT_PATH = Path("MIRAGE/rawdata/bioasq/pubmed_abstracts.jsonl")
 PMID_RE = re.compile(r"/pubmed/(\d+)")
 
 
-def extract_pmid_from_url(url: str) -> Optional[str]:
+def extract_pmid_from_url(url: str) -> str | None:
     """Extract a PMID from a BioASQ PubMed URL."""
     text = str(url or "").strip()
     match = PMID_RE.search(text)
@@ -45,12 +45,12 @@ def extract_pmid_from_url(url: str) -> Optional[str]:
     return None
 
 
-def load_bioasq_pmids(bioasq_path: Path) -> List[str]:
+def load_bioasq_pmids(bioasq_path: Path) -> list[str]:
     """Collect unique PMIDs referenced by a BioASQ golden file."""
     data = json.loads(bioasq_path.read_text())
     questions = data.get("questions", []) if isinstance(data, dict) else []
 
-    pmids: Set[str] = set()
+    pmids: set[str] = set()
     for question in questions:
         if not isinstance(question, dict):
             continue
@@ -68,7 +68,7 @@ def load_bioasq_pmids(bioasq_path: Path) -> List[str]:
     return sorted(pmids, key=int)
 
 
-def _stringify_xml_text(elem: Optional[ET.Element]) -> str:
+def _stringify_xml_text(elem: ET.Element | None) -> str:
     """Flatten an XML element into readable text."""
     if elem is None:
         return ""
@@ -76,10 +76,10 @@ def _stringify_xml_text(elem: Optional[ET.Element]) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def parse_pubmed_article_xml(xml_text: str) -> Dict[str, Dict[str, str]]:
+def parse_pubmed_article_xml(xml_text: str) -> dict[str, dict[str, str]]:
     """Parse an EFetch PubMedArticleSet XML response into PMID -> record."""
     root = ET.fromstring(xml_text)
-    records: Dict[str, Dict[str, str]] = {}
+    records: dict[str, dict[str, str]] = {}
 
     for article in root.findall(".//PubmedArticle"):
         pmid = _stringify_xml_text(article.find(".//MedlineCitation/PMID"))
@@ -88,7 +88,7 @@ def parse_pubmed_article_xml(xml_text: str) -> Dict[str, Dict[str, str]]:
 
         article_title = _stringify_xml_text(article.find(".//Article/ArticleTitle"))
         abstract_nodes = article.findall(".//Article/Abstract/AbstractText")
-        abstract_parts: List[str] = []
+        abstract_parts: list[str] = []
         for node in abstract_nodes:
             label = str(node.attrib.get("Label", "")).strip()
             part = _stringify_xml_text(node)
@@ -112,11 +112,11 @@ def parse_pubmed_article_xml(xml_text: str) -> Dict[str, Dict[str, str]]:
 def fetch_pubmed_batch(
     pmids: Sequence[str],
     *,
-    email: Optional[str] = None,
-    api_key: Optional[str] = None,
+    email: str | None = None,
+    api_key: str | None = None,
     tool: str = "ontographrag",
     timeout_seconds: float = 60.0,
-) -> Dict[str, Dict[str, str]]:
+) -> dict[str, dict[str, str]]:
     """Fetch one PMID batch from PubMed via EFetch XML."""
     params = {
         "db": "pubmed",
@@ -139,9 +139,9 @@ def fetch_pubmed_batch(
     return parse_pubmed_article_xml(response.text)
 
 
-def load_existing_corpus(output_path: Path) -> Dict[str, Dict[str, str]]:
+def load_existing_corpus(output_path: Path) -> dict[str, dict[str, str]]:
     """Load an existing JSONL corpus file so reruns can resume incrementally."""
-    existing: Dict[str, Dict[str, str]] = {}
+    existing: dict[str, dict[str, str]] = {}
     if not output_path.exists():
         return existing
 
@@ -160,7 +160,7 @@ def load_existing_corpus(output_path: Path) -> Dict[str, Dict[str, str]]:
     return existing
 
 
-def _chunked(values: Sequence[str], size: int) -> Iterable[List[str]]:
+def _chunked(values: Sequence[str], size: int) -> Iterable[list[str]]:
     for idx in range(0, len(values), size):
         yield list(values[idx : idx + size])
 
@@ -169,13 +169,13 @@ def build_bioasq_shared_corpus(
     *,
     bioasq_path: Path = DEFAULT_BIOASQ_PATH,
     output_path: Path = DEFAULT_OUTPUT_PATH,
-    email: Optional[str] = None,
-    api_key: Optional[str] = None,
+    email: str | None = None,
+    api_key: str | None = None,
     batch_size: int = 100,
     sleep_seconds: float = 0.34,
-    max_pmids: Optional[int] = None,
+    max_pmids: int | None = None,
     overwrite: bool = False,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Build a shared BioASQ abstract corpus.
 
@@ -200,8 +200,8 @@ def build_bioasq_shared_corpus(
         len(pending),
     )
 
-    fetched: Dict[str, Dict[str, str]] = dict(existing)
-    missing: Set[str] = set()
+    fetched: dict[str, dict[str, str]] = dict(existing)
+    missing: set[str] = set()
 
     for batch_num, batch in enumerate(_chunked(pending, batch_size), start=1):
         logger.info("Fetching PubMed batch %d (%d PMIDs)", batch_num, len(batch))
@@ -224,7 +224,7 @@ def build_bioasq_shared_corpus(
         if sleep_seconds > 0:
             time.sleep(sleep_seconds)
 
-    ordered_records: List[Dict[str, str]] = []
+    ordered_records: list[dict[str, str]] = []
     for pmid in pmids:
         record = fetched.get(pmid)
         if not record:

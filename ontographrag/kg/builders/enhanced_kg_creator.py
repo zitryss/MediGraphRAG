@@ -1,7 +1,7 @@
 import re
 import hashlib
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any
 import os
 import logging
 
@@ -34,12 +34,12 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         neo4j_password: str = None,
         neo4j_database: str = None,
         embedding_model: str = None,
-        ontology_path: Optional[str] = None,
+        ontology_path: str | None = None,
         max_chunks: int = None,  # For testing - limit chunks processed per report
         enable_coreference_resolution: bool = False,
         enable_heuristic_coreference_resolution: bool = True,
-        retrieval_chunk_size: Optional[int] = None,
-        retrieval_chunk_overlap: Optional[int] = None,
+        retrieval_chunk_size: int | None = None,
+        retrieval_chunk_overlap: int | None = None,
         strict_ontology: bool = True,
         self_consistency_n: int = 1,
         few_shot_example_count: int = 2,
@@ -48,7 +48,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         enable_low_confidence_triple_reverification: bool = False,
         low_confidence_reverify_threshold: float = 0.4,
         enable_umls_linking: bool = False,
-        umls_spacy_model: Optional[str] = None,
+        umls_spacy_model: str | None = None,
         enable_anchor_constrained_extraction: bool = True,
         enable_self_reflection: bool = True,
         enable_anchor_coverage_supplement: bool = True,
@@ -114,7 +114,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         # Set max_chunks for testing
         self._test_max_chunks = max_chunks
 
-    def _extract_patient_demographics(self, text: str) -> Dict[str, Any]:
+    def _extract_patient_demographics(self, text: str) -> dict[str, Any]:
         """Extract patient demographics from text"""
         patient_info = {}
 
@@ -156,7 +156,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
         return patient_info
 
-    def _extract_medical_conditions(self, text: str) -> List[Dict[str, Any]]:
+    def _extract_medical_conditions(self, text: str) -> list[dict[str, Any]]:
         """Extract medical conditions from various sections"""
         conditions = []
 
@@ -276,7 +276,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
         return unique_conditions
 
-    def _extract_medications(self, text: str) -> List[Dict[str, Any]]:
+    def _extract_medications(self, text: str) -> list[dict[str, Any]]:
         """Extract medications from admission and discharge sections"""
         medications = []
 
@@ -328,7 +328,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
         return medications
 
-    def _extract_social_history(self, text: str) -> Dict[str, Any]:
+    def _extract_social_history(self, text: str) -> dict[str, Any]:
         """Extract social history information"""
         social_info = {}
 
@@ -373,7 +373,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
         return social_info
 
-    def _extract_lab_values(self, text: str) -> List[Dict[str, Any]]:
+    def _extract_lab_values(self, text: str) -> list[dict[str, Any]]:
         """Extract laboratory values and results"""
         lab_values = []
         lab_patterns = [
@@ -430,7 +430,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
     def bulk_process_medical_reports(
         self, csv_path: str, start_row: int = 0, batch_size: int = 50, llm=None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process multiple medical reports in bulk from a pipe-delimited CSV file."""
         logging.info(f"Starting bulk processing of medical reports from {csv_path}")
 
@@ -517,7 +517,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         llm=None,
         max_chunks: int = None,
         kg_name: str = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process documents from any CSV file and build a knowledge graph."""
         if DocumentCSVProcessor is None:
             raise RuntimeError(
@@ -608,8 +608,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         }
 
     def _merge_knowledge_graphs(
-        self, knowledge_graphs: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, knowledge_graphs: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Merge multiple knowledge graphs into a single unified graph."""
         all_nodes, all_relationships, all_chunks = [], [], []
         for kg in knowledge_graphs:
@@ -638,7 +638,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
     def _extract_entities_and_relationships_for_patients(
         self, text: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Extract patient-specific entities and relationships using hybrid approach."""
         entities = []
         relationships = []
@@ -782,7 +782,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
     def generate_patient_knowledge_graph(
         self, text: str, llm=None, file_name: str = None, max_chunks: int = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate a knowledge graph from patient report text with patient-specific extraction."""
         logging.info("Generating patient-specific knowledge graph")
         if llm is None:

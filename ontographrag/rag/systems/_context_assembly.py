@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List, Optional, Set, Tuple
+from typing import Any
 from ontographrag.rag.graph_state import summarize_context_graph_state
 from ontographrag.rag.retrieval_sampling import (
     compute_candidate_limit,
@@ -15,7 +15,7 @@ class ContextAssemblyMixin:
     """
 
     @staticmethod
-    def _chunk_identity(chunk: Dict[str, Any]) -> str:
+    def _chunk_identity(chunk: dict[str, Any]) -> str:
         return (
             chunk.get("chunk_id")
             or chunk.get("chunk_element_id")
@@ -23,7 +23,7 @@ class ContextAssemblyMixin:
         )
 
     @staticmethod
-    def _relationship_identity(rel: Dict[str, Any]) -> str:
+    def _relationship_identity(rel: dict[str, Any]) -> str:
         return (
             rel.get("key")
             or rel.get("element_id")
@@ -36,7 +36,7 @@ class ContextAssemblyMixin:
         )
 
     @staticmethod
-    def _format_relationship_label(rel: Optional[Dict[str, Any]]) -> str:
+    def _format_relationship_label(rel: dict[str, Any] | None) -> str:
         if not isinstance(rel, dict):
             return "RELATED"
         label = str(rel.get("type") or "RELATED").strip() or "RELATED"
@@ -51,13 +51,13 @@ class ContextAssemblyMixin:
         return label
 
     @classmethod
-    def _should_use_passage_only_answer_prompt(cls, kg_name: Optional[str]) -> bool:
+    def _should_use_passage_only_answer_prompt(cls, kg_name: str | None) -> bool:
         return str(kg_name or "").strip().lower() in cls._PASSAGE_ONLY_ANSWER_KGS
 
     @classmethod
     def _sort_chunks_for_query(
-        cls, query: str, chunks: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        cls, query: str, chunks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         branches = cls._comparison_branches(query)
         return sorted(
             chunks,
@@ -72,8 +72,8 @@ class ContextAssemblyMixin:
         )
 
     @classmethod
-    def _retained_entity_ids_from_chunks(cls, chunks: List[Dict[str, Any]]) -> Set[str]:
-        retained_eids: Set[str] = set()
+    def _retained_entity_ids_from_chunks(cls, chunks: list[dict[str, Any]]) -> set[str]:
+        retained_eids: set[str] = set()
         for chunk in chunks:
             for eid in chunk.get("linked_entity_ids") or []:
                 if eid:
@@ -86,11 +86,11 @@ class ContextAssemblyMixin:
 
     @staticmethod
     def _selected_chunk_local_scope(
-        chunks: List[Dict[str, Any]],
-    ) -> Tuple[Set[int], Set[str], Set[str]]:
-        positions: Set[int] = set()
-        question_ids: Set[str] = set()
-        passage_keys: Set[str] = set()
+        chunks: list[dict[str, Any]],
+    ) -> tuple[set[int], set[str], set[str]]:
+        positions: set[int] = set()
+        question_ids: set[str] = set()
+        passage_keys: set[str] = set()
         for chunk in chunks:
             pos = chunk.get("position")
             if isinstance(pos, (int, float)):
@@ -104,11 +104,11 @@ class ContextAssemblyMixin:
 
     @staticmethod
     def _relationship_supported_by_selected_chunks(
-        rel: Dict[str, Any],
+        rel: dict[str, Any],
         *,
-        selected_positions: Set[int],
-        selected_question_ids: Set[str],
-        selected_passage_keys: Set[str],
+        selected_positions: set[int],
+        selected_question_ids: set[str],
+        selected_passage_keys: set[str],
     ) -> bool:
         rel_positions = {
             int(pos)
@@ -135,11 +135,11 @@ class ContextAssemblyMixin:
     @classmethod
     def _path_supported_by_selected_chunks(
         cls,
-        path_entry: Dict[str, Any],
+        path_entry: dict[str, Any],
         *,
-        selected_positions: Set[int],
-        selected_question_ids: Set[str],
-        selected_passage_keys: Set[str],
+        selected_positions: set[int],
+        selected_question_ids: set[str],
+        selected_passage_keys: set[str],
     ) -> bool:
         return cls._relationship_supported_by_selected_chunks(
             path_entry,
@@ -153,13 +153,13 @@ class ContextAssemblyMixin:
         cls,
         *,
         query: str,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         max_chunks: int,
         retrieval_temperature: float,
         retrieval_shortlist_factor: int,
         retrieval_sample_id: int,
-        kg_name: Optional[str],
-    ) -> Dict[str, Any]:
+        kg_name: str | None,
+    ) -> dict[str, Any]:
         chunks = cls._sort_chunks_for_query(query, list(context.get("chunks", [])))
         selected_chunks = select_ranked_subset(
             chunks,
@@ -206,8 +206,8 @@ class ContextAssemblyMixin:
                     selected_passage_keys=selected_passage_keys,
                 )
             ]
-            filtered_paths: List[Dict[str, Any]] = []
-            seen_paths: Set[str] = set()
+            filtered_paths: list[dict[str, Any]] = []
+            seen_paths: set[str] = set()
             for path_entry in traversal_paths:
                 path_str = path_entry.get("path", "")
                 if path_str in seen_paths:
@@ -262,7 +262,7 @@ class ContextAssemblyMixin:
 
     @classmethod
     def _graph_context_is_meaningful(
-        cls, query: str, context: Optional[Dict[str, Any]]
+        cls, query: str, context: dict[str, Any] | None
     ) -> bool:
         """
         Decide whether the graph-centric retrieval signal is strong enough to stay primary.
@@ -299,13 +299,13 @@ class ContextAssemblyMixin:
     def _append_adjacent_chunks_to_context(
         cls,
         graph,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         *,
-        kg_name: Optional[str],
-        question_id: Optional[str],
-        document_names: Optional[List[str]],
+        kg_name: str | None,
+        question_id: str | None,
+        document_names: list[str] | None,
         max_adjacent: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Append position-adjacent chunks so answer spans split across boundaries survive.
 
         Vanilla retrieval already recovers adjacent chunks from the same local passage.
@@ -333,11 +333,11 @@ class ContextAssemblyMixin:
         if not seen_ids:
             return context
 
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "element_ids": seed_element_ids,
             "max_adjacent": max(1, int(max_adjacent or 1)),
         }
-        scope_conditions: List[str] = []
+        scope_conditions: list[str] = []
         if kg_name:
             scope_conditions.append("d.kgName = $kg_name")
             params["kg_name"] = kg_name
@@ -451,28 +451,28 @@ class ContextAssemblyMixin:
     @classmethod
     def _merge_retrieval_contexts(
         cls,
-        primary: Dict[str, Any],
-        secondary: Optional[Dict[str, Any]],
+        primary: dict[str, Any],
+        secondary: dict[str, Any] | None,
         *,
         max_chunks: int,
         search_method: str,
-        secondary_limit: Optional[int] = None,
-        min_secondary_score: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        secondary_limit: int | None = None,
+        min_secondary_score: float | None = None,
+    ) -> dict[str, Any]:
         """Merge two retrieval contexts while keeping primary chunks dominant."""
         if not secondary or not secondary.get("chunks"):
             merged = dict(primary)
             merged["search_method"] = search_method
             return merged
 
-        merged: Dict[str, Any] = dict(primary)
+        merged: dict[str, Any] = dict(primary)
         merged["chunks"] = [dict(chunk) for chunk in primary.get("chunks", [])]
         merged["entities"] = dict(primary.get("entities", {}))
         merged["relationships"] = list(primary.get("relationships", []))
         merged["graph_neighbors"] = dict(primary.get("graph_neighbors", {}))
         merged["traversal_paths"] = list(primary.get("traversal_paths", []))
 
-        existing_chunk_ids: Set[str] = set()
+        existing_chunk_ids: set[str] = set()
         for chunk in merged["chunks"]:
             chunk_key = cls._chunk_identity(chunk)
             if chunk_key:
@@ -480,7 +480,7 @@ class ContextAssemblyMixin:
             parent_chunk_key = chunk.get("parent_chunk_id")
             if parent_chunk_key:
                 existing_chunk_ids.add(str(parent_chunk_key))
-        new_chunks: List[Dict[str, Any]] = []
+        new_chunks: list[dict[str, Any]] = []
         for chunk in secondary.get("chunks", []):
             cid = cls._chunk_identity(chunk)
             parent_cid = chunk.get("parent_chunk_id")
@@ -564,21 +564,21 @@ class ContextAssemblyMixin:
         cls,
         *,
         query: str,
-        contexts: List[Dict[str, Any]],
+        contexts: list[dict[str, Any]],
         max_chunks: int,
-        kg_name: Optional[str],
+        kg_name: str | None,
         retrieval_temperature: float,
         retrieval_shortlist_factor: int,
         retrieval_sample_id: int,
         search_method: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         usable_contexts = [ctx for ctx in contexts if ctx and ctx.get("chunks")]
         if not usable_contexts:
             return None
         if len(usable_contexts) == 1:
             return usable_contexts[0]
 
-        merged: Dict[str, Any] = {
+        merged: dict[str, Any] = {
             "query": query,
             "chunks": [],
             "entities": {},
@@ -594,9 +594,9 @@ class ContextAssemblyMixin:
             "grounding_quality": 0.0,
             "seed_entity_count": 0,
         }
-        chunk_records: Dict[str, Dict[str, Any]] = {}
-        seen_rel_keys: Set[str] = set()
-        seen_paths: Set[str] = set()
+        chunk_records: dict[str, dict[str, Any]] = {}
+        seen_rel_keys: set[str] = set()
+        seen_paths: set[str] = set()
 
         for context in usable_contexts:
             ranked_chunks = cls._sort_chunks_for_query(
@@ -652,7 +652,7 @@ class ContextAssemblyMixin:
                 int(context.get("seed_entity_count") or 0),
             )
 
-        fused_chunks: List[Dict[str, Any]] = []
+        fused_chunks: list[dict[str, Any]] = []
         for record in chunk_records.values():
             chunk = dict(record["chunk"])
             chunk["rrf_score"] = record["rrf"]
@@ -688,7 +688,7 @@ class ContextAssemblyMixin:
         )
 
     @staticmethod
-    def _chunk_rank_key(chunk: Dict[str, Any]) -> Tuple[float, float, int]:
+    def _chunk_rank_key(chunk: dict[str, Any]) -> tuple[float, float, int]:
         return (
             -float(chunk.get("score", 0.0)),
             -int(chunk.get("linked_entity_count", 0)),
@@ -696,16 +696,16 @@ class ContextAssemblyMixin:
         )
 
     def _apply_per_passage_chunk_cap(
-        self, chunks: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, chunks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Keep the highest-ranked chunks from each source passage."""
         _passage_cap = self._MAX_CHUNKS_PER_PASSAGE
         if _passage_cap <= 0:
             return list(chunks)
 
         ranked_chunks = sorted(chunks, key=self._chunk_rank_key)
-        passage_counts: Dict[str, int] = {}
-        capped_chunks: List[Dict[str, Any]] = []
+        passage_counts: dict[str, int] = {}
+        capped_chunks: list[dict[str, Any]] = []
         for chunk in ranked_chunks:
             qid_val = chunk.get("question_id") or ""
             pidx_val = chunk.get("passage_index")
@@ -725,7 +725,7 @@ class ContextAssemblyMixin:
                 )
         return capped_chunks or ranked_chunks
 
-    def _build_evidence_block(self, context: Dict[str, Any]) -> str:
+    def _build_evidence_block(self, context: dict[str, Any]) -> str:
         """
         KG2RAG-style evidence organization.
 
@@ -739,14 +739,14 @@ class ContextAssemblyMixin:
         relationships = context.get("relationships", [])
         entities = context.get("entities", {})
 
-        def _chunk_passage_key(chunk: Dict[str, Any]) -> Optional[str]:
+        def _chunk_passage_key(chunk: dict[str, Any]) -> str | None:
             qid = chunk.get("question_id")
             if qid is None or not str(qid).strip():
                 return None
             return f"{qid}::p{chunk.get('passage_index', -1)}"
 
         def _chunk_supports_path(
-            chunk: Dict[str, Any], path_info: Dict[str, Any]
+            chunk: dict[str, Any], path_info: dict[str, Any]
         ) -> bool:
             chunk_positions = set()
             pos = chunk.get("position")
@@ -783,13 +783,13 @@ class ContextAssemblyMixin:
             return len(overlap) >= required_overlap
 
         # Index chunks by their linked entities for fast lookup.
-        chunk_by_id: Dict[str, Any] = {
+        chunk_by_id: dict[str, Any] = {
             c["chunk_id"]: c for c in chunks if c.get("chunk_id")
         }
 
         # Build a unified path list from both traversal paths and direct relationships.
         # Each entry: {path_str, node_ids, hops}
-        all_paths: List[Dict[str, Any]] = []
+        all_paths: list[dict[str, Any]] = []
         for p in sorted(traversal_paths, key=lambda x: x.get("hops", 99)):
             all_paths.append(
                 {
@@ -821,15 +821,15 @@ class ContextAssemblyMixin:
 
         # Associate each chunk with up to two supporting chains so shared bridge
         # evidence can appear in multiple reasoning chains without flooding all of them.
-        chunk_chain_count: Dict[str, int] = {}
+        chunk_chain_count: dict[str, int] = {}
         _MAX_CHAINS_PER_CHUNK = 2
-        chain_blocks: List[str] = []
-        ungrounded_paths: List[str] = []  # paths with no supporting passage
+        chain_blocks: list[str] = []
+        ungrounded_paths: list[str] = []  # paths with no supporting passage
         for chain_idx, path_info in enumerate(all_paths, 1):
             path_str = path_info["path_str"]
             if not path_str:
                 continue
-            supporting: List[Any] = []
+            supporting: list[Any] = []
             for cid, chunk in chunk_by_id.items():
                 if chunk_chain_count.get(cid, 0) >= _MAX_CHAINS_PER_CHUNK:
                     continue
@@ -856,13 +856,13 @@ class ContextAssemblyMixin:
                 chain_blocks.append("\n".join(lines))
 
         # Remaining chunks become "Additional Evidence".
-        additional: List[str] = []
+        additional: list[str] = []
         for i, chunk in enumerate(chunks, 1):
             if chunk_chain_count.get(chunk.get("chunk_id"), 0) == 0:
                 text = (chunk.get("text") or "").strip()
                 additional.append(f"[{i}] {text}")
 
-        sections: List[str] = []
+        sections: list[str] = []
         if chain_blocks:
             sections.append("REASONING CHAINS:\n" + "\n\n".join(chain_blocks))
         if additional:
@@ -881,11 +881,11 @@ class ContextAssemblyMixin:
 
         return "\n\n".join(sections)
 
-    def _build_passages_only_evidence_block(self, context: Dict[str, Any]) -> str:
+    def _build_passages_only_evidence_block(self, context: dict[str, Any]) -> str:
         chunks = context.get("chunks", []) or []
         if not chunks:
             return "(No passages retrieved)"
-        lines: List[str] = []
+        lines: list[str] = []
         for idx, chunk in enumerate(chunks, 1):
             text = (chunk.get("text") or "").strip()
             if text:
@@ -894,7 +894,7 @@ class ContextAssemblyMixin:
             return "(No passages retrieved)"
         return "PASSAGES:\n" + "\n\n".join(lines)
 
-    def format_context_for_llm(self, context: Dict[str, Any]) -> tuple:
+    def format_context_for_llm(self, context: dict[str, Any]) -> tuple:
         """
         Format the context for the LLM prompt.
 

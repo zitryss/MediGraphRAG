@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Mapping, Sequence
+from typing import Any
 
 
 def parse_request_timeout_seconds(
@@ -60,7 +61,7 @@ def build_support_guardrail_verdict(
     grounding_threshold: float = 0.50,
     confidence_threshold: float = 0.40,
     min_weak_signals: int = 2,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a deterministic support-based guardrail decision from already-computed metrics."""
 
     def _metric_value(value: Any) -> float | None:
@@ -148,7 +149,7 @@ def build_readiness_report(
     write_probe_ok: bool,
     write_probe_detail: str,
     configured_providers: Sequence[str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a compact readiness payload for fast infrastructure checks."""
     checks = [
         {"name": "neo4j", "ok": bool(neo4j_ready)},

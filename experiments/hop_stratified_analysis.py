@@ -19,12 +19,11 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 # ── Results paths ──────────────────────────────────────────────────────────────
-RUNS: Dict[str, str] = {
+RUNS: dict[str, str] = {
     "BioASQ": "results/runs/20260402-172730-bioasq-n100-full-metrics-evaluation-subset/mirage_bioasq_results.json",
     "RealMedQA": "results/runs/20260402-155138-realmedqa-n100-full-metrics-evaluation-subset/mirage_realmedqa_results.json",
     "PubMedQA": "results/runs/20260401-074100-pubmedqa-n100-full-metrics-evaluation-subset-rebuildkg/mirage_pubmedqa_results.json",
@@ -35,7 +34,7 @@ RUNS: Dict[str, str] = {
 
 # ── Metric layout ──────────────────────────────────────────────────────────────
 # (internal_key, display_label, family, higher_is_more_certain)
-METRICS: List[Tuple[str, str, str, bool]] = [
+METRICS: list[tuple[str, str, str, bool]] = [
     # Output estimators
     ("semantic_entropy", "SE", "output", False),
     ("discrete_semantic_entropy", "DSE", "output", False),
@@ -77,7 +76,7 @@ PREFERRED_CONFIG_NAME = os.environ.get("MIRAGE_CONFIG_NAME")
 # ── Data loading ───────────────────────────────────────────────────────────────
 
 
-def _select_config_result(path: str, results_doc: Dict) -> Dict:
+def _select_config_result(path: str, results_doc: dict) -> dict:
     config_results = results_doc.get("config_results", [])
     if not config_results:
         raise ValueError(f"{path} contains no config_results")
@@ -102,13 +101,13 @@ def _select_config_result(path: str, results_doc: Dict) -> Dict:
     )
 
 
-def load_details(path: str) -> List[Dict]:
+def load_details(path: str) -> list[dict]:
     with open(path) as f:
         results_doc = json.load(f)
     return _select_config_result(path, results_doc).get("details", [])
 
 
-def hop_label(hop: Optional[int], ds_name: str) -> str:
+def hop_label(hop: int | None, ds_name: str) -> str:
     """Canonical hop label for a record."""
     if hop is None:
         if ds_name in SINGLE_HOP_DATASETS:
@@ -156,12 +155,12 @@ def baseline_error_rate(y_true: np.ndarray) -> float:
 
 
 def compute_stats(
-    details: List[Dict],
+    details: list[dict],
     hop_label_: str,
     ds_name: str,
     ppv_frac: float = 0.20,
     system_prefix: str = SYSTEM_PREFIX,
-) -> Dict:
+) -> dict:
     """For a slice of details (same hop bucket), compute AUROC and PPV for each metric."""
     results = {}
     clean_details = [
@@ -240,9 +239,9 @@ def compute_stats(
     return results
 
 
-def family_avg(stats: Dict, stat_key: str) -> Dict[str, float]:
+def family_avg(stats: dict, stat_key: str) -> dict[str, float]:
     """Average a stat (auroc or ppv) across metrics within each family."""
-    buckets: Dict[str, List[float]] = defaultdict(list)
+    buckets: dict[str, list[float]] = defaultdict(list)
     for key, label, family, _ in METRICS:
         if key in stats and not np.isnan(stats[key].get(stat_key, float("nan"))):
             buckets[family].append(stats[key][stat_key])
@@ -252,7 +251,7 @@ def family_avg(stats: Dict, stat_key: str) -> Dict[str, float]:
 # ── Build analysis table ────────────────────────────────────────────────────────
 
 
-def build_hop_table() -> List[Dict]:
+def build_hop_table() -> list[dict]:
     """
     Returns a list of rows:
       {dataset, hop_label, n, error_rate,
@@ -268,7 +267,7 @@ def build_hop_table() -> List[Dict]:
             continue
 
         # Group by hop bucket
-        buckets: Dict[str, List[Dict]] = defaultdict(list)
+        buckets: dict[str, list[dict]] = defaultdict(list)
         for d in details:
             hc = d.get("hop_count")
             hl = hop_label(hc, ds)
@@ -297,7 +296,7 @@ def build_hop_table() -> List[Dict]:
     return rows
 
 
-def build_per_metric_table() -> List[Dict]:
+def build_per_metric_table() -> list[dict]:
     """Full per-metric table for appendix figure."""
     rows = []
     for ds, path in RUNS.items():
@@ -305,7 +304,7 @@ def build_per_metric_table() -> List[Dict]:
             details = load_details(path)
         except Exception:
             continue
-        buckets: Dict[str, List[Dict]] = defaultdict(list)
+        buckets: dict[str, list[dict]] = defaultdict(list)
         for d in details:
             hc = d.get("hop_count")
             hl = hop_label(hc, ds)
@@ -334,7 +333,7 @@ def build_per_metric_table() -> List[Dict]:
 # ── Print narrative table ──────────────────────────────────────────────────────
 
 
-def print_table(rows: List[Dict]) -> None:
+def print_table(rows: list[dict]) -> None:
     print("\n" + "=" * 88)
     print(
         f"{'Dataset':<14} {'Hop':>10}  {'n':>4}  {'ErrRate':>7}  "
@@ -355,7 +354,7 @@ def print_table(rows: List[Dict]) -> None:
     print("=" * 88)
 
 
-def print_narrative(rows: List[Dict]) -> None:
+def print_narrative(rows: list[dict]) -> None:
     """Print the story: does structural AUROC increase with hop count?"""
     print("\n── Structural AUROC lift (multi-hop vs single-hop) ──────────────────")
 
@@ -393,14 +392,14 @@ def print_narrative(rows: List[Dict]) -> None:
             )
 
 
-def print_ppv_story(rows: List[Dict]) -> None:
+def print_ppv_story(rows: list[dict]) -> None:
     """Print PPV > baseline check: when flagged uncertain, are they really more wrong?"""
     print("\n── Positive Predictive Power: PPV vs. baseline error rate ─────────────")
     print(
-        f"  (PPV@20% means: top-20% most uncertain questions → fraction actually wrong)"
+        "  (PPV@20% means: top-20% most uncertain questions → fraction actually wrong)"
     )
     print(
-        f"  A good metric has PPV >> baseline (random 20% would match baseline error rate)\n"
+        "  A good metric has PPV >> baseline (random 20% would match baseline error rate)\n"
     )
 
     for r in rows:
@@ -424,7 +423,7 @@ def print_ppv_story(rows: List[Dict]) -> None:
 
 
 def plot_hop_auroc(
-    rows: List[Dict], out_dir: Path, filename_stem: str = "hop_auroc"
+    rows: list[dict], out_dir: Path, filename_stem: str = "hop_auroc"
 ) -> None:
     """Main figure: 3-family AUROC grouped by hop bucket with dataset scatter."""
     try:
@@ -532,7 +531,7 @@ def plot_hop_auroc(
 
 
 def plot_ppv_bars(
-    rows: List[Dict], out_dir: Path, filename_stem: str = "hop_ppv"
+    rows: list[dict], out_dir: Path, filename_stem: str = "hop_ppv"
 ) -> None:
     """PPV@20% comparison: single-hop vs multi-hop, per family."""
     try:
@@ -637,7 +636,7 @@ def plot_ppv_bars(
 
 
 def plot_per_metric_detail(
-    rows_detail: List[Dict], out_dir: Path, filename_stem: str = "hop_auroc_detail"
+    rows_detail: list[dict], out_dir: Path, filename_stem: str = "hop_auroc_detail"
 ) -> None:
     """Appendix figure: per-metric AUROC heatmap across (metric × hop bucket)."""
     try:
@@ -738,11 +737,11 @@ def plot_per_metric_detail(
 
 
 def run_hop_stratified_analysis(
-    details_by_dataset: Dict[str, List[Dict]],
+    details_by_dataset: dict[str, list[dict]],
     output_dir: str = "paper/figures",
     system_prefix: str = SYSTEM_PREFIX,
     figure_suffix: str = "",
-) -> Dict:
+) -> dict:
     """Callable API — run the full hop-stratified analysis on in-memory details.
 
     Parameters
@@ -761,12 +760,12 @@ def run_hop_stratified_analysis(
         "saved_figures"— list of written file paths
     """
     # Build per-bucket stats from in-memory dicts (avoids re-reading JSON files)
-    rows: List[Dict] = []
-    rows_detail: List[Dict] = []
+    rows: list[dict] = []
+    rows_detail: list[dict] = []
 
     for ds_name, details in details_by_dataset.items():
         # Group by hop bucket
-        buckets: Dict[str, List[Dict]] = defaultdict(list)
+        buckets: dict[str, list[dict]] = defaultdict(list)
         for d in details:
             hc = d.get("hop_count")
             hl = hop_label(hc, ds_name)
@@ -814,7 +813,7 @@ def run_hop_stratified_analysis(
                 )
 
     out_path = Path(output_dir)
-    saved: List[str] = []
+    saved: list[str] = []
     suffix = f"_{figure_suffix}" if figure_suffix else ""
 
     if rows:

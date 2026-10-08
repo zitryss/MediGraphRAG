@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any
 
 from subset_selection import (
     deterministic_subset_ids,
@@ -26,7 +27,7 @@ from subset_selection import (
 )
 
 
-def _load_hotpot(path: Path) -> List[Dict[str, Any]]:
+def _load_hotpot(path: Path) -> list[dict[str, Any]]:
     with path.open("r") as f:
         data = json.load(f)
     if not isinstance(data, list):
@@ -34,7 +35,7 @@ def _load_hotpot(path: Path) -> List[Dict[str, Any]]:
     return [item for item in data if isinstance(item, dict)]
 
 
-def _question_id(item: Dict[str, Any], idx: int) -> str:
+def _question_id(item: dict[str, Any], idx: int) -> str:
     return str(item.get("_id", item.get("id", f"hotpotqa_{idx}")))
 
 
@@ -50,9 +51,9 @@ def _paragraph_text(title: str, sentences: Any) -> str:
 
 
 def _iter_question_paragraphs(
-    item: Dict[str, Any],
+    item: dict[str, Any],
     question_id: str,
-) -> Iterable[Tuple[str, str, str]]:
+) -> Iterable[tuple[str, str, str]]:
     for passage_idx, passage in enumerate(item.get("context", []) or []):
         if not isinstance(passage, (list, tuple)) or len(passage) < 2:
             continue
@@ -104,7 +105,7 @@ def prepare_corpus(
     num_samples: int | None,
     subset_seed: int,
     overwrite: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if output.exists() and not overwrite:
         raise FileExistsError(
             f"Output already exists: {output}. Pass --overwrite to replace it."
@@ -120,7 +121,7 @@ def prepare_corpus(
     selected_id_set = set(selected_ids)
 
     by_id = {_question_id(item, idx): item for idx, item in enumerate(records)}
-    docs: Dict[str, Dict[str, Any]] = {}
+    docs: dict[str, dict[str, Any]] = {}
     for question_id in selected_ids:
         item = by_id.get(question_id)
         if not item:

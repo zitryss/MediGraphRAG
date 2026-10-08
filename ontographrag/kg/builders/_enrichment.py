@@ -1,8 +1,8 @@
-import json
-import re
 import hashlib
-from typing import Dict, Any, List, Optional, Tuple
+import json
 import logging
+import re
+from typing import Any
 
 
 class EnrichmentMixin:
@@ -13,9 +13,9 @@ class EnrichmentMixin:
     """
 
     @classmethod
-    def _merge_anchor_spans(cls, *span_groups: Any) -> List[Dict[str, Any]]:
+    def _merge_anchor_spans(cls, *span_groups: Any) -> list[dict[str, Any]]:
         """Merge and deduplicate anchor span dicts."""
-        merged: List[Dict[str, Any]] = []
+        merged: list[dict[str, Any]] = []
         seen = set()
         for group in span_groups:
             if not group:
@@ -62,9 +62,9 @@ class EnrichmentMixin:
     @classmethod
     def _merge_anchor_grounding(
         cls, *groundings: Any
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    ) -> dict[str, list[dict[str, Any]]]:
         """Merge nested anchor grounding dicts component-wise."""
-        merged: Dict[str, List[Dict[str, Any]]] = {}
+        merged: dict[str, list[dict[str, Any]]] = {}
         for grounding in groundings:
             if not grounding:
                 continue
@@ -79,11 +79,11 @@ class EnrichmentMixin:
                 merged[key] = cls._merge_anchor_spans(merged.get(key), spans)
         return merged
 
-    def _relationship_anchor_candidates(self, rel: Dict[str, Any]) -> List[str]:
+    def _relationship_anchor_candidates(self, rel: dict[str, Any]) -> list[str]:
         """Best-effort exact text candidates for relation-phrase restoration."""
         properties = dict(rel.get("properties") or {})
         relation_type = str(rel.get("type") or "").strip()
-        candidates: List[str] = []
+        candidates: list[str] = []
         for value in (
             properties.get("anchor_text"),
             properties.get("description"),
@@ -96,8 +96,8 @@ class EnrichmentMixin:
 
     def _restoration_from_anchor_grounding(
         self,
-        grounding: Dict[str, List[Dict[str, Any]]],
-    ) -> Dict[str, Any]:
+        grounding: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, Any]:
         """Summarize restoration quality from grounded subject/relation/object anchors."""
         core_components = ("source", "relation", "target")
         grounded_components = [
@@ -125,15 +125,15 @@ class EnrichmentMixin:
 
     def _verify_relationship_restoration(
         self,
-        rel: Dict[str, Any],
-        verification_chunks: List[Dict[str, Any]],
+        rel: dict[str, Any],
+        verification_chunks: list[dict[str, Any]],
         *,
         source_name: str,
         target_name: str,
         relation_type: str,
-        source_aliases: Optional[List[str]] = None,
-        target_aliases: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        source_aliases: list[str] | None = None,
+        target_aliases: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Restoration-style verification using exact spans across scoped evidence chunks."""
         properties = dict(rel.get("properties") or {})
         source_candidates = [source_name] + [
@@ -225,11 +225,11 @@ class EnrichmentMixin:
 
     def _augment_result_with_anchor_entities(
         self,
-        result: Dict[str, Any],
-        anchor_inventory: Dict[str, List[Dict[str, Any]]],
-    ) -> Dict[str, Any]:
+        result: dict[str, Any],
+        anchor_inventory: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, Any]:
         """Ensure anchor-discovered entities survive even if the extraction omits them."""
-        merged_entities: Dict[str, Dict[str, Any]] = {}
+        merged_entities: dict[str, dict[str, Any]] = {}
         for anchor in anchor_inventory.get("entity_anchors", []):
             merged_entities[self._normalize_entity_text(anchor["text"])] = {
                 "id": anchor["text"],
@@ -264,14 +264,14 @@ class EnrichmentMixin:
 
     def _supplement_relationships_from_unused_anchors(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         *,
         chunk_text: str,
         llm,
         model_name: str,
         context_preamble: str,
-        anchor_inventory: Dict[str, List[Dict[str, Any]]],
-    ) -> Dict[str, Any]:
+        anchor_inventory: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, Any]:
         """Coverage-aware supplement for entity anchors unused by the first extraction pass."""
         if not getattr(self, "enable_anchor_coverage_supplement", True):
             return result
@@ -369,13 +369,13 @@ Return ONLY the JSON object.
         self,
         *,
         text: str,
-        chunks: List[Dict[str, Any]],
-        entities_per_chunk: Dict[int, List[Dict[str, Any]]],
-        section_headers: List[Tuple[int, str]],
+        chunks: list[dict[str, Any]],
+        entities_per_chunk: dict[int, list[dict[str, Any]]],
+        section_headers: list[tuple[int, str]],
         llm,
         model_name: str,
         scope_label: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Recover relations across section boundaries after section-aware chunking."""
         if llm is None:
             return []
@@ -387,14 +387,14 @@ Return ONLY the JSON object.
         if len(section_segments) < 2:
             return []
 
-        section_texts: List[str] = []
-        section_entities: Dict[int, List[Dict[str, Any]]] = {}
-        section_positions: Dict[int, List[int]] = {}
+        section_texts: list[str] = []
+        section_entities: dict[int, list[dict[str, Any]]] = {}
+        section_positions: dict[int, list[int]] = {}
 
         for section_idx, segment in enumerate(section_segments):
             section_texts.append(segment["text"])
-            positions: List[int] = []
-            entities: List[Dict[str, Any]] = []
+            positions: list[int] = []
+            entities: list[dict[str, Any]] = []
             for chunk_idx, chunk in enumerate(chunks):
                 chunk_start = int(chunk.get("start_pos", 0) or 0)
                 if not (segment["start_pos"] <= chunk_start < segment["end_pos"]):
@@ -434,9 +434,9 @@ Return ONLY the JSON object.
     def _group_passages_for_cross_passage_recovery(
         self,
         passages,
-        passage_entities: Dict[int, List[Dict[str, Any]]],
-        passage_positions: Dict[int, List[int]],
-    ) -> List[Dict[str, Any]]:
+        passage_entities: dict[int, list[dict[str, Any]]],
+        passage_positions: dict[int, list[int]],
+    ) -> list[dict[str, Any]]:
         """Return contiguous passage groups that may participate in cross-passage recovery.
 
         Question-scoped bundle datasets should only recover relations within a
@@ -444,8 +444,8 @@ Return ONLY the JSON object.
         passage question ids, so this grouping naturally degenerates to
         singletons and skips cross-passage recovery altogether.
         """
-        groups: List[Dict[str, Any]] = []
-        current_group: Optional[Dict[str, Any]] = None
+        groups: list[dict[str, Any]] = []
+        current_group: dict[str, Any] | None = None
 
         for idx, passage in enumerate(passages):
             group_key = (
@@ -474,9 +474,9 @@ Return ONLY the JSON object.
         source_name: str,
         target_name: str,
         rel_type: str,
-        chunks: List[Dict],
-        source_aliases: List[str] = None,
-        target_aliases: List[str] = None,
+        chunks: list[dict],
+        source_aliases: list[str] = None,
+        target_aliases: list[str] = None,
     ) -> float:
         """
         Evidence-grounded verification for an extracted triple (inspired by MOSAICX verify).
@@ -587,10 +587,10 @@ Return ONLY the JSON object.
         source_name: str,
         target_name: str,
         relationship_type: str,
-        verification_chunks: List[Dict[str, Any]],
+        verification_chunks: list[dict[str, Any]],
         llm,
         model_name: str,
-    ) -> Optional[bool]:
+    ) -> bool | None:
         """Ask the LLM to verify a low-confidence triple against local text only."""
         if llm is None:
             return None
@@ -604,9 +604,7 @@ Return ONLY the JSON object.
             return None
 
         cache_key = hashlib.sha1(
-            f"{source_name}|{relationship_type}|{target_name}|{evidence}".encode(
-                "utf-8"
-            )
+            f"{source_name}|{relationship_type}|{target_name}|{evidence}".encode()
         ).hexdigest()
         if cache_key in self._triple_reverification_cache:
             return self._triple_reverification_cache[cache_key]
@@ -643,8 +641,8 @@ Rules:
 
     def _heuristic_component_summary_text(
         self,
-        component: Dict[str, Any],
-        node_lookup: Dict[str, Dict[str, Any]],
+        component: dict[str, Any],
+        node_lookup: dict[str, dict[str, Any]],
     ) -> str:
         """Produce a deterministic prose summary for one connected component."""
         entity_labels = [
@@ -654,7 +652,7 @@ Rules:
             )
             for entity_id in component.get("top_entities") or []
         ]
-        rel_phrases: List[str] = []
+        rel_phrases: list[str] = []
         for rel in component.get("relationships") or []:
             source_id = str(rel.get("source") or rel.get("from") or "").strip()
             target_id = str(rel.get("target") or rel.get("to") or "").strip()
@@ -695,16 +693,16 @@ Rules:
 
     def _claim_records_from_component(
         self,
-        component: Dict[str, Any],
-        node_lookup: Dict[str, Dict[str, Any]],
+        component: dict[str, Any],
+        node_lookup: dict[str, dict[str, Any]],
         *,
         component_index: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Synthesize simple claim records from component relations."""
         if not getattr(self, "enable_claim_extraction", False):
             return []
 
-        claims: List[Dict[str, Any]] = []
+        claims: list[dict[str, Any]] = []
         for rel_index, rel in enumerate(component.get("relationships") or []):
             source_id = str(rel.get("source") or rel.get("from") or "").strip()
             target_id = str(rel.get("target") or rel.get("to") or "").strip()
@@ -724,9 +722,7 @@ Rules:
                 text = f"{source_name} {relation} {target_name}."
                 polarity = "affirmed"
             claim_id = hashlib.sha1(
-                f"{component_index}:{source_id}:{relation}:{target_id}:{polarity}".encode(
-                    "utf-8"
-                )
+                f"{component_index}:{source_id}:{relation}:{target_id}:{polarity}".encode()
             ).hexdigest()
             claims.append(
                 {
@@ -748,16 +744,16 @@ Rules:
 
     def _propose_fragmentation_bridges(
         self,
-        components: List[Dict[str, Any]],
-        node_lookup: Dict[str, Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        components: list[dict[str, Any]],
+        node_lookup: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """Propose conservative synthetic bridge edges across disconnected components."""
         if not getattr(self, "enable_fragmentation_repair", False):
             return []
         if len(components) < 2:
             return []
 
-        candidate_bridges: List[Dict[str, Any]] = []
+        candidate_bridges: list[dict[str, Any]] = []
         generic_types = {"concept", "entity", "unknown", "other", ""}
 
         for left_index, left_component in enumerate(components):

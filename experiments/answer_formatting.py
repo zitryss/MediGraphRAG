@@ -1,7 +1,7 @@
 """Task-aware answer formatting instructions for experiment-time generation."""
 
 import re
-from typing import Callable, Dict, Iterable, Optional
+from collections.abc import Callable, Iterable
 
 SHORT_ANSWER_DATASETS = {
     "hotpotqa",
@@ -41,7 +41,7 @@ _NUMERIC_PATTERNS = (
     r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b",
 )
 
-_QUESTION_NORMALIZERS: Dict[str, Callable[[str, str, str], str]] = {}
+_QUESTION_NORMALIZERS: dict[str, Callable[[str, str, str], str]] = {}
 
 
 def _extract_leading_label(response: str, labels: Iterable[str]) -> str:
@@ -306,7 +306,7 @@ def build_answer_instructions(
     dataset_name: str,
     task_type: str,
     *,
-    options: Optional[Dict[str, str]] = None,
+    options: dict[str, str] | None = None,
 ) -> str:
     """Return task-aware answer instructions for generation prompts.
 

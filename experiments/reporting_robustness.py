@@ -14,8 +14,8 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.certificate_eval import certificate_mask, load_all  # noqa: E402
-from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS, rows_for  # noqa: E402
+from experiments.certificate_eval import certificate_mask, load_all
+from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS, rows_for
 
 RNG = np.random.default_rng(42)
 B = 5000

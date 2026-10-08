@@ -14,7 +14,8 @@ chunk_text(text, chunk_size, chunk_overlap, embedding_fn) -> List[dict]
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 def _make_text_splitter(chunk_size: int, chunk_overlap: int):
@@ -42,8 +43,8 @@ def chunk_text(
     text: str,
     chunk_size: int,
     chunk_overlap: int,
-    embedding_fn: Optional[Callable[[str], List[float]]] = None,
-) -> List[Dict[str, Any]]:
+    embedding_fn: Callable[[str], list[float]] | None = None,
+) -> list[dict[str, Any]]:
     """Split *text* into overlapping token-bounded chunks.
 
     Uses ``RecursiveCharacterTextSplitter.from_tiktoken_encoder`` so splits
@@ -97,7 +98,7 @@ def chunk_text(
         )
         raw_chunks = splitter.split_text(text)
     total = len(raw_chunks)
-    formatted: List[Dict[str, Any]] = []
+    formatted: list[dict[str, Any]] = []
     # search_start advances after each match so we find the *next* occurrence
     # of a repeated substring rather than always re-matching from 0.
     search_start = 0
@@ -120,7 +121,7 @@ def chunk_text(
                 idx,
             )
 
-        embedding: Optional[List[float]] = None
+        embedding: list[float] | None = None
         if embedding_fn is not None:
             try:
                 embedding = embedding_fn(chunk_text_)

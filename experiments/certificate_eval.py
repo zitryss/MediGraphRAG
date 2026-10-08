@@ -17,7 +17,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.trust_analysis import rows_for, gps_scores, REPO, KEY  # noqa: E402
+from experiments.trust_analysis import rows_for, gps_scores, REPO, KEY
 
 RNG = np.random.default_rng(42)
 B = 200

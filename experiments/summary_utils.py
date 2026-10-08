@@ -7,10 +7,10 @@ can be imported freely in unit tests without the full experiment stack.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def compute_accuracy_breakdown(details: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_accuracy_breakdown(details: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Compute raw and generation-failure-adjusted accuracy from per-question rows.
 
@@ -98,10 +98,10 @@ def compute_accuracy_breakdown(details: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def compute_hop_accuracy_breakdown(
-    details: List[Dict[str, Any]],
+    details: list[dict[str, Any]],
     *,
-    metric_names: Optional[List[str]] = None,
-) -> Dict[str, Dict[str, Any]]:
+    metric_names: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
     """
     Compute hop-stratified summary metrics from per-question rows.
 
@@ -126,7 +126,7 @@ def compute_hop_accuracy_breakdown(
         ]
     )
 
-    def _as_hop_count(value: Any) -> Optional[int]:
+    def _as_hop_count(value: Any) -> int | None:
         try:
             hop = int(value)
         except (TypeError, ValueError):
@@ -136,19 +136,19 @@ def compute_hop_accuracy_breakdown(
     def _bucket_label(hop: int) -> str:
         return f"{hop}-hop" if hop <= 4 else "5+-hop"
 
-    def _mean(rows: List[Dict[str, Any]], key: str, default: float = 0.0) -> float:
+    def _mean(rows: list[dict[str, Any]], key: str, default: float = 0.0) -> float:
         if not rows:
             return default
         return sum(float(row.get(key, default) or default) for row in rows) / len(rows)
 
-    by_bucket: Dict[str, List[Dict[str, Any]]] = {}
+    by_bucket: dict[str, list[dict[str, Any]]] = {}
     for row in details:
         hop = _as_hop_count(row.get("hop_count"))
         if hop is None:
             continue
         by_bucket.setdefault(_bucket_label(hop), []).append(row)
 
-    output: Dict[str, Dict[str, Any]] = {}
+    output: dict[str, dict[str, Any]] = {}
     for bucket in sorted(
         by_bucket.keys(),
         key=lambda b: 999 if b == "5+-hop" else int(b.split("-", 1)[0]),
@@ -183,8 +183,8 @@ def compute_hop_accuracy_breakdown(
 
 
 def accumulate_track_accuracy(
-    dataset_blocks: List[Dict[str, Any]],
-) -> Dict[str, List[Dict[str, Any]]]:
+    dataset_blocks: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
     """
     Compute per-track macro accuracy from a list of dataset result blocks.
 
@@ -204,7 +204,7 @@ def accumulate_track_accuracy(
     One entry per (track, config_name) so multi-config sweeps produce separate
     rows rather than silently collapsing to the first config per dataset.
     """
-    track_accumulators: Dict[Tuple[str, str], Dict] = {}
+    track_accumulators: dict[tuple[str, str], dict] = {}
 
     for block in dataset_blocks:
         dataset_name = block.get("dataset", "")
@@ -222,7 +222,7 @@ def accumulate_track_accuracy(
                 if cfg_res.get("kg_accuracy") is not None:
                     ta["kg_acc"].append(float(cfg_res["kg_accuracy"]))
 
-    result: Dict[str, List[Dict[str, Any]]] = {}
+    result: dict[str, list[dict[str, Any]]] = {}
     for (track, cfg_name), ta in track_accumulators.items():
         n = len(ta["datasets"])
         result.setdefault(track, []).append(
@@ -246,8 +246,8 @@ def _system_metric_prefix(system_name: str) -> str:
 
 
 def _candidate_rank_tuple(
-    cfg_res: Dict[str, Any], system_name: str
-) -> Tuple[float, float, float, int, float]:
+    cfg_res: dict[str, Any], system_name: str
+) -> tuple[float, float, float, int, float]:
     prefix = _system_metric_prefix(system_name)
     return (
         float(cfg_res.get(f"{prefix}_accuracy", 0.0) or 0.0),
@@ -259,8 +259,8 @@ def _candidate_rank_tuple(
 
 
 def select_best_retrieval_configs(
-    dataset_blocks: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    dataset_blocks: list[dict[str, Any]],
+) -> dict[str, Any]:
     """
     Pick the strongest config per dataset and overall for vanilla and KG-RAG.
 
@@ -271,8 +271,8 @@ def select_best_retrieval_configs(
       4. answered-question count
       5. raw accuracy
     """
-    per_dataset: Dict[str, Dict[str, Any]] = {}
-    macro_rows: Dict[str, Dict[str, Dict[str, List[float]]]] = {
+    per_dataset: dict[str, dict[str, Any]] = {}
+    macro_rows: dict[str, dict[str, dict[str, list[float]]]] = {
         "vanilla_rag": {},
         "kg_rag": {},
     }
@@ -336,9 +336,9 @@ def select_best_retrieval_configs(
                     float(cfg_res.get(f"{prefix}_accuracy_raw", 0.0) or 0.0)
                 )
 
-    overall: Dict[str, Any] = {}
+    overall: dict[str, Any] = {}
     for system_name, cfg_map in macro_rows.items():
-        candidates: List[Dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
         for cfg_name, row in cfg_map.items():
             n = max(1, len(row["datasets"]))
             candidates.append(

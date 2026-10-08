@@ -1,7 +1,7 @@
 import os
 import logging
 import re
-from typing import Dict, Any, List, Optional, Set
+from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_neo4j import Neo4jGraph
@@ -36,7 +36,7 @@ class EnhancedRAGSystem(
     Enhanced RAG System that properly connects to the knowledge graph with embeddings
     """
 
-    _ENTITY_MATCH_STOPWORDS: Set[str] = {
+    _ENTITY_MATCH_STOPWORDS: set[str] = {
         "what",
         "which",
         "where",
@@ -87,7 +87,6 @@ class EnhancedRAGSystem(
         "album",
         "series",
         "season",
-        "where",
         "owner",
         "located",
         "founded",
@@ -109,28 +108,28 @@ class EnhancedRAGSystem(
     _ANCHOR_LATER_HOP_BRIDGE_PASSAGE_LIMIT = 8
     _GRAPH_TRAVERSAL_SEED_LIMIT = 24
     _GRAPH_TRAVERSAL_NEIGHBOR_LIMIT = 30
-    _GRAPH_TRAVERSAL_MAX_HOPS_BY_KG: Dict[str, int] = {
+    _GRAPH_TRAVERSAL_MAX_HOPS_BY_KG: dict[str, int] = {
         # Shared-corpus MultihopRAG graphs get dense very quickly under open-ended
         # expansion; keep graph traversal supplemental rather than exhaustive.
         "multihoprag": 2,
     }
-    _GRAPH_TRAVERSAL_SEED_LIMIT_BY_KG: Dict[str, int] = {
+    _GRAPH_TRAVERSAL_SEED_LIMIT_BY_KG: dict[str, int] = {
         "multihoprag": 12,
     }
-    _GRAPH_TRAVERSAL_NEIGHBOR_LIMIT_BY_KG: Dict[str, int] = {
+    _GRAPH_TRAVERSAL_NEIGHBOR_LIMIT_BY_KG: dict[str, int] = {
         "multihoprag": 12,
     }
-    _ITERATIVE_SUBQUESTION_MAX_HOPS_BY_KG: Dict[str, int] = {
+    _ITERATIVE_SUBQUESTION_MAX_HOPS_BY_KG: dict[str, int] = {
         # 2Wiki sub-questions are usually already local bridge steps; allowing
         # deeper local traversals increases path drift more than it helps.
         "2wikimultihopqa": 1,
     }
-    _ORIGINAL_QUESTION_ANCHOR_KGS: Set[str] = {
+    _ORIGINAL_QUESTION_ANCHOR_KGS: set[str] = {
         "musique",
         "multihoprag",
     }
     _ENTITY_MATCH_MIN_GROUNDING: float = 0.25
-    _ENTITY_MATCH_MIN_GROUNDING_BY_KG: Dict[str, float] = {
+    _ENTITY_MATCH_MIN_GROUNDING_BY_KG: dict[str, float] = {
         "hotpotqa": 0.30,
         "2wikimultihopqa": 0.25,
         "musique": 0.25,
@@ -210,9 +209,9 @@ class EnhancedRAGSystem(
                 "Neo4j connection parameters not found. Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD environment variables."
             )
 
-        self._vector_index_available: Optional[bool] = None  # cached after first check
-        self._active_vector_index_name: Optional[str] = None
-        self._graph: Optional[object] = None  # shared Neo4j connection
+        self._vector_index_available: bool | None = None  # cached after first check
+        self._active_vector_index_name: str | None = None
+        self._graph: object | None = None  # shared Neo4j connection
         self._embedding_cache: dict = {}  # query text → embedding vector
         self._entity_extraction_cache: dict = {}  # (query, model_key) → entity strings
         self._late_interaction_corpus_cache: dict = {}  # scoped corpus rows for LI retrieval
@@ -328,7 +327,7 @@ Question: {question}""",
     def get_rag_context(
         self,
         query: str,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         similarity_threshold: float = 0.08,
         max_chunks: int = 20,
         kg_name: str = None,
@@ -338,9 +337,9 @@ Question: {question}""",
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
         llm=None,
-        anchor_mask_entity_ids: Optional[List[str]] = None,
-        anchor_mask_entity_names: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        anchor_mask_entity_ids: list[str] | None = None,
+        anchor_mask_entity_names: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Get comprehensive RAG context including chunks, entities, and relationships using vector search.
 
@@ -767,9 +766,7 @@ Question: {question}""",
                 "error": str(e),
             }
 
-    def _runtime_answer_guardrail_enabled(
-        self, runtime_guardrail: Optional[bool]
-    ) -> bool:
+    def _runtime_answer_guardrail_enabled(self, runtime_guardrail: bool | None) -> bool:
         if runtime_guardrail is not None:
             return bool(runtime_guardrail)
         return str(
@@ -781,9 +778,7 @@ Question: {question}""",
             "on",
         }
 
-    def _runtime_answer_guardrail_mode(
-        self, runtime_guardrail_mode: Optional[str]
-    ) -> str:
+    def _runtime_answer_guardrail_mode(self, runtime_guardrail_mode: str | None) -> str:
         mode = (
             str(
                 runtime_guardrail_mode
@@ -803,10 +798,10 @@ Question: {question}""",
         *,
         question: str,
         llm,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         answer_instructions: str = "",
-        extra_context_texts: Optional[List[str]] = None,
-        kg_name: Optional[str] = None,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
     ) -> str:
         evidence_block, _formatted_entities, formatted_paths = (
             self.format_context_for_llm(context)
@@ -853,9 +848,9 @@ Question: {question}""",
         question: str,
         llm,
         response: str,
-        context: Dict[str, Any],
-        runtime_guardrail: Optional[bool],
-        runtime_guardrail_mode: Optional[str],
+        context: dict[str, Any],
+        runtime_guardrail: bool | None,
+        runtime_guardrail_mode: str | None,
         retry_factory=None,
     ) -> tuple:
         if not self._runtime_answer_guardrail_enabled(runtime_guardrail):
@@ -875,7 +870,7 @@ Question: {question}""",
             chunks=context.get("chunks", []),
             llm=llm,
         )
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "enabled": True,
             "mode": mode,
             "initial_verdict": verdict,
@@ -914,24 +909,24 @@ Question: {question}""",
         self,
         question: str,
         llm,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         similarity_threshold: float = None,
         max_chunks: int = None,
         timeout: float = None,
-        extra_context_texts: Optional[List[str]] = None,
+        extra_context_texts: list[str] | None = None,
         kg_name: str = None,
         max_hops: int = 2,
         answer_instructions: str = "",
-        runtime_guardrail: Optional[bool] = None,
-        runtime_guardrail_mode: Optional[str] = None,
+        runtime_guardrail: bool | None = None,
+        runtime_guardrail_mode: str | None = None,
         question_id: str = None,
         allow_decomposition: bool = True,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
-        anchor_mask_entity_ids: Optional[List[str]] = None,
-        anchor_mask_entity_names: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        anchor_mask_entity_ids: list[str] | None = None,
+        anchor_mask_entity_names: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a RAG response using the knowledge graph with adaptive retrieval.
 
@@ -1011,7 +1006,7 @@ Question: {question}""",
                 variant_queries = self._generate_query_variants(
                     question, llm, max_hops=max_hops
                 )
-                variant_contexts: List[Dict[str, Any]] = [context]
+                variant_contexts: list[dict[str, Any]] = [context]
                 for variant_query in variant_queries:
                     try:
                         alt_context = self.get_rag_context(
@@ -1272,7 +1267,7 @@ Question: {question}""",
         except Exception as e:
             logging.error(f"Error generating RAG response: {e}")
             return {
-                "response": f"An error occurred while generating the response: {str(e)}",
+                "response": f"An error occurred while generating the response: {e!s}",
                 "context": {},
                 "sources": [],
                 "entities": [],
@@ -1280,7 +1275,7 @@ Question: {question}""",
                 "error": str(e),
             }
 
-    def get_entity_details(self, entity_id: str) -> Dict[str, Any]:
+    def get_entity_details(self, entity_id: str) -> dict[str, Any]:
         """
         Get detailed information about a specific entity
         """
@@ -1327,7 +1322,7 @@ Question: {question}""",
             logging.error(f"Error getting entity details: {e}")
             return {"error": str(e)}
 
-    def get_knowledge_graph_stats(self) -> Dict[str, Any]:
+    def get_knowledge_graph_stats(self) -> dict[str, Any]:
         """
         Get statistics about the knowledge graph
         """
@@ -1373,7 +1368,7 @@ Question: {question}""",
             logging.error(f"Error getting KG stats: {e}")
             return {"error": str(e)}
 
-    def search_entities(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    def search_entities(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
         """
         Search for entities using text-based matching
         """
@@ -1416,8 +1411,8 @@ Question: {question}""",
             return []
 
     def _extract_used_entities_and_chunks(
-        self, response: str, context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, response: str, context: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Extract entities and chunks that are actually mentioned in the RAG answer,
         using multiple fallback strategies to ensure filtering works

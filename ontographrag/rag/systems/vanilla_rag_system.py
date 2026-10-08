@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import re
-from typing import Dict, Any, List, Optional, Set
+from typing import Any
 from datetime import datetime
 
 import numpy as np
@@ -31,7 +31,7 @@ class VanillaRAGSystem:
     without knowledge graph augmentation
     """
 
-    _QUERY_STOPWORDS: Set[str] = {
+    _QUERY_STOPWORDS: set[str] = {
         "what",
         "which",
         "where",
@@ -113,7 +113,7 @@ class VanillaRAGSystem:
             embedding_provider,
             self.embedding_dimension,
         )
-        self._vector_index_name: Optional[str] = None
+        self._vector_index_name: str | None = None
         self._late_interaction_corpus_cache: dict = {}
 
         # Simple RAG prompt template (no KG traversal instructions)
@@ -166,7 +166,7 @@ User Query: {question}""",
         self._vector_index_name = None
         self._late_interaction_corpus_cache.clear()
 
-    def _generate_query_embedding(self, query: str) -> List[float]:
+    def _generate_query_embedding(self, query: str) -> list[float]:
         """Generate embedding for the query across supported embedding backends."""
         if hasattr(self.embedding_model, "embed_query"):
             return self.embedding_model.embed_query(query)
@@ -181,7 +181,7 @@ User Query: {question}""",
             "Unsupported embedding model interface. Expected embed_query or encode."
         )
 
-    def _resolve_vector_index_name(self, graph) -> Optional[str]:
+    def _resolve_vector_index_name(self, graph) -> str | None:
         """Prefer retrieval-span vectors when available, else fall back to Chunk vectors."""
         if self._vector_index_name is not None:
             return self._vector_index_name
@@ -244,9 +244,9 @@ User Query: {question}""",
     @staticmethod
     def _late_interaction_scope_key(
         *,
-        kg_name: Optional[str],
-        document_names: Optional[List[str]],
-        question_id: Optional[str],
+        kg_name: str | None,
+        document_names: list[str] | None,
+        question_id: str | None,
     ) -> tuple:
         return (
             kg_name or "",
@@ -259,9 +259,9 @@ User Query: {question}""",
         return re.sub(r"\s+", " ", str(query or "")).strip()
 
     @classmethod
-    def _content_query_tokens(cls, query: str) -> List[str]:
-        seen: Set[str] = set()
-        tokens: List[str] = []
+    def _content_query_tokens(cls, query: str) -> list[str]:
+        seen: set[str] = set()
+        tokens: list[str] = []
         for token in re.findall(r"[A-Za-z0-9]+", str(query or "").lower()):
             if len(token) < 4 or token in cls._QUERY_STOPWORDS:
                 continue
@@ -271,7 +271,7 @@ User Query: {question}""",
         return tokens
 
     @classmethod
-    def _comparison_branches(cls, query: str) -> List[str]:
+    def _comparison_branches(cls, query: str) -> list[str]:
         query = str(query or "").strip().rstrip("?")
         if not query or " or " not in query.lower():
             return []
@@ -291,7 +291,7 @@ User Query: {question}""",
         return [branch for branch in branches if len(branch) >= 4]
 
     @classmethod
-    def _comparison_branch_match_count(cls, query: str, chunk: Dict[str, Any]) -> int:
+    def _comparison_branch_match_count(cls, query: str, chunk: dict[str, Any]) -> int:
         branches = cls._comparison_branches(query)
         if not branches:
             return 0
@@ -308,7 +308,7 @@ User Query: {question}""",
 
     @classmethod
     def _comparison_branch_coverage(
-        cls, query: str, chunks: List[Dict[str, Any]]
+        cls, query: str, chunks: list[dict[str, Any]]
     ) -> int:
         branches = cls._comparison_branches(query)
         if not branches:
@@ -325,7 +325,7 @@ User Query: {question}""",
         return covered
 
     @classmethod
-    def _lexical_query_overlap_count(cls, query: str, chunk: Dict[str, Any]) -> int:
+    def _lexical_query_overlap_count(cls, query: str, chunk: dict[str, Any]) -> int:
         tokens = cls._content_query_tokens(query)
         if not tokens:
             return 0
@@ -342,8 +342,8 @@ User Query: {question}""",
 
     @classmethod
     def _sort_chunks_for_query(
-        cls, query: str, chunks: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        cls, query: str, chunks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         branches = cls._comparison_branches(query)
         return sorted(
             chunks,
@@ -367,7 +367,7 @@ User Query: {question}""",
 
     @classmethod
     def _should_run_query_fusion(
-        cls, question: str, context: Optional[Dict[str, Any]]
+        cls, question: str, context: dict[str, Any] | None
     ) -> bool:
         if not cls._query_fusion_enabled():
             return False
@@ -384,9 +384,9 @@ User Query: {question}""",
             and len(list((context or {}).get("chunks", []))) < 4
         )
 
-    def _generate_query_variants(self, question: str, llm) -> List[str]:
-        variants: List[str] = []
-        seen: Set[str] = {self._normalize_retrieval_query(question).lower()}
+    def _generate_query_variants(self, question: str, llm) -> list[str]:
+        variants: list[str] = []
+        seen: set[str] = {self._normalize_retrieval_query(question).lower()}
 
         for branch in self._comparison_branches(question):
             branch_query = self._normalize_retrieval_query(
@@ -462,17 +462,17 @@ User Query: {question}""",
         cls,
         *,
         query: str,
-        contexts: List[Dict[str, Any]],
+        contexts: list[dict[str, Any]],
         max_chunks: int,
         search_method: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         usable_contexts = [ctx for ctx in contexts if ctx and ctx.get("chunks")]
         if not usable_contexts:
             return None
         if len(usable_contexts) == 1:
             return usable_contexts[0]
 
-        chunk_records: Dict[str, Dict[str, Any]] = {}
+        chunk_records: dict[str, dict[str, Any]] = {}
         for context in usable_contexts:
             ranked_chunks = cls._sort_chunks_for_query(
                 query, list(context.get("chunks", []))
@@ -500,7 +500,7 @@ User Query: {question}""",
                     record["chunk"] = dict(chunk)
                     record["best_score"] = current_score
 
-        fused_chunks: List[Dict[str, Any]] = []
+        fused_chunks: list[dict[str, Any]] = []
         for record in chunk_records.values():
             chunk = dict(record["chunk"])
             chunk["rrf_score"] = record["rrf"]
@@ -533,10 +533,10 @@ User Query: {question}""",
         self,
         graph,
         *,
-        kg_name: Optional[str],
-        document_names: Optional[List[str]],
-        question_id: Optional[str],
-    ) -> List[Dict[str, Any]]:
+        kg_name: str | None,
+        document_names: list[str] | None,
+        question_id: str | None,
+    ) -> list[dict[str, Any]]:
         cache = getattr(self, "_late_interaction_corpus_cache", None)
         if cache is None:
             cache = {}
@@ -550,8 +550,8 @@ User Query: {question}""",
         if scope_key in cache:
             return [dict(row) for row in cache[scope_key]]
 
-        params: Dict[str, Any] = {"corpus_cap": self._late_interaction_corpus_cap()}
-        filters: List[str] = []
+        params: dict[str, Any] = {"corpus_cap": self._late_interaction_corpus_cap()}
+        filters: list[str] = []
         if kg_name:
             filters.append("d.kgName = $kg_name")
             params["kg_name"] = kg_name
@@ -591,7 +591,7 @@ User Query: {question}""",
         """
         rows = graph.query(retrieval_query, params) or []
         if not rows:
-            chunk_filters: List[str] = []
+            chunk_filters: list[str] = []
             if kg_name:
                 chunk_filters.append("d.kgName = $kg_name")
             if document_names:
@@ -631,14 +631,14 @@ User Query: {question}""",
         self,
         graph,
         query: str,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         max_chunks: int = 20,
         kg_name: str = None,
         question_id: str = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         scope_key = self._late_interaction_scope_key(
             kg_name=kg_name,
             document_names=document_names,
@@ -856,7 +856,7 @@ User Query: {question}""",
     def get_vanilla_rag_context(
         self,
         query: str,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         similarity_threshold: float = 0.1,
         max_chunks: int = 20,
         kg_name: str = None,
@@ -864,7 +864,7 @@ User Query: {question}""",
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get vanilla RAG context using direct vector similarity search on chunks.
 
@@ -1239,7 +1239,7 @@ User Query: {question}""",
                 "error": str(e),
             }
 
-    def format_context_for_llm(self, context: Dict[str, Any]) -> str:
+    def format_context_for_llm(self, context: dict[str, Any]) -> str:
         """
         Format the context for the LLM prompt (simplified, no entities)
         """
@@ -1252,9 +1252,7 @@ User Query: {question}""",
         formatted_context = "\n".join(chunk_texts)
         return formatted_context
 
-    def _runtime_answer_guardrail_enabled(
-        self, runtime_guardrail: Optional[bool]
-    ) -> bool:
+    def _runtime_answer_guardrail_enabled(self, runtime_guardrail: bool | None) -> bool:
         if runtime_guardrail is not None:
             return bool(runtime_guardrail)
         return str(
@@ -1266,9 +1264,7 @@ User Query: {question}""",
             "on",
         }
 
-    def _runtime_answer_guardrail_mode(
-        self, runtime_guardrail_mode: Optional[str]
-    ) -> str:
+    def _runtime_answer_guardrail_mode(self, runtime_guardrail_mode: str | None) -> str:
         mode = (
             str(
                 runtime_guardrail_mode
@@ -1288,9 +1284,9 @@ User Query: {question}""",
         *,
         question: str,
         llm,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         answer_instructions: str = "",
-        extra_context_texts: Optional[List[str]] = None,
+        extra_context_texts: list[str] | None = None,
     ) -> str:
         formatted_context = self.format_context_for_llm(context)
 
@@ -1325,9 +1321,9 @@ User Query: {question}""",
         question: str,
         llm,
         response: str,
-        context: Dict[str, Any],
-        runtime_guardrail: Optional[bool],
-        runtime_guardrail_mode: Optional[str],
+        context: dict[str, Any],
+        runtime_guardrail: bool | None,
+        runtime_guardrail_mode: str | None,
     ) -> tuple:
         if not self._runtime_answer_guardrail_enabled(runtime_guardrail):
             return response, {
@@ -1342,7 +1338,7 @@ User Query: {question}""",
             chunks=context.get("chunks", []),
             llm=llm,
         )
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "enabled": True,
             "mode": mode,
             "initial_verdict": verdict,
@@ -1358,19 +1354,19 @@ User Query: {question}""",
         self,
         question: str,
         llm,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         similarity_threshold: float = 0.1,
         max_chunks: int = 20,
-        extra_context_texts: Optional[List[str]] = None,
+        extra_context_texts: list[str] | None = None,
         kg_name: str = None,
         answer_instructions: str = "",
         question_id: str = None,
-        runtime_guardrail: Optional[bool] = None,
-        runtime_guardrail_mode: Optional[str] = None,
+        runtime_guardrail: bool | None = None,
+        runtime_guardrail_mode: str | None = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate a vanilla RAG response using direct vector retrieval.
 
@@ -1405,7 +1401,7 @@ User Query: {question}""",
 
             if self._should_run_query_fusion(question, context):
                 variant_queries = self._generate_query_variants(question, llm)
-                variant_contexts: List[Dict[str, Any]] = [context]
+                variant_contexts: list[dict[str, Any]] = [context]
                 for variant_query in variant_queries:
                     try:
                         alt_context = self.get_vanilla_rag_context(
@@ -1512,7 +1508,7 @@ User Query: {question}""",
         except Exception as e:
             logging.error(f"Error generating vanilla RAG response: {e}")
             return {
-                "response": f"An error occurred while generating the response: {str(e)}",
+                "response": f"An error occurred while generating the response: {e!s}",
                 "context": {},
                 "sources": [],
                 "confidence": 0.0,

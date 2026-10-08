@@ -4,7 +4,6 @@ import logging
 import requests
 from neo4j import GraphDatabase, basic_auth
 from PyPDF2 import PdfReader
-from typing import Dict, List, Union, Tuple
 from dotenv import load_dotenv
 from owlready2 import get_ontology
 
@@ -33,7 +32,7 @@ class KGLoader:
         logger.info("KGLoader initialized with Neo4j URI: %s", self.neo4j_uri)
         self.last_import_dir = None
 
-    def _load_ontology(self, ontology_path: str) -> Dict:
+    def _load_ontology(self, ontology_path: str) -> dict:
         """Load ontology from JSON or OWL file"""
         if ontology_path.endswith(".json"):
             with open(ontology_path, "r") as f:
@@ -47,7 +46,7 @@ class KGLoader:
         else:
             raise ValueError(f"Unsupported ontology format: {ontology_path}")
 
-    def load_from_pdf(self, file_path: str, ontology_path: str = None) -> Dict:
+    def load_from_pdf(self, file_path: str, ontology_path: str = None) -> dict:
         """Extract text from PDF and structure as knowledge graph using optional ontology"""
         try:
             logger.info("Loading PDF: %s", file_path)
@@ -94,7 +93,7 @@ class KGLoader:
                 "details": error_details,
             }
 
-    def list_kg_labels(self, uri: str, user: str, password: str) -> Dict:
+    def list_kg_labels(self, uri: str, user: str, password: str) -> dict:
         """List available KG labels in Neo4j database"""
         try:
             driver = GraphDatabase.driver(uri, auth=basic_auth(user, password))
@@ -118,7 +117,7 @@ class KGLoader:
         query: str = None,
         limit: int = None,
         sample_mode: bool = False,
-    ) -> Dict:
+    ) -> dict:
         """Fetch data from Neo4j database with enhanced options for complete KG import
 
         Args:
@@ -299,7 +298,7 @@ class KGLoader:
 
     def _load_neo4j_sample_with_driver(
         self, driver, kg_label: str, total_nodes: int, total_relationships: int
-    ) -> Dict:
+    ) -> dict:
         """Load a representative sample from a large Neo4j graph with proper session management"""
         session = None
         try:
@@ -317,7 +316,7 @@ class KGLoader:
 
     def _load_neo4j_sample(
         self, session, kg_label: str, total_nodes: int, total_relationships: int
-    ) -> Dict:
+    ) -> dict:
         """Load a representative sample from a large Neo4j graph"""
         try:
             # Sample strategy: get high-degree nodes and their neighborhoods
@@ -436,8 +435,8 @@ class KGLoader:
             return {"status": "error", "message": f"Sample loading failed: {e!s}"}
 
     def _create_graph_with_ontology(
-        self, text: str, ontology: Dict
-    ) -> Tuple[List, List, List]:
+        self, text: str, ontology: dict
+    ) -> tuple[list, list, list]:
         """Create knowledge graph with ontology harmonization and supernodes"""
         # Extract entities using ontology if available
         entities = []
@@ -519,9 +518,9 @@ class KGLoader:
         uri: str,
         user: str,
         password: str,
-        graph_data: Dict,
+        graph_data: dict,
         clear_database: bool = False,
-    ) -> Dict:
+    ) -> dict:
         """Save knowledge graph to Neo4j database with supernode support and duplicate handling
 
         Args:
@@ -648,7 +647,7 @@ class KGLoader:
                 "details": error_details,
             }
 
-    def save_to_file(self, graph_data: Dict, file_path: str) -> Dict:
+    def save_to_file(self, graph_data: dict, file_path: str) -> dict:
         """Save knowledge graph to a JSON file
 
         Args:

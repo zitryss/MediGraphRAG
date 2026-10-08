@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Iterable, Sequence
 from itertools import combinations
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
+from typing import Any
 
 
 def _clean_id(value: Any) -> str:
@@ -17,7 +18,7 @@ def _clean_id(value: Any) -> str:
     return text
 
 
-def _set_from(values: Iterable[Any]) -> Set[str]:
+def _set_from(values: Iterable[Any]) -> set[str]:
     return {text for text in (_clean_id(v) for v in values) if text}
 
 
@@ -26,7 +27,7 @@ def _signature(values: Iterable[Any]) -> str:
     return "||".join(items) if items else "<empty>"
 
 
-def _relationship_id(rel: Dict[str, Any]) -> str:
+def _relationship_id(rel: dict[str, Any]) -> str:
     if not isinstance(rel, dict):
         return ""
     return (
@@ -45,7 +46,7 @@ def _relationship_id(rel: Dict[str, Any]) -> str:
     )
 
 
-def _path_id(path_entry: Dict[str, Any]) -> str:
+def _path_id(path_entry: dict[str, Any]) -> str:
     if not isinstance(path_entry, dict):
         return ""
     node_ids = path_entry.get("node_ids") or []
@@ -56,7 +57,7 @@ def _path_id(path_entry: Dict[str, Any]) -> str:
     return _clean_id(path_entry.get("path"))
 
 
-def _chunk_id(chunk: Dict[str, Any]) -> str:
+def _chunk_id(chunk: dict[str, Any]) -> str:
     if not isinstance(chunk, dict):
         return ""
     return (
@@ -66,8 +67,8 @@ def _chunk_id(chunk: Dict[str, Any]) -> str:
     )
 
 
-def _entity_ids_from_chunks(chunks: Sequence[Dict[str, Any]]) -> List[str]:
-    ids: List[str] = []
+def _entity_ids_from_chunks(chunks: Sequence[dict[str, Any]]) -> list[str]:
+    ids: list[str] = []
     for chunk in chunks:
         if not isinstance(chunk, dict):
             continue
@@ -78,7 +79,7 @@ def _entity_ids_from_chunks(chunks: Sequence[Dict[str, Any]]) -> List[str]:
     return [eid for eid in ids if eid]
 
 
-def summarize_context_graph_state(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def summarize_context_graph_state(context: dict[str, Any] | None) -> dict[str, Any]:
     """Return a compact symbolic state summary for one retrieved context."""
     context = context or {}
     diagnostics = context.get("diagnostics") or {}
@@ -164,7 +165,7 @@ def mean_pairwise_jaccard(sets: Sequence[Iterable[Any]]) -> float:
     return float(sum(vals) / len(vals)) if vals else 0.0
 
 
-def graph_state_diversity(sample_states: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+def graph_state_diversity(sample_states: Sequence[dict[str, Any]]) -> dict[str, Any]:
     """Compute entropy/Jaccard diversity across per-sample graph states."""
     states = [state or {} for state in sample_states]
     if not states:
@@ -177,7 +178,7 @@ def graph_state_diversity(sample_states: Sequence[Dict[str, Any]]) -> Dict[str, 
             "route_entropy": 0.0,
         }
 
-    def labels(key: str) -> List[str]:
+    def labels(key: str) -> list[str]:
         return [str(state.get(key) or "<empty>") for state in states]
 
     seed_sets = [state.get("seed_entity_ids") or [] for state in states]
@@ -222,7 +223,7 @@ def graph_state_diversity(sample_states: Sequence[Dict[str, Any]]) -> Dict[str, 
     }
 
 
-def dominant_anchor_id(sample_states: Sequence[Dict[str, Any]]) -> str:
+def dominant_anchor_id(sample_states: Sequence[dict[str, Any]]) -> str:
     """Return the most frequent seed entity id across sample states."""
     diversity = graph_state_diversity(sample_states)
     return str(diversity.get("dominant_seed_entity_id") or "")

@@ -1,7 +1,7 @@
 import os
 import logging
 import re
-from typing import Dict, Any, List, Optional
+from typing import Any
 from ontographrag.rag.reranking import (
     late_interaction_enabled,
     late_interaction_rescore_chunks_for_query,
@@ -16,7 +16,7 @@ class VectorSearchMixin:
     """
 
     @staticmethod
-    def _is_pure_vector_search_method(search_method: Optional[str]) -> bool:
+    def _is_pure_vector_search_method(search_method: str | None) -> bool:
         """Return True when the context already came from a pure vector-only route."""
         return str(search_method or "").strip().lower() in {
             "vector_similarity",
@@ -46,9 +46,9 @@ class VectorSearchMixin:
     @staticmethod
     def _late_interaction_scope_key(
         *,
-        kg_name: Optional[str],
-        document_names: Optional[List[str]],
-        question_id: Optional[str],
+        kg_name: str | None,
+        document_names: list[str] | None,
+        question_id: str | None,
         include_entities: bool,
     ) -> tuple:
         return (
@@ -58,7 +58,7 @@ class VectorSearchMixin:
             bool(include_entities),
         )
 
-    def _generate_query_embedding(self, query: str) -> List[float]:
+    def _generate_query_embedding(self, query: str) -> list[float]:
         """Generate query embedding, caching results to avoid redundant calls."""
         if query in self._embedding_cache:
             return self._embedding_cache[query]
@@ -83,11 +83,11 @@ class VectorSearchMixin:
         self,
         graph,
         *,
-        kg_name: Optional[str],
-        document_names: Optional[List[str]],
-        question_id: Optional[str],
+        kg_name: str | None,
+        document_names: list[str] | None,
+        question_id: str | None,
         include_entities: bool,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         cache = getattr(self, "_late_interaction_corpus_cache", None)
         if cache is None:
             cache = {}
@@ -102,8 +102,8 @@ class VectorSearchMixin:
         if scope_key in cache:
             return [dict(row) for row in cache[scope_key]]
 
-        params: Dict[str, Any] = {"corpus_cap": self._late_interaction_corpus_cap()}
-        filters: List[str] = []
+        params: dict[str, Any] = {"corpus_cap": self._late_interaction_corpus_cap()}
+        filters: list[str] = []
         if kg_name:
             filters.append("d.kgName = $kg_name")
             params["kg_name"] = kg_name
@@ -162,7 +162,7 @@ class VectorSearchMixin:
         rows = graph.query(retrieval_query, params) or []
 
         if not rows:
-            chunk_filters: List[str] = []
+            chunk_filters: list[str] = []
             if kg_name:
                 chunk_filters.append("d.kgName = $kg_name")
             if document_names:
@@ -223,12 +223,12 @@ class VectorSearchMixin:
         self,
         graph,
         query: str,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         max_chunks: int = 20,
         kg_name: str = None,
         max_hops: int = 2,
         question_id: str = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         try:
             scope_key = self._late_interaction_scope_key(
                 kg_name=kg_name,
@@ -256,7 +256,7 @@ class VectorSearchMixin:
                     "search_method": "late_interaction_unavailable",
                 }
 
-            candidate_rows: List[Dict[str, Any]] = []
+            candidate_rows: list[dict[str, Any]] = []
             for row in rows:
                 entities = row.get("entities") or []
                 candidate_rows.append(
@@ -354,7 +354,7 @@ class VectorSearchMixin:
                 "late_interaction_stage": li_meta,
             }
 
-            all_entity_ids: List[str] = []
+            all_entity_ids: list[str] = []
             for row in selected_rows:
                 for entity in row.get("entities", []):
                     entity_id = entity.get("id")
@@ -443,14 +443,14 @@ class VectorSearchMixin:
         self,
         graph,
         query: str,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         similarity_threshold: float = 0.08,
         max_chunks: int = 20,
         kg_name: str = None,
         max_hops: int = 2,
         question_id: str = None,
         allow_first_stage_late_interaction: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if (
             allow_first_stage_late_interaction
             and self._first_stage_late_interaction_enabled()
@@ -536,12 +536,12 @@ class VectorSearchMixin:
         self,
         graph,
         query: str,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         max_chunks: int = 20,
         kg_name: str = None,
         max_hops: int = 2,
         question_id: str = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Text-based similarity search as fallback when vector search fails
         """
@@ -746,13 +746,13 @@ class VectorSearchMixin:
         self,
         graph,
         query: str,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         similarity_threshold: float = 0.08,
         max_chunks: int = 20,
         kg_name: str = None,
         max_hops: int = 2,
         question_id: str = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Vector similarity search using real sentence transformer embeddings.
 
@@ -1085,4 +1085,4 @@ class VectorSearchMixin:
         except Exception as e:
             logging.error(f"Error in vector similarity search: {e}")
             # Don't return error — let caller fall back to text search
-            raise Exception(f"Vector search failed: {str(e)}")
+            raise Exception(f"Vector search failed: {e!s}")

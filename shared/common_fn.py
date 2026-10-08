@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 
 
 def load_embedding_model(embedding_model_name: str = None):

@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Any
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -11,9 +11,9 @@ RUNTIME_GUARDRAIL_ABSTENTION = "I’m not confident the retrieved evidence suppo
 
 
 def render_guardrail_context(
-    chunks: List[Dict[str, Any]], max_chunks: int = 8, max_chars: int = 320
+    chunks: list[dict[str, Any]], max_chunks: int = 8, max_chars: int = 320
 ) -> str:
-    rendered: List[str] = []
+    rendered: list[str] = []
     for idx, chunk in enumerate(chunks[:max_chunks], 1):
         text = " ".join(str(chunk.get("text", "")).split())
         text = text[:max_chars]
@@ -22,9 +22,9 @@ def render_guardrail_context(
     return "\n".join(rendered)
 
 
-def parse_guardrail_verdict(raw: str) -> Dict[str, Any]:
+def parse_guardrail_verdict(raw: str) -> dict[str, Any]:
     text = str(raw or "").strip()
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
 
     if text:
         try:
@@ -81,9 +81,9 @@ def evaluate_runtime_answer_guardrail(
     *,
     question: str,
     answer: str,
-    chunks: List[Dict[str, Any]],
+    chunks: list[dict[str, Any]],
     llm: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     prompt = ChatPromptTemplate.from_messages(
         [
             (

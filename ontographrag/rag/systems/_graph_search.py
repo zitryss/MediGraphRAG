@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List, Optional, Set, Tuple
+from typing import Any
 import numpy as np
 
 
@@ -11,7 +11,7 @@ class GraphSearchMixin:
     """
 
     @classmethod
-    def _graph_traversal_seed_limit_for_kg(cls, kg_name: Optional[str]) -> int:
+    def _graph_traversal_seed_limit_for_kg(cls, kg_name: str | None) -> int:
         kg_key = str(kg_name or "").strip().lower()
         return cls._GRAPH_TRAVERSAL_SEED_LIMIT_BY_KG.get(
             kg_key,
@@ -21,7 +21,7 @@ class GraphSearchMixin:
     @classmethod
     def _graph_traversal_neighbor_limit_for_kg(
         cls,
-        kg_name: Optional[str],
+        kg_name: str | None,
         requested_limit: int,
     ) -> int:
         kg_key = str(kg_name or "").strip().lower()
@@ -34,7 +34,7 @@ class GraphSearchMixin:
     @classmethod
     def _graph_traversal_max_hops_for_kg(
         cls,
-        kg_name: Optional[str],
+        kg_name: str | None,
         requested_max_hops: int,
     ) -> int:
         kg_key = str(kg_name or "").strip().lower()
@@ -49,10 +49,10 @@ class GraphSearchMixin:
         left_var: str,
         right_var: str,
         *,
-        kg_name: Optional[str],
-        question_id: Optional[str],
-        document_names: Optional[List[str]] = None,
-        relationship_var: Optional[str] = None,
+        kg_name: str | None,
+        question_id: str | None,
+        document_names: list[str] | None = None,
+        relationship_var: str | None = None,
     ) -> str:
         """
         Build a Cypher predicate requiring local support for an entity pair.
@@ -107,12 +107,12 @@ class GraphSearchMixin:
     def _question_local_entity_support_clause(
         entity_var: str,
         *,
-        kg_name: Optional[str],
-        question_id: Optional[str],
-        document_names: Optional[List[str]] = None,
+        kg_name: str | None,
+        question_id: str | None,
+        document_names: list[str] | None = None,
     ) -> str:
         """Build a Cypher predicate requiring an entity seed to be locally supported."""
-        conditions: List[str] = []
+        conditions: list[str] = []
         if question_id:
             conditions.append("c.questionId = $question_id")
         if kg_name:
@@ -128,9 +128,9 @@ class GraphSearchMixin:
     @staticmethod
     def _question_local_path_support_clause(
         *,
-        kg_name: Optional[str],
-        question_id: Optional[str],
-        document_names: Optional[List[str]] = None,
+        kg_name: str | None,
+        question_id: str | None,
+        document_names: list[str] | None = None,
     ) -> str:
         """Build a Cypher predicate requiring question-local support for every path hop."""
         if not question_id and not document_names:
@@ -147,7 +147,7 @@ class GraphSearchMixin:
                       AND d2.fileName IN $document_names"""
 
         if not question_id:
-            node_conditions: List[str] = []
+            node_conditions: list[str] = []
             if kg_name:
                 node_conditions.append("d.kgName = $kg_name")
             if document_names:
@@ -179,12 +179,12 @@ class GraphSearchMixin:
     def _fetch_relationships_for_entity_ids(
         self,
         graph,
-        entity_ids: List[str],
+        entity_ids: list[str],
         *,
-        kg_name: Optional[str] = None,
-        question_id: Optional[str] = None,
-        document_names: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
+        kg_name: str | None = None,
+        question_id: str | None = None,
+        document_names: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Fetch entity-to-entity relationships, optionally scoped to one question bundle."""
         if not entity_ids:
             return []
@@ -236,15 +236,15 @@ class GraphSearchMixin:
     def _plan_relation_paths(
         self,
         graph,
-        seed_entity_ids: List[str],
+        seed_entity_ids: list[str],
         query: str,
         *,
         kg_name: str = None,
         question_id: str = None,
-        document_names: List[str] = None,
+        document_names: list[str] = None,
         top_k: int = 10,
         min_sim: float = 0.20,
-    ) -> Optional[List[str]]:
+    ) -> list[str] | None:
         """RoG-style relation path planning.
 
         Enumerate all relation types reachable in 1-2 hops from seed entities,
@@ -258,7 +258,7 @@ class GraphSearchMixin:
             return None
 
         scope_filters = ""
-        params: Dict[str, Any] = {"seed_ids": seed_entity_ids}
+        params: dict[str, Any] = {"seed_ids": seed_entity_ids}
         if kg_name:
             params["kg_name"] = kg_name
             scope_filters += "\n  AND (a.kgName IS NULL OR a.kgName = $kg_name)"
@@ -293,7 +293,7 @@ class GraphSearchMixin:
         if qnorm == 0:
             return None
 
-        scored: List[Tuple[float, str]] = []
+        scored: list[tuple[float, str]] = []
         for rel_type in rel_types:
             # Convert snake_case / ALL_CAPS label to readable words for embedding
             readable = rel_type.replace("_", " ").lower()
@@ -331,15 +331,15 @@ class GraphSearchMixin:
     def _expand_entities_via_graph(
         self,
         graph,
-        seed_entity_ids: List[str],
+        seed_entity_ids: list[str],
         kg_name: str = None,
         max_hops: int = 2,
         max_neighbors: int = 30,
         question_id: str = None,
-        document_names: List[str] = None,
-        allowed_rel_types: Optional[List[str]] = None,
-        excluded_entity_ids: Optional[Set[str]] = None,
-    ) -> Dict[str, Any]:
+        document_names: list[str] = None,
+        allowed_rel_types: list[str] | None = None,
+        excluded_entity_ids: set[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Multi-hop graph traversal from seed entities.
 
@@ -381,7 +381,7 @@ class GraphSearchMixin:
                 )
                 seed_entity_ids = seed_entity_ids[:seed_limit]
 
-            params: Dict[str, Any] = {
+            params: dict[str, Any] = {
                 "seed_ids": seed_entity_ids,
                 "max_neighbors": effective_max_neighbors,
                 "excluded_entity_ids": list(excluded_entity_ids),
@@ -468,9 +468,9 @@ class GraphSearchMixin:
 
             results = graph.query(traversal_query, params)
 
-            neighbors: Dict[str, Any] = {}
+            neighbors: dict[str, Any] = {}
             seen_paths: set = set()
-            paths: List[Dict[str, Any]] = []
+            paths: list[dict[str, Any]] = []
 
             for row in results:
                 neighbor_id = row["id"]
@@ -506,9 +506,9 @@ class GraphSearchMixin:
                             parts.extend([f"--{rel_label}-->", node])
                         path_str = " ".join(parts)
                         if path_str not in seen_paths:
-                            path_positions: Set[int] = set()
-                            path_question_ids: Set[str] = set()
-                            path_passage_keys: Set[str] = set()
+                            path_positions: set[int] = set()
+                            path_question_ids: set[str] = set()
+                            path_passage_keys: set[str] = set()
                             for rel in rel_data:
                                 if not isinstance(rel, dict):
                                     continue
@@ -606,11 +606,11 @@ class GraphSearchMixin:
     def _fetch_subgraph_edges(
         self,
         graph,
-        entity_ids: List[str],
+        entity_ids: list[str],
         kg_name: str = None,
         question_id: str = None,
-        document_names: List[str] = None,
-    ) -> List[Tuple[str, str]]:
+        document_names: list[str] = None,
+    ) -> list[tuple[str, str]]:
         """
         Return all directed edges (src_id, tgt_id) between a set of entity IDs.
 
@@ -620,7 +620,7 @@ class GraphSearchMixin:
         """
         if not entity_ids:
             return []
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "entity_ids": entity_ids,
             "kg_name": kg_name,
             "question_id": question_id,
@@ -680,10 +680,10 @@ class GraphSearchMixin:
 
     def _ppr_entity_scores(
         self,
-        seed_ids: List[str],
-        all_entity_ids: List[str],
-        edges: List[Tuple],
-    ) -> Dict[str, float]:
+        seed_ids: list[str],
+        all_entity_ids: list[str],
+        edges: list[tuple],
+    ) -> dict[str, float]:
         """
         Approximate Personalized PageRank via confidence-weighted power iteration.
 
@@ -701,7 +701,7 @@ class GraphSearchMixin:
         idx = {eid: i for i, eid in enumerate(all_entity_ids)}
 
         # Build weighted undirected adjacency: adj[i] = {j: weight, ...}
-        adj: List[Dict[int, float]] = [{} for _ in range(n)]
+        adj: list[dict[int, float]] = [{} for _ in range(n)]
         for edge in edges:
             src, tgt = edge[0], edge[1]
             weight = float(edge[2]) if len(edge) > 2 else 1.0
@@ -743,10 +743,10 @@ class GraphSearchMixin:
         max_hops: int = 2,
         question_id: str = None,
         llm=None,
-        document_names: List[str] = None,
-        anchor_mask_entity_ids: Optional[List[str]] = None,
-        anchor_mask_entity_names: Optional[List[str]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        document_names: list[str] = None,
+        anchor_mask_entity_ids: list[str] | None = None,
+        anchor_mask_entity_names: list[str] | None = None,
+    ) -> dict[str, Any] | None:
         """
         Entity-first retrieval: find KG entities whose names appear in the question,
         walk the graph from those seeds, then retrieve the chunks those entities came from.
@@ -822,7 +822,7 @@ class GraphSearchMixin:
                            END AS weighted_score
                     ORDER BY weighted_score DESC
                     """
-                    ann_scope_params: Dict[str, Any] = {
+                    ann_scope_params: dict[str, Any] = {
                         "kg_name": kg_name,
                         "use_node_specificity": self.use_node_specificity,
                     }
@@ -832,13 +832,13 @@ class GraphSearchMixin:
                         ann_scope_params["document_names"] = document_names
 
                     # --- Per-entity embedding pass (HippoRAG-style) ---
-                    query_entities: List[str] = []
+                    query_entities: list[str] = []
                     if llm is not None and self.use_per_entity_ann:
                         query_entities = self._extract_query_entities(query, llm)
 
                     if query_entities:
                         # One ANN call per extracted entity; union results, keep best score.
-                        seen_by_id: Dict[str, Any] = {}
+                        seen_by_id: dict[str, Any] = {}
                         for entity_mention in query_entities:
                             entity_vec = self._generate_query_embedding(entity_mention)
                             rows = (
@@ -884,7 +884,7 @@ class GraphSearchMixin:
                 logging.warning("Embedding entity lookup skipped: %s", _emb_err)
 
             # Step 1b: substring / token matching as a complementary pass
-            params: Dict[str, Any] = {"query_text": query.lower()}
+            params: dict[str, Any] = {"query_text": query.lower()}
             if kg_name:
                 params["kg_name"] = kg_name
             if question_id:
@@ -907,7 +907,7 @@ class GraphSearchMixin:
             # Merge both passes, deduplicating by entity id and keeping the best-ranked
             # candidate features. Exact phrase matches outrank overlap matches, which
             # outrank embedding-only matches.
-            merged_by_id: Dict[str, Dict[str, Any]] = {}
+            merged_by_id: dict[str, dict[str, Any]] = {}
             for row in emb_matched:
                 row = dict(row)
                 row.setdefault("exact_in_query", 0)
@@ -1029,7 +1029,7 @@ class GraphSearchMixin:
             )
 
             # Step 2: build seed entity dict (hop 0)
-            entities: Dict[str, Any] = {}
+            entities: dict[str, Any] = {}
             for row in matched:
                 eid = row["id"]
                 if not eid:
@@ -1087,7 +1087,7 @@ class GraphSearchMixin:
             # depth) each chunk was reached through so we can assign hop-weighted scores.
             all_entity_ids = list(entities.keys())
             candidate_chunk_limit = min(max_chunks * 10, 200)
-            chunk_params: Dict[str, Any] = {
+            chunk_params: dict[str, Any] = {
                 "entity_ids": all_entity_ids,
                 "candidate_chunk_limit": candidate_chunk_limit,
             }
@@ -1152,8 +1152,8 @@ class GraphSearchMixin:
             seed_ids_for_ppr = [
                 eid for eid, info in entities.items() if info.get("min_hops", 99) == 0
             ]
-            ppr_scores: Dict[str, float] = {}
-            subgraph_edges: List[Tuple[str, str]] = []
+            ppr_scores: dict[str, float] = {}
+            subgraph_edges: list[tuple[str, str]] = []
             if (
                 self.use_ppr_scoring
                 and seed_ids_for_ppr
@@ -1260,7 +1260,7 @@ class GraphSearchMixin:
                     for c in chunks
                     if c.get("min_hop", 1) > 0 and c.get("chunk_element_id")
                 ]
-                eid_to_sim: Dict[str, float] = {}
+                eid_to_sim: dict[str, float] = {}
                 if traversal_eids and qnorm > 0:
                     try:
                         _emb_rows = graph.query(
@@ -1420,10 +1420,10 @@ class GraphSearchMixin:
         kg_name: str = None,
         max_hops: int = 2,
         question_id: str = None,
-        document_names: List[str] = None,
-        anchor_mask_entity_ids: Optional[List[str]] = None,
-        anchor_mask_entity_names: Optional[List[str]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        document_names: list[str] = None,
+        anchor_mask_entity_ids: list[str] | None = None,
+        anchor_mask_entity_names: list[str] | None = None,
+    ) -> dict[str, Any] | None:
         """
         Retriever-first graph expansion (RFGE).
 
@@ -1467,8 +1467,8 @@ class GraphSearchMixin:
                 for name in (anchor_mask_entity_names or [])
                 if str(name).strip()
             }
-            vec_entity_ids: List[str] = []
-            cosine_by_chunk: Dict[str, float] = {}
+            vec_entity_ids: list[str] = []
+            cosine_by_chunk: dict[str, float] = {}
             _MAX_ENTITIES_PER_CHUNK = (
                 4  # cap seeds per chunk to avoid generic-entity flooding
             )
@@ -1512,7 +1512,7 @@ class GraphSearchMixin:
             )
 
             # Build the combined entity pool: passage seeds + graph neighbors.
-            all_entities: Dict[str, Any] = {}
+            all_entities: dict[str, Any] = {}
             for eid in vec_entity_ids:
                 all_entities[eid] = {
                     "id": eid,
@@ -1531,7 +1531,7 @@ class GraphSearchMixin:
                 question_id=question_id,
                 document_names=document_names,
             )
-            ppr_scores: Dict[str, float] = {}
+            ppr_scores: dict[str, float] = {}
             max_ppr = 0.0
             if subgraph_edges:
                 ppr_scores = self._ppr_entity_scores(
@@ -1570,7 +1570,7 @@ class GraphSearchMixin:
             ]
             if neighbor_eids:
                 existing_cids = {c["chunk_id"] for c in chunks}
-                extra_params: Dict[str, Any] = {
+                extra_params: dict[str, Any] = {
                     "entity_ids": neighbor_eids[:20],
                     "limit": max(4, max_chunks // 3),
                 }

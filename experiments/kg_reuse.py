@@ -1,19 +1,19 @@
 """Helpers for deciding whether an existing dataset KG can be safely reused."""
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 def assess_dataset_kg_compatibility(
-    existing_meta: Dict[str, Any],
-    expected_meta: Dict[str, Any],
+    existing_meta: dict[str, Any],
+    expected_meta: dict[str, Any],
     *,
     evaluation_subset_scope: str = "evaluation_subset",
-) -> Tuple[bool, List[str]]:
+) -> tuple[bool, list[str]]:
     """Compare stored KG metadata against the current expected build contract."""
     if not existing_meta or not expected_meta:
         return True, []
 
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     def _compare(
         existing_key: str,

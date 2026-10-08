@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from ontographrag.rag.graph_state import summarize_context_graph_state
@@ -14,7 +14,7 @@ class IterativeRetrievalMixin:
 
     def _iterative_subquestion_max_hops_for_kg(
         self,
-        kg_name: Optional[str],
+        kg_name: str | None,
         dataset_max_hops: int,
     ) -> int:
         """Return the per-subquestion traversal cap for iterative retrieval."""
@@ -30,9 +30,9 @@ class IterativeRetrievalMixin:
         cls,
         question: str,
         sub_question: str,
-        kg_name: Optional[str],
+        kg_name: str | None,
         hop_idx: int,
-        next_sub_question: Optional[str] = None,
+        next_sub_question: str | None = None,
     ) -> str:
         if hop_idx <= 0 or kg_name not in cls._ORIGINAL_QUESTION_ANCHOR_KGS:
             return sub_question
@@ -52,7 +52,7 @@ class IterativeRetrievalMixin:
     @classmethod
     def _iterative_hop_retrieval_budget(
         cls,
-        kg_name: Optional[str],
+        kg_name: str | None,
         hop_idx: int,
         base_hop_max: int,
     ) -> int:
@@ -64,17 +64,17 @@ class IterativeRetrievalMixin:
         self,
         graph,
         question: str,
-        sub_questions: List[str],
+        sub_questions: list[str],
         max_chunks: int,
         kg_name: str,
         max_hops: int,
         llm,
         similarity_threshold: float,
-        document_names: List[str],
+        document_names: list[str],
         question_id: str = None,
-        anchor_mask_entity_ids: Optional[List[str]] = None,
-        anchor_mask_entity_names: Optional[List[str]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        anchor_mask_entity_ids: list[str] | None = None,
+        anchor_mask_entity_names: list[str] | None = None,
+    ) -> dict[str, Any] | None:
         """
         Per-hop retrieval with bridge answer extraction between hops (IRCoT / StepChain).
 
@@ -109,7 +109,7 @@ class IterativeRetrievalMixin:
         # Per-hop buckets so we can prune graph facts after chunk truncation.
         # Each entry: {"chunks": [...], "entities": {...}, "relationships": [...],
         #              "graph_neighbors": {...}, "traversal_paths": [...]}
-        hop_buckets: List[Dict[str, Any]] = []
+        hop_buckets: list[dict[str, Any]] = []
 
         # grounding / seed metrics are anchored to hop 0 (the original question).
         # Captured once after the first hop completes; never overwritten.
@@ -323,7 +323,7 @@ class IterativeRetrievalMixin:
                 else:
                     # Vector/text fallback: entity keys are opaque IDs, not readable names.
                     # Estimate grounding from the coverage of content-bearing question tokens.
-                    surfaces: List[str] = []
+                    surfaces: list[str] = []
                     for einfo in hop_ctx.get("entities", {}).values():
                         surface = (
                             einfo.get("description")
@@ -418,7 +418,7 @@ class IterativeRetrievalMixin:
                     )
 
         # --- Flatten all hop chunks (new-only), sort, and truncate ---
-        all_chunks: List[Dict] = []
+        all_chunks: list[dict] = []
         for bucket in hop_buckets:
             all_chunks.extend(bucket["new_chunks"])
         if not all_chunks:
@@ -452,10 +452,10 @@ class IterativeRetrievalMixin:
                     retained_eids.add(eid)
 
         # --- Merge graph facts from active hops, then filter to retained entity set ---
-        merged_entities: Dict[str, Any] = {}
-        merged_relationships: List[Dict] = []
-        merged_graph_neighbors: Dict[str, Any] = {}
-        merged_traversal_paths: List[Dict] = []
+        merged_entities: dict[str, Any] = {}
+        merged_relationships: list[dict] = []
+        merged_graph_neighbors: dict[str, Any] = {}
+        merged_traversal_paths: list[dict] = []
         seen_rel_keys: set = set()
         seen_path_strs: set = set()
 

@@ -20,14 +20,15 @@ import glob
 import json
 import os
 import sys
-from typing import Any, Dict, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 
 import numpy as np
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.gps_v2_paper_numbers import percentile_ranks  # noqa: E402
+from experiments.gps_v2_paper_numbers import percentile_ranks
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNS = os.path.join(REPO, "results", "latest_kg_design_final_metrics", "runs")
@@ -49,14 +50,14 @@ SLUGS = [
 ]
 
 
-def latest_artifact(slug: str, strict: bool = False) -> Optional[str]:
+def latest_artifact(slug: str, strict: bool = False) -> str | None:
     middle = "_strict_" if strict else "_"
     pattern = os.path.join(RUNS, "*", f"gps_v2_replay_{slug}{middle}[0-9]*.json")
     paths = glob.glob(pattern)
     return sorted(paths)[-1] if paths else None
 
 
-def load_artifact(slug: str, strict: bool = False) -> Dict[str, Any]:
+def load_artifact(slug: str, strict: bool = False) -> dict[str, Any]:
     path = latest_artifact(slug, strict=strict)
     if not path:
         raise FileNotFoundError(
@@ -68,17 +69,17 @@ def load_artifact(slug: str, strict: bool = False) -> Dict[str, Any]:
     return artifact
 
 
-def row_map(source_result: str) -> Dict[str, Dict[str, Any]]:
+def row_map(source_result: str) -> dict[str, dict[str, Any]]:
     with open(os.path.join(REPO, source_result)) as f:
         doc = json.load(f)
-    rows: Dict[str, Dict[str, Any]] = {}
+    rows: dict[str, dict[str, Any]] = {}
     for cfg in doc.get("config_results", []):
         for row in cfg.get("details", []):
             rows[str(row["question_id"])] = row
     return rows
 
 
-def expected_hop(slug: str, row: Optional[Dict[str, Any]]) -> int:
+def expected_hop(slug: str, row: dict[str, Any] | None) -> int:
     if slug == "realmedqa":
         return 1
     if slug in {"hotpotqa", "hotpotqa_fullwiki"}:
@@ -91,11 +92,11 @@ def expected_hop(slug: str, row: Optional[Dict[str, Any]]) -> int:
 
 
 def score_from_store_depth_matched(
-    store_row: Optional[Dict[str, Any]],
+    store_row: dict[str, Any] | None,
     expected_depth: int,
     tau: float = TAU,
     gamma: float = GAMMA,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if not store_row:
         return {"score": 0.5, "null_reason": "missing_store"}
     if store_row.get("null_reason"):
@@ -120,10 +121,10 @@ def score_from_store_depth_matched(
 
 def scores_for(
     slug: str, strict: bool = False, side: str = "kg"
-) -> Dict[str, Optional[float]]:
+) -> dict[str, float | None]:
     artifact = load_artifact(slug, strict=strict)
     rows = row_map(artifact["source_result"])
-    out: Dict[str, Optional[float]] = {}
+    out: dict[str, float | None] = {}
     for q in artifact["questions"]:
         qid = str(q["question_id"])
         store = (q.get("store") or {}).get(side)
@@ -136,7 +137,7 @@ def scores_for(
 
 def scored_rows(
     slug: str, strict: bool = False, side: str = "kg"
-) -> list[tuple[str, Optional[float], bool]]:
+) -> list[tuple[str, float | None, bool]]:
     artifact = load_artifact(slug, strict=strict)
     rows = row_map(artifact["source_result"])
     out = []
@@ -153,7 +154,7 @@ def scored_rows(
 
 def auroc_ci(
     scores: Iterable[float], wrong: Iterable[bool]
-) -> tuple[Optional[float], Optional[float], Optional[float]]:
+) -> tuple[float | None, float | None, float | None]:
     s = np.asarray(list(scores), float)
     w = np.asarray(list(wrong), int)
     if len(s) == 0 or len(set(w)) < 2:
@@ -168,7 +169,7 @@ def auroc_ci(
     return point, float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))
 
 
-def aurec(correct: Iterable[bool], uncertainty: Iterable[float]) -> Optional[float]:
+def aurec(correct: Iterable[bool], uncertainty: Iterable[float]) -> float | None:
     y = np.asarray(list(correct), float)
     u = np.asarray(list(uncertainty), float)
     if len(y) == 0:
@@ -180,7 +181,7 @@ def aurec(correct: Iterable[bool], uncertainty: Iterable[float]) -> Optional[flo
     return float((suffix / remaining).mean())
 
 
-def summarise(slug: str, strict: bool = False, side: str = "kg") -> Dict[str, Any]:
+def summarise(slug: str, strict: bool = False, side: str = "kg") -> dict[str, Any]:
     rows = scored_rows(slug, strict=strict, side=side)
     defined = [(s, not c) for _, s, c in rows if s is not None]
     scores = [s for s, _ in defined]
@@ -195,7 +196,7 @@ def summarise(slug: str, strict: bool = False, side: str = "kg") -> Dict[str, An
     }
 
 
-def metric_rows(slug: str, policy: str) -> list[Dict[str, Any]]:
+def metric_rows(slug: str, policy: str) -> list[dict[str, Any]]:
     manifest = json.load(
         open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
     )
@@ -240,7 +241,7 @@ def metric_rows(slug: str, policy: str) -> list[Dict[str, Any]]:
     return out
 
 
-def spearman_ci(x: list[float], y: list[float]) -> Dict[str, Any]:
+def spearman_ci(x: list[float], y: list[float]) -> dict[str, Any]:
     x_arr = np.asarray(x, float)
     y_arr = np.asarray(y, float)
     rho = float(spearmanr(x_arr, y_arr).statistic)
@@ -256,7 +257,7 @@ def spearman_ci(x: list[float], y: list[float]) -> Dict[str, Any]:
 
 
 def main() -> None:
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "method": "Depth-matched GPS replay from saved legacy GPS stores",
         "frozen": {"tau": TAU, "gamma": GAMMA},
         "adaptive": {},

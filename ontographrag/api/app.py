@@ -366,7 +366,7 @@ def _extract_text_from_bytes(data: bytes, filename: str) -> tuple[str, str]:
             avg_chars,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"PDF processing failed: {e!s}")
 
     # --- Tier 2: Surya OCR (optional dependency) ---
     try:
@@ -653,7 +653,7 @@ async def create_kg(
 
         return JSONResponse(content={"status": "success", "kg": result})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create KG: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create KG: {e!s}")
 
 
 @app.get("/kg/list")
@@ -696,7 +696,7 @@ async def list_kgs():
 
         return JSONResponse(content={"status": "success", "kgs": kgs})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list KGs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list KGs: {e!s}")
 
 
 @app.get("/kg/{kg_name}")
@@ -730,7 +730,7 @@ async def get_kg(kg_name: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get KG: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get KG: {e!s}")
 
 
 @app.delete("/kg/{kg_name}")
@@ -761,7 +761,7 @@ async def delete_kg(kg_name: str, delete_entities: bool = Query(True)):
             }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete KG: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete KG: {e!s}")
 
 
 @app.get("/kg/{kg_name}/entities")
@@ -792,9 +792,7 @@ async def get_kg_entities(kg_name: str, limit: int = 100):
             }
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get KG entities: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to get KG entities: {e!s}")
 
 
 @app.get("/health/neo4j")
@@ -1212,7 +1210,7 @@ async def create_ontology_guided_kg(
 
         # Generate unique KG name if not provided
         if not kg_name:
-            kg_name = f"kg_{str(uuid.uuid4())}"
+            kg_name = f"kg_{uuid.uuid4()!s}"
 
         logger.info(
             "Initializing OntologyGuidedKGCreator (ontology_path=%s)", ontology_path
@@ -1363,7 +1361,7 @@ async def create_ontology_guided_kg(
         # Returning local-only data would blur "built" vs "persisted" for callers.
         # If you need a preview/extract-only path use /extract_graph instead.
         raise HTTPException(
-            status_code=500, detail=f"Ontology-guided KG creation failed: {str(e)}"
+            status_code=500, detail=f"Ontology-guided KG creation failed: {e!s}"
         )
     finally:
         _kg_building = False
@@ -1646,7 +1644,7 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"KG-RAG Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"KG-RAG Error: {e!s}")
 
 
 @app.get("/models/{provider}")
@@ -1792,7 +1790,7 @@ async def clear_kg(kg_name: str = Form(None)):
     except Exception as e:
         logger.exception("Error clearing KG")
         raise HTTPException(
-            status_code=500, detail=f"Failed to clear knowledge graph: {str(e)}"
+            status_code=500, detail=f"Failed to clear knowledge graph: {e!s}"
         )
 
 
@@ -1919,7 +1917,7 @@ async def save_kg_to_neo4j(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to save KG to Neo4j: {str(e)}"
+            status_code=500, detail=f"Failed to save KG to Neo4j: {e!s}"
         )
 
 
@@ -2191,7 +2189,7 @@ async def validate_csv(csv_file: UploadFile = File(...)):
         raise
     except Exception as e:
         logger.exception("CSV validation error")
-        raise HTTPException(status_code=500, detail=f"CSV validation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"CSV validation failed: {e!s}")
     finally:
         if csv_path:
             try:
@@ -2304,7 +2302,7 @@ async def bulk_process_csv(
     except Exception as e:
         logger.exception("Bulk CSV processing error")
         raise HTTPException(
-            status_code=500, detail=f"Bulk CSV processing failed: {str(e)}"
+            status_code=500, detail=f"Bulk CSV processing failed: {e!s}"
         )
     finally:
         if csv_path:
@@ -2347,7 +2345,7 @@ async def serve_csv_template():
     except Exception as e:
         logger.exception("Error serving CSV template")
         raise HTTPException(
-            status_code=500, detail=f"Could not generate CSV template: {str(e)}"
+            status_code=500, detail=f"Could not generate CSV template: {e!s}"
         )
     finally:
         if template_path:

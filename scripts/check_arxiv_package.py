@@ -16,17 +16,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE = REPO / "reproducibility" / "arxiv_v1"
 MANIFEST = PACKAGE / "MANIFEST.json"
 PAPER = REPO / "paper"
 
 BANNED_SOURCE_PATTERNS = {
-    "future-tense availability": re.compile(r"\bwill be released\b", re.I),
-    "unqualified clinical certificate": re.compile(r"\bclinical certificate\b", re.I),
-    "causal stress-test phrasing": re.compile(r"\bclearest mechanism\b", re.I),
-    "deployment-strength certificate": re.compile(r"\bdeployable certificate\b", re.I),
+    "future-tense availability": re.compile(r"\bwill be released\b", re.IGNORECASE),
+    "unqualified clinical certificate": re.compile(
+        r"\bclinical certificate\b", re.IGNORECASE
+    ),
+    "causal stress-test phrasing": re.compile(r"\bclearest mechanism\b", re.IGNORECASE),
+    "deployment-strength certificate": re.compile(
+        r"\bdeployable certificate\b", re.IGNORECASE
+    ),
 }
 
 

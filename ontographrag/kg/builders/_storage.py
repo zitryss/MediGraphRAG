@@ -1,7 +1,7 @@
 import json
 import re
 import hashlib
-from typing import Dict, Any, List, Optional
+from typing import Any
 from langchain_neo4j import Neo4jGraph
 import os
 import logging
@@ -72,13 +72,13 @@ class StorageMixin:
 
     @classmethod
     def _sanitize_neo4j_properties(
-        cls, properties: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        cls, properties: dict[str, Any] | None
+    ) -> dict[str, Any]:
         """Drop null/NaN values and coerce the rest to Neo4j-safe property values."""
         if not isinstance(properties, dict):
             return {}
 
-        safe_properties: Dict[str, Any] = {}
+        safe_properties: dict[str, Any] = {}
         for key, value in properties.items():
             if value is None:
                 continue
@@ -96,9 +96,9 @@ class StorageMixin:
         *,
         kg_name: str,
         file_name: str,
-        enrichment: Dict[str, Any],
-        chunks: List[Dict[str, Any]],
-    ) -> Dict[str, int]:
+        enrichment: dict[str, Any],
+        chunks: list[dict[str, Any]],
+    ) -> dict[str, int]:
         """Persist optional summaries, claims, and bridge edges to Neo4j."""
         if not enrichment:
             return {"component_summaries": 0, "claims": 0, "fragmentation_bridges": 0}
@@ -241,9 +241,7 @@ class StorageMixin:
 
         for bridge in fragmentation_bridges:
             bridge_key = hashlib.sha1(
-                f"{kg_name}:{bridge['source_id']}:{bridge['target_id']}:{bridge['reason']}".encode(
-                    "utf-8"
-                )
+                f"{kg_name}:{bridge['source_id']}:{bridge['target_id']}:{bridge['reason']}".encode()
             ).hexdigest()
             graph.query(
                 """
@@ -313,7 +311,7 @@ class StorageMixin:
 
     def store_knowledge_graph_with_embeddings(
         self,
-        kg: Dict[str, Any],
+        kg: dict[str, Any],
         file_name: str,
         doc_metadata: dict = None,
         doc_hash: str = None,

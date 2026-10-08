@@ -4,7 +4,7 @@ import hashlib
 import difflib
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any
 from collections import defaultdict
 import os
 import logging
@@ -121,7 +121,7 @@ class OntologySchemaMixin:
         raw_classes = raw.get("classes") or raw.get("entity_types") or []
         raw_rels = raw.get("relationships") or raw.get("relationship_types") or []
 
-        entity_types: List[OntEntityType] = []
+        entity_types: list[OntEntityType] = []
         for cls in raw_classes:
             if not isinstance(cls, dict):
                 continue
@@ -156,7 +156,7 @@ class OntologySchemaMixin:
                 )
             )
 
-        relationship_types: List[OntRelType] = []
+        relationship_types: list[OntRelType] = []
         for rel in raw_rels:
             if not isinstance(rel, dict):
                 continue
@@ -224,7 +224,7 @@ class OntologySchemaMixin:
             r = elem.get(_rdf_rsrc, "")
             return _local(r) if r else None
 
-        def _child_text_by_local_name(parent, local_name: str) -> Optional[str]:
+        def _child_text_by_local_name(parent, local_name: str) -> str | None:
             if parent is None:
                 return None
             for child in list(parent):
@@ -237,11 +237,11 @@ class OntologySchemaMixin:
                         return child.text.strip()
             return None
 
-        def _bool_text(value: Optional[str]) -> bool:
+        def _bool_text(value: str | None) -> bool:
             return str(value or "").strip().lower() in {"true", "1", "yes"}
 
         def _xsd_to_prop_type(
-            range_uri: Optional[str], explicit_type: Optional[str]
+            range_uri: str | None, explicit_type: str | None
         ) -> PropertyType:
             if explicit_type:
                 return self._prop_type(explicit_type)
@@ -259,7 +259,7 @@ class OntologySchemaMixin:
                 "boolean": PropertyType.BOOLEAN,
             }.get(local, PropertyType.STRING)
 
-        entity_types: List[OntEntityType] = []
+        entity_types: list[OntEntityType] = []
         for cls_elem in root.findall(".//owl:Class", ns):
             uri = cls_elem.get(_rdf_about, "")
             if not uri:
@@ -288,7 +288,7 @@ class OntologySchemaMixin:
 
         entity_by_id = {et.id: et for et in entity_types}
 
-        relationship_attribute_map: Dict[str, List[RelationshipAttribute]] = (
+        relationship_attribute_map: dict[str, list[RelationshipAttribute]] = (
             defaultdict(list)
         )
 
@@ -343,7 +343,7 @@ class OntologySchemaMixin:
                 )
             )
 
-        relationship_types: List[OntRelType] = []
+        relationship_types: list[OntRelType] = []
         for prop_elem in root.findall(".//owl:ObjectProperty", ns):
             uri = prop_elem.get(_rdf_about, "")
             if not uri:
@@ -414,7 +414,7 @@ class OntologySchemaMixin:
         )
 
     @staticmethod
-    def _normalize_ontology_identifier(value: Optional[str]) -> str:
+    def _normalize_ontology_identifier(value: str | None) -> str:
         """Normalize ontology ids/labels for exact and fuzzy matching."""
         if not isinstance(value, str):
             return ""
@@ -423,7 +423,7 @@ class OntologySchemaMixin:
         normalized = re.sub(r"_+", "_", normalized)
         return normalized.strip("_")
 
-    def _schema_generic_entity_type(self) -> Optional[str]:
+    def _schema_generic_entity_type(self) -> str | None:
         """Return a generic ontology entity class when the schema defines one."""
         schema = self._ontology_schema
         if schema and schema.entity_types:
@@ -438,11 +438,11 @@ class OntologySchemaMixin:
 
     def _match_ontology_entity_type(
         self,
-        raw_type: Optional[str],
+        raw_type: str | None,
         *,
         allow_fuzzy: bool = True,
         min_score: float = 0.80,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Map a raw entity type string onto a known ontology class id."""
         normalized_raw = self._normalize_ontology_identifier(raw_type)
         if not normalized_raw:
@@ -493,9 +493,9 @@ class OntologySchemaMixin:
 
     def _coerce_entity_type_with_ontology(
         self,
-        raw_type: Optional[str],
-        entity_text: Optional[str] = None,
-    ) -> Optional[str]:
+        raw_type: str | None,
+        entity_text: str | None = None,
+    ) -> str | None:
         """Coerce extracted entity types onto the active ontology when present."""
         has_ontology = bool(
             self._ontology_schema and self._ontology_schema.entity_types
@@ -542,7 +542,7 @@ class OntologySchemaMixin:
         )
         return None
 
-    def _schema_generic_relationship_type(self) -> Optional[str]:
+    def _schema_generic_relationship_type(self) -> str | None:
         """Return a schema-defined generic relationship type when available."""
         preferred = {"related_to", "associated_with", "connects_to", "linked_to"}
         schema = self._ontology_schema
@@ -699,7 +699,7 @@ class OntologySchemaMixin:
         if getattr(self, "few_shot_example_count", 0) <= 0:
             return ""
 
-        examples: List[str] = []
+        examples: list[str] = []
         schema = self._ontology_schema
         if schema and schema.relationship_types and schema.entity_types:
             for rt in schema.relationship_types[: max(1, self.few_shot_example_count)]:
@@ -750,10 +750,10 @@ class OntologySchemaMixin:
 
     def _normalize_anchor_inventory(
         self,
-        raw_inventory: Dict[str, Any],
+        raw_inventory: dict[str, Any],
         *,
         chunk_text: str,
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    ) -> dict[str, list[dict[str, Any]]]:
         """Normalize discovered anchors and attach exact local spans."""
         inventory = {
             "entity_anchors": [],
@@ -1033,9 +1033,9 @@ class OntologySchemaMixin:
     def _canonicalize_relationship_type(
         self,
         raw_type: str,
-        source_type: Optional[str] = None,
-        target_type: Optional[str] = None,
-    ) -> Optional[str]:
+        source_type: str | None = None,
+        target_type: str | None = None,
+    ) -> str | None:
         """Map a raw LLM-generated relationship type to the closest ontology relationship.
 
         Steps:
@@ -1232,9 +1232,9 @@ class OntologySchemaMixin:
 
     def _coerce_harmonized_entities_to_schema(
         self,
-        harmonized_entities: List[Dict[str, Any]],
-        harmonized_relationships: List[Dict[str, Any]],
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        harmonized_entities: list[dict[str, Any]],
+        harmonized_relationships: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Apply ontology type enforcement after harmonization as a final backstop."""
         has_ontology = bool(
             self._ontology_schema and self._ontology_schema.entity_types
@@ -1242,7 +1242,7 @@ class OntologySchemaMixin:
         if not has_ontology:
             return harmonized_entities, harmonized_relationships
 
-        filtered_entities: List[Dict[str, Any]] = []
+        filtered_entities: list[dict[str, Any]] = []
         valid_entity_ids = set()
         dropped_entities = 0
         for entity in harmonized_entities:

@@ -10,7 +10,7 @@ CSV Processors for Knowledge Graph bulk ingestion.
 
 import pandas as pd
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any
 from pathlib import Path
 
 
@@ -35,7 +35,7 @@ class DocumentCSVProcessor:
         self.id_column = id_column
         self.delimiter = delimiter
 
-    def validate_csv_format(self, file_path: str) -> Dict[str, Any]:
+    def validate_csv_format(self, file_path: str) -> dict[str, Any]:
         if not Path(file_path).exists():
             raise FileNotFoundError(f"CSV file not found: {file_path}")
 
@@ -66,7 +66,7 @@ class DocumentCSVProcessor:
         file_path: str,
         start_row: int = 0,
         max_rows: int = 50,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Load a batch of documents from CSV.
 
@@ -179,7 +179,7 @@ class MedicalReportCSVProcessor:
         self.delimiter = delimiter
         self.validated_schema = None
 
-    def validate_csv_format(self, file_path: str) -> Dict[str, Any]:
+    def validate_csv_format(self, file_path: str) -> dict[str, Any]:
         """
         Validate CSV file format and structure
 
@@ -276,8 +276,8 @@ class MedicalReportCSVProcessor:
             return {"is_valid": False, "error": str(e), "delimiter": self.delimiter}
 
     def load_reports_bulk(
-        self, file_path: str, start_row: int = 0, max_rows: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self, file_path: str, start_row: int = 0, max_rows: int | None = None
+    ) -> dict[str, Any]:
         """
         Load and process medical reports in bulk
 
@@ -338,7 +338,7 @@ class MedicalReportCSVProcessor:
             logging.error(f"Bulk processing failed: {e}")
             raise
 
-    def _process_single_report(self, row: pd.Series) -> Dict[str, Any]:
+    def _process_single_report(self, row: pd.Series) -> dict[str, Any]:
         """
         Process a single report row into structured format
 
@@ -429,7 +429,7 @@ class MedicalReportCSVProcessor:
         logging.info(f"Delimiter: {self.delimiter}")
         logging.info(f"Columns: {len(self.EXPECTED_FIELDS)}")
 
-    def _generate_sample_data(self) -> Dict[str, List[str]]:
+    def _generate_sample_data(self) -> dict[str, list[str]]:
         """Generate sample medical report data"""
         return {
             "patient_id": ["PAT001", "PAT002", "PAT003", "PAT004", "PAT005"],

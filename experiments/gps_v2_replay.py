@@ -34,13 +34,13 @@ import sys
 import time
 from collections import Counter
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.uncertainty_metrics import (  # noqa: E402
+from experiments.uncertainty_metrics import (
     _candidate_structural_spans,
     _load_scoped_entities,
     _match_scoped_entities_to_text,
@@ -80,7 +80,7 @@ GRID_GAMMA = tuple(
 )
 
 
-def _load_env() -> Dict[str, str]:
+def _load_env() -> dict[str, str]:
     env_path = os.path.join(REPO_ROOT, ".env")
     if os.path.exists(env_path):
         for line in open(env_path):
@@ -96,7 +96,7 @@ def _load_env() -> Dict[str, str]:
     }
 
 
-def _select_config(doc: Dict[str, Any], name: str) -> Dict[str, Any]:
+def _select_config(doc: dict[str, Any], name: str) -> dict[str, Any]:
     for cfg in doc.get("config_results", []):
         if cfg.get("config", {}).get("name") == name:
             return cfg
@@ -105,7 +105,7 @@ def _select_config(doc: Dict[str, Any], name: str) -> Dict[str, Any]:
 
 def _merged_rows(
     result_path: str, kg_cfg: str = KG_CFG, with_dense: bool = True
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """vanilla_* fields from the dense config, kg_* from entity-first (paper convention)."""
     doc = json.load(open(result_path))
     dense = (
@@ -127,7 +127,7 @@ def _merged_rows(
 class ScopedEntityIndex:
     """Entities (with embeddings) visible in one (kg_name, question_id) scope."""
 
-    def __init__(self, session, kg_name: str, question_id: Optional[str]):
+    def __init__(self, session, kg_name: str, question_id: str | None):
         scope = _question_local_entity_support_predicate(
             "e", kg_name=kg_name, question_id=question_id
         )
@@ -167,12 +167,12 @@ class ScopedEntityIndex:
         else:
             self.emb_matrix = np.zeros((0, 384), dtype=np.float32)
 
-    def surface_match(self, text: str) -> List[Dict[str, Any]]:
+    def surface_match(self, text: str) -> list[dict[str, Any]]:
         return _match_scoped_entities_to_text(
             text, self.rows, min_name_length=MIN_NAME_LENGTH, max_entities=MAX_ENTITIES
         )
 
-    def soft_match(self, text: str, encoder, tau: float) -> List[Dict[str, Any]]:
+    def soft_match(self, text: str, encoder, tau: float) -> list[dict[str, Any]]:
         """Top entities by max cosine between any candidate span and the entity name."""
         if self.emb_matrix.shape[0] == 0:
             return []
@@ -198,17 +198,17 @@ class ScopedEntityIndex:
 
 def _min_path_length(
     session,
-    q_ids: List[str],
+    q_ids: list[str],
     a_id: str,
     kg_name: str,
-    question_id: Optional[str],
+    question_id: str | None,
     max_hops: int,
-) -> Optional[int]:
+) -> int | None:
     """Smallest L in 1..max_hops with a qualifying path, mirroring GPS-v1 filters."""
     path_scope = _question_local_path_support_predicate(
         path_var="p", kg_name=kg_name, question_id=question_id
     )
-    params: Dict[str, Any] = {"q_ids": q_ids, "a_id": a_id}
+    params: dict[str, Any] = {"q_ids": q_ids, "a_id": a_id}
     if kg_name:
         params["kg_name"] = kg_name
     if question_id:
@@ -235,9 +235,9 @@ def replay_question(
     question: str,
     answer: str,
     kg_name: str,
-    question_id: Optional[str],
+    question_id: str | None,
     max_hops: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resolve links + path lengths once, at the loose threshold (store row)."""
     q_matches = index.surface_match(question)
     q_source = "surface"
@@ -252,7 +252,7 @@ def replay_question(
         return {"null_reason": "no_q_entities"}
 
     span = _primary_answer_span(answer)
-    a_links: Dict[str, Dict[str, Any]] = {}
+    a_links: dict[str, dict[str, Any]] = {}
     for m in index.surface_match(span):
         a_id = str(m.get("id"))
         if a_id:
@@ -293,8 +293,8 @@ def replay_question(
 
 
 def score_from_store(
-    store_row: Dict[str, Any], tau: float, gamma: float
-) -> Dict[str, Any]:
+    store_row: dict[str, Any], tau: float, gamma: float
+) -> dict[str, Any]:
     """Evaluate one (tau, gamma) grid point from a stored replay row."""
     if store_row.get("null_reason"):
         return {"score": 0.5, "null_reason": store_row["null_reason"]}
@@ -308,7 +308,7 @@ def score_from_store(
     return {"score": float(1.0 - num / den), "null_reason": None}
 
 
-def auroc(scores: List[float], wrong: List[bool]) -> Optional[float]:
+def auroc(scores: list[float], wrong: list[bool]) -> float | None:
     from sklearn.metrics import roc_auc_score
 
     if len(set(wrong)) < 2:
@@ -317,8 +317,8 @@ def auroc(scores: List[float], wrong: List[bool]) -> Optional[float]:
 
 
 def summarize(
-    rows: List[Dict[str, Any]], side: str, tau: float, gamma: float
-) -> Dict[str, Any]:
+    rows: list[dict[str, Any]], side: str, tau: float, gamma: float
+) -> dict[str, Any]:
     scored, wrong, reasons = [], [], Counter()
     answered = 0
     for r in rows:
@@ -343,7 +343,7 @@ def summarize(
 
 
 def run_dataset(
-    slug: str, env: Dict[str, str], encoder, grid: bool, tau: float, gamma: float
+    slug: str, env: dict[str, str], encoder, grid: bool, tau: float, gamma: float
 ):
     from neo4j import GraphDatabase
 

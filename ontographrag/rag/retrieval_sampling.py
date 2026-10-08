@@ -1,5 +1,6 @@
 import hashlib
-from typing import Any, Callable, List, Optional, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -32,9 +33,9 @@ def select_ranked_subset(
     retrieval_temperature: float,
     shortlist_factor: int,
     sample_id: int = 0,
-    seed_parts: Optional[Sequence[Any]] = None,
-    score_getter: Optional[Callable[[Any], float]] = None,
-) -> List[Any]:
+    seed_parts: Sequence[Any] | None = None,
+    score_getter: Callable[[Any], float] | None = None,
+) -> list[Any]:
     """Sample a top-k subset from a ranked list while preserving original order.
 
     When `retrieval_temperature <= 0`, returns the first `max_items` unchanged.

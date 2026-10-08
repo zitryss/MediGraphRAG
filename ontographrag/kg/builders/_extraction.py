@@ -1,7 +1,7 @@
 import json
 import re
 import hashlib
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any
 from ontographrag.kg.chunking import chunk_text as _chunk_text_fn
 from collections import defaultdict, Counter
 import logging
@@ -23,9 +23,9 @@ class ExtractionMixin:
     def _select_relationship_types_for_prompt(
         self,
         chunk_text: str,
-        selected_entity_types: List[OntEntityType],
+        selected_entity_types: list[OntEntityType],
         max_rel_types: int,
-    ) -> List[OntRelType]:
+    ) -> list[OntRelType]:
         """Prefer relationship types that are lexically or structurally relevant."""
         schema = self._ontology_schema
         if not schema or not schema.relationship_types:
@@ -33,7 +33,7 @@ class ExtractionMixin:
 
         chunk_lower = chunk_text.lower()
         selected_ids = {et.id for et in selected_entity_types}
-        scored: List[Tuple[int, int, OntRelType]] = []
+        scored: list[tuple[int, int, OntRelType]] = []
         for idx, rt in enumerate(schema.relationship_types):
             score = 0
             id_form = rt.id.lower()
@@ -76,12 +76,12 @@ class ExtractionMixin:
     def _rank_entity_types_for_prompt(
         self,
         chunk_text: str,
-        entity_types: List[OntEntityType],
-    ) -> List[Tuple[int, int, OntEntityType]]:
+        entity_types: list[OntEntityType],
+    ) -> list[tuple[int, int, OntEntityType]]:
         """Stage 1 of ontology prompting: score entity types by local relevance."""
         chunk_lower = chunk_text.lower()
         chunk_tokens = self._ontology_prompt_keyword_set(chunk_text)
-        ranked: List[Tuple[int, int, OntEntityType]] = []
+        ranked: list[tuple[int, int, OntEntityType]] = []
         for idx, et in enumerate(entity_types):
             score = 0
             label_text = et.label.lower()
@@ -106,7 +106,7 @@ class ExtractionMixin:
 
     @staticmethod
     def _adaptive_prompt_item_cap(
-        ranked_items: List[Tuple[int, int, Any]],
+        ranked_items: list[tuple[int, int, Any]],
         *,
         base_cap: int,
         absolute_cap: int,
@@ -119,14 +119,14 @@ class ExtractionMixin:
 
     @staticmethod
     def _render_prompt_lines_with_budget(
-        lines: List[str],
+        lines: list[str],
         *,
         char_budget: int,
         min_items: int,
         hard_cap: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """Stage 2 of ontology prompting: keep relevant lines until the prompt budget is full."""
-        selected: List[str] = []
+        selected: list[str] = []
         total_chars = 0
         for line in lines[:hard_cap]:
             projected = total_chars + len(line) + 1
@@ -138,9 +138,9 @@ class ExtractionMixin:
 
     def _ground_chunk_extraction(
         self,
-        chunk_kg: Dict[str, Any],
-        chunk: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        chunk_kg: dict[str, Any],
+        chunk: dict[str, Any],
+    ) -> dict[str, Any]:
         """Attach exact-span anchors and restoration metadata to one chunk extraction."""
         if not isinstance(chunk_kg, dict):
             return {"entities": [], "relationships": []}
@@ -161,8 +161,8 @@ class ExtractionMixin:
             passage_index=passage_index,
         )
 
-        grounded_entities: List[Dict[str, Any]] = []
-        entity_by_id: Dict[str, Dict[str, Any]] = {}
+        grounded_entities: list[dict[str, Any]] = []
+        entity_by_id: dict[str, dict[str, Any]] = {}
 
         for entity in chunk_kg.get("entities", []) or []:
             if not isinstance(entity, dict):
@@ -199,7 +199,7 @@ class ExtractionMixin:
             if isinstance(entity_id, str) and entity_id.strip():
                 entity_by_id[entity_id] = entity_copy
 
-        grounded_relationships: List[Dict[str, Any]] = []
+        grounded_relationships: list[dict[str, Any]] = []
         for rel in chunk_kg.get("relationships", []) or []:
             if not isinstance(rel, dict):
                 continue
@@ -369,8 +369,8 @@ Rules:
         self,
         text: str,
         *,
-        section_headers: Optional[List[Tuple[int, str]]] = None,
-    ) -> List[Dict[str, Any]]:
+        section_headers: list[tuple[int, str]] | None = None,
+    ) -> list[dict[str, Any]]:
         """Chunk text without crossing detected section boundaries when possible."""
         headers = list(section_headers or self._detect_section_headers(text))
         if not headers:
@@ -386,7 +386,7 @@ Rules:
         if len(boundaries) <= 2:
             return self._chunk_text(text)
 
-        section_chunks: List[Dict[str, Any]] = []
+        section_chunks: list[dict[str, Any]] = []
         for start, end in zip(boundaries, boundaries[1:]):
             segment_text = text[start:end]
             if not segment_text.strip():
@@ -406,7 +406,7 @@ Rules:
 
         return section_chunks or self._chunk_text(text)
 
-    def _chunk_text(self, text: str) -> List[Dict[str, Any]]:
+    def _chunk_text(self, text: str) -> list[dict[str, Any]]:
         """Chunk text using RecursiveCharacterTextSplitter with tiktoken encoding.
 
         Delegates to ontographrag.kg.chunking.chunk_text so the logic is
@@ -423,8 +423,8 @@ Rules:
         self,
         chunk_text: str,
         *,
-        previous_entities: Optional[List[Dict[str, Any]]] = None,
-        previous_texts: Optional[List[str]] = None,
+        previous_entities: list[dict[str, Any]] | None = None,
+        previous_texts: list[str] | None = None,
         llm=None,
         model_name: str = "openai/gpt-oss-120b:free",
     ) -> str:
@@ -469,10 +469,10 @@ Rules:
 
     def _build_retrieval_subchunks(
         self,
-        chunk: Dict[str, Any],
+        chunk: dict[str, Any],
         *,
         parent_chunk_id: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Build smaller retrieval-only spans from a larger KG extraction chunk.
 
@@ -501,7 +501,7 @@ Rules:
             chunk_overlap=retrieval_chunk_overlap,
             embedding_fn=self.embedding_function.embed_query,
         )
-        retrieval_subchunks: List[Dict[str, Any]] = []
+        retrieval_subchunks: list[dict[str, Any]] = []
         parent_start = int(chunk.get("start_pos") or 0)
         for subchunk in raw_subchunks:
             retrieval_subchunks.append(
@@ -681,12 +681,12 @@ Rules:
         llm,
         *,
         model_name: str,
-        context_header: Optional[str],
-        section_header: Optional[str],
-    ) -> Dict[str, Any]:
+        context_header: str | None,
+        section_header: str | None,
+    ) -> dict[str, Any]:
         """Run multiple independent extractions and keep majority-supported items."""
         num_samples = max(1, int(getattr(self, "self_consistency_n", 1) or 1))
-        samples: List[Dict[str, Any]] = []
+        samples: list[dict[str, Any]] = []
         for _ in range(num_samples):
             samples.append(
                 self._extract_entities_and_relationships_with_llm(
@@ -700,7 +700,7 @@ Rules:
             )
 
         threshold = (num_samples // 2) + 1
-        entity_votes: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        entity_votes: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for sample in samples:
             seen_entity_keys = set()
             for entity in sample.get("entities", []) or []:
@@ -714,8 +714,8 @@ Rules:
                 entity_votes[key].append(entity)
                 seen_entity_keys.add(key)
 
-        kept_entities: List[Dict[str, Any]] = []
-        entity_alias_map: Dict[str, str] = {}
+        kept_entities: list[dict[str, Any]] = []
+        entity_alias_map: dict[str, str] = {}
         for key, voted_entities in entity_votes.items():
             if len(voted_entities) < threshold:
                 continue
@@ -758,7 +758,7 @@ Rules:
             str(entity.get("id") or ""): str(entity.get("type") or "")
             for entity in kept_entities
         }
-        relationship_votes: Dict[Tuple[str, str, str, bool], List[Dict[str, Any]]] = (
+        relationship_votes: dict[tuple[str, str, str, bool], list[dict[str, Any]]] = (
             defaultdict(list)
         )
         for sample in samples:
@@ -799,7 +799,7 @@ Rules:
                 relationship_votes[vote_key].append(rel_copy)
                 seen_relationship_keys.add(vote_key)
 
-        kept_relationships: List[Dict[str, Any]] = []
+        kept_relationships: list[dict[str, Any]] = []
         for vote_key, voted_relationships in relationship_votes.items():
             if len(voted_relationships) < threshold:
                 continue
@@ -857,7 +857,7 @@ Rules:
         context_header: str = None,
         section_header: str = None,
         _self_consistency_depth: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Extract entities and relationships using LLM with ontology guidance (if ontology
         available) or natural LLM detection.
@@ -1111,7 +1111,7 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
             logging.error(f"LLM extraction failed: {e}")
             return {"entities": [], "relationships": []}
 
-    def _partial_json_extract(self, text: str) -> Dict[str, Any]:
+    def _partial_json_extract(self, text: str) -> dict[str, Any]:
         """
         Best-effort recovery when json.loads() fails on an LLM response.
 
@@ -1167,8 +1167,8 @@ IMPORTANT: Return ONLY the JSON object, no additional text."""
         response: Any,
         *,
         allow_partial_extraction: bool = False,
-        empty_result: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        empty_result: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Parse a JSON object from an LLM response with fence/brace recovery."""
         if empty_result is None:
             empty_result = {}
@@ -1293,7 +1293,7 @@ Return ONLY the JSON object.
         context_preamble: str,
         ontology_section: str,
         has_ontology: bool,
-        anchor_inventory: Dict[str, List[Dict[str, Any]]],
+        anchor_inventory: dict[str, list[dict[str, Any]]],
     ) -> str:
         """Stage 2 of anchor-constrained extraction: compose triples only from anchors."""
         schema_block = f"{ontology_section}\n\n" if ontology_section else ""
@@ -1391,7 +1391,7 @@ Return ONLY the JSON object.
         context_preamble: str,
         ontology_section: str,
         has_ontology: bool,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Anchor-first KG extraction with constrained relation composition."""
         if llm is None:
             return None
@@ -1485,12 +1485,12 @@ Return ONLY the JSON object.
 
     def _postprocess_extraction_result(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         *,
         chunk_text: str,
         llm,
         model_name: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Normalize parsed extraction JSON into entity/relationship records."""
         if not isinstance(result, dict) or (
             "entities" not in result and "relationships" not in result
@@ -1788,8 +1788,8 @@ Rules:
         return {"entities": medical_entities, "relationships": medical_relationships}
 
     def _extract_relationships_only(
-        self, combined_text: str, known_entities: List[Dict], llm, model_name: str
-    ) -> List[Dict]:
+        self, combined_text: str, known_entities: list[dict], llm, model_name: str
+    ) -> list[dict]:
         """
         Given a combined text (two adjacent chunks) and entities already known from those chunks,
         ask the LLM only for relationships between those entities — no new entity extraction.
@@ -1864,13 +1864,13 @@ Rules:
 
     def _select_entities_for_relation_prompt(
         self,
-        entities: List[Dict[str, Any]],
+        entities: list[dict[str, Any]],
         text: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Keep only entities grounded in text, with a safe prompt-size cap."""
         if not isinstance(text, str) or not text.strip():
             return []
-        deduped: List[Dict[str, Any]] = []
+        deduped: list[dict[str, Any]] = []
         seen_entity_ids = set()
         for entity in entities:
             entity_id = entity.get("id")
@@ -1885,7 +1885,7 @@ Rules:
         if len(deduped) <= getattr(self, "max_relationship_prompt_entities", 40):
             return deduped
 
-        def _support_score(entity: Dict[str, Any]) -> Tuple[int, int]:
+        def _support_score(entity: dict[str, Any]) -> tuple[int, int]:
             names = self._entity_candidate_names(entity)
             longest_name = max((len(name) for name in names), default=0)
             mentions = sum(
@@ -1900,23 +1900,23 @@ Rules:
 
     def _extract_relationships_for_segment_windows(
         self,
-        segment_texts: List[str],
-        segment_entities: Dict[int, List[Dict[str, Any]]],
-        segment_positions: Dict[int, List[int]],
+        segment_texts: list[str],
+        segment_entities: dict[int, list[dict[str, Any]]],
+        segment_positions: dict[int, list[int]],
         llm,
         model_name: str,
         *,
         max_window_size: int,
         scope_label: str,
-        relationship_scope_metadata: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+        relationship_scope_metadata: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Recover relationships that span multiple adjacent chunks or passages."""
         if llm is None or len(segment_texts) < 2:
             return []
 
         n_segments = len(segment_texts)
         max_window_size = max(2, min(int(max_window_size or 2), n_segments))
-        recovered: List[Dict[str, Any]] = []
+        recovered: list[dict[str, Any]] = []
         total_rels = 0
 
         for window_size in range(2, max_window_size + 1):
@@ -1930,7 +1930,7 @@ Rules:
                 if not combined_text.strip():
                     continue
 
-                candidate_entities: List[Dict[str, Any]] = []
+                candidate_entities: list[dict[str, Any]] = []
                 for idx in indices:
                     candidate_entities.extend(segment_entities.get(idx, []))
                 candidate_entities = self._select_entities_for_relation_prompt(
@@ -1956,7 +1956,7 @@ Rules:
                                 if value is not None:
                                     rel_properties.setdefault(key, value)
                             rel["properties"] = rel_properties
-                    provenance_positions: List[int] = []
+                    provenance_positions: list[int] = []
                     for idx in indices:
                         provenance_positions.extend(segment_positions.get(idx, []))
                     recovered.extend(

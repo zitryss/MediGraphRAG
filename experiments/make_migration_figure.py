@@ -19,11 +19,11 @@ sys.path.insert(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "paper", "figures"
     ),
 )
-import make_figures  # noqa: E402  (rcParams styling)
-import matplotlib.pyplot as plt  # noqa: E402
-import matplotlib.gridspec as gridspec  # noqa: E402
+import make_figures  # rcParams styling
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
-from experiments.trust_analysis import rows_for  # noqa: E402
+from experiments.trust_analysis import rows_for
 
 FLOOR = 1e-12
 N_ARROWS = 12

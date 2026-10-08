@@ -16,26 +16,26 @@ import json
 import os
 import sys
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.answer_formatting import (  # noqa: E402
+from experiments.answer_formatting import (
     build_answer_instructions,
     normalize_answer_to_contract,
 )
-from experiments.experiment import MIRAGEEvaluationPipeline  # noqa: E402
-from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS  # noqa: E402
-from experiments.uncertainty_metrics import compute_all_uncertainty_metrics  # noqa: E402
-from ontographrag.rag.graph_state import (  # noqa: E402
+from experiments.experiment import MIRAGEEvaluationPipeline
+from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS
+from experiments.uncertainty_metrics import compute_all_uncertainty_metrics
+from ontographrag.rag.graph_state import (
     dominant_anchor_id,
     graph_state_diversity,
     summarize_context_graph_state,
 )
-from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem  # noqa: E402
+from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
 
 
-def _result_details(dataset: str, policy: str) -> List[Dict[str, Any]]:
+def _result_details(dataset: str, policy: str) -> list[dict[str, Any]]:
     if policy == "strict":
         path = os.path.join(REPO, STRICT_RUNS[dataset])
         doc = json.load(open(path))
@@ -59,8 +59,8 @@ def select_candidates(
     wrong_only: bool,
     require_populated_route: bool,
     limit: int,
-) -> List[Dict[str, Any]]:
-    candidates: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
     for row in _result_details(dataset, policy):
         if row.get("kg_generation_failed"):
             continue
@@ -109,7 +109,7 @@ def _make_kg_system(policy: str) -> EnhancedRAGSystem:
     )
 
 
-def _question_id_for_scope(dataset: str, qid: str) -> Optional[str]:
+def _question_id_for_scope(dataset: str, qid: str) -> str | None:
     return qid if dataset in MIRAGEEvaluationPipeline.QUESTION_SCOPED_DATASETS else None
 
 
@@ -117,13 +117,13 @@ def _generate_once(
     *,
     pipeline: MIRAGEEvaluationPipeline,
     kg_system: EnhancedRAGSystem,
-    row: Dict[str, Any],
+    row: dict[str, Any],
     dataset: str,
     max_hops: int,
     max_chunks: int,
     allow_decomposition: bool,
-    anchor_mask_entity_ids: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    anchor_mask_entity_ids: list[str] | None = None,
+) -> dict[str, Any]:
     answer_instructions = build_answer_instructions(
         dataset,
         row.get("task_type") or "",
@@ -174,13 +174,13 @@ def _sample_diversity(
     *,
     pipeline: MIRAGEEvaluationPipeline,
     kg_system: EnhancedRAGSystem,
-    row: Dict[str, Any],
+    row: dict[str, Any],
     dataset: str,
     max_hops: int,
     max_chunks: int,
     allow_decomposition: bool,
-    anchor_mask_entity_ids: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    anchor_mask_entity_ids: list[str] | None = None,
+) -> dict[str, Any]:
     answer_instructions = build_answer_instructions(
         dataset,
         row.get("task_type") or "",
@@ -217,7 +217,7 @@ def _sample_diversity(
     return diversity
 
 
-def run_intervention(args, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+def run_intervention(args, candidates: list[dict[str, Any]]) -> dict[str, Any]:
     pipeline = MIRAGEEvaluationPipeline(
         num_samples=None,
         entropy_samples=args.entropy_samples,

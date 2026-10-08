@@ -1,15 +1,15 @@
+import hashlib
 import logging
 import os
-import hashlib
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
-
-_RERANKER_CACHE: Dict[Tuple[str, str, int], Any] = {}
+_RERANKER_CACHE: dict[tuple[str, str, int], Any] = {}
 _RERANKER_FAILURES: set = set()
-_LATE_INTERACTION_CACHE: Dict[Tuple[str, str, int, int], Any] = {}
+_LATE_INTERACTION_CACHE: dict[tuple[str, str, int, int], Any] = {}
 _LATE_INTERACTION_FAILURES: set = set()
-_LATE_INTERACTION_INDEX_CACHE: "OrderedDict[Tuple[str, str, int, str, str], Dict[str, Any]]" = OrderedDict()
+_LATE_INTERACTION_INDEX_CACHE: "OrderedDict[tuple[str, str, int, str, str], dict[str, Any]]" = OrderedDict()
 
 
 def reranker_enabled() -> bool:
@@ -132,10 +132,10 @@ def _load_late_interaction_model(model_name: str):
 
 
 def _late_interaction_scores(
-    bundle: Dict[str, Any],
+    bundle: dict[str, Any],
     query: str,
-    chunks: Sequence[Dict[str, Any]],
-) -> List[float]:
+    chunks: Sequence[dict[str, Any]],
+) -> list[float]:
     tokenizer = bundle["tokenizer"]
     model = bundle["model"]
     device = bundle["device"]
@@ -169,8 +169,8 @@ def _late_interaction_scores(
         query_mask = query_inputs["attention_mask"][0] > 0
     query_tokens = torch.nn.functional.normalize(query_hidden[query_mask], p=2, dim=-1)
 
-    scores: List[float] = []
-    texts: List[str] = []
+    scores: list[float] = []
+    texts: list[str] = []
     for chunk in chunks:
         doc = str(chunk.get("document", "")).strip()
         text = str(chunk.get("text", "")).strip()
@@ -211,7 +211,7 @@ def _late_interaction_scores(
     return scores
 
 
-def _late_interaction_chunk_identity(chunk: Dict[str, Any], idx: int) -> str:
+def _late_interaction_chunk_identity(chunk: dict[str, Any], idx: int) -> str:
     for key in (
         "chunk_element_id",
         "parent_chunk_element_id",
@@ -225,7 +225,7 @@ def _late_interaction_chunk_identity(chunk: Dict[str, Any], idx: int) -> str:
     return f"row-{idx}:{text[:96]}"
 
 
-def _late_interaction_chunk_text(chunk: Dict[str, Any]) -> str:
+def _late_interaction_chunk_text(chunk: dict[str, Any]) -> str:
     doc = str(chunk.get("document", "")).strip()
     text = str(chunk.get("text", "")).strip()
     return f"[Document: {doc}]\n{text}" if doc else text
@@ -271,7 +271,7 @@ def _late_interaction_default_shortlist_factor() -> int:
     )
 
 
-def _late_interaction_index_signature(chunks: Sequence[Dict[str, Any]]) -> str:
+def _late_interaction_index_signature(chunks: Sequence[dict[str, Any]]) -> str:
     hasher = hashlib.sha1()
     for idx, chunk in enumerate(chunks):
         chunk_id = _late_interaction_chunk_identity(chunk, idx)
@@ -288,10 +288,10 @@ def _late_interaction_index_signature(chunks: Sequence[Dict[str, Any]]) -> str:
 
 
 def _late_interaction_index_cache_key(
-    bundle: Dict[str, Any],
-    chunks: Sequence[Dict[str, Any]],
+    bundle: dict[str, Any],
+    chunks: Sequence[dict[str, Any]],
     index_key: Any,
-) -> Tuple[str, str, int, str, str]:
+) -> tuple[str, str, int, str, str]:
     scope_key = repr(index_key) if index_key is not None else ""
     return (
         str(bundle.get("model_name", "")),
@@ -308,8 +308,8 @@ def _trim_late_interaction_index_cache() -> None:
 
 
 def _encode_late_interaction_query(
-    bundle: Dict[str, Any], query: str
-) -> Dict[str, Any]:
+    bundle: dict[str, Any], query: str
+) -> dict[str, Any]:
     tokenizer = bundle["tokenizer"]
     model = bundle["model"]
     device = bundle["device"]
@@ -350,11 +350,11 @@ def _encode_late_interaction_query(
 
 
 def _build_late_interaction_index(
-    bundle: Dict[str, Any],
-    chunks: Sequence[Dict[str, Any]],
+    bundle: dict[str, Any],
+    chunks: Sequence[dict[str, Any]],
     *,
     index_key: Any = None,
-) -> Tuple[Optional[Dict[str, Any]], bool]:
+) -> tuple[dict[str, Any] | None, bool]:
     chunk_list = list(chunks)
     if not chunk_list:
         return None, False
@@ -375,8 +375,8 @@ def _build_late_interaction_index(
     )
 
     texts = [_late_interaction_chunk_text(chunk) for chunk in chunk_list]
-    doc_tokens: List[Any] = []
-    pooled_vectors: List[Any] = []
+    doc_tokens: list[Any] = []
+    pooled_vectors: list[Any] = []
 
     for start in range(0, len(texts), batch_size):
         doc_inputs = tokenizer(
@@ -432,8 +432,8 @@ def _build_late_interaction_index(
 def _resolve_late_interaction_shortlist_size(
     *,
     total_docs: int,
-    max_chunks: Optional[int],
-    shortlist_size: Optional[int],
+    max_chunks: int | None,
+    shortlist_size: int | None,
 ) -> int:
     if total_docs <= 0:
         return 0
@@ -453,14 +453,14 @@ def _resolve_late_interaction_shortlist_size(
 
 
 def _late_interaction_scores_indexed(
-    bundle: Dict[str, Any],
+    bundle: dict[str, Any],
     query: str,
-    chunks: Sequence[Dict[str, Any]],
+    chunks: Sequence[dict[str, Any]],
     *,
-    max_chunks: Optional[int] = None,
+    max_chunks: int | None = None,
     index_key: Any = None,
-    shortlist_size: Optional[int] = None,
-) -> Tuple[List[Tuple[int, float]], Dict[str, Any]]:
+    shortlist_size: int | None = None,
+) -> tuple[list[tuple[int, float]], dict[str, Any]]:
     torch = bundle["torch"]
     query_repr = _encode_late_interaction_query(bundle, query)
     index, cache_hit = _build_late_interaction_index(
@@ -490,7 +490,7 @@ def _late_interaction_scores_indexed(
         shortlisted_indices = [int(idx) for idx in topk.indices.tolist()]
 
     query_tokens = query_repr["tokens"]
-    scored: List[Tuple[int, float]] = []
+    scored: list[tuple[int, float]] = []
     for idx in shortlisted_indices:
         doc_tokens = index["doc_tokens"][idx].to(query_tokens.device)
         similarity = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
@@ -508,13 +508,13 @@ def _late_interaction_scores_indexed(
 
 def late_interaction_rescore_chunks_for_query(
     query: str,
-    chunks: Sequence[Dict[str, Any]],
+    chunks: Sequence[dict[str, Any]],
     *,
-    max_chunks: Optional[int] = None,
+    max_chunks: int | None = None,
     replace_score: bool = False,
     index_key: Any = None,
-    shortlist_size: Optional[int] = None,
-) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    shortlist_size: int | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Reorder chunks with a ColBERT-style token late-interaction scorer."""
     chunk_list = [dict(chunk) for chunk in chunks]
     if not chunk_list:
@@ -546,7 +546,7 @@ def late_interaction_rescore_chunks_for_query(
                 shortlist_size=shortlist_size,
             )
             if indexed_scores:
-                scored_chunks: List[Tuple[float, int, Dict[str, Any]]] = []
+                scored_chunks: list[tuple[float, int, dict[str, Any]]] = []
                 for idx, score in indexed_scores:
                     chunk = dict(chunk_list[idx])
                     chunk["late_interaction_score"] = float(score)
@@ -589,7 +589,7 @@ def late_interaction_rescore_chunks_for_query(
             "model": model_name,
         }
 
-    scored_chunks: List[Tuple[float, int, Dict[str, Any]]] = []
+    scored_chunks: list[tuple[float, int, dict[str, Any]]] = []
     for idx, (chunk, score) in enumerate(zip(chunk_list, scores)):
         chunk["late_interaction_score"] = float(score)
         if replace_score:
@@ -621,10 +621,10 @@ def late_interaction_rescore_chunks_for_query(
 
 def rerank_chunks_for_query(
     query: str,
-    chunks: Sequence[Dict[str, Any]],
+    chunks: Sequence[dict[str, Any]],
     *,
-    max_chunks: Optional[int] = None,
-) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    max_chunks: int | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Reorder chunks for answer generation with an optional learned reranker.
 
     Returns `(chunks, metadata)`. If the reranker is disabled or unavailable,
@@ -649,7 +649,7 @@ def rerank_chunks_for_query(
             "model": model_name,
         }
 
-    pair_texts: List[Tuple[str, str]] = []
+    pair_texts: list[tuple[str, str]] = []
     for chunk in chunk_list:
         doc = str(chunk.get("document", "")).strip()
         text = str(chunk.get("text", "")).strip()
@@ -674,7 +674,7 @@ def rerank_chunks_for_query(
     except Exception:
         scores = [float(score) for score in list(raw_scores)]
 
-    scored_chunks: List[Tuple[float, int, Dict[str, Any]]] = []
+    scored_chunks: list[tuple[float, int, dict[str, Any]]] = []
     for idx, (chunk, score) in enumerate(zip(chunk_list, scores)):
         chunk["reranker_score"] = score
         scored_chunks.append((score, idx, chunk))

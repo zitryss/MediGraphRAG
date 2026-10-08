@@ -19,9 +19,9 @@ import numpy as np
 from sklearn.metrics import cohen_kappa_score, roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.rejudge_independent import judge_one, get_client, JUDGE_MODEL  # noqa: E402
-from experiments.trust_analysis import rows_for, REPO, MANIFEST, KEY, STRICT_RUNS  # noqa: E402
-from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for  # noqa: E402
+from experiments.rejudge_independent import judge_one, get_client, JUDGE_MODEL
+from experiments.trust_analysis import rows_for, REPO, MANIFEST, KEY, STRICT_RUNS
+from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 
 TARGETS = [
     ("hotpotqa", "kg"),

@@ -13,21 +13,21 @@ Usage:
     python experiments/run_mirage_evaluation.py --num-samples 10
 """
 
-import sys
-import os
-import json
-import hashlib
-import logging
-import time
 import argparse
+import hashlib
+import json
+import logging
+import os
 import re
-import subprocess
 import shutil
+import subprocess
+import sys
+import time
 from contextlib import contextmanager
-from difflib import SequenceMatcher
-from typing import Dict, Any, List, Optional, Tuple
-from pathlib import Path
 from datetime import datetime
+from difflib import SequenceMatcher
+from pathlib import Path
+from typing import Any
 
 try:
     import matplotlib
@@ -130,7 +130,7 @@ def _sanitize_run_token(value: str) -> str:
     return token or "unknown"
 
 
-def _dataset_run_token(datasets: List[str]) -> str:
+def _dataset_run_token(datasets: list[str]) -> str:
     cleaned = [_sanitize_run_token(ds) for ds in (datasets or []) if str(ds).strip()]
     if not cleaned:
         return "dataset-unknown"
@@ -142,10 +142,10 @@ def _dataset_run_token(datasets: List[str]) -> str:
 
 
 def generate_run_id(
-    datasets: List[str],
-    num_samples: Optional[int],
-    evaluation_mode: Optional[str],
-    dataset_kg_scope: Optional[str] = None,
+    datasets: list[str],
+    num_samples: int | None,
+    evaluation_mode: str | None,
+    dataset_kg_scope: str | None = None,
     rebuild_kg: bool = False,
 ) -> str:
     """Return a sortable, descriptive run ID."""
@@ -204,7 +204,7 @@ from experiments.summary_utils import (
     compute_accuracy_breakdown,
     compute_hop_accuracy_breakdown,
     select_best_retrieval_configs,
-)  # noqa: F401
+)
 
 
 class MIRAGEEvaluationPipeline:
@@ -260,14 +260,14 @@ class MIRAGEEvaluationPipeline:
     }
 
     # Temperatures used for multi-temperature entropy sweeps.
-    MULTI_TEMPERATURES: List[float] = [0.0, 0.5, 1.0]
+    MULTI_TEMPERATURES: list[float] = [0.0, 0.5, 1.0]
 
     # Per-dataset max_hops for KG traversal and structural metrics.
     # MuSiQue requires up to 4 reasoning hops; all others are 2-hop.
     # pubmedqa / bioasq / realmedqa use max_hops=1: each question is grounded
     # in a single abstract or shared guideline corpus — iterative multi-hop
     # decomposition adds overhead and cross-passage noise without benefit.
-    DATASET_MAX_HOPS: Dict[str, int] = {
+    DATASET_MAX_HOPS: dict[str, int] = {
         "musique": 4,
         "hotpotqa": 2,
         "hotpotqa_fullwiki": 2,
@@ -282,7 +282,7 @@ class MIRAGEEvaluationPipeline:
     # On dense shared-corpus graphs such as MultiHopRAG, letting structural
     # metrics inherit the full retrieval hop budget can stall before the first
     # checkpointed question completes.
-    DATASET_STRUCTURAL_METRIC_MAX_HOPS: Dict[str, int] = {
+    DATASET_STRUCTURAL_METRIC_MAX_HOPS: dict[str, int] = {
         "multihoprag": 2,
     }
     DEFAULT_MAX_HOPS: int = 2
@@ -290,7 +290,7 @@ class MIRAGEEvaluationPipeline:
     # Dataset → evaluation track.  Biomedical datasets test factual grounding;
     # Wikipedia multi-hop datasets test graph-structured multi-hop reasoning.
     # These are separate empirical claims and must be reported in separate result tables.
-    DATASET_TRACKS: Dict[str, str] = {
+    DATASET_TRACKS: dict[str, str] = {
         "pubmedqa": "biomedical_grounding",
         "realmedqa": "biomedical_grounding",
         "bioasq": "biomedical_grounding",
@@ -322,7 +322,7 @@ class MIRAGEEvaluationPipeline:
         {"small", "final_pair", "strict_entity"}
     )
     KG_BUILDER_PROFILES: frozenset = frozenset({"auto", "full", "lightweight"})
-    KG_BUILDER_PROFILE_ALIASES: Dict[str, str] = {"sota": "full"}
+    KG_BUILDER_PROFILE_ALIASES: dict[str, str] = {"sota": "full"}
 
     QUESTION_SCOPED_MULTIHOP_DATASETS: frozenset = frozenset(
         {
@@ -333,12 +333,12 @@ class MIRAGEEvaluationPipeline:
     )
 
     @classmethod
-    def normalize_kg_builder_profile(cls, profile: Optional[str]) -> str:
+    def normalize_kg_builder_profile(cls, profile: str | None) -> str:
         """Map legacy profile names onto the canonical public set."""
         normalized = str(profile or "auto").strip().lower()
         return cls.KG_BUILDER_PROFILE_ALIASES.get(normalized, normalized)
 
-    RETRIEVAL_STUDY_SMALL_VARIANTS: Tuple[Dict[str, Any], ...] = (
+    RETRIEVAL_STUDY_SMALL_VARIANTS: tuple[dict[str, Any], ...] = (
         {
             "name": "dense_floor",
             "retrieval_stack": {
@@ -405,7 +405,7 @@ class MIRAGEEvaluationPipeline:
             },
         },
     )
-    RETRIEVAL_STUDY_FINAL_PAIR_VARIANTS: Tuple[Dict[str, Any], ...] = tuple(
+    RETRIEVAL_STUDY_FINAL_PAIR_VARIANTS: tuple[dict[str, Any], ...] = tuple(
         {
             **variant,
             "executed_systems": (
@@ -415,7 +415,7 @@ class MIRAGEEvaluationPipeline:
         for variant in RETRIEVAL_STUDY_SMALL_VARIANTS
         if variant["name"] in {"dense_floor", "kg_entity_first"}
     )
-    RETRIEVAL_STUDY_STRICT_ENTITY_VARIANTS: Tuple[Dict[str, Any], ...] = (
+    RETRIEVAL_STUDY_STRICT_ENTITY_VARIANTS: tuple[dict[str, Any], ...] = (
         {
             "name": "kg_strict_entity_first",
             "retrieval_stack": {
@@ -447,7 +447,7 @@ class MIRAGEEvaluationPipeline:
         llm_provider: str = "openai",
         llm_model: str = "gpt-4o-mini",
         temperature: float = 1.0,
-        eval_configs: Optional[List[Dict[str, Any]]] = None,
+        eval_configs: list[dict[str, Any]] | None = None,
         rebuild_kg: bool = False,
         max_kg_contexts: int = None,
         use_llm_judge: bool = True,
@@ -457,7 +457,7 @@ class MIRAGEEvaluationPipeline:
         evaluation_mode: str = EVALUATION_MODE_FULL_METRICS,
         dataset_kg_scope: str = DATASET_KG_SCOPE_EVALUATION_SUBSET,
         allow_gold_evidence_contexts: bool = False,
-        retrieval_study: Optional[str] = None,
+        retrieval_study: str | None = None,
         kg_builder_profile: str = "auto",
     ):
         if evaluation_mode not in self.EVALUATION_MODES:
@@ -491,7 +491,7 @@ class MIRAGEEvaluationPipeline:
         self.allow_gold_evidence_contexts = bool(allow_gold_evidence_contexts)
         self.retrieval_study = str(retrieval_study or "").strip()
         self.kg_builder_profile = kg_builder_profile
-        self._llm_judge_cache: Dict[
+        self._llm_judge_cache: dict[
             str, bool
         ] = {}  # cache by (question, expected, response)
         self.max_kg_contexts = max_kg_contexts  # Cap context passages fed into KG build
@@ -550,8 +550,8 @@ class MIRAGEEvaluationPipeline:
 
         # W&B run
         self.wandb_run = None
-        self._dataset_cache: Dict[str, Tuple[List[Any], List[Any]]] = {}
-        self._selection_cache: Dict[str, Dict[str, Any]] = {}
+        self._dataset_cache: dict[str, tuple[list[Any], list[Any]]] = {}
+        self._selection_cache: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _env_bool(enabled: bool) -> str:
@@ -566,11 +566,11 @@ class MIRAGEEvaluationPipeline:
         cls,
         *,
         profile: str,
-        similarity_thresholds: List[float],
-        max_chunks_values: List[int],
-        retrieval_temperature_values: List[float],
+        similarity_thresholds: list[float],
+        max_chunks_values: list[int],
+        retrieval_temperature_values: list[float],
         retrieval_shortlist_factor: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if profile not in cls.RETRIEVAL_STUDY_PROFILES:
             raise ValueError(
                 f"Unsupported retrieval study profile={profile!r}. "
@@ -586,7 +586,7 @@ class MIRAGEEvaluationPipeline:
         else:
             variants = ()
 
-        configs: List[Dict[str, Any]] = []
+        configs: list[dict[str, Any]] = []
         for threshold in similarity_thresholds:
             for max_chunks in max_chunks_values:
                 for retrieval_temperature in retrieval_temperature_values:
@@ -621,8 +621,8 @@ class MIRAGEEvaluationPipeline:
 
     @staticmethod
     @contextmanager
-    def _temporary_env(overrides: Dict[str, Any]):
-        restore: Dict[str, Optional[str]] = {}
+    def _temporary_env(overrides: dict[str, Any]):
+        restore: dict[str, str | None] = {}
         for key, value in (overrides or {}).items():
             restore[key] = os.environ.get(key)
             if value is None:
@@ -638,11 +638,9 @@ class MIRAGEEvaluationPipeline:
                 else:
                     os.environ[key] = old_value
 
-    def _retrieval_env_overrides(
-        self, config: Optional[Dict[str, Any]]
-    ) -> Dict[str, str]:
+    def _retrieval_env_overrides(self, config: dict[str, Any] | None) -> dict[str, str]:
         stack = dict((config or {}).get("retrieval_stack") or {})
-        overrides: Dict[str, str] = {}
+        overrides: dict[str, str] = {}
         if "query_fusion" in stack:
             overrides["ONTOGRAPHRAG_QUERY_FUSION"] = self._env_bool(
                 stack["query_fusion"]
@@ -664,7 +662,7 @@ class MIRAGEEvaluationPipeline:
         return overrides
 
     @staticmethod
-    def _executed_system_map(config: Optional[Dict[str, Any]]) -> Dict[str, bool]:
+    def _executed_system_map(config: dict[str, Any] | None) -> dict[str, bool]:
         raw = (config or {}).get("executed_systems")
         if not raw:
             return {"vanilla_rag": True, "kg_rag": True}
@@ -678,7 +676,7 @@ class MIRAGEEvaluationPipeline:
         return enabled
 
     @staticmethod
-    def _execution_signature(config: Optional[Dict[str, Any]]) -> str:
+    def _execution_signature(config: dict[str, Any] | None) -> str:
         enabled = MIRAGEEvaluationPipeline._executed_system_map(config)
         active = [
             name.replace("_rag", "")
@@ -690,16 +688,16 @@ class MIRAGEEvaluationPipeline:
 
     @staticmethod
     def _compute_kg_routing_distribution(
-        details: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        details: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Summarise KG retrieval routing so dense fallback is auditable.
 
         The KG system can answer through pure entity-first traversal, RFGE, or a
         semantic/vector fallback.  Output-side determinism claims should be
         interpreted against this distribution rather than assumed globally.
         """
-        routes: Dict[str, int] = {}
-        reasons: Dict[str, int] = {}
+        routes: dict[str, int] = {}
+        reasons: dict[str, int] = {}
         total = 0
 
         for row in details or []:
@@ -737,8 +735,8 @@ class MIRAGEEvaluationPipeline:
 
     def _build_rag_systems_for_config(
         self,
-        config: Optional[Dict[str, Any]],
-    ) -> Tuple[VanillaRAGSystem, EnhancedRAGSystem]:
+        config: dict[str, Any] | None,
+    ) -> tuple[VanillaRAGSystem, EnhancedRAGSystem]:
         kg_system = dict((config or {}).get("kg_system") or {})
         enhanced_kwargs = {
             "embedding_model": self.embedding_provider,
@@ -779,10 +777,10 @@ class MIRAGEEvaluationPipeline:
 
     def _is_generation_failure(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         response: str,
         *,
-        expected_answer: Optional[str] = None,
+        expected_answer: str | None = None,
     ) -> bool:
         """Heuristic detection for provider/runtime failures in generated outputs."""
         if not isinstance(result, dict) or not result:
@@ -924,13 +922,13 @@ class MIRAGEEvaluationPipeline:
         )
         return inference_records, gold_records, leakage_detected
 
-    def _build_eval_records(self, dataset_name: str) -> List[Dict[str, Any]]:
+    def _build_eval_records(self, dataset_name: str) -> list[dict[str, Any]]:
         """Create aligned inference/eval records from normalized adapter outputs."""
         inference_records, gold_records, _ = self._get_normalized_dataset(dataset_name)
         gold_by_id = {g.id: g for g in gold_records}
         has_shared_corpus = build_global_corpus_passages(dataset_name) is not None
 
-        eval_records: List[Dict[str, Any]] = []
+        eval_records: list[dict[str, Any]] = []
         for inf in inference_records:
             gold = gold_by_id.get(inf.id)
             if not gold:
@@ -981,11 +979,11 @@ class MIRAGEEvaluationPipeline:
             subset_seed=self.subset_seed,
         )
 
-    def _subset_metadata(self, dataset_name: str) -> Dict[str, Any]:
+    def _subset_metadata(self, dataset_name: str) -> dict[str, Any]:
         """Return cached subset metadata for a dataset, if already resolved."""
         return self._selection_cache.get(dataset_name, {})
 
-    def _dataset_corpus_profile(self, dataset_name: str) -> Dict[str, Any]:
+    def _dataset_corpus_profile(self, dataset_name: str) -> dict[str, Any]:
         """Return static corpus metadata describing what a dataset's contexts mean."""
         return get_dataset_corpus_profile(dataset_name)
 
@@ -993,8 +991,8 @@ class MIRAGEEvaluationPipeline:
         self,
         dataset_name: str,
         question_id: str,
-        raw_question: Dict[str, Any],
-    ) -> Optional[int]:
+        raw_question: dict[str, Any],
+    ) -> int | None:
         """
         Infer reasoning hop count from raw dataset metadata.
 
@@ -1006,13 +1004,13 @@ class MIRAGEEvaluationPipeline:
         """
         return infer_hop_count_from_raw(dataset_name, question_id, raw_question)
 
-    def _hop_bucket_label(self, hop_count: Optional[int]) -> Optional[str]:
+    def _hop_bucket_label(self, hop_count: int | None) -> str | None:
         """Return a compact hop bucket label for a positive hop count."""
         if hop_count is None or hop_count <= 0:
             return None
         return f"{hop_count}-hop" if hop_count <= 4 else "5+-hop"
 
-    def _get_dataset_corpus_metadata(self, dataset_name: str) -> Dict[str, Any]:
+    def _get_dataset_corpus_metadata(self, dataset_name: str) -> dict[str, Any]:
         """Read corpus-construction metadata from the existing dataset KG, if present."""
         driver = self._get_neo4j_driver()
         try:
@@ -1083,8 +1081,8 @@ class MIRAGEEvaluationPipeline:
         self,
         dataset_name: str,
         *,
-        passages: List[Any],
-        build_meta: Dict[str, Any],
+        passages: list[Any],
+        build_meta: dict[str, Any],
     ) -> str:
         """Create a deterministic fingerprint for the dataset KG build contract."""
         normalized_passages = [
@@ -1155,7 +1153,7 @@ class MIRAGEEvaluationPipeline:
         self,
         dataset_name: str,
         builder_profile: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return constructor kwargs for the requested KG builder profile."""
         if builder_profile == "lightweight":
             return {
@@ -1197,7 +1195,7 @@ class MIRAGEEvaluationPipeline:
         dataset_name: str,
         *,
         force_resample: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Resolve the passages and metadata that define the dataset-scoped KG.
 
@@ -1218,8 +1216,8 @@ class MIRAGEEvaluationPipeline:
         resolved_kg_builder_profile = self._resolve_kg_builder_profile(dataset_name)
 
         inference_by_id = {str(record.id): record for record in inference_records}
-        evaluable_inference_records: List[Any] = []
-        missing_eval_ids: List[str] = []
+        evaluable_inference_records: list[Any] = []
+        missing_eval_ids: list[str] = []
         for question_id in [
             str(record["id"]) for record in self._build_eval_records(dataset_name)
         ]:
@@ -1336,9 +1334,9 @@ class MIRAGEEvaluationPipeline:
     @classmethod
     def _assess_dataset_kg_compatibility(
         cls,
-        existing_meta: Dict[str, Any],
-        expected_meta: Dict[str, Any],
-    ) -> Tuple[bool, List[str]]:
+        existing_meta: dict[str, Any],
+        expected_meta: dict[str, Any],
+    ) -> tuple[bool, list[str]]:
         return assess_dataset_kg_compatibility(
             existing_meta,
             expected_meta,
@@ -1350,7 +1348,7 @@ class MIRAGEEvaluationPipeline:
         dataset_name: str,
         *,
         existing_chunk_count: int = 0,
-    ) -> Tuple[bool, bool]:
+    ) -> tuple[bool, bool]:
         """
         Enforce fail-closed corpus rules before reusing or rebuilding a dataset KG.
 
@@ -1400,7 +1398,7 @@ class MIRAGEEvaluationPipeline:
         *,
         require_existing: bool = False,
         force_resample: bool = False,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Load or create the deterministic question subset for a dataset.
 
@@ -1446,7 +1444,7 @@ class MIRAGEEvaluationPipeline:
         *,
         require_existing: bool = False,
         force_resample: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return adapter-normalized evaluation records for the persisted subset."""
         eval_records = self._build_eval_records(dataset_name)
         selected_question_ids = self._resolve_selected_question_ids(
@@ -1473,7 +1471,7 @@ class MIRAGEEvaluationPipeline:
         dataset_name: str,
         config_name: str,
         subset_tag: str,
-        details: List[Dict[str, Any]],
+        details: list[dict[str, Any]],
     ):
         """Log per-question table (question + responses + metrics) to W&B."""
         if not self.wandb_run:
@@ -1609,7 +1607,7 @@ class MIRAGEEvaluationPipeline:
         ]
     )
 
-    def _canonicalize_detail_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
+    def _canonicalize_detail_row(self, row: dict[str, Any]) -> dict[str, Any]:
         """Keep only the reported per-question fields."""
         kept = set(self._QUESTION_OUTPUT_FIELDS)
         return {k: v for k, v in row.items() if k in kept}
@@ -1619,7 +1617,7 @@ class MIRAGEEvaluationPipeline:
         dataset_name: str,
         config_name: str,
         subset_tag: str,
-        details: List[Dict[str, Any]],
+        details: list[dict[str, Any]],
     ) -> str:
         """Persist per-question rows to an explicit local JSON file."""
         # Write inside the current run directory when available, fall back to legacy path
@@ -1655,7 +1653,7 @@ class MIRAGEEvaluationPipeline:
     def _log_config_summary_to_wandb(
         self,
         dataset_name: str,
-        config_results: List[Dict[str, Any]],
+        config_results: list[dict[str, Any]],
     ):
         """Log per-config summary table and grouped bar charts to W&B."""
         if not self.wandb_run or not config_results:
@@ -1790,7 +1788,7 @@ class MIRAGEEvaluationPipeline:
 
     def _log_final_summary_to_wandb(
         self,
-        all_results: List[Dict[str, Any]],
+        all_results: list[dict[str, Any]],
         summary_path: str,
     ):
         """Log final cross-dataset summary to W&B as table + artifact."""
@@ -2053,9 +2051,9 @@ class MIRAGEEvaluationPipeline:
             self.wandb_run.log_artifact(artifact)
             self.wandb_run.summary["summary/final_json_path"] = summary_path
 
-    def _extract_chunk_texts_from_result(self, rag_result: Dict[str, Any]) -> List[str]:
+    def _extract_chunk_texts_from_result(self, rag_result: dict[str, Any]) -> list[str]:
         """Extract retrieved chunk texts robustly from a RAG result."""
-        chunk_texts: List[str] = []
+        chunk_texts: list[str] = []
 
         # Prefer used_chunks when available
         used_chunks = rag_result.get("used_chunks", [])
@@ -2095,7 +2093,7 @@ class MIRAGEEvaluationPipeline:
         return unique_chunk_texts
 
     @staticmethod
-    def _mean_pairwise_jaccard(chunk_sets: List[set]) -> float:
+    def _mean_pairwise_jaccard(chunk_sets: list[set]) -> float:
         """Mean pairwise Jaccard similarity across a list of chunk sets.
 
         Returns 1.0 if there is only one sample (trivially identical) and 0.0
@@ -2127,17 +2125,17 @@ class MIRAGEEvaluationPipeline:
         rag_system,
         question: str,
         answer_instructions: str = "",
-        base_result: Optional[Dict[str, Any]] = None,
-        document_names: Optional[List[str]] = None,
+        base_result: dict[str, Any] | None = None,
+        document_names: list[str] | None = None,
         similarity_threshold: float = 0.1,
         max_chunks: int = 10,
-        extra_context_texts: Optional[List[str]] = None,
-        kg_name: Optional[str] = None,
-        question_id: Optional[str] = None,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
+        question_id: str | None = None,
         llm=None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
-        generate_kwargs: Optional[Dict[str, Any]] = None,
+        generate_kwargs: dict[str, Any] | None = None,
         return_graph_state_traces: bool = False,
     ):
         """Collect multiple responses for proper semantic-entropy estimation.
@@ -2155,10 +2153,10 @@ class MIRAGEEvaluationPipeline:
             mean_retrieval_jaccard: mean pairwise Jaccard across per-sample chunk sets
                 (≈1.0 → deterministic retrieval; ≈0.0 → high stochasticity)
         """
-        responses: List[str] = []
-        retrieved_chunk_texts: List[str] = []
-        per_sample_chunk_sets: List[set] = []
-        graph_state_traces: List[Dict[str, Any]] = []
+        responses: list[str] = []
+        retrieved_chunk_texts: list[str] = []
+        per_sample_chunk_sets: list[set] = []
+        graph_state_traces: list[dict[str, Any]] = []
 
         # Base result is only used as a retrieval-context anchor. The output-side
         # UQ sample set must come from one consistent sampling policy, so we do
@@ -2258,7 +2256,7 @@ class MIRAGEEvaluationPipeline:
         finally:
             driver.close()
 
-    def _get_dataset_kg_stats(self, dataset_name: str) -> Dict[str, int]:
+    def _get_dataset_kg_stats(self, dataset_name: str) -> dict[str, int]:
         """Get dataset-scoped KG stats to validate isolation and quality."""
         driver = self._get_neo4j_driver()
         try:
@@ -2337,12 +2335,12 @@ class MIRAGEEvaluationPipeline:
 
     @staticmethod
     def _assess_kg_quality(
-        stats: Dict[str, int],
+        stats: dict[str, int],
         min_chunks: int,
         min_entities: int,
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """Apply conservative quality gates so sparse or malformed KGs are rebuilt."""
-        reasons: List[str] = []
+        reasons: list[str] = []
         documents = int(stats.get("documents", 0) or 0)
         chunks = int(stats.get("chunks", 0) or 0)
         entities = int(stats.get("entities", 0) or 0)
@@ -2400,18 +2398,18 @@ class MIRAGEEvaluationPipeline:
 
     def _validate_retrieval_scope(
         self,
-        rag_result: Dict[str, Any],
+        rag_result: dict[str, Any],
         dataset_name: str,
         system_name: str,
-        question_id: Optional[str] = None,
+        question_id: str | None = None,
     ) -> bool:
         """Check that retrieved chunks stay within the requested dataset and question scope."""
         context = rag_result.get("context", {}) if isinstance(rag_result, dict) else {}
         chunks = context.get("chunks", []) if isinstance(context, dict) else []
 
-        mismatches: List[Dict[str, Any]] = []
+        mismatches: list[dict[str, Any]] = []
         missing_kg_name = 0
-        question_scope_mismatches: List[Dict[str, Any]] = []
+        question_scope_mismatches: list[dict[str, Any]] = []
 
         for chunk in chunks:
             if not isinstance(chunk, dict):
@@ -2570,7 +2568,7 @@ class MIRAGEEvaluationPipeline:
 
     def _build_dataset_like_raw_mapping(
         self, dataset_name: str
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """
         Build a dict-like dataset mapping from normalized adapters to preserve
         the expected downstream shape in evaluation.
@@ -2581,7 +2579,7 @@ class MIRAGEEvaluationPipeline:
             for question_id, record in load_raw_dataset(dataset_name).items()
             if isinstance(record, dict)
         }
-        mapping: Dict[str, Dict[str, Any]] = {}
+        mapping: dict[str, dict[str, Any]] = {}
         for rec in eval_records:
             question_id = str(rec["id"])
             merged = dict(raw_records.get(question_id, {}))
@@ -2598,7 +2596,7 @@ class MIRAGEEvaluationPipeline:
             mapping[question_id] = merged
         return mapping
 
-    def _load_mirage_raw_data(self, dataset_name: str) -> Dict[str, Any]:
+    def _load_mirage_raw_data(self, dataset_name: str) -> dict[str, Any]:
         """Load evaluation data through normalized dataset adapters."""
         try:
             adapted = self._build_dataset_like_raw_mapping(dataset_name)
@@ -2612,8 +2610,8 @@ class MIRAGEEvaluationPipeline:
             return {}
 
     def _extract_contexts_from_question(
-        self, question_data: Dict, dataset_name: str = None
-    ) -> List[str]:
+        self, question_data: dict, dataset_name: str = None
+    ) -> list[str]:
         """Extract context passages from a question"""
         # Adapter-normalized shape
         contexts = question_data.get("contexts", [])
@@ -2632,7 +2630,7 @@ class MIRAGEEvaluationPipeline:
 
         return []
 
-    def _get_answer_from_question(self, question_data: Dict) -> str:
+    def _get_answer_from_question(self, question_data: dict) -> str:
         """Extract ground truth answer from question data"""
         # Adapter-normalized shape
         if "expected_answer" in question_data:
@@ -2679,7 +2677,7 @@ class MIRAGEEvaluationPipeline:
             return str(question_data["Answer"]).lower()
         return ""
 
-    def _get_question_text(self, question_data: Dict) -> str:
+    def _get_question_text(self, question_data: dict) -> str:
         """Extract question text from question data"""
         if "question" in question_data:
             return question_data["question"]
@@ -2692,11 +2690,11 @@ class MIRAGEEvaluationPipeline:
         return ""
 
     def _extract_options_and_task_type(
-        self, question_data: Dict
-    ) -> Tuple[Dict[str, str], str]:
+        self, question_data: dict
+    ) -> tuple[dict[str, str], str]:
         """Extract MCQ options/task type when available from raw dataset record."""
         explicit_task_type = str(question_data.get("task_type", "")).strip().lower()
-        options: Dict[str, str] = {}
+        options: dict[str, str] = {}
 
         raw_options = question_data.get("options")
         if isinstance(raw_options, dict):
@@ -2886,7 +2884,7 @@ class MIRAGEEvaluationPipeline:
         question: str,
         expected_answer: str,
         model_response: str,
-        aliases: Optional[List[str]] = None,
+        aliases: list[str] | None = None,
     ) -> bool:
         """Use the LLM as a judge to evaluate factoid answer correctness.
 
@@ -2948,9 +2946,9 @@ class MIRAGEEvaluationPipeline:
         expected_answer: str,
         model_response: str,
         question: str = "",
-        options: Optional[Dict[str, str]] = None,
+        options: dict[str, str] | None = None,
         task_type: str = "",
-        aliases: Optional[List[str]] = None,
+        aliases: list[str] | None = None,
     ) -> bool:
         """Flexible correctness check for different question types:
         - Binary (yes/no): checks if response starts with explicit yes/no
@@ -3202,7 +3200,7 @@ class MIRAGEEvaluationPipeline:
             traceback.print_exc()
             return False
 
-    def _default_uncertainty_metrics(self) -> Dict[str, float]:
+    def _default_uncertainty_metrics(self) -> dict[str, float]:
         """Safe defaults for uncertainty metrics when generation fails."""
         return {
             metric_name: self.UNCERTAINTY_METRIC_DEFAULTS[metric_name]
@@ -3227,8 +3225,8 @@ class MIRAGEEvaluationPipeline:
         return max(1, min(int(retrieval_max_hops), int(override)))
 
     def _build_grouped_uncertainty_metrics(
-        self, config_result: Dict[str, Any]
-    ) -> Dict[str, Dict[str, float]]:
+        self, config_result: dict[str, Any]
+    ) -> dict[str, dict[str, float]]:
         """Return strict 8-metric summary grouped by approach for one config result."""
         metric_field_map = {
             "semantic_entropy": (
@@ -3323,8 +3321,8 @@ class MIRAGEEvaluationPipeline:
         return grouped
 
     def _apply_clean_accuracy_reporting(
-        self, result_block: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, result_block: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Make clean accuracy the headline reporting number while preserving raw accuracy.
 
@@ -3352,8 +3350,8 @@ class MIRAGEEvaluationPipeline:
         return result_block
 
     def _run_evaluation_on_dataset(
-        self, dataset_name: str, config: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, dataset_name: str, config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Run RAG comparison: Vanilla RAG vs KG-RAG using Neo4j database"""
         config = config or {
             "name": "default",
@@ -3415,7 +3413,7 @@ class MIRAGEEvaluationPipeline:
         has_shared_corpus = build_global_corpus_passages(dataset_name) is not None
 
         questions = []
-        missing_questions: List[str] = []
+        missing_questions: list[str] = []
         for question_id in selected_question_ids:
             q_data = dataset.get(question_id)
             if not isinstance(q_data, dict):
@@ -3485,8 +3483,8 @@ class MIRAGEEvaluationPipeline:
 
         vanilla_compute_times: dict = _defaultdict(list)
         kg_compute_times: dict = _defaultdict(list)
-        vanilla_retrieval_overlaps: List[float] = []
-        kg_retrieval_overlaps: List[float] = []
+        vanilla_retrieval_overlaps: list[float] = []
+        kg_retrieval_overlaps: list[float] = []
 
         # ── Checkpoint / resume ───────────────────────────────────────────
         # Write a checkpoint file after every question so a crash doesn't
@@ -4488,12 +4486,12 @@ class MIRAGEEvaluationPipeline:
             # visualize_results.py can plot per-type breakdowns.
             from collections import defaultdict as _defaultdict
 
-            _by_type: Dict[str, List[Dict]] = _defaultdict(list)
+            _by_type: dict[str, list[dict]] = _defaultdict(list)
             for _d in _details:
                 _tt = str(_d.get("task_type") or "unknown").strip() or "unknown"
                 _by_type[_tt].append(_d)
 
-            _type_stats: Dict[str, Any] = {}
+            _type_stats: dict[str, Any] = {}
             for _tt, _rows in _by_type.items():
                 _acc_t = compute_accuracy_breakdown(_rows)
                 _type_stats[_tt] = {
@@ -4593,7 +4591,7 @@ class MIRAGEEvaluationPipeline:
 
         return results
 
-    def run_pipeline(self, datasets: List[str] = None, output_dir: str = "results"):
+    def run_pipeline(self, datasets: list[str] = None, output_dir: str = "results"):
         """Run the full evaluation pipeline"""
         if datasets is None:
             datasets = [
@@ -5439,7 +5437,7 @@ def main():
     )
     pipeline.run_pipeline(datasets=args.datasets, output_dir=args.output_dir)
 
-    print(f"\nResults saved to results/mirage_evaluation_summary.json")
+    print("\nResults saved to results/mirage_evaluation_summary.json")
 
 
 if __name__ == "__main__":

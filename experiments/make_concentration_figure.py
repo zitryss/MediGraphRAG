@@ -20,8 +20,8 @@ sys.path.insert(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "paper", "figures"
     ),
 )
-import make_figures  # noqa: E402  (rcParams styling)
-import matplotlib.pyplot as plt  # noqa: E402
+import make_figures  # rcParams styling
+import matplotlib.pyplot as plt
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "paper", "figures")

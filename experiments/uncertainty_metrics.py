@@ -63,28 +63,28 @@ import re
 import threading
 import time
 from difflib import SequenceMatcher
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-_SENTENCE_TRANSFORMER_CACHE: Dict[str, Any] = {}
+_SENTENCE_TRANSFORMER_CACHE: dict[str, Any] = {}
 _SENTENCE_TRANSFORMER_CACHE_LOCK = threading.Lock()
 
-_NLI_MODEL_CACHE: Dict[str, Any] = {}
-_NLI_TOKENIZER_CACHE: Dict[str, Any] = {}
+_NLI_MODEL_CACHE: dict[str, Any] = {}
+_NLI_TOKENIZER_CACHE: dict[str, Any] = {}
 _NLI_CACHE_LOCK = threading.Lock()
 
 
 def _question_local_entity_support_predicate(
     entity_var: str,
     *,
-    kg_name: Optional[str],
-    question_id: Optional[str],
+    kg_name: str | None,
+    question_id: str | None,
 ) -> str:
     """Require an entity to be supported inside the active KG/question scope."""
-    conditions: List[str] = []
+    conditions: list[str] = []
     if question_id:
         conditions.append("c.questionId = $question_id")
     if kg_name:
@@ -100,9 +100,9 @@ def _question_local_pair_support_predicate(
     left_var: str,
     right_var: str,
     *,
-    kg_name: Optional[str],
-    question_id: Optional[str],
-    relationship_var: Optional[str] = None,
+    kg_name: str | None,
+    question_id: str | None,
+    relationship_var: str | None = None,
 ) -> str:
     """Require two entities to be jointly supported inside one question bundle."""
     if not question_id:
@@ -137,8 +137,8 @@ def _question_local_pair_support_predicate(
 def _question_local_path_support_predicate(
     *,
     path_var: str,
-    kg_name: Optional[str],
-    question_id: Optional[str],
+    kg_name: str | None,
+    question_id: str | None,
 ) -> str:
     """Require every hop in a path to stay inside one question bundle."""
     if not question_id:
@@ -181,7 +181,7 @@ def _candidate_structural_spans(
     min_name_length: int,
     max_tokens: int = 8,
     max_spans: int = 128,
-) -> List[str]:
+) -> list[str]:
     """Generate normalized contiguous spans for lightweight entity matching."""
     normalized = _normalize_structural_text(text)
     if not normalized:
@@ -201,7 +201,7 @@ def _candidate_structural_spans(
     return sorted(spans, key=lambda span: (-len(span.split()), -len(span), span))
 
 
-def _entity_surface_forms(row: Dict[str, Any], *, min_name_length: int) -> List[str]:
+def _entity_surface_forms(row: dict[str, Any], *, min_name_length: int) -> list[str]:
     """Return normalized names / aliases / synonyms worth matching."""
     surface_forms = set()
     for key in ("name",):
@@ -224,8 +224,8 @@ def _entity_surface_forms(row: Dict[str, Any], *, min_name_length: int) -> List[
 def _entity_match_score(
     *,
     text_normalized: str,
-    candidate_spans: List[str],
-    surface_forms: List[str],
+    candidate_spans: list[str],
+    surface_forms: list[str],
 ) -> float:
     """Score how plausibly an entity is mentioned in text."""
     if not text_normalized or not candidate_spans or not surface_forms:
@@ -262,11 +262,11 @@ def _load_scoped_entities(
     session: Any,
     *,
     entity_scope: str,
-    kg_name: Optional[str],
-    question_id: Optional[str],
+    kg_name: str | None,
+    question_id: str | None,
     min_name_length: int,
     limit: int = 4000,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Fetch entities visible inside the active KG/question scope."""
     scoped_entity_query = f"""
     MATCH (e:__Entity__)
@@ -289,11 +289,11 @@ def _load_scoped_entities(
 
 def _match_scoped_entities_to_text(
     text: str,
-    scoped_entities: List[Dict[str, Any]],
+    scoped_entities: list[dict[str, Any]],
     *,
     min_name_length: int,
     max_entities: int = 5,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Select the most plausible KG entities mentioned in text."""
     text_normalized = _normalize_structural_text(text)
     candidate_spans = _candidate_structural_spans(
@@ -303,7 +303,7 @@ def _match_scoped_entities_to_text(
     if not candidate_spans:
         return []
 
-    scored: List[tuple] = []
+    scored: list[tuple] = []
     for row in scoped_entities:
         surface_forms = _entity_surface_forms(row, min_name_length=min_name_length)
         score = _entity_match_score(
@@ -323,7 +323,7 @@ def _match_scoped_entities_to_text(
         )
 
     scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
-    matched: List[Dict[str, Any]] = []
+    matched: list[dict[str, Any]] = []
     seen_ids = set()
     for _, _, entity_id, row in scored:
         if entity_id in seen_ids:
@@ -349,10 +349,10 @@ def _resolve_structural_entities(
     question: str,
     answer: str,
     entity_scope: str,
-    kg_name: Optional[str],
-    question_id: Optional[str],
+    kg_name: str | None,
+    question_id: str | None,
     min_name_length: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resolve question / answer entities and retain non-self support sources."""
     scoped_entities = _load_scoped_entities(
         session,
@@ -386,8 +386,8 @@ def _resolve_structural_entities(
     if not question_entity_ids:
         return {"null_reason": "no_q_entities"}
 
-    effective_answer_ids: List[str] = []
-    question_sources_by_answer: Dict[str, List[str]] = {}
+    effective_answer_ids: list[str] = []
+    question_sources_by_answer: dict[str, list[str]] = {}
     for row in answer_entities:
         answer_id = str(row.get("id"))
         if not answer_id:
@@ -426,11 +426,11 @@ def _safe_prob_entropy(probabilities: np.ndarray) -> float:
 
 
 def _cluster_responses_by_nli(
-    responses: List[str],
+    responses: list[str],
     nli_model: str = "microsoft/deberta-large-mnli",
     strict_entailment: bool = False,
-    question: Optional[str] = None,
-) -> List[int]:
+    question: str | None = None,
+) -> list[int]:
     """
     NLI-based semantic clustering — Farquhar et al. (Nature 2024).
 
@@ -504,7 +504,7 @@ def _cluster_responses_by_nli(
             # Non-strict (paper default): no contradiction, not both neutral
             return 0 not in (imp1, imp2) and [imp1, imp2] != [1, 1]
 
-        cluster_ids: List[int] = [-1] * len(nli_inputs)
+        cluster_ids: list[int] = [-1] * len(nli_inputs)
         next_cluster = 0
 
         for i, inp_i in enumerate(nli_inputs):
@@ -526,9 +526,9 @@ def _cluster_responses_by_nli(
 
 
 def _cluster_responses_by_lexical_similarity(
-    responses: List[str],
+    responses: list[str],
     similarity_threshold: float = 0.45,
-) -> List[int]:
+) -> list[int]:
     """Jaccard-based clustering — fallback when NLI model unavailable."""
     if not responses:
         return []
@@ -573,9 +573,9 @@ def _cluster_responses_by_lexical_similarity(
 
 
 def compute_semantic_entropy(
-    responses: List[str],
-    cluster_ids: List[int],
-    log_likelihoods: Optional[np.ndarray] = None,
+    responses: list[str],
+    cluster_ids: list[int],
+    log_likelihoods: np.ndarray | None = None,
 ) -> float:
     """Semantic Entropy — Farquhar et al. (Nature 2024).
 
@@ -616,7 +616,7 @@ def compute_semantic_entropy(
     return _safe_prob_entropy(probabilities)
 
 
-def compute_discrete_semantic_entropy(cluster_ids: List[int]) -> float:
+def compute_discrete_semantic_entropy(cluster_ids: list[int]) -> float:
     """Discrete Semantic Entropy - Cluster assignment entropy only."""
     if not cluster_ids:
         return 0.0
@@ -632,10 +632,10 @@ def compute_discrete_semantic_entropy(cluster_ids: List[int]) -> float:
 
 
 def compute_p_true(
-    responses: List[str],
+    responses: list[str],
     context: str,
     question: str,
-    precomputed_cluster_ids: Optional[List[int]] = None,
+    precomputed_cluster_ids: list[int] | None = None,
 ) -> float:
     """
     P(True) — Farquhar et al. (Nature 2024).
@@ -679,7 +679,7 @@ def compute_p_true(
 
 
 def compute_embedding_consistency(
-    responses: List[str], nli_model: str = "roberta-large-mnli", max_pairs: int = 50
+    responses: list[str], nli_model: str = "roberta-large-mnli", max_pairs: int = 50
 ) -> float:
     """Embedding Consistency - Pairwise NLI consistency (SelfCheckGPT)."""
     if len(responses) < 2:
@@ -734,8 +734,8 @@ def compute_embedding_consistency(
 
 
 def compute_spuq(
-    responses: List[str],
-    log_likelihoods: Optional[np.ndarray] = None,
+    responses: list[str],
+    log_likelihoods: np.ndarray | None = None,
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     num_modes: int = 8,
 ) -> float:
@@ -818,7 +818,7 @@ def compute_spuq(
 
 
 def compute_von_neumann_entropy(
-    responses: List[str],
+    responses: list[str],
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
 ) -> float:
     """
@@ -896,7 +896,7 @@ def compute_von_neumann_entropy(
 
 def compute_sre_uq(
     prompt: str,
-    responses: List[str],
+    responses: list[str],
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     n_components: int = 8,
 ) -> float:
@@ -1024,15 +1024,15 @@ def compute_sre_uq(
 
 
 def compute_all_uncertainty_metrics(
-    responses: List[str],
+    responses: list[str],
     prompt: str,
-    context: Optional[str] = None,
-    log_likelihoods: Optional[np.ndarray] = None,
-    hidden_states: Optional[List[np.ndarray]] = None,
-    cluster_ids: Optional[List[int]] = None,
-    train_embeddings: Optional[List[np.ndarray]] = None,
-    train_labels: Optional[List[int]] = None,
-) -> Dict[str, float]:
+    context: str | None = None,
+    log_likelihoods: np.ndarray | None = None,
+    hidden_states: list[np.ndarray] | None = None,
+    cluster_ids: list[int] | None = None,
+    train_embeddings: list[np.ndarray] | None = None,
+    train_labels: list[int] | None = None,
+) -> dict[str, float]:
     """
     Compute all 7 uncertainty metrics organized by family.
 
@@ -1073,7 +1073,7 @@ def compute_all_uncertainty_metrics(
         )
         effective_log_likelihoods = np.log(np.clip(pseudo_probs, 1e-12, 1.0))
 
-    compute_times: Dict[str, float] = {}
+    compute_times: dict[str, float] = {}
 
     # ENTROPY FAMILY
     _t0 = time.perf_counter()
@@ -1144,15 +1144,15 @@ class UncertaintyEvaluator:
 
     def evaluate(
         self,
-        responses: List[str],
+        responses: list[str],
         prompt: str,
-        context: Optional[str] = None,
-        log_likelihoods: Optional[np.ndarray] = None,
-        hidden_states: Optional[List[np.ndarray]] = None,
-        cluster_ids: Optional[List[int]] = None,
-        train_embeddings: Optional[List[np.ndarray]] = None,
-        train_labels: Optional[List[int]] = None,
-    ) -> Dict[str, Any]:
+        context: str | None = None,
+        log_likelihoods: np.ndarray | None = None,
+        hidden_states: list[np.ndarray] | None = None,
+        cluster_ids: list[int] | None = None,
+        train_embeddings: list[np.ndarray] | None = None,
+        train_labels: list[int] | None = None,
+    ) -> dict[str, Any]:
         """Evaluate all metrics organized by family."""
         metrics = compute_all_uncertainty_metrics(
             responses=responses,
@@ -1200,7 +1200,7 @@ def compute_graph_path_support(
     neo4j_password: str,
     neo4j_database: str = "neo4j",
     kg_name: str = None,
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     max_hops: int = 3,
     min_name_length: int = 4,
 ) -> float:
@@ -1277,10 +1277,10 @@ def compute_graph_path_support_detailed(
     neo4j_password: str,
     neo4j_database: str = "neo4j",
     kg_name: str = None,
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     max_hops: int = 3,
     min_name_length: int = 4,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Like compute_graph_path_support but returns a dict with score AND null_reason.
 
     Keys:
@@ -1386,7 +1386,7 @@ def compute_graph_path_disagreement(
     neo4j_password: str,
     neo4j_database: str = "neo4j",
     kg_name: str = None,
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     max_hops: int = 2,
     min_name_length: int = 4,
 ) -> float:
@@ -1529,7 +1529,7 @@ def compute_evidence_vn_entropy(
     neo4j_password: str,
     neo4j_database: str = "neo4j",
     kg_name: str = None,
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     max_hops: int = 2,
     min_name_length: int = 4,
     n_triples: int = 20,
@@ -1755,7 +1755,7 @@ def compute_competing_answer_alternatives(
     neo4j_password: str,
     neo4j_database: str = "neo4j",
     kg_name: str = None,
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     min_name_length: int = 4,
 ) -> float:
     """
@@ -2004,7 +2004,7 @@ def compute_subgraph_perturbation_stability(
     neo4j_password: str,
     neo4j_database: str = "neo4j",
     kg_name: str = None,
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     max_hops: int = 3,
     min_name_length: int = 4,
     n_perturbations: int = 16,
@@ -2041,7 +2041,7 @@ def compute_subgraph_perturbation_stability_detailed(
     neo4j_password: str,
     neo4j_database: str = "neo4j",
     kg_name: str = None,
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     max_hops: int = 3,
     min_name_length: int = 4,
     n_perturbations: int = 16,
@@ -2049,7 +2049,7 @@ def compute_subgraph_perturbation_stability_detailed(
     max_dropout: float = 0.40,
     max_paths: int = 500,
     seed: int = 42,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Subgraph Perturbation Stability (SPS-UQ) — Structural uncertainty (novel).
 
@@ -2131,7 +2131,7 @@ def compute_subgraph_perturbation_stability_detailed(
                    [rel IN relationships(p) | id(rel)] AS rel_ids
             LIMIT {max_paths}
             """
-            path_rows: List[Dict[str, Any]] = []
+            path_rows: list[dict[str, Any]] = []
             for a_id in a_ids:
                 path_params = {
                     "q_ids": question_sources_by_answer.get(a_id, q_ids),
@@ -2164,7 +2164,7 @@ def compute_subgraph_perturbation_stability_detailed(
             return {"score": 1.0, "null_reason": None}
 
         # Deterministic RNG per (question, answer)
-        pair_seed = seed ^ zlib.crc32(f"{question}||{answer}".encode("utf-8"))
+        pair_seed = seed ^ zlib.crc32(f"{question}||{answer}".encode())
         rng = np.random.default_rng(pair_seed)
 
         # Guardrails
@@ -2172,7 +2172,7 @@ def compute_subgraph_perturbation_stability_detailed(
         min_dropout = float(np.clip(min_dropout, 0.0, 1.0))
         max_dropout = float(np.clip(max_dropout, min_dropout, 1.0))
 
-        stability_terms: List[float] = []
+        stability_terms: list[float] = []
         rel_universe_arr = np.array(rel_universe, dtype=np.int64)
 
         for _ in range(n_perturbations):
@@ -2258,7 +2258,7 @@ def compute_subgraph_informativeness(
     neo4j_password: str,
     neo4j_database: str = "neo4j",
     kg_name: str = None,
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     max_hops: int = 2,
     min_name_length: int = 4,
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
@@ -2516,11 +2516,11 @@ def _get_or_load_nli_model(model_name: str):
 
 
 def _classify_chunks_against_answer(
-    chunks: List[str],
+    chunks: list[str],
     answer: str,
     nli_model: str = "microsoft/deberta-large-mnli",
     max_chunks: int = 10,
-) -> List[int]:
+) -> list[int]:
     """NLI-classify each chunk as entailment/neutral/contradiction of the answer.
 
     Returns a list of int labels using DeBERTa convention:
@@ -2542,7 +2542,7 @@ def _classify_chunks_against_answer(
         import torch.nn.functional as F
 
         tokenizer, model = _get_or_load_nli_model(nli_model)
-        labels: List[int] = []
+        labels: list[int] = []
         for chunk in active:
             inputs = tokenizer(
                 chunk,
@@ -2566,7 +2566,7 @@ def _classify_chunks_against_answer(
 
 
 def compute_support_entailment_uncertainty(
-    chunks: List[str],
+    chunks: list[str],
     answer: str,
     nli_model: str = "microsoft/deberta-large-mnli",
     max_chunks: int = 10,
@@ -2616,7 +2616,7 @@ def compute_support_entailment_uncertainty(
 
 
 def compute_evidence_conflict_uncertainty(
-    chunks: List[str],
+    chunks: list[str],
     answer: str,
     nli_model: str = "microsoft/deberta-large-mnli",
     max_chunks: int = 10,
@@ -2669,11 +2669,11 @@ def compute_evidence_conflict_uncertainty(
 
 
 def compute_precision_at_k(
-    details: List[Dict[str, Any]],
-    metric_names: Optional[List[str]] = None,
+    details: list[dict[str, Any]],
+    metric_names: list[str] | None = None,
     k_fractions: tuple = (0.1, 0.2, 0.3),
     exclude_generation_failures: bool = True,
-) -> Dict[str, Dict[str, float]]:
+) -> dict[str, dict[str, float]]:
     """Precision@k (PPV@k) — fraction of top-k% most uncertain questions that are wrong.
 
     AUROC measures global ranking quality. PPV@k measures what happens at the
@@ -2727,7 +2727,7 @@ def compute_precision_at_k(
             "evidence_conflict_uncertainty",
         ]
 
-    output: Dict[str, Dict[str, float]] = {
+    output: dict[str, dict[str, float]] = {
         "vanilla_rag": {},
         "kg_rag": {},
         "baseline": {},
@@ -2801,11 +2801,11 @@ def compute_precision_at_k(
 
 
 def compute_ece(
-    details: List[Dict[str, Any]],
-    metric_names: Optional[List[str]] = None,
+    details: list[dict[str, Any]],
+    metric_names: list[str] | None = None,
     n_bins: int = 10,
     exclude_generation_failures: bool = True,
-) -> Dict[str, Dict[str, float]]:
+) -> dict[str, dict[str, float]]:
     """Expected Calibration Error proxy for each uncertainty metric and RAG system.
 
     This computes a probability-like calibration proxy after converting each metric
@@ -2856,7 +2856,7 @@ def compute_ece(
             "evidence_conflict_uncertainty",
         ]
 
-    output: Dict[str, Dict[str, float]] = {"vanilla_rag": {}, "kg_rag": {}}
+    output: dict[str, dict[str, float]] = {"vanilla_rag": {}, "kg_rag": {}}
 
     for system, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
         system_details = details
@@ -2937,10 +2937,10 @@ def compute_ece(
 
 
 def compute_auroc_aurec(
-    details: List[Dict[str, Any]],
-    metric_names: Optional[List[str]] = None,
+    details: list[dict[str, Any]],
+    metric_names: list[str] | None = None,
     exclude_generation_failures: bool = True,
-) -> Dict[str, Dict[str, float]]:
+) -> dict[str, dict[str, float]]:
     """Compute AUROC and AUREC for each uncertainty metric and each RAG system.
 
     Parameters
@@ -3032,7 +3032,7 @@ def compute_auroc_aurec(
         )  # error rate at each rejection level
         return float(rejection_errors.mean())
 
-    output: Dict[str, Dict[str, float]] = {"vanilla_rag": {}, "kg_rag": {}}
+    output: dict[str, dict[str, float]] = {"vanilla_rag": {}, "kg_rag": {}}
 
     for system, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
         system_details = details
