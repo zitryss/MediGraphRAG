@@ -147,14 +147,19 @@ class Coverage(ast.NodeVisitor):
             isinstance(decorator, ast.Name) and decorator.id == "staticmethod"
             for decorator in node.decorator_list
         )
-        self.scope.seen.add(node.name)
-        self.enter(f"{self.scope.name}.{node.name}", "function", node.body)
         parameters: list[ast.arg] = [*node.args.posonlyargs, *node.args.args]
         parameters.extend(node.args.kwonlyargs)
         if node.args.vararg is not None:
             parameters.append(node.args.vararg)
         if node.args.kwarg is not None:
             parameters.append(node.args.kwarg)
+        for parameter in parameters:
+            if parameter.annotation is not None:
+                self.annotation(parameter.annotation)
+        if node.returns is not None:
+            self.annotation(node.returns)
+        self.scope.seen.add(node.name)
+        self.enter(f"{self.scope.name}.{node.name}", "function", node.body)
         for index, parameter in enumerate(parameters):
             self.scope.seen.add(parameter.arg)
             if parameter.annotation is not None:
@@ -172,11 +177,6 @@ class Coverage(ast.NodeVisitor):
                 self.emit(parameter, parameter.arg, "parameter", "receiver")
             else:
                 self.emit(parameter, parameter.arg, "parameter", "missing")
-        for parameter in parameters:
-            if parameter.annotation is not None:
-                self.visit(parameter.annotation)
-        if node.returns is not None:
-            self.visit(node.returns)
         self.emit(
             node,
             "return",
@@ -299,7 +299,7 @@ class Coverage(ast.NodeVisitor):
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         self.bind(node.target, "annotation", source=node)
-        self.visit(node.annotation)
+        self.annotation(node.annotation)
         if node.value is not None:
             self.visit(node.value)
 
@@ -415,6 +415,42 @@ class Coverage(ast.NodeVisitor):
                 True,
             )
         self.generic_visit(node)
+
+    def annotation(self, node: ast.expr) -> None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            try:
+                parsed: ast.expr = ast.parse(node.value, mode="eval").body
+            except SyntaxError:
+                self.emit(node, node.value, "unparsed-annotation", "dynamic")
+                return
+            for child in ast.walk(parsed):
+                ast.copy_location(child, node)
+            self.annotation(parsed)
+            return
+        if isinstance(node, ast.Subscript):
+            self.visit(node.value)
+            if self.resolve(node.value) in {
+                "typing.Literal",
+                "typing_extensions.Literal",
+            }:
+                return
+            if self.resolve(node.value) in {
+                "typing.Annotated",
+                "typing_extensions.Annotated",
+            } and isinstance(node.slice, ast.Tuple):
+                self.annotation(node.slice.elts[0])
+                return
+            self.annotation(node.slice)
+            return
+        if isinstance(node, (ast.Tuple, ast.List)):
+            for element in node.elts:
+                self.annotation(element)
+            return
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            self.annotation(node.left)
+            self.annotation(node.right)
+            return
+        self.visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Load) and self.resolve(node) in {

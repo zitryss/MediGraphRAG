@@ -235,3 +235,27 @@ def test_nonlocal_parameter_retains_its_declared_type() -> None:
 def test_compact_ignore_directive_is_detected() -> None:
     bindings: list[Binding] = inspect_source("x: int = 1 # type:ignore\n", "fixture.py")
     assert any(binding.kind == "suppression" for binding in bindings)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from typing import Any\ndef f(Any: Any) -> None: pass\n",
+        'from typing import Any as A\nx: "list[A]" = []\n',
+        'import typing as t\nx: list["t.Any"] = []\n',
+        'from typing import Any\ndef f(x: "Any") -> "Any": pass\n',
+    ],
+)
+def test_signature_and_forward_reference_any_is_detected(source: str) -> None:
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert any(binding.kind == "dynamic-type" for binding in bindings)
+
+
+def test_annotation_value_strings_are_not_forward_type_references() -> None:
+    source: str = (
+        "from typing import Annotated, Literal\n"
+        'x: Literal["Any"] = "Any"\n'
+        'y: Annotated[str, "Any"] = "value"\n'
+    )
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert not any(binding.category == "dynamic" for binding in bindings)
