@@ -1,0 +1,13 @@
+"""Consumed structural ontology interface from installed Owlready2 0.48."""
+
+from collections.abc import Iterator
+from typing import Protocol, Self
+
+class NamedOntologyEntity(Protocol):
+    @property
+    def name(self) -> str: ...
+
+class Ontology(Protocol):
+    def load(self) -> Self: ...
+    def classes(self) -> Iterator[NamedOntologyEntity]: ...
+    def object_properties(self) -> Iterator[NamedOntologyEntity]: ...
