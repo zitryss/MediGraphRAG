@@ -10,5 +10,6 @@
   "pythonPlatform": "Darwin",
   "venvPath": ".",
   "venv": ".venv",
-  "typeCheckingMode": "strict"
+  "typeCheckingMode": "strict",
+  "stubPath": "shared/typing_stubs"
 }
