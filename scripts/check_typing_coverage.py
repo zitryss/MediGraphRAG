@@ -267,6 +267,27 @@ class Coverage(ast.NodeVisitor):
         )
 
     def visit_Assign(self, node: ast.Assign) -> None:
+        constructor: str = (
+            self.resolve(node.value.func) if isinstance(node.value, ast.Call) else ""
+        )
+        if constructor in {
+            "typing.TypeVar",
+            "typing.ParamSpec",
+            "typing.TypeVarTuple",
+            "typing.NewType",
+            "typing_extensions.TypeVar",
+            "typing_extensions.ParamSpec",
+            "typing_extensions.TypeVarTuple",
+            "typing_extensions.NewType",
+        }:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.scope.seen.add(target.id)
+                    self.emit(
+                        node, target.id, "type-definition", "inferred", constructor
+                    )
+            self.visit(node.value)
+            return
         for target in node.targets:
             self.bind(target, "assignment", source=node)
         self.visit(node.value)

@@ -205,3 +205,14 @@ def test_approved_exact_exception_is_identified() -> None:
 def test_malformed_exception_ledger_rejected(value: object) -> None:
     with pytest.raises((TypeError, ValueError)):
         parse_entries(value)
+
+
+def test_type_variable_is_a_definition_not_an_untyped_value() -> None:
+    bindings: list[Binding] = inspect_source(
+        'from typing import TypeVar\nT = TypeVar("T")\n', "fixture.py"
+    )
+    assert any(
+        binding.symbol == "T" and binding.kind == "type-definition"
+        for binding in bindings
+    )
+    assert not any(binding.category == "missing" for binding in bindings)
