@@ -63,7 +63,12 @@ import re
 import threading
 import time
 from difflib import SequenceMatcher
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    from neo4j import Session
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -170,7 +175,7 @@ def _question_local_path_support_predicate(
           ))"""
 
 
-def _normalize_structural_text(value: Any) -> str:
+def _normalize_structural_text(value: object) -> str:
     """Normalize text for conservative entity mention matching."""
     normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower())
     return re.sub(r"\s+", " ", normalized).strip()
@@ -202,7 +207,15 @@ def _candidate_structural_spans(
     return sorted(spans, key=lambda span: (-len(span.split()), -len(span), span))
 
 
-def _entity_surface_forms(row: dict[str, Any], *, min_name_length: int) -> list[str]:
+class ScopedEntity(TypedDict, total=False):
+    id: str | None
+    name: str
+    aliases: list[str]
+    original_ids: list[str]
+    synonyms: list[str]
+
+
+def _entity_surface_forms(row: ScopedEntity, *, min_name_length: int) -> list[str]:
     """Return normalized names / aliases / synonyms worth matching."""
     surface_forms = set()
     for key in ("name",):
@@ -260,16 +273,16 @@ def _entity_match_score(
 
 
 def _load_scoped_entities(
-    session: Any,
+    session: "Session",
     *,
     entity_scope: str,
     kg_name: str | None,
     question_id: str | None,
     min_name_length: int,
     limit: int = 4000,
-) -> list[dict[str, Any]]:
+) -> list[ScopedEntity]:
     """Fetch entities visible inside the active KG/question scope."""
-    scoped_entity_query = f"""
+    scoped_entity_query: str = f"""
     MATCH (e:__Entity__)
     WHERE size(e.name) >= $min_len
       AND {entity_scope}
@@ -280,7 +293,7 @@ def _load_scoped_entities(
            coalesce(e.synonyms, []) AS synonyms
     LIMIT {int(limit)}
     """
-    params = {"min_len": min_name_length}
+    params: dict[str, int | str] = {"min_len": min_name_length}
     if kg_name:
         params["kg_name"] = kg_name
     if question_id:
@@ -290,24 +303,26 @@ def _load_scoped_entities(
 
 def _match_scoped_entities_to_text(
     text: str,
-    scoped_entities: list[dict[str, Any]],
+    scoped_entities: list[ScopedEntity],
     *,
     min_name_length: int,
     max_entities: int = 5,
-) -> list[dict[str, Any]]:
+) -> list[ScopedEntity]:
     """Select the most plausible KG entities mentioned in text."""
-    text_normalized = _normalize_structural_text(text)
-    candidate_spans = _candidate_structural_spans(
+    text_normalized: str = _normalize_structural_text(text)
+    candidate_spans: list[str] = _candidate_structural_spans(
         text_normalized,
         min_name_length=min_name_length,
     )
     if not candidate_spans:
         return []
 
-    scored: list[tuple] = []
+    scored: list[tuple[float, int, str, ScopedEntity]] = []
     for row in scoped_entities:
-        surface_forms = _entity_surface_forms(row, min_name_length=min_name_length)
-        score = _entity_match_score(
+        surface_forms: list[str] = _entity_surface_forms(
+            row, min_name_length=min_name_length
+        )
+        score: float = _entity_match_score(
             text_normalized=text_normalized,
             candidate_spans=candidate_spans,
             surface_forms=surface_forms,
@@ -324,8 +339,8 @@ def _match_scoped_entities_to_text(
         )
 
     scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
-    matched: list[dict[str, Any]] = []
-    seen_ids = set()
+    matched: list[ScopedEntity] = []
+    seen_ids: set[str] = set()
     for _, _, entity_id, row in scored:
         if entity_id in seen_ids:
             continue
