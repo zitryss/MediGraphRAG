@@ -1,26 +1,111 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 import subprocess
 import sys
-import importlib.util
 import unicodedata
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, NotRequired, Optional, TypeAlias, TypedDict
+
+if TYPE_CHECKING:
+    from ontographrag.api.runtime_helpers import DoctorReport
 
 import httpx
 import typer
 
+# These records describe the fields consumed from the server and curated cases;
+# JSON decoding remains at the existing HTTP/file boundaries without validation.
+JSONValue: TypeAlias = (
+    None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+)
 
-app = typer.Typer(
+
+class RequestKwargs(TypedDict):
+    headers: NotRequired[dict[str, str]]
+
+
+class ErrorPayload(TypedDict):
+    detail: NotRequired[JSONValue]
+    message: NotRequired[JSONValue]
+
+
+class GraphPayload(TypedDict):
+    nodes: NotRequired[list[JSONValue]]
+    relationships: NotRequired[list[JSONValue]]
+
+
+class IngestPayload(TypedDict):
+    kg_name: NotRequired[str | None]
+    graph_data: NotRequired[GraphPayload | None]
+
+
+class SourceEntity(TypedDict):
+    id: NotRequired[str | None]
+    description: NotRequired[str | None]
+
+
+class EntitySources(TypedDict):
+    used_entities: NotRequired[list[SourceEntity] | None]
+
+
+class GuardrailPayload(TypedDict):
+    final_decision: NotRequired[str]
+
+
+class ChatInfo(TypedDict):
+    kg_confidence: NotRequired[float | None]
+    entities: NotRequired[EntitySources]
+    guardrail: NotRequired[GuardrailPayload | None]
+
+
+class ChatPayload(TypedDict):
+    response: NotRequired[str | None]
+    message: NotRequired[str | None]
+    info: NotRequired[ChatInfo | None]
+
+
+class RegressionCase(TypedDict):
+    id: NotRequired[str]
+    question: NotRequired[JSONValue]
+    kg_name: NotRequired[JSONValue]
+    expected_any: NotRequired[list[JSONValue] | None]
+
+
+class RegressionRequest(TypedDict):
+    question: str
+    provider_rag: str
+    model_rag: str
+    runtime_guardrail: bool
+    kg_name: NotRequired[JSONValue]
+
+
+class KGListItem(TypedDict):
+    kg_name: NotRequired[str | None]
+    name: NotRequired[str | None]
+    documentCount: NotRequired[int]
+
+
+class KGListPayload(TypedDict):
+    kgs: NotRequired[list[KGListItem]]
+
+
+class KGDetailPayload(TypedDict):
+    stats: NotRequired[dict[str, JSONValue] | None]
+
+
+DatasetSpec: TypeAlias = dict[str, str]
+
+
+app: typer.Typer = typer.Typer(
     help="OntographRAG CLI — ontology-guided ingest, graph exploration, Q&A, and evaluation.",
     no_args_is_help=True,
     rich_markup_mode="markdown",
 )
-explore_app = typer.Typer(
-    help="Inspect named knowledge graphs exposed by a running OntographRAG server."
+explore_app: typer.Typer = typer.Typer(
+    help="Inspect named knowledge graphs exposed by a running OntographRAG server.",
 )
 app.add_typer(explore_app, name="explore")
 
@@ -32,15 +117,17 @@ def _base_url(server: str) -> str:
 def _raise_for_status(response: httpx.Response) -> None:
     if response.is_success:
         return
-    detail = response.text
+    detail: JSONValue = response.text
     try:
-        payload = response.json()
+        payload: ErrorPayload | None | bool | int | float | str | list[JSONValue] = (
+            response.json()
+        )
         if isinstance(payload, dict):
             detail = payload.get("detail") or payload.get("message") or detail
     except Exception:
         pass
     raise typer.BadParameter(
-        f"{response.status_code} {response.reason_phrase}: {detail}"
+        f"{response.status_code} {response.reason_phrase}: {detail}",
     )
 
 
@@ -48,8 +135,8 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _find_experiment_script() -> Optional[Path]:
-    candidates = [
+def _find_experiment_script() -> Path | None:
+    candidates: list[Path] = [
         _repo_root() / "experiments" / "experiment.py",
         Path(sys.prefix) / "experiments" / "experiment.py",
     ]
@@ -59,19 +146,19 @@ def _find_experiment_script() -> Optional[Path]:
     return None
 
 
-def _resolve_api_key(api_key: Optional[str]) -> Optional[str]:
+def _resolve_api_key(api_key: str | None) -> str | None:
     return api_key or os.getenv("ONTOGRAPHRAG_API_KEY")
 
 
-def _request_kwargs(api_key: Optional[str]) -> dict:
-    resolved = _resolve_api_key(api_key)
+def _request_kwargs(api_key: str | None) -> RequestKwargs:
+    resolved: str | None = _resolve_api_key(api_key)
     if not resolved:
         return {}
     return {"headers": {"X-API-Key": resolved}}
 
 
 def _normalize_probe_text(text: str) -> str:
-    normalized = unicodedata.normalize("NFKD", str(text or ""))
+    normalized: str = unicodedata.normalize("NFKD", str(text or ""))
     return (
         "".join(ch for ch in normalized if not unicodedata.combining(ch))
         .lower()
@@ -94,7 +181,8 @@ def serve(
 @app.command()
 def doctor(
     probe_models: bool = typer.Option(
-        False, help="Actively probe configured model providers."
+        False,
+        help="Actively probe configured model providers.",
     ),
     write_probe_dir: Optional[Path] = typer.Option(
         None,
@@ -104,17 +192,19 @@ def doctor(
         help="Directory used for the write-permission probe.",
     ),
     json_output: bool = typer.Option(
-        False, "--json", help="Emit machine-readable JSON."
+        False,
+        "--json",
+        help="Emit machine-readable JSON.",
     ),
 ) -> None:
     """Run a readiness check for Neo4j, embeddings, OCR, ontology parsing, and write access."""
     from ontographrag.api.app import run_doctor_checks
 
-    report = asyncio.run(
+    report: DoctorReport = asyncio.run(
         run_doctor_checks(
             probe_models=probe_models,
             write_probe_dir=str(write_probe_dir) if write_probe_dir else None,
-        )
+        ),
     )
     if json_output:
         typer.echo(json.dumps(report, indent=2))
@@ -123,7 +213,7 @@ def doctor(
         typer.echo(
             f"Checks: {report['summary']['ok']} ok, "
             f"{report['summary']['warn']} warn, "
-            f"{report['summary']['fail']} fail"
+            f"{report['summary']['fail']} fail",
         )
         for check in report["checks"]:
             typer.echo(f"- {check['check']}: {check['status']} — {check['detail']}")
@@ -134,13 +224,19 @@ def doctor(
 @app.command()
 def ingest(
     file: Path = typer.Argument(
-        ..., exists=True, dir_okay=False, readable=True, help="Document to ingest."
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Document to ingest.",
     ),
     server: str = typer.Option(
-        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+        "http://127.0.0.1:8004",
+        help="OntographRAG server base URL.",
     ),
     kg_name: Optional[str] = typer.Option(
-        None, help="Name for the resulting knowledge graph."
+        None,
+        help="Name for the resulting knowledge graph.",
     ),
     ontology: Optional[Path] = typer.Option(
         None,
@@ -152,11 +248,13 @@ def ingest(
     provider: str = typer.Option("openai", help="KG extraction provider."),
     model: str = typer.Option("gpt-4o-mini", help="KG extraction model."),
     embedding_model: str = typer.Option(
-        "sentence_transformers", help="Embedding backend."
+        "sentence_transformers",
+        help="Embedding backend.",
     ),
     max_chunks: int = typer.Option(20, min=1, help="Max chunks to process."),
     enable_coreference: bool = typer.Option(
-        False, help="Enable cross-chunk coreference resolution."
+        False,
+        help="Enable cross-chunk coreference resolution.",
     ),
     api_key: Optional[str] = typer.Option(
         None,
@@ -165,8 +263,8 @@ def ingest(
     ),
 ) -> None:
     """Ingest a document into a named knowledge graph through a running server."""
-    url = f"{_base_url(server)}/create_ontology_guided_kg"
-    data = {
+    url: str = f"{_base_url(server)}/create_ontology_guided_kg"
+    data: dict[str, str] = {
         "provider": provider,
         "model": model,
         "embedding_model": embedding_model,
@@ -176,7 +274,7 @@ def ingest(
     if kg_name:
         data["kg_name"] = kg_name
 
-    files = {
+    files: dict[str, tuple[str, bytes, str]] = {
         "file": (file.name, file.read_bytes(), "application/octet-stream"),
     }
     if ontology:
@@ -187,10 +285,15 @@ def ingest(
         )
 
     with httpx.Client(timeout=300.0) as client:
-        response = client.post(url, data=data, files=files, **_request_kwargs(api_key))
+        response: httpx.Response = client.post(
+            url,
+            data=data,
+            files=files,
+            **_request_kwargs(api_key),
+        )
     _raise_for_status(response)
-    payload = response.json()
-    graph = payload.get("graph_data") or {}
+    payload: IngestPayload = response.json()
+    graph: GraphPayload = payload.get("graph_data") or {}
     typer.echo(f"KG name: {payload.get('kg_name') or '(unnamed)'}")
     typer.echo(f"Nodes: {len(graph.get('nodes', []))}")
     typer.echo(f"Relationships: {len(graph.get('relationships', []))}")
@@ -201,10 +304,12 @@ def ingest(
 def ask(
     question: str = typer.Argument(..., help="Question to ask against the active KG."),
     server: str = typer.Option(
-        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+        "http://127.0.0.1:8004",
+        help="OntographRAG server base URL.",
     ),
     kg_name: Optional[str] = typer.Option(
-        None, help="Restrict retrieval to a named KG."
+        None,
+        help="Restrict retrieval to a named KG.",
     ),
     provider: str = typer.Option("openai", help="RAG provider."),
     model: str = typer.Option("gpt-4o-mini", help="RAG model."),
@@ -216,7 +321,7 @@ def ask(
     ),
 ) -> None:
     """Ask a grounded question against a running OntographRAG server."""
-    payload = {
+    payload: dict[str, str] = {
         "question": question,
         "provider_rag": provider,
         "model_rag": model,
@@ -225,23 +330,27 @@ def ask(
         payload["kg_name"] = kg_name
 
     with httpx.Client(timeout=180.0) as client:
-        response = client.post(
-            f"{_base_url(server)}/chat", json=payload, **_request_kwargs(api_key)
+        response: httpx.Response = client.post(
+            f"{_base_url(server)}/chat",
+            json=payload,
+            **_request_kwargs(api_key),
         )
     _raise_for_status(response)
-    result = response.json()
+    result: ChatPayload = response.json()
     if json_output:
         typer.echo(json.dumps(result, indent=2))
         return
 
     typer.echo(result.get("response") or result.get("message") or "")
-    info = result.get("info") or {}
-    kg_confidence = info.get("kg_confidence")
+    info: ChatInfo = result.get("info") or {}
+    kg_confidence: float | None = info.get("kg_confidence")
     if kg_confidence is not None:
         typer.echo(f"\nKG confidence: {kg_confidence:.3f}")
-    used_entities = info.get("entities", {}).get("used_entities") or []
+    used_entities: list[SourceEntity] = (
+        info.get("entities", {}).get("used_entities") or []
+    )
     if used_entities:
-        names = [
+        names: list[str | None] = [
             entity.get("description") or entity.get("id")
             for entity in used_entities[:10]
         ]
@@ -251,13 +360,16 @@ def ask(
 @app.command("runtime-regression")
 def runtime_regression(
     server: str = typer.Option(
-        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+        "http://127.0.0.1:8004",
+        help="OntographRAG server base URL.",
     ),
     provider: str = typer.Option(
-        "openrouter", help="RAG provider for the regression pass."
+        "openrouter",
+        help="RAG provider for the regression pass.",
     ),
     model: str = typer.Option(
-        "openai/gpt-4o-mini", help="RAG model for the regression pass."
+        "openai/gpt-4o-mini",
+        help="RAG model for the regression pass.",
     ),
     cases_file: Path = typer.Option(
         _repo_root() / "experiments" / "runtime_regression_cases.json",
@@ -272,63 +384,67 @@ def runtime_regression(
         help="API key for protected OntographRAG servers.",
     ),
     stop_on_failure: bool = typer.Option(
-        False, help="Stop after the first failing case."
+        False,
+        help="Stop after the first failing case.",
     ),
     timeout_seconds: float = typer.Option(180.0, min=10.0, help="Per-request timeout."),
 ) -> None:
     """Run curated live regression questions against a running server."""
-    cases = json.loads(cases_file.read_text())
+    cases: (
+        list[RegressionCase] | None | bool | int | float | str | dict[str, JSONValue]
+    ) = json.loads(cases_file.read_text())
     if not isinstance(cases, list) or not cases:
         raise typer.BadParameter(
-            "Regression cases file must contain a non-empty JSON array."
+            "Regression cases file must contain a non-empty JSON array.",
         )
 
-    failures = 0
+    failures: int = 0
     with httpx.Client(timeout=timeout_seconds) as client:
         for idx, case in enumerate(cases, start=1):
-            question = str(case.get("question", "")).strip()
+            question: str = str(case.get("question", "")).strip()
             if not question:
                 raise typer.BadParameter(f"Case {idx} is missing a question.")
-            payload = {
+            payload: RegressionRequest = {
                 "question": question,
                 "provider_rag": provider,
                 "model_rag": model,
                 "runtime_guardrail": True,
             }
-            if case.get("kg_name"):
-                payload["kg_name"] = case["kg_name"]
+            kg_name: JSONValue = case.get("kg_name")
+            if kg_name:
+                payload["kg_name"] = kg_name
 
-            response = client.post(
+            response: httpx.Response = client.post(
                 f"{_base_url(server)}/chat",
                 json=payload,
                 **_request_kwargs(api_key),
             )
             _raise_for_status(response)
-            result = response.json()
-            answer = result.get("message") or result.get("response") or ""
-            info = result.get("info") or {}
-            guardrail = info.get("guardrail") or {}
+            result: ChatPayload = response.json()
+            answer: str = result.get("message") or result.get("response") or ""
+            info: ChatInfo = result.get("info") or {}
+            guardrail: GuardrailPayload = info.get("guardrail") or {}
 
-            expected_any = [
+            expected_any: list[str] = [
                 str(item)
                 for item in (case.get("expected_any") or [])
                 if str(item).strip()
             ]
-            normalized_answer = _normalize_probe_text(answer)
-            matched = any(
+            normalized_answer: str = _normalize_probe_text(answer)
+            matched: bool = any(
                 _normalize_probe_text(expected) in normalized_answer
                 for expected in expected_any
             )
 
             if matched:
                 typer.echo(
-                    f"PASS [{idx}/{len(cases)}] {case.get('id', f'case-{idx}')}: {question}"
+                    f"PASS [{idx}/{len(cases)}] {case.get('id', f'case-{idx}')}: {question}",
                 )
                 continue
 
             failures += 1
             typer.echo(
-                f"FAIL [{idx}/{len(cases)}] {case.get('id', f'case-{idx}')}: {question}"
+                f"FAIL [{idx}/{len(cases)}] {case.get('id', f'case-{idx}')}: {question}",
             )
             typer.echo(f"  Expected any of: {expected_any}")
             typer.echo(f"  Got: {answer}")
@@ -346,7 +462,8 @@ def runtime_regression(
 @explore_app.command("list")
 def explore_list(
     server: str = typer.Option(
-        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+        "http://127.0.0.1:8004",
+        help="OntographRAG server base URL.",
     ),
     api_key: Optional[str] = typer.Option(
         None,
@@ -356,14 +473,15 @@ def explore_list(
 ) -> None:
     """List known KGs on the server."""
     with httpx.Client(timeout=30.0) as client:
-        response = client.get(
-            f"{_base_url(server)}/kg/list", **_request_kwargs(api_key)
+        response: httpx.Response = client.get(
+            f"{_base_url(server)}/kg/list",
+            **_request_kwargs(api_key),
         )
     _raise_for_status(response)
-    payload = response.json()
+    payload: KGListPayload = response.json()
     for kg in payload.get("kgs", []):
         typer.echo(
-            f"- {kg.get('kg_name') or kg.get('name')}: {kg.get('documentCount', '?')} documents"
+            f"- {kg.get('kg_name') or kg.get('name')}: {kg.get('documentCount', '?')} documents",
         )
 
 
@@ -371,7 +489,8 @@ def explore_list(
 def explore_show(
     kg_name: str = typer.Argument(..., help="Knowledge graph name."),
     server: str = typer.Option(
-        "http://127.0.0.1:8004", help="OntographRAG server base URL."
+        "http://127.0.0.1:8004",
+        help="OntographRAG server base URL.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit full JSON payload."),
     api_key: Optional[str] = typer.Option(
@@ -382,15 +501,16 @@ def explore_show(
 ) -> None:
     """Show summary information for a named KG."""
     with httpx.Client(timeout=30.0) as client:
-        response = client.get(
-            f"{_base_url(server)}/kg/{kg_name}", **_request_kwargs(api_key)
+        response: httpx.Response = client.get(
+            f"{_base_url(server)}/kg/{kg_name}",
+            **_request_kwargs(api_key),
         )
     _raise_for_status(response)
-    payload = response.json()
+    payload: KGDetailPayload = response.json()
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
         return
-    stats = payload.get("stats") or {}
+    stats: dict[str, JSONValue] = payload.get("stats") or {}
     typer.echo(f"KG: {kg_name}")
     for key, value in stats.items():
         typer.echo(f"- {key}: {value}")
@@ -404,15 +524,15 @@ def evaluate(ctx: typer.Context) -> None:
     if importlib.util.find_spec("experiments.experiment") is not None:
         raise typer.Exit(
             code=subprocess.call(
-                [sys.executable, "-m", "experiments.experiment", *ctx.args]
-            )
+                [sys.executable, "-m", "experiments.experiment", *ctx.args],
+            ),
         )
-    script = _find_experiment_script()
+    script: Path | None = _find_experiment_script()
     if script is None:
         raise typer.BadParameter(
-            "Could not find experiments/experiment.py. Use a source checkout for the evaluate workflow."
+            "Could not find experiments/experiment.py. Use a source checkout for the evaluate workflow.",
         )
-    cmd = [sys.executable, str(script), *ctx.args]
+    cmd: list[str] = [sys.executable, str(script), *ctx.args]
     raise typer.Exit(code=subprocess.call(cmd))
 
 
@@ -477,7 +597,7 @@ def prepare_bioasq_corpus(
 # Single source of truth for the CLI dataset commands: expected local path,
 # where to obtain the raw file, an optional direct-download URL, and whether a
 # derived-corpus preparation step is required.
-_BENCHMARK_DATASETS: dict[str, dict] = {
+_BENCHMARK_DATASETS: dict[str, DatasetSpec] = {
     "pubmedqa": {
         "path": "MIRAGE/rawdata/pubmedqa/data/test_set.json",
         "source": "https://github.com/pubmedqa/pubmedqa",
@@ -522,11 +642,11 @@ _BENCHMARK_DATASETS: dict[str, dict] = {
 }
 
 
-def _dataset_or_raise(name: str) -> dict:
-    spec = _BENCHMARK_DATASETS.get(name.lower())
+def _dataset_or_raise(name: str) -> DatasetSpec:
+    spec: DatasetSpec | None = _BENCHMARK_DATASETS.get(name.lower())
     if spec is None:
         raise typer.BadParameter(
-            f"Unknown dataset '{name}'. Known: {', '.join(sorted(_BENCHMARK_DATASETS))}."
+            f"Unknown dataset '{name}'. Known: {', '.join(sorted(_BENCHMARK_DATASETS))}.",
         )
     return spec
 
@@ -547,11 +667,11 @@ def datasets() -> None:
     """List supported benchmark datasets, their local status, and where to obtain them."""
     typer.echo("Benchmark datasets (raw files live under MIRAGE/rawdata/):\n")
     for name, spec in _BENCHMARK_DATASETS.items():
-        present = Path(spec["path"]).exists()
-        mark = "present" if present else "missing"
-        prep = spec.get("prep")
-        prep_note = f"  prepare: {prep}" if prep else ""
-        fetch = "  [--download available]" if spec.get("download") else ""
+        present: bool = Path(spec["path"]).exists()
+        mark: str = "present" if present else "missing"
+        prep: str | None = spec.get("prep")
+        prep_note: str = f"  prepare: {prep}" if prep else ""
+        fetch: str = "  [--download available]" if spec.get("download") else ""
         typer.echo(f"- {name}  [{mark}]{prep_note}{fetch}")
         typer.echo(f"    path:   {spec['path']}")
         typer.echo(f"    source: {spec['source']}")
@@ -560,7 +680,7 @@ def datasets() -> None:
     typer.echo(
         "\nWorkflow:  ontograph prepare <dataset>  ->  "
         "ontograph evaluate --datasets <dataset> ...\n"
-        "See experiments/README.md for full acquisition instructions and flags."
+        "See experiments/README.md for full acquisition instructions and flags.",
     )
 
 
@@ -571,7 +691,8 @@ def prepare(
     ctx: typer.Context,
     dataset: str = typer.Argument(..., help="Dataset name (see `ontograph datasets`)."),
     download: bool = typer.Option(
-        False, help="Fetch the raw file when a direct download URL is available."
+        False,
+        help="Fetch the raw file when a direct download URL is available.",
     ),
 ) -> None:
     """Prepare a benchmark dataset: optionally download the raw file and build any derived corpus.
@@ -579,14 +700,14 @@ def prepare(
     Extra arguments are forwarded to the corpus-preparation script (e.g.
     `--num-samples 250 --subset-seed 42 --overwrite` for hotpotqa_fullwiki).
     """
-    spec = _dataset_or_raise(dataset)
-    raw_path = Path(spec["path"])
+    spec: DatasetSpec = _dataset_or_raise(dataset)
+    raw_path: Path = Path(spec["path"])
 
     if download:
         if not spec.get("download"):
             raise typer.BadParameter(
                 f"No direct download URL for '{dataset}'. Obtain it from {spec['source']} "
-                f"and place it at {raw_path}."
+                f"and place it at {raw_path}.",
             )
         _download_to(spec["download"], raw_path)
 
@@ -599,9 +720,9 @@ def prepare(
             typer.echo(f"Note: {spec['note']}")
         raise typer.Exit(code=1)
 
-    prep = spec.get("prep")
+    prep: str | None = spec.get("prep")
     if prep == "fullwiki":
-        cmd = [
+        cmd: list[str] = [
             sys.executable,
             "-m",
             "experiments.prepare_hotpotqa_fullwiki_corpus",
@@ -611,12 +732,12 @@ def prepare(
     if prep == "bioasq":
         typer.echo(
             f"{dataset} raw file is present. Build the shared PubMed corpus with:\n"
-            f"  ontograph prepare-bioasq-corpus --email you@example.com"
+            f"  ontograph prepare-bioasq-corpus --email you@example.com",
         )
         return
     typer.echo(f"{dataset} is ready: {raw_path}")
     typer.echo(
-        f"Run it with: ontograph evaluate --datasets {dataset} --num-samples 100 --subset-seed 42"
+        f"Run it with: ontograph evaluate --datasets {dataset} --num-samples 100 --subset-seed 42",
     )
 
 
