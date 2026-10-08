@@ -12,6 +12,7 @@ import pytest
 
 from ontographrag.kg.builders import ontology_guided_kg_creator as module
 from ontographrag.schemas.models import PropertyType
+from tests.known_defects import UndefinedProviderDefect
 
 
 @pytest.fixture
@@ -254,7 +255,7 @@ def test_json_recovery_preserves_valid_content(
 
 @pytest.mark.xfail(
     strict=True,
-    raises=NameError,
+    raises=UndefinedProviderDefect,
     reason="generate_knowledge_graph references undefined provider while assembling metadata",
 )
 def test_real_preview_build_completes_without_persistence(
@@ -286,9 +287,14 @@ def test_real_preview_build_completes_without_persistence(
             )
         )
     )
-    result = creator.generate_knowledge_graph(
-        "Aspirin treats Pain.", llm, kg_name="unit", max_chunks=1
-    )
+    try:
+        result = creator.generate_knowledge_graph(
+            "Aspirin treats Pain.", llm, kg_name="unit", max_chunks=1
+        )
+    except NameError as exc:
+        if exc.name == "provider" and str(exc) == "name 'provider' is not defined":
+            raise UndefinedProviderDefect(str(exc)) from exc
+        raise
     assert result["metadata"]["total_entities"] == 2
     assert "stored_in_neo4j" not in result["metadata"]
 

@@ -9,11 +9,19 @@ import json
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from fastapi import HTTPException, UploadFile
 from fastapi.testclient import TestClient
+
+from tests.known_defects import (
+    AuthMiddlewareDefect,
+    CreatorSignatureDefect,
+    ReadbackDriverLeak,
+    ReadbackIdentityDefect,
+)
 
 
 @pytest.fixture
@@ -36,20 +44,37 @@ def client(app_module: ModuleType) -> TestClient:
     return TestClient(app_module.app, raise_server_exceptions=False)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Auth middleware currently converts invalid API keys to 500, not 401",
-)
-def test_authentication_public_and_private_routes(
+def test_authentication_public_route_remains_public(
     app_module: ModuleType, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(app_module, "_APP_API_KEY", "unit-secret")
     assert client.get("/health").status_code == 200
-    assert client.get("/kg/list").status_code == 401
-    assert client.get("/kg/list", headers={"X-API-Key": "wrong"}).status_code == 401
-    assert (
-        client.get("/kg/list", headers={"X-API-Key": "unit-secret"}).status_code == 503
-    )
+
+
+@pytest.mark.parametrize(
+    "headers", [{}, {"X-API-Key": "wrong"}], ids=["missing", "wrong"]
+)
+@pytest.mark.xfail(
+    strict=True,
+    raises=AuthMiddlewareDefect,
+    reason="The precise intended 401 escapes auth middleware and becomes HTTP 500",
+)
+def test_unauthorized_request_returns_401(
+    app_module: ModuleType, monkeypatch: pytest.MonkeyPatch, headers: dict[str, str]
+) -> None:
+    monkeypatch.setattr(app_module, "_APP_API_KEY", "unit-secret")
+    # Propagate the server exception to distinguish this known 500 from an unrelated
+    # 500; constructing without a context manager does not run live startup hooks.
+    client = TestClient(app_module.app, raise_server_exceptions=True)
+    try:
+        response = client.get("/kg/list", headers=headers)
+    except HTTPException as exc:
+        if exc.status_code == 401 and exc.detail == "Invalid or missing API key":
+            raise AuthMiddlewareDefect(
+                "Intended unauthorized response escaped middleware"
+            ) from exc
+        raise
+    assert response.status_code == 401
 
 
 def test_cached_rag_model_switch_and_invalidation(
@@ -591,37 +616,38 @@ def test_preview_never_requests_persistence(
     invalidate.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "named,sample,complete",
-    [(True, False, False), (True, True, True), (False, False, False)],
-)
-def test_database_visualization_load_serializes_and_deduplicates(
+def _install_readback_driver(
     app_module: ModuleType,
-    client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
+    *,
     named: bool,
-    sample: bool,
-    complete: bool,
-) -> None:
+    fail_query: bool = False,
+) -> MagicMock:
     from datetime import date
 
-    class Node(dict):
-        def __init__(self, identity: int, label: str) -> None:
-            super().__init__(name=f"node-{identity}", created=date(2026, 1, 1))
+    class Node(dict[str, Any]):
+        def __init__(self, identity: int, application_id: str, label: str) -> None:
+            super().__init__(
+                id=application_id, name=f"node-{identity}", created=date(2026, 1, 1)
+            )
             self.id = identity
             self.labels = {label}
 
-    class Relation(dict):
+    class Relation(dict[str, Any]):
         id = 3
         type = "TREATS"
 
-    drug, disease, doc = Node(1, "Drug"), Node(2, "Disease"), Node(0, "Document")
+    drug = Node(1, "drug-aspirin", "Drug")
+    disease = Node(2, "disease-pain", "Disease")
+    doc = Node(0, "document-unit", "Document")
     relation = Relation(confidence=0.8)
     monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
     driver = MagicMock()
     session = driver.session.return_value.__enter__.return_value
 
     def run(statement: str, params: dict | None = None) -> object:
+        if fail_query:
+            raise RuntimeError("readback query failed")
         if "shared_count" in statement:
             return Mock(single=Mock(return_value={"shared_count": 1}))
         if "count(d) AS c" in statement:
@@ -646,14 +672,55 @@ def test_database_visualization_load_serializes_and_deduplicates(
         if "RETURN n " in statement:
             return [{"n": drug}, {"n": disease}]
         if "RETURN r," in statement:
-            return [
-                {"r": relation, "start": drug, "end": disease},
-                {"r": None, "start": drug, "end": None},
-            ]
+            assert params is not None
+            if (
+                "id(a) IN $entity_ids" in statement
+                and "id(b) IN $entity_ids" in statement
+            ):
+                selected = set(params["entity_ids"])
+                match = {drug.id, disease.id}.issubset(selected)
+            elif "n.id IN $node_ids" in statement and "m.id IN $node_ids" in statement:
+                selected = set(params["node_ids"])
+                match = {drug["id"], disease["id"]}.issubset(selected)
+            elif (
+                "id(n) IN $node_ids" in statement and "id(m) IN $node_ids" in statement
+            ):
+                selected = set(params["node_ids"])
+                match = {drug.id, disease.id}.issubset(selected)
+            else:
+                raise AssertionError(
+                    f"Unrecognized relationship identity contract: {statement}"
+                )
+            # Match actual identity semantics: internal numeric IDs never equal
+            # application IDs. A mismatched query returns no relationships.
+            return (
+                [
+                    {"r": relation, "start": drug, "end": disease},
+                    {"r": None, "start": drug, "end": None},
+                ]
+                if match
+                else []
+            )
         raise AssertionError(statement)
 
     session.run.side_effect = run
     monkeypatch.setattr(app_module, "get_graphDB_driver", Mock(return_value=driver))
+    return driver
+
+
+@pytest.mark.parametrize(
+    "named,sample,complete",
+    [(True, False, False), (True, True, True), (False, False, False)],
+)
+def test_database_visualization_load_serializes_and_deduplicates(
+    app_module: ModuleType,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    named: bool,
+    sample: bool,
+    complete: bool,
+) -> None:
+    driver = _install_readback_driver(app_module, monkeypatch, named=named)
     response = client.post(
         "/load_kg_from_neo4j",
         data={
@@ -666,24 +733,109 @@ def test_database_visualization_load_serializes_and_deduplicates(
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["stats"]["loaded_nodes"] == (3 if named else 2)
-    assert data["stats"]["loaded_relationships"] == 1
-    assert data["graph_data"]["nodes"][0]["properties"]["created"] == "2026-01-01"
-    assert data["graph_data"]["relationships"][0]["start"] == 1
+    nodes = data["graph_data"]["nodes"]
+    assert len({node["id"] for node in nodes}) == len(nodes)
+    assert nodes[0]["properties"]["created"] == "2026-01-01"
+    assert {node["properties"]["id"] for node in nodes} >= {
+        "drug-aspirin",
+        "disease-pain",
+    }
     driver.session.return_value.__exit__.assert_called_once()
     if named:
+        assert data["stats"]["loaded_relationships"] == 1
+        assert data["graph_data"]["relationships"][0]["start"] == 1
         assert data["kg_settings"]["provider"] == "unit"
+        calls = driver.session.return_value.__enter__.return_value.run.call_args_list
         entity_query = next(
-            c.args[0]
-            for c in session.run.call_args_list
-            if "RETURN DISTINCT e" in c.args[0]
+            c.args[0] for c in calls if "RETURN DISTINCT e" in c.args[0]
         )
         assert ("LIMIT 2" in entity_query) is not complete
         assert ("ORDER BY rand()" in entity_query) is sample
+    # Fallback relationship correctness is a separate strict regression below.
 
 
 @pytest.mark.xfail(
     strict=True,
-    raises=TypeError,
+    raises=ReadbackIdentityDefect,
+    reason="Fallback compares numeric internal IDs against string node.id properties",
+)
+def test_readback_fallback_preserves_relationship_identity(
+    app_module: ModuleType,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _install_readback_driver(app_module, monkeypatch, named=False)
+    response = client.post("/load_kg_from_neo4j")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert {node["properties"]["id"] for node in data["graph_data"]["nodes"]} == {
+        "drug-aspirin",
+        "disease-pain",
+    }
+    calls = driver.session.return_value.__enter__.return_value.run.call_args_list
+    relationship_calls = [c for c in calls if "RETURN r," in c.args[0]]
+    assert len(relationship_calls) == 1
+    query, params = relationship_calls[0].args
+    if (
+        "n.id IN $node_ids" in query
+        and "m.id IN $node_ids" in query
+        and params == {"node_ids": [1, 2]}
+        and data["graph_data"]["relationships"] == []
+    ):
+        raise ReadbackIdentityDefect(
+            "Known internal/application ID mismatch removed the existing edge"
+        )
+    if "n.id IN $node_ids" in query and "m.id IN $node_ids" in query:
+        assert set(params["node_ids"]) == {"drug-aspirin", "disease-pain"}
+    else:
+        assert "id(n) IN $node_ids" in query and "id(m) IN $node_ids" in query
+        assert set(params["node_ids"]) == {1, 2}
+    assert data["stats"]["loaded_relationships"] == 1
+    assert data["graph_data"]["relationships"][0]["type"] == "TREATS"
+
+
+@pytest.mark.parametrize(
+    "named,fail_query",
+    [(True, False), (False, False), (False, True)],
+    ids=["named_success", "fallback_success", "query_exception"],
+)
+@pytest.mark.xfail(
+    strict=True,
+    raises=ReadbackDriverLeak,
+    reason="Request-owned readback driver is not closed on success or exception",
+)
+def test_readback_always_closes_owned_driver(
+    app_module: ModuleType,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    named: bool,
+    fail_query: bool,
+) -> None:
+    driver = _install_readback_driver(
+        app_module, monkeypatch, named=named, fail_query=fail_query
+    )
+    response = client.post(
+        "/load_kg_from_neo4j", data={"kg_label": "unit" if named else ""}
+    )
+    assert response.status_code == (500 if fail_query else 200), response.text
+    driver.session.return_value.__exit__.assert_called_once()
+    if fail_query:
+        session = driver.session.return_value.__enter__.return_value
+        assert session.run.call_count == 1
+        exc = driver.session.return_value.__exit__.call_args.args[1]
+        assert isinstance(exc, RuntimeError) and str(exc) == "readback query failed"
+    else:
+        assert response.json()["stats"]["loaded_nodes"] == (3 if named else 2)
+    if driver.close.call_count == 0:
+        raise ReadbackDriverLeak(
+            "Completed owned session but driver.close was never called"
+        )
+    driver.close.assert_called_once_with()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=CreatorSignatureDefect,
     reason="KG build endpoint passes provider positional argument absent from real creator signature",
 )
 def test_kg_build_call_matches_actual_creator_signature(
@@ -717,6 +869,21 @@ def test_kg_build_call_matches_actual_creator_signature(
     )
     assert response.status_code == 200
     call = builder.generate_knowledge_graph.call_args
-    inspect.signature(UnifiedOntologyGuidedKGCreator.generate_knowledge_graph).bind(
-        builder, *call.args, **call.kwargs
+    signature = inspect.signature(
+        UnifiedOntologyGuidedKGCreator.generate_knowledge_graph
     )
+    try:
+        signature.bind(builder, *call.args, **call.kwargs)
+    except TypeError as exc:
+        if (
+            str(exc) == "too many positional arguments"
+            and len(call.args) == 9
+            and call.args[-1] == "openai"
+        ):
+            # The remaining argument sequence must bind successfully: this sentinel
+            # must not cover a different missing/extra/invalid argument contract.
+            signature.bind(builder, *call.args[:-1], **call.kwargs)
+            raise CreatorSignatureDefect(
+                "Only final provider argument exceeds real creator signature"
+            ) from exc
+        raise

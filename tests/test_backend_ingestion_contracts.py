@@ -18,6 +18,7 @@ from ontographrag.kg.loaders import kg_loader
 from ontographrag.kg.loaders.kg_loader import KGLoader
 from ontographrag.kg.utils import graph_query
 from shared import common_fn
+from tests.known_defects import MissingCSVTextDefect
 
 
 @pytest.mark.parametrize("id_column", [None, "id"])
@@ -63,15 +64,18 @@ def test_document_validation_and_blank_rows(tmp_path: Path) -> None:
 
 
 @pytest.mark.xfail(
-    strict=True, reason="CSV missing text is currently ingested as literal 'nan'"
+    strict=True,
+    raises=MissingCSVTextDefect,
+    reason="CSV missing text is currently ingested as literal 'nan'",
 )
 def test_missing_csv_text_is_not_a_document(tmp_path: Path) -> None:
     path = tmp_path / "rows.csv"
     path.write_text("id,text\na,\nb,valid\n")
-    assert (
-        len(DocumentCSVProcessor("text").load_documents_bulk(str(path))["documents"])
-        == 1
-    )
+    documents = DocumentCSVProcessor("text").load_documents_bulk(str(path))["documents"]
+    texts = [document["text"] for document in documents]
+    if texts == ["nan", "valid"]:
+        raise MissingCSVTextDefect("Only the blank row was retained as literal nan")
+    assert texts == ["valid"]
 
 
 def test_medical_template_roundtrip_and_section_filter(tmp_path: Path) -> None:

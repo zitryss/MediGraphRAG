@@ -44,12 +44,19 @@ report that script separately when comparing backend percentages.
 - `test_backend_*` suites cover numeric invariants, deterministic sampling, cache
   lifetimes, parameter scopes, HTTP/CLI boundaries, negative cases, CSV/PDF/ontology
   ingestion, experiment orchestration, failure denominators, and real plot outputs.
-- Four **strict xfails** document pre-existing bugs rather than codify bad behavior:
-  empty CSV text becomes the document `"nan"`; API-key rejection returns HTTP 500
-  instead of 401; real KG generation references undefined `provider`; the KG build
-  endpoint passes a provider argument absent from the real creator signature. The
-  latter two restrict expected failure to NameError / TypeError respectively. An
-  unexpected pass fails the suite so fixes cannot go unnoticed.
+- Six pre-existing product defects have **nine strict expected-failure cases**:
+  missing CSV text becomes `"nan"`; intended API-key rejection escapes middleware;
+  KG generation references undefined `provider`; API build passes an unsupported
+  provider argument; fallback readback mixes internal and application IDs; readback
+  leaks its request-owned driver. Missing/wrong keys and named/fallback/error driver
+  paths run independently. Public and valid-key behavior remain passing contracts.
+- Markers accept only explicit sentinels from `tests/known_defects.py`, raised after
+  matching the exact recorded outcome/error. Unrelated exceptions, authorization
+  bypass, different identity failures and double-close errors fail normally. A
+  repaired desired contract still fails as strict XPASS, prompting marker removal.
+- Readback fakes use numeric internal IDs and distinct string application IDs;
+  relationships are returned only when the query's identity domain and parameters
+  match. Passing serialization tests do not claim fallback relationships work.
 
 ## Remaining coverage limits
 
