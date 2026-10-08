@@ -29,13 +29,14 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         self,
         chunk_size: int = 1000,
         chunk_overlap: int = 150,
-        neo4j_uri: str = None,
-        neo4j_user: str = None,
-        neo4j_password: str = None,
-        neo4j_database: str = None,
-        embedding_model: str = None,
+        neo4j_uri: str | None = None,
+        neo4j_user: str | None = None,
+        neo4j_password: str | None = None,
+        neo4j_database: str | None = None,
+        embedding_model: str | None = None,
         ontology_path: str | None = None,
-        max_chunks: int = None,  # For testing - limit chunks processed per report
+        max_chunks: int
+        | None = None,  # For testing - limit chunks processed per report
         enable_coreference_resolution: bool = False,
         enable_heuristic_coreference_resolution: bool = True,
         retrieval_chunk_size: int | None = None,
@@ -511,12 +512,12 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         self,
         csv_path: str,
         text_column: str,
-        id_column: str = None,
+        id_column: str | None = None,
         start_row: int = 0,
         batch_size: int = 50,
         llm=None,
-        max_chunks: int = None,
-        kg_name: str = None,
+        max_chunks: int | None = None,
+        kg_name: str | None = None,
     ) -> dict[str, Any]:
         """Process documents from any CSV file and build a knowledge graph."""
         if DocumentCSVProcessor is None:
@@ -781,7 +782,11 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         return {"entities": entities, "relationships": relationships}
 
     def generate_patient_knowledge_graph(
-        self, text: str, llm=None, file_name: str = None, max_chunks: int = None
+        self,
+        text: str,
+        llm=None,
+        file_name: str | None = None,
+        max_chunks: int | None = None,
     ) -> dict[str, Any]:
         """Generate a knowledge graph from patient report text with patient-specific extraction."""
         logging.info("Generating patient-specific knowledge graph")

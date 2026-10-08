@@ -441,7 +441,7 @@ class MIRAGEEvaluationPipeline:
 
     def __init__(
         self,
-        num_samples: int = None,
+        num_samples: int | None = None,
         subset_seed: int = 42,
         entropy_samples: int = 5,
         llm_provider: str = "openai",
@@ -449,11 +449,11 @@ class MIRAGEEvaluationPipeline:
         temperature: float = 1.0,
         eval_configs: list[dict[str, Any]] | None = None,
         rebuild_kg: bool = False,
-        max_kg_contexts: int = None,
+        max_kg_contexts: int | None = None,
         use_llm_judge: bool = True,
         multi_temperature: bool = False,
-        judge_provider: str = None,
-        judge_model: str = None,
+        judge_provider: str | None = None,
+        judge_model: str | None = None,
         evaluation_mode: str = EVALUATION_MODE_FULL_METRICS,
         dataset_kg_scope: str = DATASET_KG_SCOPE_EVALUATION_SUBSET,
         allow_gold_evidence_contexts: bool = False,
@@ -2610,7 +2610,7 @@ class MIRAGEEvaluationPipeline:
             return {}
 
     def _extract_contexts_from_question(
-        self, question_data: dict, dataset_name: str = None
+        self, question_data: dict, dataset_name: str | None = None
     ) -> list[str]:
         """Extract context passages from a question"""
         # Adapter-normalized shape
@@ -4591,7 +4591,9 @@ class MIRAGEEvaluationPipeline:
 
         return results
 
-    def run_pipeline(self, datasets: list[str] = None, output_dir: str = "results"):
+    def run_pipeline(
+        self, datasets: list[str] | None = None, output_dir: str = "results"
+    ):
         """Run the full evaluation pipeline"""
         if datasets is None:
             datasets = [

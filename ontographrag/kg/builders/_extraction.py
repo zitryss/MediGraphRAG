@@ -870,8 +870,8 @@ Rules:
         chunk_text: str,
         llm,
         model_name: str = "openai/gpt-oss-120b:free",
-        context_header: str = None,
-        section_header: str = None,
+        context_header: str | None = None,
+        section_header: str | None = None,
         _self_consistency_depth: int = 0,
     ) -> dict[str, Any]:
         """

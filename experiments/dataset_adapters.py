@@ -141,7 +141,7 @@ class GoldRecord:
 
 
 def adapt_pubmedqa(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt PubMedQA format.
@@ -212,7 +212,7 @@ def _is_realmedqa_ideal_record(raw_data: dict[str, Any]) -> bool:
 
 
 def adapt_realmedqa(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt RealMedQA format.
@@ -265,7 +265,7 @@ def adapt_realmedqa(
 
 
 def adapt_bioasq(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt BioASQ format.
@@ -342,7 +342,7 @@ def adapt_bioasq(
 
 
 def adapt_medqa(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedQA (USMLE) format.
@@ -409,7 +409,7 @@ def adapt_medqa(
 
 
 def adapt_medmcqa(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedMCQA format.
@@ -448,7 +448,7 @@ def adapt_medmcqa(
 
 
 def adapt_mmlu(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MMLU format (single row).
@@ -486,7 +486,7 @@ def adapt_mmlu(
 
 
 def adapt_hotpotqa(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt HotpotQA (fullwiki) format.
@@ -541,7 +541,7 @@ def adapt_hotpotqa(
 
 
 def adapt_hotpotqa_fullwiki(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """Adapt HotpotQA FullWiki while keeping a distinct dataset label."""
     inf_rec, gold_rec = adapt_hotpotqa(raw_data, q_id=q_id)
@@ -550,7 +550,7 @@ def adapt_hotpotqa_fullwiki(
 
 
 def adapt_2wikimultihopqa(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt 2WikiMultiHopQA format.
@@ -612,7 +612,7 @@ def adapt_2wikimultihopqa(
 
 
 def adapt_musique(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MuSiQue format.
@@ -709,7 +709,7 @@ def adapt_musique(
 
 
 def adapt_medhop(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedHop format.
@@ -828,7 +828,7 @@ def _format_multihoprag_corpus_document(doc: dict[str, Any]) -> str:
 
 
 def adapt_multihoprag(
-    raw_data: dict[str, Any], q_id: str = None
+    raw_data: dict[str, Any], q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MultiHop-RAG format.

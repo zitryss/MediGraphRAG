@@ -90,7 +90,7 @@ class OntologyGuidedKGCreator(
         neo4j_password: str = "password",
         neo4j_database: str = "neo4j",
         embedding_model: str = "sentence_transformers",
-        ontology_path: str = None,
+        ontology_path: str | None = None,
         enable_coreference_resolution: bool = False,
         enable_heuristic_coreference_resolution: bool = True,
         retrieval_chunk_size: int | None = None,
@@ -784,7 +784,7 @@ class OntologyGuidedKGCreator(
         return segments
 
     def merge_synonym_entities(
-        self, graph, similarity_threshold: float = 0.82, kg_name: str = None
+        self, graph, similarity_threshold: float = 0.82, kg_name: str | None = None
     ) -> int:
         """
         HippoRAG-style synonym merging: cluster entity nodes that share nearly-identical
@@ -2763,12 +2763,12 @@ class OntologyGuidedKGCreator(
         self,
         text: str,
         llm,
-        file_name: str = None,
+        file_name: str | None = None,
         model_name: str = "openai/gpt-oss-120b:free",
-        max_chunks: int = None,
-        kg_name: str = None,
-        doc_metadata: dict = None,
-        doc_hash: str = None,
+        max_chunks: int | None = None,
+        kg_name: str | None = None,
+        doc_metadata: dict | None = None,
+        doc_hash: str | None = None,
     ) -> dict[str, Any]:
         """
         Generate knowledge graph from text with ontology-guided entity extraction
@@ -3149,11 +3149,11 @@ class OntologyGuidedKGCreator(
         self,
         passages,  # List[ContextPassage] — avoids circular import; duck-typed
         llm,
-        file_name: str = None,
+        file_name: str | None = None,
         model_name: str = "openai/gpt-oss-120b:free",
-        kg_name: str = None,
-        doc_metadata: dict = None,
-        doc_hash: str = None,
+        kg_name: str | None = None,
+        doc_metadata: dict | None = None,
+        doc_hash: str | None = None,
     ) -> dict[str, Any]:
         """Generate a KG from a list of ContextPassage objects.
 

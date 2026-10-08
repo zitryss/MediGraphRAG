@@ -70,7 +70,7 @@ class graphDBdataAccess:
             raise Exception(error_message)
 
     def create_source_node(
-        self, obj_source_node: sourceNode, kg_name: str = None
+        self, obj_source_node: sourceNode, kg_name: str | None = None
     ) -> None:
         try:
             job_status: str = "New"
@@ -771,7 +771,12 @@ class graphDBdataAccess:
             }
         return value
 
-    def create_kg(self, kg_name: str, description: str = None, data_source: str = None):
+    def create_kg(
+        self,
+        kg_name: str,
+        description: str | None = None,
+        data_source: str | None = None,
+    ):
         """
         Create or update a lightweight KG metadata node.
 
@@ -920,7 +925,7 @@ class graphDBdataAccess:
         )
         return [self._coerce_record_value(dict(record)) for record in result]
 
-    def get_kg_stats(self, kg_name: str = None):
+    def get_kg_stats(self, kg_name: str | None = None):
         """
         Get statistics for a specific KG or all KGs
         """

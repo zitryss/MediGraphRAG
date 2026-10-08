@@ -168,11 +168,11 @@ class EnhancedRAGSystem(
 
     def __init__(
         self,
-        neo4j_uri: str = None,
-        neo4j_user: str = None,
-        neo4j_password: str = None,
+        neo4j_uri: str | None = None,
+        neo4j_user: str | None = None,
+        neo4j_password: str | None = None,
         neo4j_database: str = "neo4j",
-        embedding_model: str = None,  # Use environment variable if not provided
+        embedding_model: str | None = None,  # Use environment variable if not provided
         # --- Retrieval mode ---
         # hybrid_auto : entity_first → RFGE → vector (default, best recall)
         # entity_first: question-entity ANN + symbolic only, no RFGE fallback
@@ -189,8 +189,10 @@ class EnhancedRAGSystem(
         use_rog_path_planning: bool = True,  # RoG-style relation-path-guided traversal
         allow_vector_augmentation: bool = True,  # merge vector evidence after graph retrieval
         allow_vector_fallback: bool = True,  # retry/fallback to vector when graph is thin
-        max_chunks_per_passage: int = None,  # per-passage chunk cap (None → class default)
-        traversal_chunk_min_sim: float = None,  # min query-chunk cosine for hop-1+ chunks
+        max_chunks_per_passage: int
+        | None = None,  # per-passage chunk cap (None → class default)
+        traversal_chunk_min_sim: float
+        | None = None,  # min query-chunk cosine for hop-1+ chunks
     ) -> None:
         # Load Neo4j credentials from environment variables if not provided
         self.neo4j_uri = neo4j_uri if neo4j_uri is not None else os.getenv("NEO4J_URI")
@@ -327,12 +329,12 @@ Question: {question}""",
     def get_rag_context(
         self,
         query: str,
-        document_names: list[str] = None,
+        document_names: list[str] | None = None,
         similarity_threshold: float = 0.08,
         max_chunks: int = 20,
-        kg_name: str = None,
+        kg_name: str | None = None,
         max_hops: int = 2,
-        question_id: str = None,
+        question_id: str | None = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
@@ -909,17 +911,17 @@ Question: {question}""",
         self,
         question: str,
         llm,
-        document_names: list[str] = None,
-        similarity_threshold: float = None,
-        max_chunks: int = None,
-        timeout: float = None,
+        document_names: list[str] | None = None,
+        similarity_threshold: float | None = None,
+        max_chunks: int | None = None,
+        timeout: float | None = None,
         extra_context_texts: list[str] | None = None,
-        kg_name: str = None,
+        kg_name: str | None = None,
         max_hops: int = 2,
         answer_instructions: str = "",
         runtime_guardrail: bool | None = None,
         runtime_guardrail_mode: str | None = None,
-        question_id: str = None,
+        question_id: str | None = None,
         allow_decomposition: bool = True,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,

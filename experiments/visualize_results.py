@@ -291,7 +291,7 @@ def print_per_dataset_summary(results: dict) -> None:
 
 
 def create_comparison_chart(
-    aggregated: dict, metric_names: list, output_path: str = None
+    aggregated: dict, metric_names: list, output_path: str | None = None
 ):
     """Create grouped bar chart comparing Vanilla RAG vs KG-RAG by config."""
     if not HAS_MATPLOTLIB:
@@ -359,7 +359,7 @@ def create_comparison_chart(
 
 
 def create_overall_comparison_chart(
-    overall: dict, metric_names: list, output_path: str = None
+    overall: dict, metric_names: list, output_path: str | None = None
 ):
     """Create overall comparison bar chart."""
     if not HAS_MATPLOTLIB:

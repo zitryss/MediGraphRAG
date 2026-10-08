@@ -313,8 +313,8 @@ class StorageMixin:
         self,
         kg: dict[str, Any],
         file_name: str,
-        doc_metadata: dict = None,
-        doc_hash: str = None,
+        doc_metadata: dict | None = None,
+        doc_hash: str | None = None,
         llm=None,
         model_name: str = "openai/gpt-oss-120b:free",
     ) -> bool:

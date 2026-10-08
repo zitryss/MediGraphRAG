@@ -46,7 +46,7 @@ class KGLoader:
         else:
             raise ValueError(f"Unsupported ontology format: {ontology_path}")
 
-    def load_from_pdf(self, file_path: str, ontology_path: str = None) -> dict:
+    def load_from_pdf(self, file_path: str, ontology_path: str | None = None) -> dict:
         """Extract text from PDF and structure as knowledge graph using optional ontology"""
         try:
             logger.info("Loading PDF: %s", file_path)
@@ -113,9 +113,9 @@ class KGLoader:
         uri: str,
         user: str,
         password: str,
-        kg_label: str = None,
-        query: str = None,
-        limit: int = None,
+        kg_label: str | None = None,
+        query: str | None = None,
+        limit: int | None = None,
         sample_mode: bool = False,
     ) -> dict:
         """Fetch data from Neo4j database with enhanced options for complete KG import

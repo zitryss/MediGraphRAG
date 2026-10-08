@@ -223,11 +223,11 @@ class VectorSearchMixin:
         self,
         graph,
         query: str,
-        document_names: list[str] = None,
+        document_names: list[str] | None = None,
         max_chunks: int = 20,
-        kg_name: str = None,
+        kg_name: str | None = None,
         max_hops: int = 2,
-        question_id: str = None,
+        question_id: str | None = None,
     ) -> dict[str, Any]:
         try:
             scope_key = self._late_interaction_scope_key(
@@ -443,12 +443,12 @@ class VectorSearchMixin:
         self,
         graph,
         query: str,
-        document_names: list[str] = None,
+        document_names: list[str] | None = None,
         similarity_threshold: float = 0.08,
         max_chunks: int = 20,
-        kg_name: str = None,
+        kg_name: str | None = None,
         max_hops: int = 2,
-        question_id: str = None,
+        question_id: str | None = None,
         allow_first_stage_late_interaction: bool = True,
     ) -> dict[str, Any]:
         if (
@@ -536,11 +536,11 @@ class VectorSearchMixin:
         self,
         graph,
         query: str,
-        document_names: list[str] = None,
+        document_names: list[str] | None = None,
         max_chunks: int = 20,
-        kg_name: str = None,
+        kg_name: str | None = None,
         max_hops: int = 2,
-        question_id: str = None,
+        question_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Text-based similarity search as fallback when vector search fails
@@ -746,12 +746,12 @@ class VectorSearchMixin:
         self,
         graph,
         query: str,
-        document_names: list[str] = None,
+        document_names: list[str] | None = None,
         similarity_threshold: float = 0.08,
         max_chunks: int = 20,
-        kg_name: str = None,
+        kg_name: str | None = None,
         max_hops: int = 2,
-        question_id: str = None,
+        question_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Vector similarity search using real sentence transformer embeddings.

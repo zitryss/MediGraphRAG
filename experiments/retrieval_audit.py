@@ -59,7 +59,7 @@ def _make_driver(uri: str, user: str, password: str):
         sys.exit(1)
 
 
-def _run_query(driver, cypher: str, params: dict = None) -> list[dict[str, Any]]:
+def _run_query(driver, cypher: str, params: dict | None = None) -> list[dict[str, Any]]:
     with driver.session() as session:
         result = session.run(cypher, params or {})
         return [dict(r) for r in result]

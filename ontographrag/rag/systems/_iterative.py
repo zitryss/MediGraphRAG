@@ -71,7 +71,7 @@ class IterativeRetrievalMixin:
         llm,
         similarity_threshold: float,
         document_names: list[str],
-        question_id: str = None,
+        question_id: str | None = None,
         anchor_mask_entity_ids: list[str] | None = None,
         anchor_mask_entity_names: list[str] | None = None,
     ) -> dict[str, Any] | None:

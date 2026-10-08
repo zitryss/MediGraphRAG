@@ -477,8 +477,8 @@ Return ONLY the JSON object.
         target_name: str,
         rel_type: str,
         chunks: list[dict],
-        source_aliases: list[str] = None,
-        target_aliases: list[str] = None,
+        source_aliases: list[str] | None = None,
+        target_aliases: list[str] | None = None,
     ) -> float:
         """
         Evidence-grounded verification for an extracted triple (inspired by MOSAICX verify).

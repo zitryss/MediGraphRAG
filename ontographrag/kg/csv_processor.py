@@ -24,7 +24,7 @@ class DocumentCSVProcessor:
     """
 
     def __init__(
-        self, text_column: str, id_column: str = None, delimiter: str = ","
+        self, text_column: str, id_column: str | None = None, delimiter: str = ","
     ) -> None:
         """
         Args:
