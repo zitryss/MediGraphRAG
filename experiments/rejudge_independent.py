@@ -11,15 +11,66 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from openai import OpenAI
+    from openai.types.chat import ChatCompletion
 from sklearn.metrics import cohen_kappa_score, roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v2_replay import _load_env
 from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
-from experiments.trust_analysis import rows_for, REPO, MANIFEST, KEY, STRICT_RUNS
+from experiments.trust_analysis import (
+    rows_for,
+    REPO,
+    MANIFEST,
+    KEY,
+    STRICT_RUNS,
+    TrustRow,
+    NamedConfig,
+)
+
+JudgedAnswer: TypeAlias = tuple[str, str, str, str, bool]
+
+
+class JudgeDetail(TypedDict):
+    question_id: str | int
+    question: str
+    expected: str
+    kg_response: str
+    kg_correct: bool
+    kg_generation_failed: NotRequired[bool]
+
+
+class JudgeConfig(TypedDict):
+    config: NamedConfig
+    details: list[JudgeDetail]
+
+
+class JudgeDocument(TypedDict):
+    config_results: list[JudgeConfig]
+
+
+class JudgeMetric(TypedDict):
+    auroc: float | None
+    n: int
+
+
+class JudgeSummary(TypedDict):
+    n_judged: int
+    n_failed: int
+    agreement: float
+    kappa: float
+    accuracy_original: float
+    accuracy_independent: float
+    auroc_under_independent_labels: dict[str, JudgeMetric]
+
 
 JUDGE_MODEL: str = "meta-llama/llama-3.3-70b-instruct"
 SYSTEM_PROMPT: str = """You are a strict answer evaluator for a factoid question answering
@@ -40,7 +91,7 @@ Is the model response correct? Reply with one word only:
 correct or incorrect."""
 
 
-def get_client():
+def get_client() -> "OpenAI":
     _load_env()
     from openai import OpenAI
 
@@ -50,10 +101,12 @@ def get_client():
     )
 
 
-def judge_one(client, q, expected, response, retries=3):
+def judge_one(
+    client: "OpenAI", q: str, expected: str, response: str, retries: int = 3
+) -> bool | None:
     for attempt in range(retries):
         try:
-            r = client.chat.completions.create(
+            r: "ChatCompletion" = client.chat.completions.create(
                 model=JUDGE_MODEL,
                 temperature=0.0,
                 max_tokens=4,
@@ -67,7 +120,7 @@ def judge_one(client, q, expected, response, retries=3):
                     },
                 ],
             )
-            word = (r.choices[0].message.content or "").strip().lower()
+            word: str = (r.choices[0].message.content or "").strip().lower()
             if "incorrect" in word:
                 return False
             if "correct" in word:
@@ -77,26 +130,27 @@ def judge_one(client, q, expected, response, retries=3):
     return None
 
 
-def load_run(policy):
+def load_run(policy: str) -> list[JudgedAnswer]:
     """Return rows with question/expected/response/original label for RealMedQA."""
     if policy == "strict":
-        doc = json.load(open(os.path.join(REPO, STRICT_RUNS["realmedqa"])))
-        details = doc["config_results"][0]["details"]
-        prefix: str = "kg"
-        out = [
+        doc: JudgeDocument = json.load(
+            open(os.path.join(REPO, STRICT_RUNS["realmedqa"]))
+        )
+        details: list[JudgeDetail] = doc["config_results"][0]["details"]
+        out: list[JudgedAnswer] = [
             (
                 str(r["question_id"]),
                 r["question"],
                 r["expected"],
-                r[f"{prefix}_response"],
-                bool(r[f"{prefix}_correct"]),
+                r["kg_response"],
+                bool(r["kg_correct"]),
             )
             for r in details
-            if not r.get(f"{prefix}_generation_failed")
+            if not r.get("kg_generation_failed")
         ]
         return out
     doc = json.load(open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"])))
-    cfg = next(
+    cfg: JudgeConfig = next(
         c
         for c in doc["config_results"]
         if c["config"]["name"].startswith("kg_entity_first")
@@ -114,20 +168,29 @@ def load_run(policy):
     ]
 
 
-def metric_aurocs(policy, labels_by_qid):
+def metric_aurocs(
+    policy: str, labels_by_qid: Mapping[str, bool | None]
+) -> dict[str, tuple[float | None, int]]:
     """Recompute SD-UQ / SEU / GPS AUROC under given labels (KG side)."""
-    rows = rows_for("realmedqa", policy if policy != "adaptive" else "kg")
-    gps = gps_v3_scores_for("realmedqa", strict=(policy == "strict"), side="kg")
-    out = {}
-    for name, getter in [
+    rows: list[TrustRow] = rows_for(
+        "realmedqa", policy if policy != "adaptive" else "kg"
+    )
+    gps: dict[str, float | None] = gps_v3_scores_for(
+        "realmedqa", strict=(policy == "strict"), side="kg"
+    )
+    out: dict[str, tuple[float | None, int]] = {}
+    getters: list[tuple[str, Callable[[TrustRow], float | None]]] = [
         ("sd_uq", lambda r: r["sd"]),
         ("seu", lambda r: r["seu"]),
         ("gps", lambda r: gps.get(r["qid"])),
-    ]:
+    ]
+    for name, getter in getters:
+        s: list[float]
+        w: list[int]
         s, w = [], []
         for r in rows:
-            lbl = labels_by_qid.get(r["qid"])
-            v = getter(r)
+            lbl: bool | None = labels_by_qid.get(r["qid"])
+            v: float | None = getter(r)
             if lbl is None or v is None:
                 continue
             s.append(float(v))
@@ -137,20 +200,24 @@ def metric_aurocs(policy, labels_by_qid):
 
 
 def main() -> None:
-    client = get_client()
-    results = {"judge_model": JUDGE_MODEL}
+    client: "OpenAI" = get_client()
+    results: dict[str, str | JudgeSummary] = {"judge_model": JUDGE_MODEL}
     for policy in ("adaptive", "strict"):
-        rows = load_run("strict" if policy == "strict" else "kg")
+        rows: list[JudgedAnswer] = load_run("strict" if policy == "strict" else "kg")
         print(f"[{policy}] judging {len(rows)} answers with {JUDGE_MODEL} ...")
         with ThreadPoolExecutor(max_workers=8) as ex:
-            verdicts = list(ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows))
-        ok = [(r, v) for r, v in zip(rows, verdicts) if v is not None]
-        orig = np.array([r[4] for r, _ in ok], int)
-        new = np.array([v for _, v in ok], int)
-        agree = float((orig == new).mean())
-        kappa = float(cohen_kappa_score(orig, new))
-        labels = {r[0]: bool(v) for r, v in ok}
-        aurocs = metric_aurocs(policy, labels)
+            verdicts: list[bool | None] = list(
+                ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows)
+            )
+        ok: list[tuple[JudgedAnswer, bool]] = [
+            (r, v) for r, v in zip(rows, verdicts) if v is not None
+        ]
+        orig: NDArray[np.int64] = np.array([r[4] for r, _ in ok], int)
+        new: NDArray[np.int64] = np.array([v for _, v in ok], int)
+        agree: float = float((orig == new).mean())
+        kappa: float = float(cohen_kappa_score(orig, new))
+        labels: dict[str, bool] = {r[0]: bool(v) for r, v in ok}
+        aurocs: dict[str, tuple[float | None, int]] = metric_aurocs(policy, labels)
         results[policy] = {
             "n_judged": len(ok),
             "n_failed": len(rows) - len(ok),
@@ -170,7 +237,7 @@ def main() -> None:
             print(
                 f"[{policy}]   {k}: AUROC={v[0] if v[0] is None else round(v[0], 3)} (n={v[1]})"
             )
-    dest = os.path.join(REPO, "results", "analyses", "rejudge_independent.json")
+    dest: str = os.path.join(REPO, "results", "analyses", "rejudge_independent.json")
     json.dump(results, open(dest, "w"), indent=1, default=float)
     print("wrote", dest)
 

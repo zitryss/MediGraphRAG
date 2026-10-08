@@ -16,19 +16,105 @@ import glob
 import json
 import os
 import sys
+from collections.abc import Sequence
+from typing import NotRequired, TypedDict
 
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.gps_v2_replay import score_from_store
+from experiments.gps_v2_replay import (
+    score_from_store,
+    ReplayArtifact,
+    ReplayScore,
+    ReplayStore,
+    LoggedSummary,
+)
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RUNS = os.path.join(REPO, "results", "latest_kg_design_final_metrics", "runs")
+
+class PaperDetail(TypedDict, total=False):
+    question_id: str | int
+    question: NotRequired[str]
+    hop_count: NotRequired[int | None]
+    kg_sd_uq: NotRequired[float | None]
+    kg_support_entailment_uncertainty: NotRequired[float | None]
+
+
+class PaperConfig(TypedDict):
+    config: dict[str, str]
+    details: list[PaperDetail]
+
+
+class PaperDocument(TypedDict):
+    config_results: list[PaperConfig]
+
+
+class PaperScoreSummary(TypedDict):
+    answered: int
+    usable: int
+    auroc: float | None
+    ci: list[float | None]
+    aurec: NotRequired[float | None]
+    v1_logged: NotRequired[LoggedSummary]
+
+
+class PaperComposite(TypedDict):
+    n: int
+    sd_auc: float | None
+    seu_auc: float | None
+    gps_risk_auc: float | None
+    combined_auc: float | None
+    combined_aurec: float
+
+
+class PaperCorrelation(TypedDict):
+    rho: float
+    ci: list[float]
+    n: int
+
+
+class HopSummary(TypedDict):
+    n: int
+    auroc: float | None
+
+
+class CaseLink(TypedDict):
+    name: str | None
+    cos: float
+    L: int | None
+    source: str | None
+
+
+class CaseSummary(TypedDict):
+    question_id: str | int
+    question: str
+    gps_v2: float | None
+    null: str | None
+    links: list[CaseLink]
+
+
+class CaseReplayScore(TypedDict):
+    score: float | None
+    null_reason: str | None
+
+
+class PaperReport(TypedDict):
+    frozen: dict[str, float]
+    adaptive: dict[str, dict[str, PaperScoreSummary]]
+    strict: dict[str, PaperScoreSummary]
+    hopwise_2wiki: dict[str, HopSummary]
+    correlations: dict[str, PaperCorrelation]
+    composite: dict[str, PaperComposite]
+    cases: dict[str, CaseSummary]
+
+
+REPO: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RUNS: str = os.path.join(REPO, "results", "latest_kg_design_final_metrics", "runs")
 TAU, GAMMA = 0.60, 0.4
 B: int = 2000
-RNG = np.random.default_rng(42)
+RNG: np.random.Generator = np.random.default_rng(42)
 
 SLUGS: list[str] = [
     "pubmedqa",
@@ -40,57 +126,59 @@ SLUGS: list[str] = [
 ]
 
 
-def latest_artifact(slug, strict=False):
-    tag = (
+def latest_artifact(slug: str, strict: bool = False) -> str | None:
+    tag: str = (
         f"gps_v2_replay_{slug}_strict_[0-9]*.json"
         if strict
         else f"gps_v2_replay_{slug}_[0-9]*.json"
     )
-    paths = glob.glob(os.path.join(RUNS, "*", tag))
+    paths: list[str] = glob.glob(os.path.join(RUNS, "*", tag))
     return sorted(paths)[-1] if paths else None
 
 
-def v2_scores(art, side):
+def v2_scores(art: ReplayArtifact, side: str) -> list[tuple[str, float | None, bool]]:
     """(question_id, score|None, correct, answered) per question."""
-    out = []
+    out: list[tuple[str, float | None, bool]] = []
     for q in art["questions"]:
-        st = (q.get("store") or {}).get(side)
+        st: ReplayStore | None = (q.get("store") or {}).get(side)
         if st is None or st.get("null_reason") == "generation_failed":
             continue
-        res = score_from_store(st, TAU, GAMMA)
-        score = None if res["null_reason"] else res["score"]
+        res: ReplayScore = score_from_store(st, TAU, GAMMA)
+        score: float | None = None if res["null_reason"] else res["score"]
         out.append((str(q["question_id"]), score, bool(q.get(f"{side}_correct"))))
     return out
 
 
-def auroc_ci(scores, wrong):
+def auroc_ci(
+    scores: ArrayLike, wrong: ArrayLike
+) -> tuple[float | None, float | None, float | None]:
     s, w = np.asarray(scores, float), np.asarray(wrong, int)
     if len(set(w)) < 2:
         return None, None, None
-    a = float(roc_auc_score(w, s))
-    boot = []
+    a: float = float(roc_auc_score(w, s))
+    boot: list[float] = []
     for _ in range(B):
-        idx = RNG.integers(0, len(s), len(s))
+        idx: NDArray[np.int64] = RNG.integers(0, len(s), len(s))
         if len(set(w[idx])) < 2:
             continue
         boot.append(roc_auc_score(w[idx], s[idx]))
     return a, float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))
 
 
-def aurec(correct, uncertainty):
+def aurec(correct: ArrayLike, uncertainty: ArrayLike) -> float:
     """Mean error over rejection levels, rejecting most-uncertain first."""
-    y = np.asarray(correct, float)
-    u = np.asarray(uncertainty, float)
-    order = np.argsort(-u)
-    errors = 1 - y[order]
-    suffix = np.cumsum(errors[::-1])[::-1]
-    remaining = np.arange(len(y), 0, -1, dtype=float)
+    y: NDArray[np.float64] = np.asarray(correct, float)
+    u: NDArray[np.float64] = np.asarray(uncertainty, float)
+    order: NDArray[np.intp] = np.argsort(-u)
+    errors: NDArray[np.float64] = 1 - y[order]
+    suffix: NDArray[np.float64] = np.cumsum(errors[::-1])[::-1]
+    remaining: NDArray[np.float64] = np.arange(len(y), 0, -1, dtype=float)
     return float((suffix / remaining).mean())
 
 
-def percentile_ranks(values):
-    order = sorted(range(len(values)), key=lambda i: values[i])
-    ranks = [0.0] * len(values)
+def percentile_ranks(values: Sequence[float] | NDArray[np.float64]) -> list[float]:
+    order: list[int] = sorted(range(len(values)), key=lambda i: values[i])
+    ranks: list[float] = [0.0] * len(values)
     if len(values) <= 1:
         return ranks
     for rank, idx in enumerate(order):
@@ -99,7 +187,7 @@ def percentile_ranks(values):
 
 
 def main() -> None:
-    out = {
+    out: PaperReport = {
         "frozen": {"tau": TAU, "gamma": GAMMA},
         "adaptive": {},
         "strict": {},
@@ -109,10 +197,10 @@ def main() -> None:
         "cases": {},
     }
 
-    manifest = json.load(
+    manifest: dict[str, dict[str, str]] = json.load(
         open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
     )
-    key_for = {
+    key_for: dict[str, str] = {
         "pubmedqa": "Pubmedqa",
         "realmedqa": "Realmedqa",
         "hotpotqa": "Hotpotqa",
@@ -121,23 +209,25 @@ def main() -> None:
         "musique": "Musique",
     }
 
-    pooled = {"sd": [], "seu": [], "gps": []}
+    pooled: dict[str, list[float]] = {"sd": [], "seu": [], "gps": []}
     for slug in SLUGS:
-        art = json.load(open(latest_artifact(slug)))
-        run_doc = json.load(
+        art: ReplayArtifact = json.load(open(latest_artifact(slug)))
+        run_doc: PaperDocument = json.load(
             open(os.path.join(REPO, manifest[key_for[slug]]["result_path"]))
         )
-        kg_rows = {}
+        kg_rows: dict[str, PaperDetail] = {}
         for cfg in run_doc["config_results"]:
             if cfg["config"]["name"].startswith("kg_entity_first"):
                 kg_rows = {str(r["question_id"]): r for r in cfg["details"]}
-        ds = {}
+        ds: dict[str, PaperScoreSummary] = {}
         for side in ("kg", "vanilla"):
-            rows = v2_scores(art, side)
-            answered = len(rows)
-            defined = [(s, not c) for _, s, c in rows if s is not None]
-            scores = [s for s, _ in defined]
-            wrong = [w for _, w in defined]
+            rows: list[tuple[str, float | None, bool]] = v2_scores(art, side)
+            answered: int = len(rows)
+            defined: list[tuple[float, bool]] = [
+                (s, not c) for _, s, c in rows if s is not None
+            ]
+            scores: list[float] = [s for s, _ in defined]
+            wrong: list[bool] = [w for _, w in defined]
             a, lo, hi = auroc_ci(scores, wrong) if defined else (None, None, None)
             ds[side] = {
                 "answered": answered,
@@ -149,11 +239,11 @@ def main() -> None:
         out["adaptive"][slug] = ds
 
         # pooled correlations + composite (KG side)
-        comp_rows = []
+        comp_rows: list[tuple[float, float, float, bool]] = []
         for qid, s, c in v2_scores(art, "kg"):
-            r = kg_rows.get(qid, {})
-            sd = r.get("kg_sd_uq")
-            seu = r.get("kg_support_entailment_uncertainty")
+            r: PaperDetail = kg_rows.get(qid, {})
+            sd: float | None = r.get("kg_sd_uq")
+            seu: float | None = r.get("kg_support_entailment_uncertainty")
             if sd is None or seu is None:
                 continue
             if s is not None:
@@ -164,12 +254,14 @@ def main() -> None:
                 (float(sd), float(seu), 1.0 if s is None else float(s), bool(c))
             )
         if len(comp_rows) >= 12:
-            sd_r = percentile_ranks([r[0] for r in comp_rows])
-            seu_r = percentile_ranks([r[1] for r in comp_rows])
-            gps_r = percentile_ranks([r[2] for r in comp_rows])
-            combined = [(a + b + c) / 3 for a, b, c in zip(sd_r, seu_r, gps_r)]
+            sd_r: list[float] = percentile_ranks([r[0] for r in comp_rows])
+            seu_r: list[float] = percentile_ranks([r[1] for r in comp_rows])
+            gps_r: list[float] = percentile_ranks([r[2] for r in comp_rows])
+            combined: list[float] = [
+                (a + b + c) / 3 for a, b, c in zip(sd_r, seu_r, gps_r)
+            ]
             wrong = [not r[3] for r in comp_rows]
-            correct = [r[3] for r in comp_rows]
+            correct: list[bool] = [r[3] for r in comp_rows]
             out["composite"][slug] = {
                 "n": len(comp_rows),
                 "sd_auc": auroc_ci([r[0] for r in comp_rows], wrong)[0],
@@ -180,12 +272,12 @@ def main() -> None:
             }
 
     # pooled Spearman with bootstrap CIs
-    def spearman_ci(x, y):
+    def spearman_ci(x: ArrayLike, y: ArrayLike) -> PaperCorrelation:
         x, y = np.asarray(x), np.asarray(y)
-        rho = float(spearmanr(x, y).statistic)
-        boot = []
+        rho: float = float(spearmanr(x, y).statistic)
+        boot: list[float] = []
         for _ in range(B):
-            idx = RNG.integers(0, len(x), len(x))
+            idx: NDArray[np.int64] = RNG.integers(0, len(x), len(x))
             boot.append(spearmanr(x[idx], y[idx]).statistic)
         return {
             "rho": rho,
@@ -199,7 +291,7 @@ def main() -> None:
 
     # strict runs (KG side only)
     for slug in ("realmedqa", "2wikimultihopqa"):
-        path = latest_artifact(slug, strict=True)
+        path: str | None = latest_artifact(slug, strict=True)
         art = json.load(open(path))
         rows = v2_scores(art, "kg")
         defined = [(s, not c) for _, s, c in rows if s is not None]
@@ -213,12 +305,14 @@ def main() -> None:
         }
 
     # 2wiki hop-wise GPS AUC per policy
-    adaptive_art = json.load(open(latest_artifact("2wikimultihopqa")))
-    strict_art = json.load(open(latest_artifact("2wikimultihopqa", strict=True)))
+    adaptive_art: ReplayArtifact = json.load(open(latest_artifact("2wikimultihopqa")))
+    strict_art: ReplayArtifact = json.load(
+        open(latest_artifact("2wikimultihopqa", strict=True))
+    )
     run_doc = json.load(
         open(os.path.join(REPO, manifest["2Wikimultihopqa"]["result_path"]))
     )
-    hop_by_qid = {}
+    hop_by_qid: dict[str, int | None] = {}
     for cfg in run_doc["config_results"]:
         for r in cfg["details"]:
             hop_by_qid[str(r["question_id"])] = r.get("hop_count")
@@ -228,7 +322,7 @@ def main() -> None:
         ("strict_kg", strict_art, "kg"),
     ]:
         for hop in (2, 4):
-            sel = [
+            sel: list[tuple[float, bool]] = [
                 (s, not c)
                 for qid, s, c in v2_scores(art, side)
                 if s is not None and hop_by_qid.get(qid) == hop
@@ -241,14 +335,14 @@ def main() -> None:
             out["hopwise_2wiki"][f"{label}_{hop}hop"] = {"n": len(sel), "auroc": a}
 
     # case-study lookups
-    musique_art = json.load(open(latest_artifact("musique")))
-    twiki_art = adaptive_art
-    case_specs = {
+    musique_art: ReplayArtifact = json.load(open(latest_artifact("musique")))
+    twiki_art: ReplayArtifact = adaptive_art
+    case_specs: dict[str, tuple[ReplayArtifact, str]] = {
         "mickey_mouse": (musique_art, "Mickey Mouse"),
         "fire_eater": (twiki_art, "Fire-Eater"),
         "the_cup": (twiki_art, "The Cup (1999"),
     }
-    qtext = {}
+    qtext: dict[str, str] = {}
     for cfg in json.load(open(os.path.join(REPO, manifest["Musique"]["result_path"])))[
         "config_results"
     ]:
@@ -260,8 +354,8 @@ def main() -> None:
     for name, (art, needle) in case_specs.items():
         for q in art["questions"]:
             if needle.lower() in qtext.get(str(q["question_id"]), "").lower():
-                st = (q.get("store") or {}).get("kg")
-                res = (
+                st: ReplayStore | None = (q.get("store") or {}).get("kg")
+                res: ReplayScore | CaseReplayScore = (
                     score_from_store(st, TAU, GAMMA)
                     if st
                     else {"score": None, "null_reason": "missing"}
@@ -283,7 +377,7 @@ def main() -> None:
                 }
                 break
 
-    dest = os.path.join(REPO, "results", "analyses", "gps_v2_paper_numbers.json")
+    dest: str = os.path.join(REPO, "results", "analyses", "gps_v2_paper_numbers.json")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     json.dump(out, open(dest, "w"), indent=1, default=float)
     print(json.dumps(out, indent=1, default=float))

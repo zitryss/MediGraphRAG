@@ -13,7 +13,7 @@ import os
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from typing import Any
+from typing import NotRequired, TypeGuard, TypedDict
 
 import numpy as np
 
@@ -21,10 +21,90 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v3_depth_matched import scores_for as gps_scores_for
 
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_JSON = os.path.join(REPO, "results", "analyses", "lockin_accounting.json")
-OUT_TEX = os.path.join(REPO, "results", "analyses", "lockin_accounting_tables.tex")
-MANIFEST = json.load(
+class ManifestEntry(TypedDict):
+    result_path: str
+
+
+class NamedConfig(TypedDict):
+    name: str
+
+
+class AccountingDetail(TypedDict):
+    question_id: str | int
+    kg_generation_failed: NotRequired[bool]
+    vanilla_generation_failed: NotRequired[bool]
+    kg_correct: NotRequired[bool]
+    vanilla_correct: NotRequired[bool]
+    kg_discrete_semantic_entropy: NotRequired[float | None]
+    vanilla_discrete_semantic_entropy: NotRequired[float | None]
+    kg_sd_uq: NotRequired[float | None]
+    vanilla_sd_uq: NotRequired[float | None]
+    kg_support_entailment_uncertainty: NotRequired[float | None]
+    vanilla_support_entailment_uncertainty: NotRequired[float | None]
+    kg_system_skipped: NotRequired[bool]
+    vanilla_system_skipped: NotRequired[bool]
+    kg_retrieval_route: NotRequired[str | None]
+    kg_route_reason: NotRequired[str | None]
+
+
+class AccountingConfig(TypedDict):
+    config: NamedConfig
+    details: list[AccountingDetail]
+
+
+class AccountingDocument(TypedDict):
+    config_results: list[AccountingConfig]
+
+
+class AccountingRow(TypedDict, total=False):
+    qid: str
+    slug: str
+    policy: str
+    correct: bool
+    dse: float | None
+    sd: float | None
+    seu: float | None
+    gps: float | None
+    route: str
+    route_reason: str
+
+
+class AccountingSummary(TypedDict):
+    answered: int
+    wrong: int
+    silent_wrong: int
+    not_silent_wrong: int
+    answer_state_max_recall: float | None
+    silent_upper_bound_rate: float | None
+    inspectable_lower_bound: int
+    inspectable_lower_bound_rate: float | None
+    fully_deceptive_residue: int
+    fully_deceptive_residue_rate_of_silent: float | None
+    route_known_silent: int
+    buckets: dict[str, int]
+    silent_flags: dict[str, int]
+    route_states_among_silent: dict[str, int]
+
+
+class MigrationSummary(TypedDict):
+    shared: int
+    state_transitions: dict[str, int]
+    route_transitions: dict[str, int]
+    silent_indicator_transitions: dict[str, int]
+
+
+class AccountingReport(TypedDict):
+    note: str
+    definitions: dict[str, str]
+    per_run: dict[str, dict[str, AccountingSummary]]
+    pooled: dict[str, AccountingSummary]
+    paired_migration: dict[str, MigrationSummary]
+
+
+REPO: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT_JSON: str = os.path.join(REPO, "results", "analyses", "lockin_accounting.json")
+OUT_TEX: str = os.path.join(REPO, "results", "analyses", "lockin_accounting_tables.tex")
+MANIFEST: dict[str, ManifestEntry] = json.load(
     open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
 )
 
@@ -56,16 +136,18 @@ STRICT_RUNS: dict[str, str] = {
 SD_FLOOR: float = 1e-9
 
 
-def finite(value: Any) -> bool:
+def finite(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and math.isfinite(float(value))
 
 
-def is_silent(row: dict[str, Any]) -> bool:
+def is_silent(row: AccountingRow) -> bool:
+    dse: float | None
+    sd: float | None
     return (
-        finite(row.get("dse"))
-        and abs(float(row["dse"])) < 1e-9
-        and finite(row.get("sd"))
-        and float(row["sd"]) <= SD_FLOOR
+        finite(dse := row.get("dse"))
+        and abs(float(dse)) < 1e-9
+        and finite(sd := row.get("sd"))
+        and float(sd) <= SD_FLOOR
     )
 
 
@@ -78,37 +160,59 @@ def gps_cache(slug: str, policy: str, side: str) -> dict[str, float | None]:
         return {}
 
 
-def rows_for(slug: str, policy: str) -> list[dict[str, Any]]:
+def rows_for(slug: str, policy: str) -> list[AccountingRow]:
     if policy == "strict":
-        path = os.path.join(REPO, STRICT_RUNS[slug])
-        cfg_prefix = "kg_strict_entity_first"
-        prefix = "kg"
+        path: str = os.path.join(REPO, STRICT_RUNS[slug])
+        cfg_prefix: str = "kg_strict_entity_first"
+        prefix: str = "kg"
     else:
         path = os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])
         cfg_prefix = "kg_entity_first" if policy == "kg" else "dense_floor"
         prefix = "kg" if policy == "kg" else "vanilla"
 
-    doc = json.load(open(path))
-    details = next(
+    doc: AccountingDocument = json.load(open(path))
+    details: list[AccountingDetail] = next(
         cfg["details"]
         for cfg in doc["config_results"]
         if cfg["config"]["name"].startswith(cfg_prefix)
     )
-    gps = gps_cache(slug, policy, prefix)
-    out: list[dict[str, Any]] = []
+    gps: dict[str, float | None] = gps_cache(slug, policy, prefix)
+    out: list[AccountingRow] = []
     for r in details:
-        if r.get(f"{prefix}_generation_failed") or r.get(f"{prefix}_system_skipped"):
+        if (
+            r.get("kg_generation_failed")
+            if prefix == "kg"
+            else r.get("vanilla_generation_failed")
+        ) or (
+            r.get("kg_system_skipped")
+            if prefix == "kg"
+            else r.get("vanilla_system_skipped")
+        ):
             continue
-        qid = str(r["question_id"])
+        qid: str = str(r["question_id"])
         out.append(
             {
                 "qid": qid,
                 "slug": slug,
                 "policy": policy,
-                "correct": bool(r.get(f"{prefix}_correct")),
-                "dse": r.get(f"{prefix}_discrete_semantic_entropy"),
-                "sd": r.get(f"{prefix}_sd_uq"),
-                "seu": r.get(f"{prefix}_support_entailment_uncertainty"),
+                "correct": bool(
+                    (
+                        r.get("kg_correct")
+                        if prefix == "kg"
+                        else r.get("vanilla_correct")
+                    )
+                ),
+                "dse": (
+                    r.get("kg_discrete_semantic_entropy")
+                    if prefix == "kg"
+                    else r.get("vanilla_discrete_semantic_entropy")
+                ),
+                "sd": (r.get("kg_sd_uq") if prefix == "kg" else r.get("vanilla_sd_uq")),
+                "seu": (
+                    r.get("kg_support_entailment_uncertainty")
+                    if prefix == "kg"
+                    else r.get("vanilla_support_entailment_uncertainty")
+                ),
                 "gps": gps.get(qid) if policy != "vanilla" else None,
                 "route": str(r.get("kg_retrieval_route") or "")
                 if prefix == "kg"
@@ -121,9 +225,9 @@ def rows_for(slug: str, policy: str) -> list[dict[str, Any]]:
     return out
 
 
-def route_state(row: dict[str, Any]) -> str:
-    route = row.get("route") or ""
-    reason = row.get("route_reason") or ""
+def route_state(row: AccountingRow) -> str:
+    route: str = row.get("route") or ""
+    reason: str = row.get("route_reason") or ""
     if (
         route in {"entity_first_empty", "empty", "no_graph"}
         or reason == "strict_no_graph_signal"
@@ -134,26 +238,28 @@ def route_state(row: dict[str, Any]) -> str:
     return "unknown"
 
 
-def seu_flags(row: dict[str, Any]) -> bool:
-    return finite(row.get("seu")) and float(row["seu"]) > 0.5
+def seu_flags(row: AccountingRow) -> bool:
+    seu: float | None
+    return finite(seu := row.get("seu")) and float(seu) > 0.5
 
 
-def gps_flags(row: dict[str, Any]) -> bool:
+def gps_flags(row: AccountingRow) -> bool:
+    gps: float | None
     # For KG policies, GPS abstention is diagnostically meaningful; for dense it
     # is unavailable rather than graph evidence.
     if row["policy"] == "vanilla":
         return False
     return row.get("gps") is None or (
-        finite(row.get("gps")) and float(row["gps"]) > 0.5
+        finite(gps := row.get("gps")) and float(gps) > 0.5
     )
 
 
-def silent_bucket(row: dict[str, Any]) -> str:
+def silent_bucket(row: AccountingRow) -> str:
     if row["correct"]:
         return "correct"
     if not is_silent(row):
         return "wrong_not_silent"
-    rstate = route_state(row)
+    rstate: str = route_state(row)
     if rstate == "empty":
         return "silent_empty_route"
     if rstate == "unknown":
@@ -167,16 +273,18 @@ def silent_bucket(row: dict[str, Any]) -> str:
     return "silent_all_families_calm"
 
 
-def account(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def account(rows: Iterable[AccountingRow]) -> AccountingSummary:
     rows = list(rows)
-    wrong = [r for r in rows if not r["correct"]]
-    silent = [r for r in wrong if is_silent(r)]
-    buckets = Counter(silent_bucket(r) for r in rows)
-    route_known_silent = [r for r in silent if route_state(r) != "unknown"]
-    inspectable = [
+    wrong: list[AccountingRow] = [r for r in rows if not r["correct"]]
+    silent: list[AccountingRow] = [r for r in wrong if is_silent(r)]
+    buckets: Counter[str] = Counter(silent_bucket(r) for r in rows)
+    route_known_silent: list[AccountingRow] = [
+        r for r in silent if route_state(r) != "unknown"
+    ]
+    inspectable: list[AccountingRow] = [
         r for r in silent if route_state(r) == "empty" or seu_flags(r) or gps_flags(r)
     ]
-    fully_calm = [
+    fully_calm: list[AccountingRow] = [
         r
         for r in silent
         if route_state(r) != "empty" and not seu_flags(r) and not gps_flags(r)
@@ -209,19 +317,19 @@ def account(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def transition_state(row: dict[str, Any]) -> str:
+def transition_state(row: AccountingRow) -> str:
     if row["correct"]:
         return "correct"
     return "wrong_silent" if is_silent(row) else "wrong_not_silent"
 
 
-def paired_migration(slug: str) -> dict[str, Any]:
-    adaptive = {r["qid"]: r for r in rows_for(slug, "kg")}
-    strict = {r["qid"]: r for r in rows_for(slug, "strict")}
-    shared = sorted(set(adaptive) & set(strict))
-    state = Counter()
-    route = Counter()
-    floor = Counter()
+def paired_migration(slug: str) -> MigrationSummary:
+    adaptive: dict[str, AccountingRow] = {r["qid"]: r for r in rows_for(slug, "kg")}
+    strict: dict[str, AccountingRow] = {r["qid"]: r for r in rows_for(slug, "strict")}
+    shared: list[str] = sorted(set(adaptive) & set(strict))
+    state: Counter[tuple[str, str]] = Counter()
+    route: Counter[tuple[str, str]] = Counter()
+    floor: Counter[tuple[bool, bool]] = Counter()
     for qid in shared:
         a, s = adaptive[qid], strict[qid]
         state[(transition_state(a), transition_state(s))] += 1
@@ -237,8 +345,8 @@ def paired_migration(slug: str) -> dict[str, Any]:
     }
 
 
-def table_row(label: str, d: dict[str, Any]) -> str:
-    b = d["buckets"]
+def table_row(label: str, d: AccountingSummary) -> str:
+    b: dict[str, int] = d["buckets"]
     return (
         f"{label} & {d['wrong']} & {d['silent_wrong']} & "
         f"{d['answer_state_max_recall']:.2f} & "
@@ -250,7 +358,7 @@ def table_row(label: str, d: dict[str, Any]) -> str:
     )
 
 
-def bounds_row(label: str, d: dict[str, Any]) -> str:
+def bounds_row(label: str, d: AccountingSummary) -> str:
     return (
         f"{label} & {d['wrong']} & {d['silent_wrong']} "
         f"({100 * d['silent_upper_bound_rate']:.0f}\\%) & "
@@ -260,9 +368,9 @@ def bounds_row(label: str, d: dict[str, Any]) -> str:
     )
 
 
-def write_tex(out: dict[str, Any]) -> None:
-    pooled = out["pooled"]
-    lines = [
+def write_tex(out: AccountingReport) -> None:
+    pooled: dict[str, AccountingSummary] = out["pooled"]
+    lines: list[str] = [
         "% Auto-generated by experiments/lockin_accounting_analysis.py",
         "\\begin{table*}[t]",
         "\\centering",
@@ -311,19 +419,23 @@ def write_tex(out: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    per_run: dict[str, dict[str, Any]] = {}
-    pooled_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    per_run: dict[str, dict[str, AccountingSummary]] = {}
+    pooled_rows: dict[str, list[AccountingRow]] = defaultdict(list)
 
     for slug in KEY:
         per_run[slug] = {}
         for policy in ("vanilla", "kg") + (("strict",) if slug in STRICT_RUNS else ()):
-            rows = rows_for(slug, policy)
+            rows: list[AccountingRow] = rows_for(slug, policy)
             per_run[slug][policy] = account(rows)
             pooled_rows[policy].extend(rows)
 
-    pooled = {policy: account(rows) for policy, rows in pooled_rows.items()}
-    migration = {slug: paired_migration(slug) for slug in STRICT_RUNS}
-    out = {
+    pooled: dict[str, AccountingSummary] = {
+        policy: account(rows) for policy, rows in pooled_rows.items()
+    }
+    migration: dict[str, MigrationSummary] = {
+        slug: paired_migration(slug) for slug in STRICT_RUNS
+    }
+    out: AccountingReport = {
         "note": "Saved-artifact analysis only; no retrieval/generation reruns.",
         "definitions": {
             "silent": "wrong and DSE=0 and SD-UQ <= 1e-9",

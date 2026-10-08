@@ -14,13 +14,34 @@ import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from openai import OpenAI
 from sklearn.metrics import cohen_kappa_score, roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.rejudge_independent import judge_one, get_client, JUDGE_MODEL
-from experiments.trust_analysis import rows_for, REPO, MANIFEST, KEY, STRICT_RUNS
+from experiments.rejudge_independent import (
+    judge_one,
+    get_client,
+    JUDGE_MODEL,
+    JudgedAnswer,
+    JudgeDocument,
+    JudgeDetail,
+    JudgeSummary,
+)
+from experiments.trust_analysis import (
+    rows_for,
+    REPO,
+    MANIFEST,
+    KEY,
+    STRICT_RUNS,
+    TrustRow,
+)
 from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 
 TARGETS: list[tuple[str, str]] = [
@@ -32,10 +53,10 @@ TARGETS: list[tuple[str, str]] = [
 ]
 
 
-def load_answers(slug, policy):
+def load_answers(slug: str, policy: str) -> list[JudgedAnswer]:
     if policy == "strict":
-        doc = json.load(open(os.path.join(REPO, STRICT_RUNS[slug])))
-        details = doc["config_results"][0]["details"]
+        doc: JudgeDocument = json.load(open(os.path.join(REPO, STRICT_RUNS[slug])))
+        details: list[JudgeDetail] = doc["config_results"][0]["details"]
     else:
         doc = json.load(open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])))
         details = next(
@@ -56,26 +77,31 @@ def load_answers(slug, policy):
     ]
 
 
-def gps_scores(slug, strict):
+def gps_scores(slug: str, strict: bool) -> dict[str, float | None]:
     return gps_v3_scores_for(slug, strict=strict, side="kg")
 
 
-def metric_aurocs(slug, policy, labels_by_qid):
-    rows = rows_for(slug, policy)
+def metric_aurocs(
+    slug: str, policy: str, labels_by_qid: Mapping[str, bool | None]
+) -> dict[str, tuple[float | None, int]]:
+    rows: list[TrustRow] = rows_for(slug, policy)
     try:
-        gps = gps_scores(slug, strict=(policy == "strict"))
+        gps: dict[str, float | None] = gps_scores(slug, strict=(policy == "strict"))
     except Exception:
         gps = {}
-    out = {}
-    for name, getter in [
+    out: dict[str, tuple[float | None, int]] = {}
+    getters: list[tuple[str, Callable[[TrustRow], float | None]]] = [
         ("sd_uq", lambda r: r["sd"]),
         ("seu", lambda r: r["seu"]),
         ("gps", lambda r: gps.get(r["qid"])),
-    ]:
+    ]
+    for name, getter in getters:
+        s: list[float]
+        w: list[int]
         s, w = [], []
         for r in rows:
-            lbl = labels_by_qid.get(r["qid"])
-            v = getter(r)
+            lbl: bool | None = labels_by_qid.get(r["qid"])
+            v: float | None = getter(r)
             if lbl is None or v is None:
                 continue
             s.append(float(v))
@@ -88,21 +114,27 @@ def metric_aurocs(slug, policy, labels_by_qid):
 
 
 def main() -> None:
-    client = get_client()
-    results = {"judge_model": JUDGE_MODEL}
+    client: "OpenAI" = get_client()
+    results: dict[str, str | JudgeSummary] = {"judge_model": JUDGE_MODEL}
     for slug, policy in TARGETS:
-        tag = f"{slug}_{policy}"
-        rows = load_answers(slug, policy)
+        tag: str = f"{slug}_{policy}"
+        rows: list[JudgedAnswer] = load_answers(slug, policy)
         print(f"[{tag}] judging {len(rows)} answers with {JUDGE_MODEL} ...", flush=True)
         with ThreadPoolExecutor(max_workers=8) as ex:
-            verdicts = list(ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows))
-        ok = [(r, v) for r, v in zip(rows, verdicts) if v is not None]
-        orig = np.array([r[4] for r, _ in ok], int)
-        new = np.array([v for _, v in ok], int)
-        agree = float((orig == new).mean())
-        kappa = float(cohen_kappa_score(orig, new))
-        labels = {r[0]: bool(v) for r, v in ok}
-        aurocs = metric_aurocs(slug, policy, labels)
+            verdicts: list[bool | None] = list(
+                ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows)
+            )
+        ok: list[tuple[JudgedAnswer, bool]] = [
+            (r, v) for r, v in zip(rows, verdicts) if v is not None
+        ]
+        orig: NDArray[np.int64] = np.array([r[4] for r, _ in ok], int)
+        new: NDArray[np.int64] = np.array([v for _, v in ok], int)
+        agree: float = float((orig == new).mean())
+        kappa: float = float(cohen_kappa_score(orig, new))
+        labels: dict[str, bool] = {r[0]: bool(v) for r, v in ok}
+        aurocs: dict[str, tuple[float | None, int]] = metric_aurocs(
+            slug, policy, labels
+        )
         results[tag] = {
             "n_judged": len(ok),
             "n_failed": len(rows) - len(ok),
@@ -125,7 +157,7 @@ def main() -> None:
                 f"{v[0] if v[0] is None else round(v[0], 3)} (n={v[1]})",
                 flush=True,
             )
-    dest = os.path.join(REPO, "results", "analyses", "rejudge_wave1.json")
+    dest: str = os.path.join(REPO, "results", "analyses", "rejudge_wave1.json")
     json.dump(results, open(dest, "w"), indent=1, default=float)
     print("wrote", dest)
 

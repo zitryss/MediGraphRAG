@@ -18,19 +18,50 @@ from __future__ import annotations
 
 import json
 import os
+from typing import TypedDict
 
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
 from experiments.gps_v3_depth_matched import (
     REPO,
+    HopRow,
     expected_hop,
     load_artifact,
     row_map,
     score_from_store_depth_matched,
 )
 
-OUT_PATH = os.path.join(REPO, "results", "analyses", "gps_sensitivity.json")
+
+class SensitivityCell(TypedDict):
+    auroc: float | None
+    usable: int
+
+
+class SensitivityRun(TypedDict):
+    calibrated_auroc: float | None
+    calibrated_usable: int
+    auroc_min: float | None
+    auroc_max: float | None
+    auroc_mean: float | None
+    auroc_std: float | None
+    auroc_range: float | None
+    usable_min: int
+    usable_max: int
+    grid: dict[str, SensitivityCell]
+
+
+class SensitivityReport(TypedDict):
+    method: str
+    calibrated: dict[str, float]
+    grid: dict[str, list[float]]
+    runs: dict[str, SensitivityRun]
+
+
+from experiments.gps_v2_replay import ReplayArtifact, ReplayScore, ReplayStore
+
+
+OUT_PATH: str = os.path.join(REPO, "results", "analyses", "gps_sensitivity.json")
 
 TAUS: list[float] = [0.50, 0.55, 0.60, 0.65, 0.70]
 GAMMAS: list[float] = [0.2, 0.4, 0.6, 0.8, 1.0]
@@ -48,17 +79,21 @@ RUNS: list[tuple[str, str, bool]] = [
 ]
 
 
-def auroc_at(slug, strict, tau, gamma):
+def auroc_at(
+    slug: str, strict: bool, tau: float, gamma: float
+) -> tuple[float | None, int]:
     """Return (auroc, usable_n) for one (tau, gamma) cell using saved stores."""
-    artifact = load_artifact(slug, strict=strict)
-    rows = row_map(artifact["source_result"])
+    artifact: ReplayArtifact = load_artifact(slug, strict=strict)
+    rows: dict[str, HopRow] = row_map(artifact["source_result"])
+    scores: list[float]
+    wrong: list[int]
     scores, wrong = [], []
     for q in artifact["questions"]:
-        qid = str(q["question_id"])
-        store = (q.get("store") or {}).get("kg")
+        qid: str = str(q["question_id"])
+        store: ReplayStore | None = (q.get("store") or {}).get("kg")
         if store is None or store.get("null_reason") == "generation_failed":
             continue
-        res = score_from_store_depth_matched(
+        res: ReplayScore = score_from_store_depth_matched(
             store, expected_hop(slug, rows.get(qid)), tau=tau, gamma=gamma
         )
         if res["null_reason"]:
@@ -71,7 +106,7 @@ def auroc_at(slug, strict, tau, gamma):
 
 
 def main() -> None:
-    out = {
+    out: SensitivityReport = {
         "method": "GPS tau/gamma sensitivity sweep, offline replay from saved "
         "GPS stores (no generation/retrieval/linking/KG rerun)",
         "calibrated": {"tau": CAL_TAU, "gamma": CAL_GAMMA},
@@ -79,9 +114,9 @@ def main() -> None:
         "runs": {},
     }
     for label, slug, strict in RUNS:
-        grid = {}
-        aurocs = []
-        usables = []
+        grid: dict[str, SensitivityCell] = {}
+        aurocs: list[float] = []
+        usables: list[int] = []
         for tau in TAUS:
             for gamma in GAMMAS:
                 a, n = auroc_at(slug, strict, tau, gamma)
@@ -89,7 +124,7 @@ def main() -> None:
                 if a is not None:
                     aurocs.append(a)
                 usables.append(n)
-        cal = grid[f"tau{CAL_TAU}_gamma{CAL_GAMMA}"]
+        cal: SensitivityCell = grid[f"tau{CAL_TAU}_gamma{CAL_GAMMA}"]
         out["runs"][label] = {
             "calibrated_auroc": cal["auroc"],
             "calibrated_usable": cal["usable"],
