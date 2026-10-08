@@ -1,8 +1,60 @@
 import logging
 import os
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Protocol, TypeVar, cast
+
+if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
 
 
-def load_embedding_model(embedding_model_name: str = None):
+LLM = TypeVar("LLM")
+
+
+class GraphQuery(Protocol):
+    def query(
+        self,
+        query: str,
+        params: dict[str, object] = ...,
+        session_params: dict[str, object] = ...,
+    ) -> list[dict[str, object]]: ...
+
+
+class MergeNode(Protocol):
+    @property
+    def id(self) -> str | int: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def properties(self) -> Mapping[str, object]: ...
+
+
+class MergeRelationship(Protocol):
+    @property
+    def source(self) -> MergeNode: ...
+
+    @property
+    def target(self) -> MergeNode: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def properties(self) -> Mapping[str, object]: ...
+
+
+class MergeDocument(Protocol):
+    @property
+    def nodes(self) -> Sequence[MergeNode]: ...
+
+    @property
+    def relationships(self) -> Sequence[MergeRelationship]: ...
+
+
+def load_embedding_model(
+    embedding_model_name: str | None = None,
+) -> tuple["Embeddings", int]:
     """
     Load the embedding model based on the given name.
     If no name provided, uses environment variable EMBEDDING_PROVIDER.
@@ -12,8 +64,10 @@ def load_embedding_model(embedding_model_name: str = None):
         load_embedding_model as _shared_loader,
     )
 
-    provider_name = embedding_model_name or os.getenv(
-        "EMBEDDING_PROVIDER", "huggingface"
+    # Both selected branches are strings: the first must be truthy, and getenv
+    # has a string default. Mypy 2.3.1 loses this narrowing inside the `or`.
+    provider_name: str = cast(
+        str, embedding_model_name or os.getenv("EMBEDDING_PROVIDER", "huggingface")
     )
     embedding_function, embedding_dimension = _shared_loader(provider_name)
     logging.info(
@@ -22,19 +76,21 @@ def load_embedding_model(embedding_model_name: str = None):
     return embedding_function, embedding_dimension
 
 
-def wrap_llm_with_model_name(llm):
+def wrap_llm_with_model_name(llm: LLM) -> LLM:
     """
     Ensure an LLM-like object exposes a model_name attribute for legacy callers.
     """
     if not hasattr(llm, "model_name"):
-        model_name = getattr(llm, "model", "unknown_model")
+        model_name: object = getattr(llm, "model", "unknown_model")
         if not isinstance(model_name, str):
             model_name = str(model_name)
         setattr(llm, "model_name", model_name)
     return llm
 
 
-def _add_graph_documents_with_merge(graph, graph_document_list) -> None:
+def _add_graph_documents_with_merge(
+    graph: GraphQuery, graph_document_list: Sequence[MergeDocument]
+) -> None:
     """
     Custom implementation of add_graph_documents using MERGE instead of CREATE
     to handle duplicate IDs gracefully
@@ -43,11 +99,11 @@ def _add_graph_documents_with_merge(graph, graph_document_list) -> None:
         # Process nodes
         for node in doc.nodes:
             # Use MERGE to create or update nodes
-            node_query = f"""
+            node_query: str = f"""
             MERGE (n:{node.type} {{id: $id}})
             SET n += $properties
             """
-            properties = {}
+            properties: dict[str, object] = {}
             if hasattr(node, "properties") and node.properties:
                 properties.update(node.properties)
             # Ensure id is always set
@@ -59,9 +115,11 @@ def _add_graph_documents_with_merge(graph, graph_document_list) -> None:
         for rel in doc.relationships:
             # Use MERGE to create or update relationships
             # Sanitize relationship type to replace spaces with underscores for valid Cypher
-            sanitized_rel_type = rel.type.replace(" ", "_").replace("-", "_").upper()
+            sanitized_rel_type: str = (
+                rel.type.replace(" ", "_").replace("-", "_").upper()
+            )
 
-            rel_query = f"""
+            rel_query: str = f"""
             MATCH (source {{id: $source_id}})
             MATCH (target {{id: $target_id}})
             MERGE (source)-[r:{sanitized_rel_type}]->(target)
