@@ -1,8 +1,16 @@
 """Lexical coverage must not confuse neighbouring or nested binding scopes."""
 
+from datetime import date
+
 import pytest
 
-from scripts.check_typing_coverage import Binding, inspect_source
+from scripts.check_typing_coverage import (
+    Binding,
+    ExceptionEntry,
+    inspect_source,
+    parse_entries,
+    reconcile,
+)
 
 
 @pytest.mark.parametrize(
@@ -61,3 +69,139 @@ def test_fingerprint_ignores_line_shift_but_tracks_binding_change() -> None:
     assert first[0].fingerprint == shifted[0].fingerprint
     changed: list[Binding] = inspect_source("y: int = 1\n", "fixture.py")
     assert first[0].fingerprint != changed[0].fingerprint
+
+
+@pytest.mark.parametrize(
+    "source,scope,category",
+    [
+        (
+            "x: int = 1\ndef f() -> None:\n    x: str = ''\n    def g() -> None:\n        global x\n        x = 2\n",
+            "<module>.f.g",
+            "explicit",
+        ),
+        (
+            "x = 1\ndef f() -> None:\n    x: str = ''\n    def g() -> None:\n        global x\n        x = 2\n",
+            "<module>.f.g",
+            "missing",
+        ),
+        (
+            "def f() -> None:\n    x: int = 1\n    def g() -> None:\n        nonlocal x\n        x = 2\n",
+            "<module>.f.g",
+            "explicit",
+        ),
+        (
+            "x: int\nvalues: list[int] = [(x := i) for i in range(3)]\n",
+            "<module>",
+            "explicit",
+        ),
+    ],
+)
+def test_external_and_walrus_owners(source: str, scope: str, category: str) -> None:
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert any(
+        binding.scope == scope
+        and binding.symbol == "x"
+        and binding.category == category
+        for binding in bindings
+    )
+
+
+@pytest.mark.parametrize(
+    "source,kind",
+    [
+        ("from typing import Any as Dynamic\nx: Dynamic = 1\n", "dynamic-type"),
+        ("import typing as t\nx: t.Any = 1\n", "dynamic-type"),
+        ("from typing import cast as convert\nx: int = convert(int, 1)\n", "cast"),
+        ("x: int = 1  # type: ignore[assignment]\n", "suppression"),
+        ("# pyright: reportUnknownVariableType=false\nx = 1\n", "suppression"),
+    ],
+)
+def test_dynamic_escape_sites_are_not_silently_accepted(source: str, kind: str) -> None:
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert any(
+        binding.kind == kind and binding.category == "dynamic" for binding in bindings
+    )
+
+
+def test_pattern_captures_are_syntax_constrained() -> None:
+    source: str = "def f(value: list[int]) -> None:\n    match value:\n        case [first, *rest]:\n            pass\n"
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert {binding.symbol for binding in bindings if binding.kind == "pattern"} == {
+        "first",
+        "rest",
+    }
+
+
+def test_default_walrus_belongs_to_enclosing_scope() -> None:
+    bindings: list[Binding] = inspect_source(
+        "def f(value: int = (default := 1)) -> None:\n    pass\n", "fixture.py"
+    )
+    assert any(
+        binding.symbol == "default" and binding.scope == "<module>"
+        for binding in bindings
+    )
+
+
+def test_fingerprint_tracks_changed_assignment_contract() -> None:
+    first: list[Binding] = inspect_source("x: int = 1\n", "fixture.py")
+    changed: list[Binding] = inspect_source("x: str = '1'\n", "fixture.py")
+    assert first[0].fingerprint != changed[0].fingerprint
+
+
+@pytest.mark.parametrize(
+    "change", ["pending", "expired", "fingerprint", "unused", "duplicate"]
+)
+def test_exception_ledger_fails_closed(change: str) -> None:
+    bindings: list[Binding] = inspect_source("x = 1\n", "fixture.py")
+    raw: dict[str, str] = {
+        "identity": "fixture-boundary",
+        "path": "fixture.py",
+        "scope": "<module>",
+        "symbol": "x",
+        "kind": "assignment",
+        "fingerprint": bindings[0].fingerprint,
+        "reason": "Runtime-sensitive fixture",
+        "evidence": "fixture contract",
+        "owner": "engineer",
+        "reviewer": "fixture reviewer",
+        "disposition": "approved",
+        "expires": "2099-01-01",
+    }
+    if change == "pending":
+        raw["disposition"] = "pending"
+    elif change == "expired":
+        raw["expires"] = "2000-01-01"
+    elif change == "fingerprint":
+        raw["fingerprint"] = "0" * 64
+    elif change == "unused":
+        raw["symbol"] = "other"
+    entries: list[ExceptionEntry] = parse_entries([raw])
+    if change == "duplicate":
+        entries.append(entries[0])
+    assert reconcile(bindings, entries, date(2026, 10, 8))
+
+
+def test_approved_exact_exception_is_identified() -> None:
+    bindings: list[Binding] = inspect_source("x = 1\n", "fixture.py")
+    entry: ExceptionEntry = ExceptionEntry(
+        "fixture",
+        "fixture.py",
+        "<module>",
+        "x",
+        "assignment",
+        bindings[0].fingerprint,
+        "fixture reason",
+        "fixture evidence",
+        "engineer",
+        "fixture reviewer",
+        "approved",
+        date(2099, 1, 1),
+    )
+    assert not reconcile(bindings, [entry], date(2026, 10, 8))
+    assert bindings[0].exception_id == "fixture"
+
+
+@pytest.mark.parametrize("value", [None, {}, [{}], [{"identity": "incomplete"}]])
+def test_malformed_exception_ledger_rejected(value: object) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        parse_entries(value)
