@@ -1,12 +1,15 @@
 """Lexical coverage must not confuse neighbouring or nested binding scopes."""
 
 from datetime import date
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from scripts.check_typing_coverage import (
     Binding,
     ExceptionEntry,
+    discover,
     inspect_source,
     parse_entries,
     reconcile,
@@ -273,3 +276,176 @@ def test_functional_typed_dict_is_a_definition_and_checks_forward_field_types() 
     )
     assert sum(binding.kind == "dynamic-type" for binding in bindings) == 1
     assert not any(binding.category == "missing" for binding in bindings)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'from typing import Any, TypeAlias\nAlias: TypeAlias = "list[Any]"\n',
+        'from typing import Any, TypeVar\nT = TypeVar("T", bound="Any")\n',
+        'from typing import Any, TypeVar\nT = TypeVar("T", "Any", int)\n',
+        'from typing import Any, NewType\nT = NewType("T", "Any")\n',
+        'from typing import Any, cast\nx: int = cast("Any", 1)\n',
+    ],
+)
+def test_forward_types_in_definitions_and_casts_are_audited(source: str) -> None:
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert any(binding.kind == "dynamic-type" for binding in bindings)
+
+
+def test_lambda_default_executes_in_enclosing_scope() -> None:
+    bindings: list[Binding] = inspect_source(
+        "f = lambda value=(default := 1): value\n",
+        "fixture.py",
+    )
+    assert any(
+        binding.symbol == "default" and binding.scope == "<module>"
+        for binding in bindings
+    )
+
+
+def test_lambda_parameter_shadows_imported_any() -> None:
+    bindings: list[Binding] = inspect_source(
+        "from typing import Any\nf = lambda Any: Any\n",
+        "fixture.py",
+    )
+    assert not any(binding.kind == "dynamic-type" for binding in bindings)
+
+
+def test_enum_members_are_distinct_from_ordinary_state() -> None:
+    bindings: list[Binding] = inspect_source(
+        "from enum import Enum as Base\nclass Color(Base):\n    RED = 1\n",
+        "fixture.py",
+    )
+    assert any(
+        binding.symbol == "RED" and binding.category == "enum-member"
+        for binding in bindings
+    )
+
+
+def test_augmented_external_assignment_cannot_hide_missing_annotation() -> None:
+    bindings: list[Binding] = inspect_source(
+        "x = 0\ndef f() -> None:\n    global x\n    x += 1\n",
+        "fixture.py",
+    )
+    assert any(
+        binding.symbol == "x"
+        and binding.scope == "<module>.f"
+        and binding.category == "missing"
+        for binding in bindings
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'setattr(target, "field", 1)\n',
+        'monkeypatch.setattr(target, "field", 1)\n',
+    ],
+)
+def test_dynamic_attribute_updates_require_review(source: str) -> None:
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert any(binding.kind == "dynamic-attribute" for binding in bindings)
+
+
+def test_signature_dynamic_site_has_function_scope() -> None:
+    bindings: list[Binding] = inspect_source(
+        "from typing import Any\ndef f(value: Any) -> None: pass\n",
+        "fixture.py",
+    )
+    assert any(
+        binding.kind == "dynamic-type" and binding.scope == "<module>.f"
+        for binding in bindings
+    )
+
+
+def test_declared_exception_target_is_explicit() -> None:
+    bindings: list[Binding] = inspect_source(
+        "def f() -> None:\n    error: ValueError\n    try:\n        pass\n    except ValueError as error:\n        pass\n",
+        "fixture.py",
+    )
+    assert any(
+        binding.symbol == "error" and binding.category == "explicit"
+        for binding in bindings
+    )
+    assert not any(
+        binding.symbol == "error" and binding.category == "inferred"
+        for binding in bindings
+    )
+
+
+def test_definitions_have_their_own_binding_category() -> None:
+    bindings: list[Binding] = inspect_source(
+        "class C:\n    def f(self) -> None: pass\n",
+        "fixture.py",
+    )
+    assert {
+        binding.symbol for binding in bindings if binding.category == "definition"
+    } == {"C", "f"}
+
+
+@pytest.mark.parametrize("tracked", [b"outside.py\0", b"scripts/missing.py\0"])
+def test_discovery_rejects_unclassified_or_deleted_tracked_files(
+    tmp_path: Path,
+    tracked: bytes,
+) -> None:
+    with patch(
+        "scripts.check_typing_coverage.subprocess.check_output", return_value=tracked
+    ):
+        with pytest.raises(ValueError):
+            discover(tmp_path)
+
+
+def test_discovery_includes_new_source_and_stubs(tmp_path: Path) -> None:
+    source: Path = tmp_path / "scripts" / "new.py"
+    stub: Path = tmp_path / "shared" / "new.pyi"
+    source.parent.mkdir()
+    stub.parent.mkdir()
+    source.write_text("value: int = 1\n")
+    stub.write_text("value: int\n")
+    with patch(
+        "scripts.check_typing_coverage.subprocess.check_output", return_value=b""
+    ):
+        assert discover(tmp_path) == sorted([source, stub])
+
+
+def test_discovery_rejects_empty_scope(tmp_path: Path) -> None:
+    with patch(
+        "scripts.check_typing_coverage.subprocess.check_output", return_value=b""
+    ):
+        with pytest.raises(ValueError, match="No maintained Python files"):
+            discover(tmp_path)
+
+
+def test_parse_failure_cannot_produce_a_clean_inventory() -> None:
+    with pytest.raises(SyntaxError):
+        inspect_source("def incomplete(\n", "fixture.py")
+
+
+def test_foreign_attribute_mutation_defers_to_owning_type_checker() -> None:
+    bindings: list[Binding] = inspect_source(
+        "class State:\n    value: int\ndef f(state: State) -> None:\n    state.value = 1\n",
+        "fixture.py",
+    )
+    assert any(
+        binding.symbol == "state.value"
+        and binding.kind == "attribute-mutation"
+        and binding.category == "inferred"
+        for binding in bindings
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from builtins import staticmethod as sm\nclass C:\n    @sm\n    def f(self) -> None: pass\n",
+        "class C:\n    def f(*, self) -> None: pass\n",
+        "class C:\n    def f(*self) -> None: pass\n",
+    ],
+)
+def test_only_a_normal_positional_receiver_is_exempt(source: str) -> None:
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert any(
+        binding.symbol == "self" and binding.category == "missing"
+        for binding in bindings
+    )

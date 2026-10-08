@@ -63,10 +63,12 @@ BLOCKED_EVENTS: frozenset[str] = frozenset(
 
 @dataclass
 class BoundaryAudit:
-    external_attempts: list[str] = field(default_factory=list)
-    sentinel_attempts: list[str] = field(default_factory=list)
-    permitted_probes: list[str] = field(default_factory=list)
-    probe_sockets: list[socket.socket] = field(default_factory=list)
+    external_attempts: list[str] = field(default_factory=lambda: list[str]())
+    sentinel_attempts: list[str] = field(default_factory=lambda: list[str]())
+    permitted_probes: list[str] = field(default_factory=lambda: list[str]())
+    probe_sockets: list[socket.socket] = field(
+        default_factory=lambda: list[socket.socket]()
+    )
     probe_module_code: CodeType | None = None
     probe_code: CodeType | None = None
 
@@ -170,10 +172,10 @@ class TestOutcome:
 
 @dataclass
 class OutcomeAudit:
-    collected: list[str] = field(default_factory=list)
-    deselected: list[str] = field(default_factory=list)
-    collection_errors: list[str] = field(default_factory=list)
-    reports: list[TestOutcome] = field(default_factory=list)
+    collected: list[str] = field(default_factory=lambda: list[str]())
+    deselected: list[str] = field(default_factory=lambda: list[str]())
+    collection_errors: list[str] = field(default_factory=lambda: list[str]())
+    reports: list[TestOutcome] = field(default_factory=lambda: list[TestOutcome]())
 
     def pytest_collection_finish(self, session: pytest.Session) -> None:
         self.collected = [item.nodeid for item in session.items]

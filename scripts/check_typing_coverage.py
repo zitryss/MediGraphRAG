@@ -21,7 +21,14 @@ from typing import Literal, TypeAlias, TypeGuard
 
 ROOTS: tuple[str, ...] = ("ontographrag", "shared", "experiments", "tests", "scripts")
 Category: TypeAlias = Literal[
-    "explicit", "inferred", "import", "receiver", "missing", "dynamic"
+    "explicit",
+    "inferred",
+    "import",
+    "receiver",
+    "enum-member",
+    "definition",
+    "missing",
+    "dynamic",
 ]
 
 
@@ -60,6 +67,7 @@ class Scope:
     globals: set[str] = field(default_factory=lambda: set[str]())
     nonlocals: set[str] = field(default_factory=lambda: set[str]())
     aliases: dict[str, str] = field(default_factory=lambda: dict[str, str]())
+    enum: bool = False
 
 
 class Declarations(ast.NodeVisitor):
@@ -143,9 +151,13 @@ class Coverage(ast.NodeVisitor):
         for default in node.args.kw_defaults:
             if default is not None:
                 self.visit(default)
-        receiver: bool = self.scope.kind == "class" and not any(
-            isinstance(decorator, ast.Name) and decorator.id == "staticmethod"
-            for decorator in node.decorator_list
+        receiver: bool = (
+            self.scope.kind == "class"
+            and bool(node.args.posonlyargs or node.args.args)
+            and not any(
+                self.resolve(decorator) in {"staticmethod", "builtins.staticmethod"}
+                for decorator in node.decorator_list
+            )
         )
         parameters: list[ast.arg] = [*node.args.posonlyargs, *node.args.args]
         parameters.extend(node.args.kwonlyargs)
@@ -153,11 +165,15 @@ class Coverage(ast.NodeVisitor):
             parameters.append(node.args.vararg)
         if node.args.kwarg is not None:
             parameters.append(node.args.kwarg)
+        annotation_start: int = len(self.bindings)
         for parameter in parameters:
             if parameter.annotation is not None:
                 self.annotation(parameter.annotation)
         if node.returns is not None:
             self.annotation(node.returns)
+        for binding in self.bindings[annotation_start:]:
+            binding.scope = f"{self.scope.name}.{node.name}"
+        self.emit(node, node.name, "function-definition", "definition")
         self.scope.seen.add(node.name)
         self.enter(f"{self.scope.name}.{node.name}", "function", node.body)
         for index, parameter in enumerate(parameters):
@@ -199,8 +215,21 @@ class Coverage(ast.NodeVisitor):
             self.visit(expression)
         for keyword in node.keywords:
             self.visit(keyword.value)
+        enum: bool = any(
+            self.resolve(base)
+            in {
+                "enum.Enum",
+                "enum.IntEnum",
+                "enum.StrEnum",
+                "enum.Flag",
+                "enum.IntFlag",
+            }
+            for base in node.bases
+        )
+        self.emit(node, node.name, "class-definition", "definition")
         self.scope.seen.add(node.name)
         self.enter(f"{self.scope.name}.{node.name}", "class", node.body)
+        self.scope.enum = enum
         for statement in node.body:
             if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 method_scope: Scope = Scope(statement.name, "function")
@@ -246,9 +275,18 @@ class Coverage(ast.NodeVisitor):
                             symbol.split(".", 1)[1], ""
                         )
                     break
+        if isinstance(target, ast.Attribute) and not declaration:
+            direct_receiver: bool = isinstance(
+                target.value, ast.Name
+            ) and target.value.id in {"self", "cls"}
+            if not direct_receiver:
+                kind = "attribute-mutation"
+                inferred = True
         category: Category = "explicit" if declaration else "missing"
         if not declaration and inferred:
             category = "inferred"
+        if self.scope.enum and isinstance(target, ast.Name) and not declaration:
+            category = "enum-member"
         if symbol in self.scope.globals:
             declaration = self.scopes[0].declarations.get(symbol, "")
             category = "explicit" if declaration else "missing"
@@ -305,8 +343,17 @@ class Coverage(ast.NodeVisitor):
                         self.visit(argument)
                 for keyword in node.value.keywords:
                     self.visit(keyword.value)
-            else:
-                self.visit(node.value)
+            elif isinstance(node.value, ast.Call):
+                for index, argument in enumerate(node.value.args):
+                    if index == 0:
+                        self.visit(argument)
+                    else:
+                        self.annotation(argument)
+                for keyword in node.value.keywords:
+                    if keyword.arg in {"bound", "default"}:
+                        self.annotation(keyword.value)
+                    else:
+                        self.visit(keyword.value)
             return
         for target in node.targets:
             self.bind(target, "assignment", source=node)
@@ -316,7 +363,17 @@ class Coverage(ast.NodeVisitor):
         self.bind(node.target, "annotation", source=node)
         self.annotation(node.annotation)
         if node.value is not None:
-            self.visit(node.value)
+            if self.resolve(node.annotation) in {
+                "typing.TypeAlias",
+                "typing_extensions.TypeAlias",
+            }:
+                self.annotation(node.value)
+            else:
+                self.visit(node.value)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        self.bind(node.target, "augmented-assignment", source=node)
+        self.visit(node.value)
 
     def visit_For(self, node: ast.For) -> None:
         self.bind(node.target, "loop", True)
@@ -333,8 +390,12 @@ class Coverage(ast.NodeVisitor):
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name is not None:
-            self.emit(node, node.name, "exception", "inferred")
-            self.scope.seen.add(node.name)
+            self.bind(
+                ast.Name(id=node.name, ctx=ast.Store(), lineno=node.lineno),
+                "exception",
+                True,
+                node,
+            )
         self.generic_visit(node)
 
     def visit_Import(self, node: ast.Import) -> None:
@@ -353,18 +414,24 @@ class Coverage(ast.NodeVisitor):
             self.emit(node, symbol, "import", "import", qualified)
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
+        for default in [*node.args.defaults, *node.args.kw_defaults]:
+            if default is not None:
+                self.visit(default)
         self.enter(f"{self.scope.name}.<lambda:{node.lineno}>", "lambda", [])
         for parameter in [
             *node.args.posonlyargs,
             *node.args.args,
             *node.args.kwonlyargs,
         ]:
+            self.scope.seen.add(parameter.arg)
             self.emit(parameter, parameter.arg, "lambda-parameter", "inferred")
         if node.args.vararg is not None:
+            self.scope.seen.add(node.args.vararg.arg)
             self.emit(
                 node.args.vararg, node.args.vararg.arg, "lambda-parameter", "inferred"
             )
         if node.args.kwarg is not None:
+            self.scope.seen.add(node.args.kwarg.arg)
             self.emit(
                 node.args.kwarg, node.args.kwarg.arg, "lambda-parameter", "inferred"
             )
@@ -494,6 +561,20 @@ class Coverage(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> None:
         if self.resolve(node.func) in {"typing.cast", "typing_extensions.cast"}:
             self.emit(node, ast.unparse(node.func), "cast", "dynamic")
+            if node.args:
+                self.annotation(node.args[0])
+            for argument in node.args[1:]:
+                self.visit(argument)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            return
+        if self.resolve(node.func) in {
+            "setattr",
+            "builtins.setattr",
+            "unittest.mock.patch",
+            "unittest.mock.patch.object",
+        } or (isinstance(node.func, ast.Attribute) and node.func.attr == "setattr"):
+            self.emit(node, ast.unparse(node.func), "dynamic-attribute", "dynamic")
         self.generic_visit(node)
 
 
@@ -514,6 +595,11 @@ def discover(root: Path) -> list[Path]:
     ]
     if unexpected:
         raise ValueError(f"Unclassified tracked Python paths: {unexpected}")
+    missing: list[str] = [
+        name for name in tracked if name and not (root / name).is_file()
+    ]
+    if missing:
+        raise ValueError(f"Tracked Python paths missing from checkout: {missing}")
     paths: list[Path] = sorted(
         path
         for directory in ROOTS
@@ -698,6 +784,22 @@ def main() -> int:
             {
                 "files": [path.relative_to(root).as_posix() for path in paths],
                 "bindings": [binding.record() for binding in bindings],
+                "category_counts": {
+                    category: sum(binding.category == category for binding in bindings)
+                    for category in (
+                        "explicit",
+                        "inferred",
+                        "import",
+                        "receiver",
+                        "enum-member",
+                        "definition",
+                        "missing",
+                        "dynamic",
+                    )
+                },
+                "approved_exceptions": sum(
+                    bool(binding.exception_id) for binding in bindings
+                ),
                 "unresolved": failures,
                 "ledger_errors": ledger_errors,
             },
