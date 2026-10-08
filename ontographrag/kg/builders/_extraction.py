@@ -1,8 +1,8 @@
 import json
 import re
 import hashlib
-from typing import Any
-from ontographrag.kg.chunking import chunk_text as _chunk_text_fn
+from typing import TYPE_CHECKING, Any
+from ontographrag.kg.chunking import TextChunk, chunk_text as _chunk_text_fn
 from collections import defaultdict, Counter
 import logging
 import time
@@ -12,6 +12,9 @@ from ontographrag.schemas.models import (
     PropertyType,
 )
 
+if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
+
 
 class ExtractionMixin:
     """LLM entity/relationship extraction, prompt construction, and chunk preparation.
@@ -19,6 +22,13 @@ class ExtractionMixin:
     Mixin for :class:`OntologyGuidedKGCreator`; method bodies are
     unchanged from the original monolithic implementation.
     """
+
+    if TYPE_CHECKING:
+        chunk_size: int
+        chunk_overlap: int
+        embedding_function: Embeddings
+
+        def _detect_section_headers(self, text: str) -> list[tuple[int, str]]: ...
 
     def _select_relationship_types_for_prompt(
         self,
@@ -370,13 +380,15 @@ Rules:
         text: str,
         *,
         section_headers: list[tuple[int, str]] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TextChunk]:
         """Chunk text without crossing detected section boundaries when possible."""
-        headers = list(section_headers or self._detect_section_headers(text))
+        headers: list[tuple[int, str]] = list(
+            section_headers or self._detect_section_headers(text)
+        )
         if not headers:
             return self._chunk_text(text)
 
-        boundaries = [0]
+        boundaries: list[int] = [0]
         for pos, _ in headers:
             if pos not in boundaries and 0 < pos < len(text):
                 boundaries.append(pos)
@@ -386,19 +398,19 @@ Rules:
         if len(boundaries) <= 2:
             return self._chunk_text(text)
 
-        section_chunks: list[dict[str, Any]] = []
+        section_chunks: list[TextChunk] = []
         for start, end in zip(boundaries, boundaries[1:]):
-            segment_text = text[start:end]
+            segment_text: str = text[start:end]
             if not segment_text.strip():
                 continue
-            local_chunks = _chunk_text_fn(
+            local_chunks: list[TextChunk] = _chunk_text_fn(
                 text=segment_text,
                 chunk_size=self.chunk_size,
                 chunk_overlap=self.chunk_overlap,
                 embedding_fn=self.embedding_function.embed_query,
             )
             for local_chunk in local_chunks:
-                chunk_copy = dict(local_chunk)
+                chunk_copy: TextChunk = local_chunk.copy()
                 chunk_copy["start_pos"] = start + int(local_chunk.get("start_pos") or 0)
                 chunk_copy["end_pos"] = start + int(local_chunk.get("end_pos") or 0)
                 chunk_copy["position"] = len(section_chunks)
@@ -406,7 +418,7 @@ Rules:
 
         return section_chunks or self._chunk_text(text)
 
-    def _chunk_text(self, text: str) -> list[dict[str, Any]]:
+    def _chunk_text(self, text: str) -> list[TextChunk]:
         """Chunk text using RecursiveCharacterTextSplitter with tiktoken encoding.
 
         Delegates to ontographrag.kg.chunking.chunk_text so the logic is

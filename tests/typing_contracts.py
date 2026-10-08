@@ -12,6 +12,11 @@ if TYPE_CHECKING:
     from langchain_community.graphs.graph_document import GraphDocument
     from langchain_neo4j import Neo4jGraph
 
+    from ontographrag.kg.builders.ontology_guided_kg_creator import (
+        OntologyGuidedKGCreator,
+    )
+    from ontographrag.kg.chunking import ChunkingHost
+
     from shared.common_fn import GraphQuery, MergeDocument
 
 
@@ -20,3 +25,7 @@ def graph_merge_contracts(
     document: GraphDocument,
 ) -> tuple[GraphQuery, MergeDocument]:
     return graph, document
+
+
+def chunking_host_contract(host: OntologyGuidedKGCreator) -> ChunkingHost:
+    return host

@@ -2,28 +2,30 @@ import pytest
 import sys
 import types
 
-from ontographrag.kg.chunking import chunk_text
+from ontographrag.kg.chunking import TextChunk, chunk_text
 
 
 def test_chunk_text_falls_back_when_tiktoken_splitter_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakeSplitter:
-        def __init__(self, chunk_size, chunk_overlap) -> None:
-            self.chunk_size = chunk_size
-            self.chunk_overlap = chunk_overlap
+        def __init__(self, chunk_size: int, chunk_overlap: int) -> None:
+            self.chunk_size: int = chunk_size
+            self.chunk_overlap: int = chunk_overlap
 
         @classmethod
-        def from_tiktoken_encoder(cls, chunk_size, chunk_overlap) -> None:
+        def from_tiktoken_encoder(cls, chunk_size: int, chunk_overlap: int) -> None:
             raise RuntimeError("offline tokenizer assets unavailable")
 
-        def split_text(self, text):
+        def split_text(self, text: str) -> list[str]:
             return [text[:5], text[5:]]
 
-    fake_module = types.SimpleNamespace(RecursiveCharacterTextSplitter=FakeSplitter)
+    fake_module: types.SimpleNamespace = types.SimpleNamespace(
+        RecursiveCharacterTextSplitter=FakeSplitter
+    )
     monkeypatch.setitem(sys.modules, "langchain_text_splitters", fake_module)
 
-    chunks = chunk_text(
+    chunks: list[TextChunk] = chunk_text(
         "abcdefghij",
         chunk_size=5,
         chunk_overlap=0,

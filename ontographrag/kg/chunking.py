@@ -15,10 +15,39 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Protocol
+
+from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
-def _make_text_splitter(chunk_size: int, chunk_overlap: int):
+class TextChunk(TypedDict):
+    text: str
+    chunk_id: int
+    position: int
+    start_pos: int
+    end_pos: int
+    total_chunks: int
+    embedding: list[float] | None
+
+
+class ChunkingHost(Protocol):
+    chunk_size: int
+    chunk_overlap: int
+    embedding_function: Embeddings
+
+    def _detect_section_headers(self, text: str) -> list[tuple[int, str]]: ...
+
+    def _chunk_text(self, text: str) -> list[TextChunk]: ...
+
+
+def _make_text_splitter(
+    chunk_size: int,
+    chunk_overlap: int,
+) -> RecursiveCharacterTextSplitter:
     """Return a splitter that prefers token-aware chunking but works offline."""
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -44,7 +73,7 @@ def chunk_text(
     chunk_size: int,
     chunk_overlap: int,
     embedding_fn: Callable[[str], list[float]] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[TextChunk]:
     """Split *text* into overlapping token-bounded chunks.
 
     Uses ``RecursiveCharacterTextSplitter.from_tiktoken_encoder`` so splits
@@ -78,12 +107,12 @@ def chunk_text(
     synthetic offsets that disagree with any character-based position computed
     on the same text (e.g. ``_detect_section_headers`` uses ``m.start()``).
     """
-    splitter = _make_text_splitter(
+    splitter: RecursiveCharacterTextSplitter = _make_text_splitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
     )
     try:
-        raw_chunks = splitter.split_text(text)
+        raw_chunks: list[str] = splitter.split_text(text)
     except Exception as e:
         logging.warning(
             "chunk_text: preferred splitter failed during split (%s); "
@@ -97,17 +126,17 @@ def chunk_text(
             chunk_overlap=chunk_overlap,
         )
         raw_chunks = splitter.split_text(text)
-    total = len(raw_chunks)
-    formatted: list[dict[str, Any]] = []
+    total: int = len(raw_chunks)
+    formatted: list[TextChunk] = []
     # search_start advances after each match so we find the *next* occurrence
     # of a repeated substring rather than always re-matching from 0.
-    search_start = 0
+    search_start: int = 0
 
     for idx, chunk_text_ in enumerate(raw_chunks):
-        found = text.find(chunk_text_, search_start)
+        found: int = text.find(chunk_text_, search_start)
         if found != -1:
-            start_pos = found
-            end_pos = found + len(chunk_text_)
+            start_pos: int = found
+            end_pos: int = found + len(chunk_text_)
             # Advance past this match; overlap means next chunk starts before end_pos
             search_start = found + 1
         else:
