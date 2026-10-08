@@ -1168,6 +1168,14 @@ def compute_all_uncertainty_metrics(
     return results
 
 
+class GroupedUncertaintyMetrics(TypedDict):
+    entropy_family: dict[str, float]
+    calibration_family: dict[str, float]
+    similarity_family: dict[str, float]
+    perturbation_family: dict[str, float]
+    geometric_family: dict[str, float]
+
+
 class UncertaintyEvaluator:
     """Unified interface for all 8 uncertainty metrics."""
 
@@ -1176,14 +1184,14 @@ class UncertaintyEvaluator:
         responses: list[str],
         prompt: str,
         context: str | None = None,
-        log_likelihoods: np.ndarray | None = None,
-        hidden_states: list[np.ndarray] | None = None,
+        log_likelihoods: NDArray[np.float64] | None = None,
+        hidden_states: list[NDArray[np.float32] | NDArray[np.float64]] | None = None,
         cluster_ids: list[int] | None = None,
-        train_embeddings: list[np.ndarray] | None = None,
+        train_embeddings: list[NDArray[np.float32] | NDArray[np.float64]] | None = None,
         train_labels: list[int] | None = None,
-    ) -> dict[str, Any]:
+    ) -> GroupedUncertaintyMetrics:
         """Evaluate all metrics organized by family."""
-        metrics = compute_all_uncertainty_metrics(
+        metrics: UncertaintyMetrics = compute_all_uncertainty_metrics(
             responses=responses,
             prompt=prompt,
             context=context,
