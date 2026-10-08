@@ -117,7 +117,10 @@ class Coverage(ast.NodeVisitor):
         declaration: str = "",
     ) -> None:
         fingerprint: str = hashlib.sha256(
-            ast.dump(node, include_attributes=False).encode()
+            (
+                f"{getattr(node, 'lineno', 1)}:{getattr(node, 'col_offset', 0)}:"
+                + ast.dump(node, include_attributes=False)
+            ).encode()
         ).hexdigest()
         self.bindings.append(
             Binding(
@@ -629,7 +632,9 @@ def inspect_source(source: str, path: str) -> list[Binding]:
                     token.start[0],
                     "dynamic",
                     "",
-                    hashlib.sha256(token.string.encode()).hexdigest(),
+                    hashlib.sha256(
+                        f"{token.start[0]}:{token.start[1]}:{token.string}".encode()
+                    ).hexdigest(),
                 )
             )
     return visitor.bindings

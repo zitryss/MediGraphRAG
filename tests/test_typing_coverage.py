@@ -66,10 +66,10 @@ def test_any_is_not_explicit_precision() -> None:
     assert any(binding.category == "dynamic" for binding in bindings)
 
 
-def test_fingerprint_ignores_line_shift_but_tracks_binding_change() -> None:
+def test_fingerprint_tracks_location_and_binding_change() -> None:
     first: list[Binding] = inspect_source("x: int = 1\n", "fixture.py")
     shifted: list[Binding] = inspect_source("\n\nx: int = 1\n", "fixture.py")
-    assert first[0].fingerprint == shifted[0].fingerprint
+    assert first[0].fingerprint != shifted[0].fingerprint
     changed: list[Binding] = inspect_source("y: int = 1\n", "fixture.py")
     assert first[0].fingerprint != changed[0].fingerprint
 
@@ -389,11 +389,14 @@ def test_discovery_rejects_unclassified_or_deleted_tracked_files(
     tmp_path: Path,
     tracked: bytes,
 ) -> None:
-    with patch(
-        "scripts.check_typing_coverage.subprocess.check_output", return_value=tracked
+    with (
+        patch(
+            "scripts.check_typing_coverage.subprocess.check_output",
+            return_value=tracked,
+        ),
+        pytest.raises(ValueError),
     ):
-        with pytest.raises(ValueError):
-            discover(tmp_path)
+        discover(tmp_path)
 
 
 def test_discovery_includes_new_source_and_stubs(tmp_path: Path) -> None:
@@ -410,11 +413,13 @@ def test_discovery_includes_new_source_and_stubs(tmp_path: Path) -> None:
 
 
 def test_discovery_rejects_empty_scope(tmp_path: Path) -> None:
-    with patch(
-        "scripts.check_typing_coverage.subprocess.check_output", return_value=b""
+    with (
+        patch(
+            "scripts.check_typing_coverage.subprocess.check_output", return_value=b""
+        ),
+        pytest.raises(ValueError, match="No maintained Python files"),
     ):
-        with pytest.raises(ValueError, match="No maintained Python files"):
-            discover(tmp_path)
+        discover(tmp_path)
 
 
 def test_parse_failure_cannot_produce_a_clean_inventory() -> None:
@@ -449,3 +454,32 @@ def test_only_a_normal_positional_receiver_is_exempt(source: str) -> None:
         binding.symbol == "self" and binding.category == "missing"
         for binding in bindings
     )
+
+
+def test_identical_cast_sites_have_separate_exception_identities() -> None:
+    bindings: list[Binding] = inspect_source(
+        "from typing import cast\ndef f(value: object) -> None:\n    cast(int, value); cast(int, value)\n",
+        "fixture.py",
+    )
+    casts: list[Binding] = [binding for binding in bindings if binding.kind == "cast"]
+    assert len(casts) == 2
+    assert casts[0].fingerprint != casts[1].fingerprint
+    entries: list[ExceptionEntry] = [
+        ExceptionEntry(
+            f"cast-{index}",
+            binding.path,
+            binding.scope,
+            binding.symbol,
+            binding.kind,
+            binding.fingerprint,
+            "fixture reason",
+            "fixture evidence",
+            "engineer",
+            "fixture reviewer",
+            "approved",
+            date(2099, 1, 1),
+        )
+        for index, binding in enumerate(casts)
+    ]
+    assert not reconcile(bindings, entries, date(2026, 10, 9))
+    assert [binding.exception_id for binding in casts] == ["cast-0", "cast-1"]
