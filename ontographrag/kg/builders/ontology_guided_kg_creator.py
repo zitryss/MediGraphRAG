@@ -1611,7 +1611,7 @@ class OntologyGuidedKGCreator(
         return dot / math.sqrt(left_norm * right_norm)
 
     @staticmethod
-    def _confidence_score(value: Any) -> float:
+    def _confidence_score(value: object) -> float:
         """Normalize numeric or verbal confidence labels onto a sortable [0, 1] scale."""
         if isinstance(value, (int, float)):
             try:
@@ -1619,7 +1619,7 @@ class OntologyGuidedKGCreator(
             except (TypeError, ValueError):
                 return 0.0
 
-        text = str(value or "").strip().lower()
+        text: str = str(value or "").strip().lower()
         if not text or text in {"none", "null", "nan", "unknown", "n/a"}:
             return 0.0
 
@@ -1628,7 +1628,7 @@ class OntologyGuidedKGCreator(
         except (TypeError, ValueError):
             pass
 
-        verbal_scale = {
+        verbal_scale: dict[str, float] = {
             "demonstrated": 0.95,
             "supported": 0.85,
             "high": 0.8,

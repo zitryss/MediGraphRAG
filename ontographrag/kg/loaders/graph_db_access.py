@@ -4,6 +4,8 @@ import time
 from neo4j.exceptions import TransientError
 from langchain_neo4j import Neo4jGraph
 import json
+from typing import Never, NotRequired, TypeAlias, TypedDict
+from collections.abc import Mapping
 from dotenv import load_dotenv
 
 from ontographrag.kg.utils.common_functions import (
@@ -19,10 +21,13 @@ from ontographrag.kg.utils.constants import (
 )
 from ontographrag.kg.utils.source_node import sourceNode
 
+# Arbitrary Cypher results retain driver values (dates, nodes, arrays), not JSON.
+RawGraphRow: TypeAlias = dict[str, object]
+
 load_dotenv()
 
 
-def delete_file_from_gcs(bucket_name, folder_name, file_name) -> None:
+def delete_file_from_gcs(bucket_name: str, folder_name: str, file_name: str) -> None:
     """Compatibility hook for deployments that previously enabled GCS cleanup."""
     logging.warning(
         "GCS cleanup requested for gs://%s/%s/%s, but no GCS client is configured",
@@ -32,14 +37,30 @@ def delete_file_from_gcs(bucket_name, folder_name, file_name) -> None:
     )
 
 
+class ConnectionInfo(TypedDict):
+    message: str
+    gds_status: bool
+    write_access: bool
+    db_vector_dimension: NotRequired[int]
+    application_dimension: NotRequired[int]
+    chunks_exists: NotRequired[bool]
+
+
+class NodeRelationshipCounts(TypedDict):
+    nodeCount: int
+    relationshipCount: int
+
+
 class graphDBdataAccess:
     def __init__(self, graph: Neo4jGraph) -> None:
-        self.graph = graph
+        self.graph: Neo4jGraph = graph
 
-    def update_exception_db(self, file_name, exp_msg, retry_condition=None) -> None:
+    def update_exception_db(
+        self, file_name: str | None, exp_msg: str, retry_condition: str | None = None
+    ) -> None:
         try:
             job_status: str = "Failed"
-            result = self.get_current_status_document_node(file_name)
+            result: list[RawGraphRow] = self.get_current_status_document_node(file_name)
             if len(result) > 0:
                 is_cancelled_status = result[0]["is_cancelled"]
                 if bool(is_cancelled_status) == True:
@@ -63,7 +84,7 @@ class graphDBdataAccess:
                     session_params={"database": self.graph._database},
                 )
         except Exception as e:
-            error_message = str(e)
+            error_message: str = str(e)
             logging.error(
                 f"Error in updating document node status as failed: {error_message}"
             )
@@ -121,7 +142,7 @@ class graphDBdataAccess:
                 session_params={"database": self.graph._database},
             )
         except Exception as e:
-            error_message = str(e)
+            error_message: str = str(e)
             logging.info(f"error_message = {error_message}")
             self.update_exception_db(self, obj_source_node.file_name, error_message)
             raise Exception(error_message)
@@ -185,11 +206,11 @@ class graphDBdataAccess:
                 query, param, session_params={"database": self.graph._database}
             )
         except Exception as e:
-            error_message = str(e)
+            error_message: str = str(e)
             self.update_exception_db(self, self.file_name, error_message)
             raise Exception(error_message)
 
-    def get_source_list(self):
+    def get_source_list(self) -> list[RawGraphRow]:
         """
         Args:
             uri: URI of the graph to extract
@@ -204,10 +225,10 @@ class graphDBdataAccess:
         """
         logging.info("Get existing files list from graph")
         query: str = "MATCH(d:Document) WHERE d.fileName IS NOT NULL RETURN d ORDER BY d.updatedAt DESC"
-        result = self.graph.query(
+        result: list[RawGraphRow] = self.graph.query(
             query, session_params={"database": self.graph._database}
         )
-        list_of_json_objects = [entry["d"] for entry in result]
+        list_of_json_objects: list[RawGraphRow] = [entry["d"] for entry in result]
         return list_of_json_objects
 
     def update_KNN_graph(self) -> None:
@@ -234,10 +255,10 @@ class graphDBdataAccess:
         else:
             logging.info("Vector index does not exist, So KNN graph not update")
 
-    def check_account_access(self, database):
+    def check_account_access(self, database: str | None) -> bool:
         try:
             query_dbms_componenet: str = "call dbms.components() yield edition"
-            result_dbms_componenet = self.graph.query(
+            result_dbms_componenet: list[RawGraphRow] = self.graph.query(
                 query_dbms_componenet, session_params={"database": self.graph._database}
             )
 
@@ -251,12 +272,12 @@ class graphDBdataAccess:
 
                 logging.info(f"Checking access for database: {database}")
 
-                result = self.graph.query(
+                result: list[RawGraphRow] = self.graph.query(
                     query,
                     params={"database": database},
                     session_params={"database": self.graph._database},
                 )
-                read_access_count = result[0]["readAccessCount"] if result else 0
+                read_access_count: int = result[0]["readAccessCount"] if result else 0
 
                 logging.info(f"Read access count: {read_access_count}")
 
@@ -275,15 +296,15 @@ class graphDBdataAccess:
             logging.error(f"Error checking account access: {e}")
             return False
 
-    def check_gds_version(self):
+    def check_gds_version(self) -> bool:
         try:
             gds_procedure_count: str = """
             SHOW FUNCTIONS YIELD name WHERE name STARTS WITH 'gds.version' RETURN COUNT(*) AS totalGdsProcedures
             """
-            result = self.graph.query(
+            result: list[RawGraphRow] = self.graph.query(
                 gds_procedure_count, session_params={"database": self.graph._database}
             )
-            total_gds_procedures = result[0]["totalGdsProcedures"] if result else 0
+            total_gds_procedures: int = result[0]["totalGdsProcedures"] if result else 0
 
             if total_gds_procedures > 0:
                 logging.info("GDS is available in the database.")
@@ -295,7 +316,9 @@ class graphDBdataAccess:
             logging.error(f"An error occurred while checking GDS version: {e}")
             return False
 
-    def connection_check_and_get_vector_dimensions(self, database):
+    def connection_check_and_get_vector_dimensions(
+        self, database: str | None
+    ) -> ConnectionInfo | None:
         """
         Get the vector index dimension from database and application configuration and DB connection status
 
@@ -308,7 +331,7 @@ class graphDBdataAccess:
         Returns a status of connection from NEO4j is success or failure
         """
 
-        db_vector_dimension = self.graph.query(
+        db_vector_dimension: list[RawGraphRow] = self.graph.query(
             """SHOW INDEXES YIELD *
                                     WHERE type = 'VECTOR' AND name = 'vector'
                                     RETURN options.indexConfig['vector.dimensions'] AS vector_dimensions
@@ -316,21 +339,21 @@ class graphDBdataAccess:
             session_params={"database": self.graph._database},
         )
 
-        result_chunks = self.graph.query(
+        result_chunks: list[RawGraphRow] = self.graph.query(
             """match (c:Chunk) return size(c.embedding) as embeddingSize, count(*) as chunks, 
                                                     count(c.embedding) as hasEmbedding
                                 """,
             session_params={"database": self.graph._database},
         )
 
-        embedding_model = os.getenv("EMBEDDING_MODEL")
+        embedding_model: str | None = os.getenv("EMBEDDING_MODEL")
         embeddings, application_dimension = load_embedding_model(embedding_model)
         logging.info(
             f"embedding model:{embeddings} and dimesion:{application_dimension}"
         )
 
-        gds_status = self.check_gds_version()
-        write_access = self.check_account_access(database=database)
+        gds_status: bool = self.check_gds_version()
+        write_access: bool = self.check_account_access(database=database)
 
         if self.graph:
             if len(db_vector_dimension) > 0:
@@ -372,8 +395,14 @@ class graphDBdataAccess:
                         "write_access": write_access,
                     }
 
-    def execute_query(self, query, param=None, max_retries=3, delay=2):
-        retries = 0
+    def execute_query(
+        self,
+        query: str,
+        param: Mapping[str, object] | None = None,
+        max_retries: int = 3,
+        delay: float = 2,
+    ) -> list[RawGraphRow]:
+        retries: int = 0
         while retries < max_retries:
             try:
                 return self.graph.query(
@@ -395,7 +424,9 @@ class graphDBdataAccess:
             "Query execution failed after multiple retries due to deadlock."
         )
 
-    def get_current_status_document_node(self, file_name):
+    def get_current_status_document_node(
+        self, file_name: str | None
+    ) -> list[RawGraphRow]:
         query: str = """
                 MATCH(d:Document {fileName : $file_name}) RETURN d.status AS Status , d.processingTime AS processingTime, 
                 d.nodeCount AS nodeCount, d.model as model, d.relationshipCount as relationshipCount,
@@ -413,17 +444,22 @@ class graphDBdataAccess:
         return self.execute_query(query, param)
 
     def delete_file_from_graph(
-        self, filenames, source_types, deleteEntities: str, merged_dir: str, uri
-    ):
+        self,
+        filenames: str,
+        source_types: str,
+        deleteEntities: str,
+        merged_dir: str,
+        uri: str,
+    ) -> int:
 
-        filename_list = list(map(str.strip, json.loads(filenames)))
-        source_types_list = list(map(str.strip, json.loads(source_types)))
-        gcs_file_cache = os.environ.get("GCS_FILE_CACHE")
+        filename_list: list[str] = list(map(str.strip, json.loads(filenames)))
+        source_types_list: list[str] = list(map(str.strip, json.loads(source_types)))
+        gcs_file_cache: str | None = os.environ.get("GCS_FILE_CACHE")
 
         for file_name, source_type in zip(filename_list, source_types_list):
-            merged_file_path = os.path.join(merged_dir, file_name)
+            merged_file_path: str = os.path.join(merged_dir, file_name)
             if source_type == "local file" and gcs_file_cache == "True":
-                folder_name = create_gcs_bucket_folder_name_hashed(uri, file_name)
+                folder_name: str = create_gcs_bucket_folder_name_hashed(uri, file_name)
                 delete_file_from_gcs(BUCKET_UPLOAD, folder_name, file_name)
             else:
                 logging.info(
@@ -487,7 +523,7 @@ class graphDBdataAccess:
             )
         return len(filename_list)
 
-    def list_unconnected_nodes(self):
+    def list_unconnected_nodes(self) -> tuple[list[RawGraphRow], RawGraphRow]:
         query: str = """
         MATCH (e:!Chunk&!Document&!`__Community__`) 
         WHERE NOT exists { (e)--(:!Chunk&!Document&!`__Community__`) }
@@ -514,12 +550,16 @@ class graphDBdataAccess:
         WHERE NOT exists { (e)--(:!Chunk&!Document&!`__Community__`) }
         RETURN count(*) as total
         """
-        nodes_list = self.execute_query(query)
-        total_nodes = self.execute_query(query_total_nodes)
+        nodes_list: list[RawGraphRow] = self.execute_query(query)
+        total_nodes: list[RawGraphRow] = self.execute_query(query_total_nodes)
         return nodes_list, total_nodes[0]
 
-    def delete_unconnected_nodes(self, unconnected_entities_list):
-        entities_list = list(map(str.strip, json.loads(unconnected_entities_list)))
+    def delete_unconnected_nodes(
+        self, unconnected_entities_list: str
+    ) -> list[RawGraphRow]:
+        entities_list: list[str] = list(
+            map(str.strip, json.loads(unconnected_entities_list))
+        )
         query: str = """
         MATCH (e) WHERE elementId(e) IN $elementIds
         DETACH DELETE e
@@ -527,9 +567,9 @@ class graphDBdataAccess:
         param = {"elementIds": entities_list}
         return self.execute_query(query, param)
 
-    def get_duplicate_nodes_list(self):
-        score_value = float(os.environ.get("DUPLICATE_SCORE_VALUE"))
-        text_distance = int(os.environ.get("DUPLICATE_TEXT_DISTANCE"))
+    def get_duplicate_nodes_list(self) -> tuple[list[RawGraphRow], RawGraphRow]:
+        score_value: float = float(os.environ.get("DUPLICATE_SCORE_VALUE"))
+        text_distance: int = int(os.environ.get("DUPLICATE_TEXT_DISTANCE"))
         query_duplicate_nodes: str = """
                 MATCH (n:!Chunk&!Session&!Document&!`__Community__`) with n 
                 WHERE n.embedding is not null and n.id is not null // and size(toString(n.id)) > 3
@@ -576,17 +616,17 @@ class graphDBdataAccess:
             "duplicate_text_distance": text_distance,
         }
 
-        nodes_list = self.execute_query(
+        nodes_list: list[RawGraphRow] = self.execute_query(
             query_duplicate_nodes.format(return_statement=return_query_duplicate_nodes),
             param=param,
         )
-        total_nodes = self.execute_query(
+        total_nodes: list[RawGraphRow] = self.execute_query(
             query_duplicate_nodes.format(return_statement=total_duplicate_nodes),
             param=param,
         )
         return nodes_list, total_nodes[0]
 
-    def merge_duplicate_nodes(self, duplicate_nodes_list):
+    def merge_duplicate_nodes(self, duplicate_nodes_list: str) -> list[RawGraphRow]:
         nodes_list = json.loads(duplicate_nodes_list)
         logging.info(f"Nodes list to merge {nodes_list}")
         query: str = """
@@ -606,11 +646,11 @@ class graphDBdataAccess:
         param = {"rows": nodes_list}
         return self.execute_query(query, param)
 
-    def drop_create_vector_index(self, isVectorIndexExist):
+    def drop_create_vector_index(self, isVectorIndexExist: str) -> str:
         """
         drop and create the vector index when vector index dimesion are different.
         """
-        embedding_model = os.getenv("EMBEDDING_MODEL")
+        embedding_model: str | None = os.getenv("EMBEDDING_MODEL")
         _embeddings, dimension = load_embedding_model(embedding_model)
 
         if isVectorIndexExist == "true":
@@ -631,35 +671,41 @@ class graphDBdataAccess:
         )
         return "Drop and Re-Create vector index succesfully"
 
-    def update_node_relationship_count(self, document_name):
+    def update_node_relationship_count(
+        self, document_name: str | None
+    ) -> dict[str | None, NodeRelationshipCounts] | list[Never]:
         logging.info("updating node and relationship count")
         label_query: str = """CALL db.labels"""
-        community_flag = {"label": "__Community__"} in self.execute_query(label_query)
+        community_flag: bool = {"label": "__Community__"} in self.execute_query(
+            label_query
+        )
         if (not document_name) and (community_flag):
-            result = self.execute_query(NODEREL_COUNT_QUERY_WITH_COMMUNITY)
+            result: list[RawGraphRow] = self.execute_query(
+                NODEREL_COUNT_QUERY_WITH_COMMUNITY
+            )
         elif (not document_name) and (not community_flag):
             return []
         else:
             param = {"document_name": document_name}
             result = self.execute_query(NODEREL_COUNT_QUERY_WITHOUT_COMMUNITY, param)
-        response = {}
+        response: dict[str | None, NodeRelationshipCounts] = {}
         if result:
             for record in result:
-                filename = record.get("filename", None)
-                chunkNodeCount = int(record.get("chunkNodeCount", 0))
-                chunkRelCount = int(record.get("chunkRelCount", 0))
-                entityNodeCount = int(record.get("entityNodeCount", 0))
-                entityEntityRelCount = int(record.get("entityEntityRelCount", 0))
+                filename: str | None = record.get("filename", None)
+                chunkNodeCount: int = int(record.get("chunkNodeCount", 0))
+                chunkRelCount: int = int(record.get("chunkRelCount", 0))
+                entityNodeCount: int = int(record.get("entityNodeCount", 0))
+                entityEntityRelCount: int = int(record.get("entityEntityRelCount", 0))
                 if (not document_name) and (community_flag):
-                    communityNodeCount = int(record.get("communityNodeCount", 0))
-                    communityRelCount = int(record.get("communityRelCount", 0))
+                    communityNodeCount: int = int(record.get("communityNodeCount", 0))
+                    communityRelCount: int = int(record.get("communityRelCount", 0))
                 else:
                     communityNodeCount = 0
                     communityRelCount = 0
-                nodeCount = (
+                nodeCount: int = (
                     int(chunkNodeCount) + int(entityNodeCount) + int(communityNodeCount)
                 )
-                relationshipCount = (
+                relationshipCount: int = (
                     int(chunkRelCount)
                     + int(entityEntityRelCount)
                     + int(communityRelCount)
@@ -703,7 +749,7 @@ class graphDBdataAccess:
 
         return response
 
-    def get_nodelabels_relationships(self):
+    def get_nodelabels_relationships(self) -> tuple[list[str], list[str]] | list[Never]:
         node_query: str = """
                     CALL db.labels() YIELD label
                     WITH label
@@ -720,10 +766,10 @@ class graphDBdataAccess:
                 """
 
         try:
-            node_result = self.execute_query(node_query)
-            node_labels = [record["label"] for record in node_result]
-            relationship_result = self.execute_query(relation_query)
-            relationship_types = [
+            node_result: list[RawGraphRow] = self.execute_query(node_query)
+            node_labels: list[str] = [record["label"] for record in node_result]
+            relationship_result: list[RawGraphRow] = self.execute_query(relation_query)
+            relationship_types: list[str] = [
                 record["relationshipType"] for record in relationship_result
             ]
             return node_labels, relationship_types
@@ -731,7 +777,7 @@ class graphDBdataAccess:
             logging.error("Error getting node labels/relationship types from db: %s", e)
             return []
 
-    def get_websource_url(self, file_name):
+    def get_websource_url(self, file_name: str) -> list[RawGraphRow]:
         logging.info("Checking if same title with different URL exist in db ")
         query: str = """
                 MATCH(d:Document {fileName : $file_name}) WHERE d.fileSource = "web-url"
@@ -740,7 +786,7 @@ class graphDBdataAccess:
         param = {"file_name": file_name}
         return self.execute_query(query, param)
 
-    def get_kg_list(self):
+    def get_kg_list(self) -> list[RawGraphRow]:
         """
         Get list of all knowledge graphs in the database
         """
@@ -753,7 +799,7 @@ class graphDBdataAccess:
                max(d.updatedAt) AS lastUpdated
         ORDER BY d.kgName
         """
-        result = self.graph.query(
+        result: list[RawGraphRow] = self.graph.query(
             query, session_params={"database": self.graph._database}
         )
         return [entry for entry in result]
@@ -798,7 +844,7 @@ class graphDBdataAccess:
             data_source: kg.dataSource
         } AS kg
         """
-        result = self.execute_query(
+        result: list[RawGraphRow] = self.execute_query(
             query,
             {
                 "kg_name": kg_name,
@@ -827,10 +873,10 @@ class graphDBdataAccess:
             document_count: size(docs)
         } AS kg
         """
-        result = self.execute_query(query, {"kg_name": kg_name})
+        result: list[RawGraphRow] = self.execute_query(query, {"kg_name": kg_name})
         return self._coerce_record_value(result[0]["kg"]) if result else None
 
-    def get_source_list_by_kg(self, kg_name: str):
+    def get_source_list_by_kg(self, kg_name: str) -> list[RawGraphRow]:
         """
         Get list of sources for a specific knowledge graph
         """
@@ -841,13 +887,13 @@ class graphDBdataAccess:
         RETURN d ORDER BY d.updatedAt DESC
         """
         param = {"kg_name": kg_name}
-        result = self.graph.query(
+        result: list[RawGraphRow] = self.graph.query(
             query, param, session_params={"database": self.graph._database}
         )
-        list_of_json_objects = [entry["d"] for entry in result]
+        list_of_json_objects: list[RawGraphRow] = [entry["d"] for entry in result]
         return list_of_json_objects
 
-    def delete_kg(self, kg_name: str, delete_entities: bool = True):
+    def delete_kg(self, kg_name: str, delete_entities: bool = True) -> int:
         """
         Delete an entire knowledge graph and all its documents
         """
@@ -859,7 +905,7 @@ class graphDBdataAccess:
         RETURN d.fileName AS fileName, d.fileSource AS fileSource
         """
         param = {"kg_name": kg_name}
-        docs_result = self.execute_query(docs_query, param)
+        docs_result: list[RawGraphRow] = self.execute_query(docs_query, param)
 
         if not docs_result:
             logging.info(f"No documents found for KG: {kg_name}")
@@ -876,7 +922,7 @@ class graphDBdataAccess:
 
         # Create temporary directory for merged_dir parameter
         with tempfile.TemporaryDirectory() as temp_dir:
-            deleted_count = self.delete_file_from_graph(
+            deleted_count: int = self.delete_file_from_graph(
                 filenames=json.dumps(filenames),
                 source_types=json.dumps(source_types),
                 deleteEntities=str(delete_entities).lower(),
@@ -887,9 +933,9 @@ class graphDBdataAccess:
         logging.info(f"Deleted KG '{kg_name}' with {deleted_count} documents")
         return deleted_count
 
-    def delete_kg_by_name(self, kg_name: str, delete_entities: bool = True):
+    def delete_kg_by_name(self, kg_name: str, delete_entities: bool = True) -> int:
         """Backward-compatible API alias for deleting a named KG."""
-        deleted_count = self.delete_kg(kg_name, delete_entities=delete_entities)
+        deleted_count: int = self.delete_kg(kg_name, delete_entities=delete_entities)
         self.execute_query(
             "MATCH (kg:KnowledgeGraph {kgName: $kg_name}) DETACH DELETE kg",
             {"kg_name": kg_name},
@@ -916,7 +962,7 @@ class graphDBdataAccess:
         ORDER BY name
         LIMIT $limit
         """
-        result = self.execute_query(
+        result: list[RawGraphRow] = self.execute_query(
             query,
             {
                 "kg_name": kg_name,
@@ -925,7 +971,7 @@ class graphDBdataAccess:
         )
         return [self._coerce_record_value(dict(record)) for record in result]
 
-    def get_kg_stats(self, kg_name: str | None = None):
+    def get_kg_stats(self, kg_name: str | None = None) -> list[RawGraphRow]:
         """
         Get statistics for a specific KG or all KGs
         """
@@ -957,5 +1003,7 @@ class graphDBdataAccess:
             ORDER BY kgName
             """
 
-        result = self.execute_query(query, param if kg_name else None)
+        result: list[RawGraphRow] = self.execute_query(
+            query, param if kg_name else None
+        )
         return [entry for entry in result]

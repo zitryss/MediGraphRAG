@@ -25,7 +25,7 @@ def creator(monkeypatch: pytest.MonkeyPatch) -> module.OntologyGuidedKGCreator:
 
 @pytest.fixture
 def schema_file(tmp_path: Path) -> Path:
-    path = tmp_path / "schema.json"
+    path: Path = tmp_path / "schema.json"
     path.write_text(
         json.dumps(
             {
@@ -101,7 +101,7 @@ def test_json_schema_load_and_hash_card(
 def test_owl_typed_properties_and_relationship_attributes(
     creator: module.OntologyGuidedKGCreator, tmp_path: Path
 ) -> None:
-    path = tmp_path / "schema.owl"
+    path: Path = tmp_path / "schema.owl"
     path.write_text("""<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#" xmlns:owl="http://www.w3.org/2002/07/owl#" xmlns:app="urn:test:">
     <owl:Class rdf:about="urn:test#Drug"><rdfs:label>Drug</rdfs:label><rdfs:comment>Medicine</rdfs:comment></owl:Class>
     <owl:Class rdf:about="urn:test#Disease"/><owl:Class/>
@@ -141,7 +141,7 @@ def test_owl_typed_properties_and_relationship_attributes(
 def test_reverification_caches_only_explicit_decisions(
     creator: module.OntologyGuidedKGCreator, response: Any, expected: bool | None
 ) -> None:
-    llm = Mock()
+    llm: Mock = Mock()
     if isinstance(response, Exception):
         llm.generate.side_effect = response
     else:
@@ -179,7 +179,7 @@ def test_coreference_plausibility_gate(
     creator: module.OntologyGuidedKGCreator, response: Any
 ) -> None:
     original: str = "These cells survived during treatment."
-    llm = Mock()
+    llm: Mock = Mock()
     if isinstance(response, Exception):
         llm.generate.side_effect = response
     else:
@@ -218,7 +218,7 @@ def test_real_llm_extraction_and_grounded_postprocessing(
             }
         ],
     }
-    llm = Mock(generate=Mock(return_value=json.dumps(payload)))
+    llm: Mock = Mock(generate=Mock(return_value=json.dumps(payload)))
     result = creator._extract_entities_and_relationships_with_llm(
         "Aspirin treats Pain.",
         llm,
@@ -272,7 +272,7 @@ def test_real_preview_build_completes_without_persistence(
         ),
     )
     creator.enable_anchor_constrained_extraction = False
-    llm = Mock(
+    llm: Mock = Mock(
         generate=Mock(
             return_value=json.dumps(
                 {
@@ -318,7 +318,7 @@ def test_schema_embedding_classification_and_fallback(
 ) -> None:
     creator._load_ontology(str(schema_file))
     creator._ontology_class_embeddings = [("Drug", [1, 0]), ("Disease", [0, 1])]
-    embedding = Mock(embed_query=Mock(return_value=[0, 1]))
+    embedding: Mock = Mock(embed_query=Mock(return_value=[0, 1]))
     monkeypatch.setattr(creator, "embedding_function", embedding)
     assert creator._classify_entity_with_ontology("unfamiliar syndrome") == "Disease"
     embedding.embed_query.side_effect = RuntimeError("embedding unavailable")
@@ -370,8 +370,8 @@ def test_storage_connection_and_vector_index_contract(
 ) -> None:
     from ontographrag.kg.builders import _storage
 
-    graph = Mock(query=Mock(return_value=[]))
-    factory = Mock(return_value=graph)
+    graph: Mock = Mock(query=Mock(return_value=[]))
+    factory: Mock = Mock(return_value=graph)
     monkeypatch.setattr(_storage, "Neo4jGraph", factory)
     for name in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"]:
         monkeypatch.setenv(
@@ -394,7 +394,7 @@ def test_storage_connection_and_vector_index_contract(
 def test_creator_retrieval_maps_unique_entities_and_errors(
     creator: module.OntologyGuidedKGCreator, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    graph = Mock(
+    graph: Mock = Mock(
         query=Mock(
             return_value=[
                 {

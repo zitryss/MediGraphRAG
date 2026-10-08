@@ -14,6 +14,7 @@ They lock down the behaviours that must survive refactoring:
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 import hashlib
 import json
 import re
@@ -21,6 +22,9 @@ import sys
 import os
 
 import pytest
+
+if TYPE_CHECKING:
+    from tests.conftest import StubGraph
 
 # Skip the whole module gracefully if heavy KG dependencies aren't installed.
 # The project venv includes all of these; this guard is for CI environments
@@ -37,6 +41,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ontographrag.kg.builders import ontology_guided_kg_creator as builder_mod
 from ontographrag.kg.builders.ontology_guided_kg_creator import OntologyGuidedKGCreator
 from ontographrag.schemas.models import EntityType, OntologySchema, RelationshipType
+from ontographrag.kg.builders._evaluation import (
+    KGEvaluation,
+    EntityMetrics,
+    RelationshipMetrics,
+    GroundingMetrics,
+    PipelineMetrics,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +56,9 @@ from ontographrag.schemas.models import EntityType, OntologySchema, Relationship
 
 def _make_creator() -> OntologyGuidedKGCreator:
     """Instantiate with minimal config — no Neo4j, no embeddings required."""
-    c = OntologyGuidedKGCreator.__new__(OntologyGuidedKGCreator)
+    c: OntologyGuidedKGCreator = OntologyGuidedKGCreator.__new__(
+        OntologyGuidedKGCreator
+    )
     c.chunk_size = 500
     c.chunk_overlap = 50
     c.retrieval_chunk_size = 128
@@ -221,8 +234,10 @@ class TestPassageProvenanceStorage:
             },
         }
 
-    def test_chunk_storage_includes_passage_provenance(self, stub_graph) -> None:
-        creator = _make_creator()
+    def test_chunk_storage_includes_passage_provenance(
+        self, stub_graph: "StubGraph"
+    ) -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
 
@@ -241,8 +256,10 @@ class TestPassageProvenanceStorage:
         assert params["question_id"] == "q1"
         assert params["passage_index"] == 0
 
-    def test_mentions_use_global_chunk_index_and_source(self, stub_graph) -> None:
-        creator = _make_creator()
+    def test_mentions_use_global_chunk_index_and_source(
+        self, stub_graph: "StubGraph"
+    ) -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
 
@@ -261,7 +278,7 @@ class TestPassageProvenanceStorage:
 
 class TestCrossPassageRecoveryScoping:
     def test_cross_passage_groups_respect_question_bundle_boundaries(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         Passage = type("Passage", (), {})
         passages = []
         for dataset, question_id, idx, text in (
@@ -306,7 +323,7 @@ class TestPassageSourceTitlePropagation:
     def test_passage_aware_build_prefers_structured_source_title(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         captured = {}
 
         monkeypatch.setattr(
@@ -375,7 +392,7 @@ class TestPassageSourceTitlePropagation:
     def test_storage_sanitizes_nested_metadata_and_relationship_properties(
         self, stub_graph
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
         creator._verify_triple_confidence = lambda *args, **kwargs: 1.0
@@ -480,7 +497,7 @@ class TestPassageSourceTitlePropagation:
     def test_relationship_verification_uses_local_provenance_chunks(
         self, stub_graph
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
 
@@ -572,8 +589,10 @@ class TestPassageSourceTitlePropagation:
         assert ok is True
         assert [chunk["position"] for chunk in captured["chunks"]] == [7]
 
-    def test_relationship_store_failure_returns_false(self, stub_graph) -> None:
-        creator = _make_creator()
+    def test_relationship_store_failure_returns_false(
+        self, stub_graph: "StubGraph"
+    ) -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
         creator._verify_triple_confidence = lambda *args, **kwargs: 1.0
@@ -658,7 +677,7 @@ class TestPassageSourceTitlePropagation:
     def test_large_graph_tolerates_single_relationship_store_failure(
         self, stub_graph
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
         creator._verify_triple_confidence = lambda *args, **kwargs: 1.0
@@ -750,7 +769,7 @@ class TestCrossWindowRelationRecovery:
     def test_extract_relationships_for_segment_windows_uses_three_chunk_window(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         monkeypatch.setattr(builder_mod.time, "sleep", lambda _: None)
 
         captured_texts = []
@@ -855,7 +874,7 @@ class TestGraphEnrichmentBuilder:
         }
 
     def test_soft_entity_linking_merges_lexical_variants(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.enable_soft_entity_linking = True
 
         entities = [
@@ -898,7 +917,7 @@ class TestGraphEnrichmentBuilder:
         assert merged_map["TBK1 protein"]["uuid"] == merged["uuid"]
 
     def test_claim_only_mode_does_not_emit_component_summaries(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.enable_claim_extraction = True
 
         enrichment = creator._build_graph_enrichment_records(self._kg())
@@ -908,7 +927,7 @@ class TestGraphEnrichmentBuilder:
         assert len(enrichment["claims"]) == 2
 
     def test_graph_enrichment_builds_summaries_claims_and_bridges(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.enable_graph_summaries = True
         creator.enable_claim_extraction = True
         creator.enable_fragmentation_repair = True
@@ -928,7 +947,7 @@ class TestGraphEnrichmentBuilder:
         assert bridge["reason"] == "alias_overlap"
 
     def test_graph_enrichment_accepts_verbal_confidence_labels(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.enable_graph_summaries = True
         creator.enable_claim_extraction = True
 
@@ -944,8 +963,10 @@ class TestGraphEnrichmentBuilder:
         )
         assert claim_confidences == [0.6, 0.95]
 
-    def test_store_graph_enrichment_persists_all_record_types(self, stub_graph) -> None:
-        creator = _make_creator()
+    def test_store_graph_enrichment_persists_all_record_types(
+        self, stub_graph: "StubGraph"
+    ) -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.enable_graph_summaries = True
         creator.enable_claim_extraction = True
         creator.enable_fragmentation_repair = True
@@ -981,7 +1002,7 @@ class TestSectionAwareChunking:
     def test_section_chunking_preserves_boundaries_and_offsets(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         def _fake_chunk_text_fn(*, text, chunk_size, chunk_overlap, embedding_fn):
             return [
@@ -1013,7 +1034,7 @@ class TestSectionAwareChunking:
         assert chunks[1]["text"].startswith("Medications")
 
     def test_cross_section_recovery_uses_section_segments(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         text: str = "Introduction\nalpha finding\n\nResults\nbeta outcome"
         results_start = text.index("Results")
@@ -1090,7 +1111,7 @@ class TestSectionAwareChunking:
         )
 
     def test_postprocess_skips_reflection_when_disabled(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.enable_self_reflection = False
 
         class FailIfCalledLLM:
@@ -1122,7 +1143,7 @@ class TestSectionAwareChunking:
 
 class TestHeuristicCoreference:
     def test_prepare_chunk_text_rewrites_typed_demonstrative(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         rewritten = creator._prepare_chunk_text_for_extraction(
             "This disease progresses rapidly.",
@@ -1138,7 +1159,7 @@ class TestHeuristicCoreference:
 
 class TestSelfConsistencyVoting:
     def test_majority_vote_keeps_supported_entity(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.self_consistency_n = 3
 
         samples = [
@@ -1237,7 +1258,7 @@ class TestVerifyTripleConfidence:
 
 class TestEvidenceScopeCategorization:
     def test_cross_section_is_distinguished_from_cross_chunk(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         cross_section = creator._relationship_evidence_scope(
             [
@@ -1272,7 +1293,7 @@ class TestAnchorGroundingAndRestoration:
     def test_ground_chunk_extraction_adds_exact_spans_and_full_restoration(
         self,
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         chunk = {
             "text": "Metformin inhibits AMPK in diabetic patients.",
             "position": 5,
@@ -1316,7 +1337,7 @@ class TestAnchorGroundingAndRestoration:
     def test_restoration_verifier_marks_partial_when_relation_phrase_is_missing(
         self,
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         rel = {
             "type": "INHIBITS",
             "properties": {
@@ -1345,7 +1366,7 @@ class TestAnchorGroundingAndRestoration:
         assert set(restoration["grounded_components"]) == {"source", "target"}
 
     def test_anchor_constrained_extraction_uses_discovered_anchors(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         class SequentialLLM:
             def __init__(self, responses) -> None:
@@ -1887,7 +1908,7 @@ class TestRelationMergeKey:
 
 class TestRelationshipLocalProvenance:
     def test_relationship_local_provenance_resolves_question_and_passage(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         rel = {"provenance_positions": [7, 8]}
         chunks = [
             {"position": 7, "question_id": "q1", "passage_index": 0},
@@ -1957,7 +1978,7 @@ class TestStrictOntologyLoading:
 
 class TestOntologySchemaEnforcement:
     def _schema_creator(self) -> OntologyGuidedKGCreator:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._ontology_schema = OntologySchema(
             entity_types=[
                 EntityType(id="Drug", label="Drug"),
@@ -2026,7 +2047,9 @@ class TestOntologySchemaEnforcement:
             is None
         )
 
-    def test_storage_skips_schema_mismatch_relationships(self, stub_graph) -> None:
+    def test_storage_skips_schema_mismatch_relationships(
+        self, stub_graph: "StubGraph"
+    ) -> None:
         creator = self._schema_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -2219,8 +2242,10 @@ class TestConfidenceThresholdAndReverification:
             },
         }
 
-    def test_storage_uses_configurable_confidence_threshold(self, stub_graph) -> None:
-        creator = _make_creator()
+    def test_storage_uses_configurable_confidence_threshold(
+        self, stub_graph: "StubGraph"
+    ) -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.min_triple_confidence = 0.5
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -2233,8 +2258,10 @@ class TestConfidenceThresholdAndReverification:
         assert kg["metadata"]["stored_relationships"] == 0
         assert kg["metadata"]["relationships_skipped_low_confidence"] == 1
 
-    def test_low_confidence_reverification_can_keep_relation(self, stub_graph) -> None:
-        creator = _make_creator()
+    def test_low_confidence_reverification_can_keep_relation(
+        self, stub_graph: "StubGraph"
+    ) -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.min_triple_confidence = 0.5
         creator.enable_low_confidence_triple_reverification = True
         creator.low_confidence_reverify_threshold = 0.4
@@ -2264,8 +2291,8 @@ class TestConfidenceThresholdAndReverification:
         )
         assert rel_params["properties"]["llm_verified"] is True
 
-    def test_storage_writes_evidence_scope(self, stub_graph) -> None:
-        creator = _make_creator()
+    def test_storage_writes_evidence_scope(self, stub_graph: "StubGraph") -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
         creator._verify_triple_confidence = lambda *args, **kwargs: 1.0
@@ -2284,7 +2311,7 @@ class TestConfidenceThresholdAndReverification:
     def test_storage_preserves_anchor_metadata_on_nodes_and_relationships(
         self, stub_graph
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
         creator._verify_triple_confidence = lambda *args, **kwargs: 1.0
@@ -2328,7 +2355,7 @@ class TestConfidenceThresholdAndReverification:
 
 class TestOptionalUMLSLinking:
     def test_entities_with_same_cui_merge_when_enabled(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator.enable_umls_linking = True
         creator._ensure_umls_linker = lambda: object()
 
@@ -2379,7 +2406,7 @@ class TestOptionalUMLSLinking:
 
 class TestContradictionDetection:
     def test_marks_opposite_polarity_edges_as_contradictions(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         rels = creator._mark_relationship_contradictions(
             [
@@ -2411,7 +2438,7 @@ class TestContradictionDetection:
     def test_harmonization_merges_anchor_grounding_for_duplicate_relations(
         self,
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
         source = {"id": "Metformin", "uuid": "u1", "type": "Drug", "properties": {}}
         target = {"id": "AMPK", "uuid": "u2", "type": "Protein", "properties": {}}
 
@@ -2464,8 +2491,8 @@ class TestContradictionDetection:
 
 
 class TestNodeSpecificityScoping:
-    def test_chunk_storage_writes_kg_name(self, stub_graph) -> None:
-        creator = _make_creator()
+    def test_chunk_storage_writes_kg_name(self, stub_graph: "StubGraph") -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
 
@@ -2484,7 +2511,7 @@ class TestNodeSpecificityScoping:
     def test_node_specificity_query_scopes_via_document_kg_name(
         self, stub_graph
     ) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         creator._compute_node_specificity_weights(stub_graph, "musique")
 
@@ -2496,13 +2523,13 @@ class TestNodeSpecificityScoping:
 
 class TestSynonymGuard:
     def test_names_pass_synonym_guard_allows_surface_variants(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         assert creator._names_pass_synonym_guard("TBK1", "TBK1 kinase")
         assert creator._names_pass_synonym_guard("tumor necrosis factor", "TNF")
 
     def test_names_pass_synonym_guard_blocks_embedding_only_near_misses(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         assert not creator._names_pass_synonym_guard("alpha", "beta")
         assert not creator._names_pass_synonym_guard("Paris", "France")
@@ -2549,7 +2576,7 @@ class TestSynonymMergeTypeProperty:
 
 class TestSynonymMergeExecution:
     def test_synonym_merge_uses_human_names_and_element_ids(self) -> None:
-        creator = _make_creator()
+        creator: OntologyGuidedKGCreator = _make_creator()
 
         class FakeGraph:
             def __init__(self) -> None:
@@ -2709,26 +2736,28 @@ class TestEvaluateKnowledgeGraph:
 
     def test_summary_counts_match_kg(self) -> None:
         kg = self._minimal_kg()
-        report = _make_creator().evaluate_knowledge_graph(kg, print_report=False)
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
+            kg, print_report=False
+        )
         assert report["summary"]["entities"] == 3
         assert report["summary"]["relationships"] == 3
         assert report["summary"]["chunks"] == 3
         assert report["summary"]["kg_name"] == "test_kg"
 
     def test_entity_metrics_anchor_and_umls(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
-        em = report["entity_metrics"]
+        em: EntityMetrics = report["entity_metrics"]
         assert em["anchor_grounded"] == 1
         assert em["umls_linked"] == 1
         assert em["with_synonyms"] == 1
 
     def test_entity_metrics_isolated_and_degree(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
-        em = report["entity_metrics"]
+        em: EntityMetrics = report["entity_metrics"]
         # u3 has one edge (CAUSES), u1 has 3 edges, u2 has 2 edges → no isolated
         assert em["isolated_no_edges"] == 0
         assert em["max_degree"] >= 3  # u1 appears in all three rels
@@ -2737,7 +2766,7 @@ class TestEvaluateKnowledgeGraph:
         assert em["hub_entities_topk"][0]["name"] == "Metformin"
 
     def test_entity_type_distribution(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
         td = report["entity_metrics"]["type_distribution"]
@@ -2745,25 +2774,25 @@ class TestEvaluateKnowledgeGraph:
         assert td["Drug"] == 1
 
     def test_relationship_metrics_negated_and_contradiction(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
-        rm = report["relationship_metrics"]
+        rm: RelationshipMetrics = report["relationship_metrics"]
         assert rm["negated"] == 1
         assert rm["contradiction_flagged"] == 1
         assert rm["contradiction_groups"] == 1
         assert rm["contradiction_rate_pct"] == round(100 / 3, 1)
 
     def test_relationship_metrics_conditioned_and_quantified(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
-        rm = report["relationship_metrics"]
+        rm: RelationshipMetrics = report["relationship_metrics"]
         assert rm["conditioned"] == 1
         assert rm["quantified"] == 1
 
     def test_evidence_scope_distribution(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
         scopes = report["relationship_metrics"]["evidence_scope_distribution"]
@@ -2772,25 +2801,25 @@ class TestEvaluateKnowledgeGraph:
         assert scopes.get("partial_grounding") == 1
 
     def test_confidence_stats(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
-        rm = report["relationship_metrics"]
+        rm: RelationshipMetrics = report["relationship_metrics"]
         assert rm["mean_confidence"] == round((1.0 + 0.3 + 0.7) / 3, 4)
         assert rm["high_confidence_pct"] == round(100 * 2 / 3, 1)
         assert rm["low_confidence_pct"] == round(100 * 1 / 3, 1)
 
     def test_restoration_counts(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
-        rm = report["relationship_metrics"]
+        rm: RelationshipMetrics = report["relationship_metrics"]
         assert rm["restoration_full"] == 1
         assert rm["restoration_partial"] == 0
         assert rm["restoration_failed"] == 0
 
     def test_anchor_relation_phrase_pct(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
         # 1 of 3 rels has anchor_text
@@ -2799,19 +2828,19 @@ class TestEvaluateKnowledgeGraph:
         )
 
     def test_grounding_metrics_section_tags(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
-        gm = report["grounding_metrics"]
+        gm: GroundingMetrics = report["grounding_metrics"]
         assert gm["chunks_with_section_tags"] == 2
         assert "Results" in report["summary"]["sections_detected"]
         assert "Discussion" in report["summary"]["sections_detected"]
 
     def test_pipeline_metrics(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
-        pm = report["pipeline_metrics"]
+        pm: PipelineMetrics = report["pipeline_metrics"]
         assert pm["schema_enforcement_dropped_entities"] == 1
         assert pm["harmonization_deduped_relationships"] == 2
         # entity pass rate: 3 kept / (3+1 dropped) = 75%
@@ -2832,7 +2861,7 @@ class TestEvaluateKnowledgeGraph:
             },  # duplicate — deduped in gold set
             {"source": "u1", "type": "CAUSES", "target": "u3"},
         ]
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             kg, reference_triples=gold, print_report=False
         )
         pr = report["precision_recall"]
@@ -2872,7 +2901,7 @@ class TestEvaluateKnowledgeGraph:
                 {"source": "g1", "type": "PREVENTS", "target": "g4"},
             ],
         }
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             kg,
             reference=reference,
             print_report=False,
@@ -2892,7 +2921,7 @@ class TestEvaluateKnowledgeGraph:
     def test_precision_recall_no_overlap(self) -> None:
         kg = self._minimal_kg()
         gold = [{"source": "X", "type": "INHIBITS", "target": "Y"}]
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             kg, reference_triples=gold, print_report=False
         )
         pr = report["precision_recall"]
@@ -2902,14 +2931,16 @@ class TestEvaluateKnowledgeGraph:
         assert pr["f1"] == 0.0
 
     def test_no_precision_recall_when_no_gold(self) -> None:
-        report = _make_creator().evaluate_knowledge_graph(
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
         assert "precision_recall" not in report
 
     def test_empty_kg_does_not_crash(self) -> None:
         empty_kg = {"nodes": [], "relationships": [], "chunks": [], "metadata": {}}
-        report = _make_creator().evaluate_knowledge_graph(empty_kg, print_report=False)
+        report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
+            empty_kg, print_report=False
+        )
         assert report["summary"]["entities"] == 0
         assert report["summary"]["relationships"] == 0
         assert report["entity_metrics"]["isolated_no_edges"] == 0

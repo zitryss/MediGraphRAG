@@ -1,6 +1,6 @@
 import re
 from collections import Counter
-from typing import Any, NotRequired, TypeVar, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypeVar, TypedDict
 from collections.abc import Hashable
 
 
@@ -22,6 +22,107 @@ class PrecisionRecallReport(TypedDict):
     predicted_triples: NotRequired[int]
 
 
+class EvaluationRelationshipRecord(TypedDict):
+    base_key: str
+    qualified_key: str
+    source_name: str
+    target_name: str
+    type: str
+    negated: bool
+    condition: str
+    quantitative: str
+
+
+class EvaluationSummary(TypedDict):
+    entities: int
+    relationships: int
+    chunks: int
+    entity_types: int
+    relationship_types: int
+    sections_detected: list[str]
+    extraction_method: str
+    kg_name: str | None
+    created_at: str | None
+
+
+class HubEntity(TypedDict):
+    id: str
+    name: str
+    type: str
+    degree: int
+
+
+class EntityMetrics(TypedDict):
+    type_distribution: dict[str, int]
+    anchor_grounded: int
+    anchor_grounded_pct: float
+    umls_linked: int
+    umls_linked_pct: float
+    with_synonyms: int
+    isolated_no_edges: int
+    mean_degree: float
+    max_degree: int
+    top10_entity_degree_share_pct: float
+    degree_distribution: dict[str, int]
+    hub_entities_topk: list[HubEntity]
+
+
+class RelationshipMetrics(TypedDict):
+    type_distribution: dict[str, int]
+    negated: int
+    negated_pct: float
+    contradiction_flagged: int
+    contradiction_groups: int
+    contradiction_rate_pct: float
+    conditioned: int
+    conditioned_pct: float
+    quantified: int
+    quantified_pct: float
+    evidence_scope_distribution: dict[str, int]
+    mean_confidence: float | None
+    high_confidence_pct: float
+    low_confidence_pct: float
+    restoration_full: int
+    restoration_partial: int
+    restoration_failed: int
+    anchor_relation_phrase_pct: float
+    anchor_grounding_pct: float
+
+
+class GroundingMetrics(TypedDict):
+    entities_per_chunk: float
+    relationships_per_chunk: float
+    chunks_with_section_tags: int
+
+
+class PipelineMetrics(TypedDict):
+    schema_enforcement_dropped_entities: int
+    schema_enforcement_dropped_relationships: int
+    harmonization_dropped_unmapped: int
+    harmonization_deduped_relationships: int
+    entity_schema_pass_rate_pct: float
+    relationship_pass_rate_pct: float
+    stored_relationships: int | None
+    relationship_store_failures: int
+    relationships_skipped_low_confidence: int
+    relationships_skipped_schema_mismatch: int
+    relationships_reverified_kept: int
+    relationships_reverified_rejected: int
+    relationship_store_ratio: float | str | None
+
+
+class KGEvaluation(TypedDict):
+    summary: EvaluationSummary
+    entity_metrics: EntityMetrics
+    relationship_metrics: RelationshipMetrics
+    grounding_metrics: GroundingMetrics
+    pipeline_metrics: PipelineMetrics
+    entity_precision_recall: NotRequired[PrecisionRecallReport]
+    relationship_precision_recall: NotRequired[PrecisionRecallReport]
+    precision_recall: NotRequired[PrecisionRecallReport]
+    qualified_relationship_precision_recall: NotRequired[PrecisionRecallReport]
+
+
 class EvaluationMixin:
     """Knowledge-graph quality evaluation and reporting.
 
@@ -29,8 +130,13 @@ class EvaluationMixin:
     unchanged from the original monolithic implementation.
     """
 
+    if TYPE_CHECKING:
+
+        @staticmethod
+        def _confidence_score(value: object) -> float: ...
+
     @staticmethod
-    def _kg_eval_normalize_text(value: Any) -> str:
+    def _kg_eval_normalize_text(value: object) -> str:
         """Normalize strings for lightweight KG evaluation comparisons."""
         if value is None:
             return ""
@@ -86,12 +192,12 @@ class EvaluationMixin:
         cls,
         relationships: list[dict[str, Any]],
         entity_lookup: dict[str, dict[str, str]],
-    ) -> list[dict[str, Any]]:
+    ) -> list[EvaluationRelationshipRecord]:
         """Return canonical relationship records for evaluation comparisons."""
-        records: list[dict[str, Any]] = []
+        records: list[EvaluationRelationshipRecord] = []
         for rel in relationships or []:
             props = rel.get("properties") or {}
-            rel_type = str(rel.get("type") or props.get("type") or "").strip()
+            rel_type: str = str(rel.get("type") or props.get("type") or "").strip()
             if not rel_type:
                 continue
 
@@ -100,33 +206,33 @@ class EvaluationMixin:
             source_ref = str(source_ref or "").strip()
             target_ref = str(target_ref or "").strip()
 
-            source_name = str(
+            source_name: str = str(
                 props.get("source_name")
                 or entity_lookup.get(source_ref, {}).get("name")
                 or source_ref
             ).strip()
-            target_name = str(
+            target_name: str = str(
                 props.get("target_name")
                 or entity_lookup.get(target_ref, {}).get("name")
                 or target_ref
             ).strip()
 
-            negated = bool(rel.get("negated", props.get("negated", False)))
-            condition = str(
+            negated: bool = bool(rel.get("negated", props.get("negated", False)))
+            condition: str = str(
                 rel.get("condition") or props.get("condition") or ""
             ).strip()
-            quantitative = str(
+            quantitative: str = str(
                 rel.get("quantitative") or props.get("quantitative") or ""
             ).strip()
 
-            base_key = "||".join(
+            base_key: str = "||".join(
                 (
                     cls._kg_eval_normalize_text(source_name),
                     rel_type.strip().upper(),
                     cls._kg_eval_normalize_text(target_name),
                 )
             )
-            qualified_key = "||".join(
+            qualified_key: str = "||".join(
                 (
                     base_key,
                     "1" if negated else "0",
@@ -178,7 +284,7 @@ class EvaluationMixin:
         reference: Any | None = None,
         reference_triples: list[dict[str, Any]] | None = None,
         print_report: bool = True,
-    ) -> dict[str, Any]:
+    ) -> KGEvaluation:
         """Compute quality metrics for a built KG and optionally compare to a gold set.
 
         Operates entirely on the in-memory KG dict returned by
@@ -217,18 +323,18 @@ class EvaluationMixin:
         type_counts: Counter[str] = Counter(
             str(n.get("label") or n.get("type") or "Unknown") for n in nodes
         )
-        anchor_grounded = sum(
+        anchor_grounded: int = sum(
             1 for n in nodes if (n.get("properties") or {}).get("anchor_spans")
         )
-        umls_linked = sum(
+        umls_linked: int = sum(
             1 for n in nodes if (n.get("properties") or {}).get("umls_cui")
         )
-        has_synonyms = sum(
+        has_synonyms: int = sum(
             1
             for n in nodes
             if len((n.get("properties") or {}).get("all_names") or []) > 1
         )
-        n_entities = len(nodes)
+        n_entities: int = len(nodes)
 
         # degree distribution — entities appear as source/target in relationships
         degree: Counter[str] = Counter()
@@ -239,18 +345,18 @@ class EvaluationMixin:
                 degree[str(src)] += 1
             if tgt:
                 degree[str(tgt)] += 1
-        degrees = list(degree.values()) if degree else [0]
-        sorted_degrees = sorted(degrees, reverse=True)
-        top10_degree_share = (
+        degrees: list[int] = list(degree.values()) if degree else [0]
+        sorted_degrees: list[int] = sorted(degrees, reverse=True)
+        top10_degree_share: float = (
             (sum(sorted_degrees[:10]) / max(1, sum(sorted_degrees)))
             if sorted_degrees
             else 0.0
         )
-        isolated_entities = n_entities - len(degree)
-        degree_buckets = {"0": 0, "1": 0, "2-4": 0, "5-9": 0, "10+": 0}
+        isolated_entities: int = n_entities - len(degree)
+        degree_buckets: dict[str, int] = {"0": 0, "1": 0, "2-4": 0, "5-9": 0, "10+": 0}
         for node in nodes:
             entity_id = str(node.get("id") or "").strip()
-            node_degree = int(degree.get(entity_id, 0))
+            node_degree: int = int(degree.get(entity_id, 0))
             if node_degree <= 0:
                 degree_buckets["0"] += 1
             elif node_degree == 1:
@@ -261,7 +367,7 @@ class EvaluationMixin:
                 degree_buckets["5-9"] += 1
             else:
                 degree_buckets["10+"] += 1
-        top_hub_entities = []
+        top_hub_entities: list[HubEntity] = []
         for entity_id, node_degree in degree.most_common(10):
             info = entity_lookup.get(entity_id, {})
             top_hub_entities.append(
@@ -274,21 +380,21 @@ class EvaluationMixin:
             )
 
         # ── Relationship metrics ────────────────────────────────────────────
-        n_rels = len(relationships)
+        n_rels: int = len(relationships)
         rel_type_counts: Counter[str] = Counter(
             str(r.get("type") or "UNKNOWN") for r in relationships
         )
-        negated_count = sum(1 for r in relationships if r.get("negated"))
-        contradiction_count = sum(
+        negated_count: int = sum(1 for r in relationships if r.get("negated"))
+        contradiction_count: int = sum(
             1
             for r in relationships
             if (r.get("properties") or {}).get("contradiction_detected")
             or r.get("contradiction_detected")
         )
-        conditioned_count = sum(
+        conditioned_count: int = sum(
             1 for r in relationships if (r.get("properties") or {}).get("condition")
         )
-        quantified_count = sum(
+        quantified_count: int = sum(
             1 for r in relationships if (r.get("properties") or {}).get("quantitative")
         )
 
@@ -303,38 +409,38 @@ class EvaluationMixin:
             if raw_conf not in (None, "", "null", "NULL"):
                 confidence_values.append(self._confidence_score(raw_conf))
 
-        mean_confidence = (
+        mean_confidence: float | None = (
             sum(confidence_values) / len(confidence_values)
             if confidence_values
             else None
         )
-        high_conf_rels = sum(1 for c in confidence_values if c >= 0.7)
-        low_conf_rels = sum(1 for c in confidence_values if c < 0.4)
+        high_conf_rels: int = sum(1 for c in confidence_values if c >= 0.7)
+        low_conf_rels: int = sum(1 for c in confidence_values if c < 0.4)
 
-        restoration_full = sum(
+        restoration_full: int = sum(
             1
             for r in relationships
             if (r.get("properties") or {}).get("restoration_status") == "full"
         )
-        restoration_partial = sum(
+        restoration_partial: int = sum(
             1
             for r in relationships
             if (r.get("properties") or {}).get("restoration_status") == "partial"
         )
-        restoration_failed = sum(
+        restoration_failed: int = sum(
             1
             for r in relationships
             if (r.get("properties") or {}).get("restoration_status") == "failed"
         )
 
         # ── Grounding metrics ───────────────────────────────────────────────
-        n_chunks = len(chunks)
-        entities_per_chunk = n_entities / max(1, n_chunks)
-        rels_per_chunk = n_rels / max(1, n_chunks)
-        anchor_rel_count = sum(
+        n_chunks: int = len(chunks)
+        entities_per_chunk: float = n_entities / max(1, n_chunks)
+        rels_per_chunk: float = n_rels / max(1, n_chunks)
+        anchor_rel_count: int = sum(
             1 for r in relationships if (r.get("properties") or {}).get("anchor_text")
         )
-        anchor_grounding_count = sum(
+        anchor_grounding_count: int = sum(
             1
             for r in relationships
             if (r.get("properties") or {}).get("anchor_grounding")
@@ -344,35 +450,39 @@ class EvaluationMixin:
         }
 
         # ── Pipeline health metrics ─────────────────────────────────────────
-        dropped_entities = meta.get("schema_enforcement_dropped_entities", 0)
-        dropped_rels_schema = meta.get("schema_enforcement_dropped_relationships", 0)
-        dropped_rels_unmapped = meta.get(
+        dropped_entities: int = meta.get("schema_enforcement_dropped_entities", 0)
+        dropped_rels_schema: int = meta.get(
+            "schema_enforcement_dropped_relationships", 0
+        )
+        dropped_rels_unmapped: int = meta.get(
             "harmonization_relationships_dropped_unmapped", 0
         )
-        deduped_rels = meta.get("harmonization_relationships_deduped", 0)
-        contradiction_groups = meta.get(
+        deduped_rels: int = meta.get("harmonization_relationships_deduped", 0)
+        contradiction_groups: int = meta.get(
             "harmonization_relationship_contradiction_groups", 0
         )
-        stored_relationships = meta.get("stored_relationships")
-        relationship_store_failures = meta.get("relationship_store_failures", 0)
-        relationships_skipped_low_confidence = meta.get(
+        stored_relationships: int | None = meta.get("stored_relationships")
+        relationship_store_failures: int = meta.get("relationship_store_failures", 0)
+        relationships_skipped_low_confidence: int = meta.get(
             "relationships_skipped_low_confidence", 0
         )
-        relationships_skipped_schema_mismatch = meta.get(
+        relationships_skipped_schema_mismatch: int = meta.get(
             "relationships_skipped_schema_mismatch", 0
         )
-        relationships_reverified_kept = meta.get("relationships_reverified_kept", 0)
-        relationships_reverified_rejected = meta.get(
+        relationships_reverified_kept: int = meta.get(
+            "relationships_reverified_kept", 0
+        )
+        relationships_reverified_rejected: int = meta.get(
             "relationships_reverified_rejected", 0
         )
         relationship_store_ratio = meta.get("relationship_store_ratio")
 
-        raw_entities_approx = n_entities + dropped_entities
-        entity_pass_rate = n_entities / max(1, raw_entities_approx)
-        raw_rels_approx = (
+        raw_entities_approx: int = n_entities + dropped_entities
+        entity_pass_rate: float = n_entities / max(1, raw_entities_approx)
+        raw_rels_approx: int = (
             n_rels + dropped_rels_schema + dropped_rels_unmapped + deduped_rels
         )
-        rel_pass_rate = n_rels / max(1, raw_rels_approx)
+        rel_pass_rate: float = n_rels / max(1, raw_rels_approx)
 
         # ── Precision / recall vs. gold ─────────────────────────────────────
         entity_precision_recall: PrecisionRecallReport | None = None
@@ -395,8 +505,8 @@ class EvaluationMixin:
             )
 
         if reference_nodes:
-            gold_entity_keys = set(self._kg_eval_entity_keys(reference_nodes))
-            pred_entity_keys = set(self._kg_eval_entity_keys(nodes))
+            gold_entity_keys: set[str] = set(self._kg_eval_entity_keys(reference_nodes))
+            pred_entity_keys: set[str] = set(self._kg_eval_entity_keys(nodes))
             entity_precision_recall = self._kg_eval_pr_report(
                 pred_entity_keys,
                 gold_entity_keys,
@@ -411,16 +521,24 @@ class EvaluationMixin:
         if reference_relationships:
             reference_lookup = dict(entity_lookup)
             reference_lookup.update(self._kg_eval_entity_lookup(reference_nodes))
-            pred_relationship_records = self._kg_eval_relationship_records(
-                relationships,
-                entity_lookup,
+            pred_relationship_records: list[EvaluationRelationshipRecord] = (
+                self._kg_eval_relationship_records(
+                    relationships,
+                    entity_lookup,
+                )
             )
-            gold_relationship_records = self._kg_eval_relationship_records(
-                reference_relationships,
-                reference_lookup,
+            gold_relationship_records: list[EvaluationRelationshipRecord] = (
+                self._kg_eval_relationship_records(
+                    reference_relationships,
+                    reference_lookup,
+                )
             )
-            pred_keys = {record["base_key"] for record in pred_relationship_records}
-            gold_keys = {record["base_key"] for record in gold_relationship_records}
+            pred_keys: set[str] = {
+                record["base_key"] for record in pred_relationship_records
+            }
+            gold_keys: set[str] = {
+                record["base_key"] for record in gold_relationship_records
+            }
             relationship_precision_recall = self._kg_eval_pr_report(
                 pred_keys,
                 gold_keys,
@@ -432,15 +550,15 @@ class EvaluationMixin:
                 relationship_precision_recall.pop("predicted_count")
             )
 
-            has_qualified_reference = any(
+            has_qualified_reference: bool = any(
                 record["negated"] or record["condition"] or record["quantitative"]
                 for record in (pred_relationship_records + gold_relationship_records)
             )
             if has_qualified_reference:
-                pred_qualified_keys = {
+                pred_qualified_keys: set[str] = {
                     record["qualified_key"] for record in pred_relationship_records
                 }
-                gold_qualified_keys = {
+                gold_qualified_keys: set[str] = {
                     record["qualified_key"] for record in gold_relationship_records
                 }
                 qualified_relationship_precision_recall = self._kg_eval_pr_report(
@@ -455,7 +573,7 @@ class EvaluationMixin:
                 )
 
         # ── Assemble report ─────────────────────────────────────────────────
-        report: dict[str, Any] = {
+        report: KGEvaluation = {
             "summary": {
                 "entities": n_entities,
                 "relationships": n_rels,
@@ -559,16 +677,16 @@ class EvaluationMixin:
         return report
 
     @staticmethod
-    def _print_kg_evaluation_report(report: dict[str, Any]) -> None:
+    def _print_kg_evaluation_report(report: KGEvaluation) -> None:
         """Print a human-readable KG evaluation report to stdout."""
-        sep = "─" * 60
+        sep: str = "─" * 60
         s = report["summary"]
         em = report["entity_metrics"]
         rm = report["relationship_metrics"]
         gm = report["grounding_metrics"]
         pm = report["pipeline_metrics"]
 
-        lines = [
+        lines: list[str] = [
             sep,
             "KG EVALUATION REPORT",
             sep,

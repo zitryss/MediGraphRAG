@@ -1300,7 +1300,7 @@ class OntologySchemaMixin:
         return normalized
 
     @staticmethod
-    def _entity_type_specificity(entity_type: Any) -> int:
+    def _entity_type_specificity(entity_type: object) -> int:
         """Score whether an entity type is more specific than generic fallback labels."""
         generic_types = {"concept", "entity", "unknown", "other", ""}
         normalized = str(entity_type or "").strip().lower()

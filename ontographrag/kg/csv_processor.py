@@ -739,7 +739,7 @@ def create_medical_csv_template(
     Args:
         template_path: Path for the template file
     """
-    processor = MedicalReportCSVProcessor()
+    processor: MedicalReportCSVProcessor = MedicalReportCSVProcessor()
     processor.create_csv_template(template_path)
 
 

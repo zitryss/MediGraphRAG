@@ -15,7 +15,7 @@ from ontographrag.kg.csv_processor import (
     MedicalReportCSVProcessor,
 )
 from ontographrag.kg.loaders import kg_loader
-from ontographrag.kg.loaders.kg_loader import KGLoader
+from ontographrag.kg.loaders.kg_loader import KGLoader, StorableGraph
 from ontographrag.kg.utils import graph_query
 from shared import common_fn
 from tests.known_defects import MissingCSVTextDefect
@@ -25,7 +25,7 @@ from tests.known_defects import MissingCSVTextDefect
 def test_document_batch_preserves_absolute_rows(
     tmp_path: Path, id_column: str | None
 ) -> None:
-    path = tmp_path / "rows.csv"
+    path: Path = tmp_path / "rows.csv"
     path.write_text("id,text,kind\na,alpha,A\nb,beta,B\nc,gamma,C\n")
     processor = (
         DocumentCSVProcessor("text", id_column)
@@ -46,7 +46,7 @@ def test_document_batch_preserves_absolute_rows(
 
 
 def test_document_validation_and_blank_rows(tmp_path: Path) -> None:
-    path = tmp_path / "rows.csv"
+    path: Path = tmp_path / "rows.csv"
     path.write_text('other,text\na,"   "\nb,valid\n')
     processor = DocumentCSVProcessor("missing", "id")
     assert len(processor.validate_csv_format(str(path))["validation_errors"]) == 2
@@ -69,7 +69,7 @@ def test_document_validation_and_blank_rows(tmp_path: Path) -> None:
     reason="CSV missing text is currently ingested as literal 'nan'",
 )
 def test_missing_csv_text_is_not_a_document(tmp_path: Path) -> None:
-    path = tmp_path / "rows.csv"
+    path: Path = tmp_path / "rows.csv"
     path.write_text("id,text\na,\nb,valid\n")
     documents = DocumentCSVProcessor("text").load_documents_bulk(str(path))["documents"]
     texts = [document["text"] for document in documents]
@@ -79,8 +79,8 @@ def test_missing_csv_text_is_not_a_document(tmp_path: Path) -> None:
 
 
 def test_medical_template_roundtrip_and_section_filter(tmp_path: Path) -> None:
-    processor = MedicalReportCSVProcessor()
-    path = tmp_path / "reports.csv"
+    processor: MedicalReportCSVProcessor = MedicalReportCSVProcessor()
+    path: Path = tmp_path / "reports.csv"
     processor.create_csv_template(str(path), num_sample_rows=6)
     result = processor.load_reports_bulk(str(path), start_row=1, max_rows=2)
     assert result["metadata"]["total_reports"] == 2
@@ -97,9 +97,9 @@ def test_medical_template_roundtrip_and_section_filter(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("content", ["a,b\n", "a,b\nx,y\n", ""])
 def test_medical_invalid_input(tmp_path: Path, content: str) -> None:
-    path = tmp_path / "bad.csv"
+    path: Path = tmp_path / "bad.csv"
     path.write_text(content)
-    processor = MedicalReportCSVProcessor()
+    processor: MedicalReportCSVProcessor = MedicalReportCSVProcessor()
     assert not processor.validate_csv_format(str(path))["is_valid"]
     with pytest.raises(ValueError, match="CSV validation failed"):
         MedicalReportCSVProcessor().load_reports_bulk(str(path))
@@ -123,12 +123,12 @@ def test_loader_constructor(
 def test_loader_ontology_and_graph(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    loader = KGLoader()
+    loader: KGLoader = KGLoader()
     ontology = {
         "categories": [{"name": "Disease"}],
         "mappings": [{"category": "Disease", "terms": ["fever"]}],
     }
-    path = tmp_path / "ontology.json"
+    path: Path = tmp_path / "ontology.json"
     path.write_text(json.dumps(ontology))
     assert loader._load_ontology(str(path)) == ontology
     nodes, groups, edges = loader._create_graph_with_ontology(
@@ -143,7 +143,7 @@ def test_loader_ontology_and_graph(
     assert loader._create_graph_with_ontology("a", {}) == ([], [], [])
     with pytest.raises(ValueError, match="Unsupported"):
         loader._load_ontology("bad.txt")
-    onto = Mock()
+    onto: Mock = Mock()
     onto.load.return_value = onto
     onto.classes.return_value = [SimpleNamespace(name="Disease")]
     onto.object_properties.return_value = [SimpleNamespace(name="TREATS")]
@@ -172,7 +172,9 @@ def test_loader_file_roundtrip(
 def test_loader_pdf_success_and_failures(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    reader = SimpleNamespace(pages=[SimpleNamespace(extract_text=lambda: "fever pain")])
+    reader: SimpleNamespace = SimpleNamespace(
+        pages=[SimpleNamespace(extract_text=lambda: "fever pain")]
+    )
     monkeypatch.setattr(kg_loader, "PdfReader", Mock(return_value=reader))
     result = KGLoader().load_from_pdf(
         str(tmp_path / "doc.pdf"), str(tmp_path / "missing.json")
@@ -199,11 +201,11 @@ def test_graph_driver_environment_and_connectivity(
         "NEO4J_USER_AGENT": "tests",
     }.items():
         monkeypatch.setenv(name, value)
-    session = Mock()
-    driver = Mock()
+    session: Mock = Mock()
+    driver: Mock = Mock()
     driver.session.return_value.__enter__ = Mock(return_value=session)
     driver.session.return_value.__exit__ = Mock(return_value=False)
-    factory = Mock(return_value=driver)
+    factory: Mock = Mock(return_value=driver)
     monkeypatch.setattr(graph_query.GraphDatabase, "driver", factory)
     assert graph_query.get_graphDB_driver(None, None, None, "") is driver
     session.run.assert_called_once_with("RETURN 1")
@@ -224,7 +226,7 @@ def test_graph_driver_environment_and_connectivity(
     ],
 )
 def test_shared_model_name(attrs: dict[str, object], expected: str) -> None:
-    model = SimpleNamespace(**attrs)
+    model: SimpleNamespace = SimpleNamespace(**attrs)
     assert common_fn.wrap_llm_with_model_name(model) is model
     assert model.model_name == expected
 
@@ -243,10 +245,12 @@ def test_shared_embedding_delegation(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_shared_merge_maps_identity_and_relationship_properties() -> None:
-    graph = Mock()
-    a = SimpleNamespace(id="a", type="Disease", properties={"id": "wrong", "name": "A"})
-    b = SimpleNamespace(id="b", type="Drug", properties={})
-    rel = SimpleNamespace(
+    graph: Mock = Mock()
+    a: SimpleNamespace = SimpleNamespace(
+        id="a", type="Disease", properties={"id": "wrong", "name": "A"}
+    )
+    b: SimpleNamespace = SimpleNamespace(id="b", type="Drug", properties={})
+    rel: SimpleNamespace = SimpleNamespace(
         source=b, target=a, type="may-treat condition", properties={"confidence": 0.8}
     )
     common_fn._add_graph_documents_with_merge(
@@ -262,18 +266,18 @@ def test_shared_merge_maps_identity_and_relationship_properties() -> None:
     }
 
 
-class GraphNode(dict):
+class GraphNode(dict[str, object]):
     """A minimal Neo4j value, not a database emulator."""
 
     def __init__(self, identity: int, **props: object) -> None:
         super().__init__(props)
-        self.id = identity
-        self.labels = {"Disease"}
-        self.type = "REL"
+        self.id: int = identity
+        self.labels: set[str] = {"Disease"}
+        self.type: str = "REL"
 
 
-class QueryResult(list):
-    def single(self) -> dict | None:
+class QueryResult(list[dict[str, object]]):
+    def single(self) -> dict[str, object] | None:
         return self[0] if self else None
 
 
@@ -288,11 +292,11 @@ def test_loader_database_read_serializes_graph_and_closes(
     query: str | None,
     limit: int | None,
 ) -> None:
-    a = GraphNode(1, name="A")
-    b = GraphNode(2, name="B", custom=Path("value"))
-    missing = GraphNode(3)
-    rel = GraphNode(4, weight=0.5)
-    session = Mock()
+    a: GraphNode = GraphNode(1, name="A")
+    b: GraphNode = GraphNode(2, name="B", custom=Path("value"))
+    missing: GraphNode = GraphNode(3)
+    rel: GraphNode = GraphNode(4, weight=0.5)
+    session: Mock = Mock()
     session.run.side_effect = [
         QueryResult([{"node_count": 3}]),
         QueryResult([{"rel_count": 2}]),
@@ -301,7 +305,7 @@ def test_loader_database_read_serializes_graph_and_closes(
             [{"r": rel, "start": a, "end": b}, {"r": rel, "start": b, "end": missing}]
         ),
     ]
-    driver = Mock()
+    driver: Mock = Mock()
     driver.session.return_value = session
     monkeypatch.setattr(kg_loader.GraphDatabase, "driver", Mock(return_value=driver))
     # The loader hardcodes a package-local storage directory; redirect that boundary.
@@ -327,7 +331,7 @@ def test_loader_database_read_serializes_graph_and_closes(
 def test_loader_database_failure_still_closes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    driver = Mock()
+    driver: Mock = Mock()
     driver.verify_connectivity.side_effect = RuntimeError("offline")
     monkeypatch.setattr(kg_loader.GraphDatabase, "driver", Mock(return_value=driver))
     monkeypatch.setattr(kg_loader, "__file__", str(tmp_path / "kg_loader.py"))
@@ -340,9 +344,9 @@ def test_loader_database_failure_still_closes(
 def test_loader_sample_filters_dangling_relationships(
     monkeypatch: pytest.MonkeyPatch, label: str | None
 ) -> None:
-    a = GraphNode(1, name="A", custom=Path("value"))
-    rel = GraphNode(2, custom=Path("value"))
-    session = Mock()
+    a: GraphNode = GraphNode(1, name="A", custom=Path("value"))
+    rel: GraphNode = GraphNode(2, custom=Path("value"))
+    session: Mock = Mock()
     session.run.side_effect = [
         QueryResult([{"n": a}]),
         QueryResult(
@@ -374,7 +378,7 @@ def test_loader_save_merge_keys_relationships_and_explicit_clear(
     session = driver.session.return_value.__enter__.return_value
     session.run.return_value.single.return_value = {"node_id": "stored"}
     monkeypatch.setattr(kg_loader.GraphDatabase, "driver", Mock(return_value=driver))
-    data = {
+    data: StorableGraph = {
         "nodes": [
             {"id": "a", "label": "Drug Name", "properties": {"id": "external"}},
             {"id": "b", "properties": {"name": "B"}},
@@ -409,7 +413,7 @@ def test_legacy_chunking_page_metadata_and_cap(monkeypatch: pytest.MonkeyPatch) 
 
     from ontographrag.kg.utils import create_chunks
 
-    splitter = Mock()
+    splitter: Mock = Mock()
     splitter.split_documents.side_effect = lambda docs: [
         Document(page_content=d.page_content) for d in docs
     ]

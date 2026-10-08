@@ -2,43 +2,182 @@ import os
 import json
 import logging
 import requests
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 from neo4j import GraphDatabase, basic_auth
 from PyPDF2 import PdfReader
 from dotenv import load_dotenv
 from owlready2 import get_ontology
 
+if TYPE_CHECKING:
+    from neo4j import Driver, Result, Session
+    from owlready2.namespace import Ontology
+    from neo4j.graph import Node, Relationship
+
+
 # Load environment variables
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
+
+
+class OntologyCategory(TypedDict):
+    name: str
+    description: NotRequired[str]
+
+
+class OntologyMapping(TypedDict):
+    category: str
+    terms: NotRequired[list[str]]
+
+
+class LoaderOntology(TypedDict, total=False):
+    categories: list[OntologyCategory]
+    mappings: list[OntologyMapping]
+    node_labels: list[str]
+    relationship_types: list[str]
+
+
+class PDFNode(TypedDict):
+    id: str
+    label: str
+    properties: dict[str, str | int]
+
+
+class PDFRelationship(TypedDict):
+    id: str
+    type: str
+    start: str
+    end: str
+    properties: dict[str, str | float]
+
+
+class LoaderErrorDetails(TypedDict):
+    error_type: str
+    error_message: str
+    error_args: tuple[object, ...]
+
+
+class LoaderFailure(TypedDict):
+    status: Literal["error"]
+    message: str
+    details: NotRequired[LoaderErrorDetails]
+
+
+class PDFLoadSuccess(TypedDict):
+    status: Literal["success"]
+    nodes: list[PDFNode]
+    supernodes: list[PDFNode]
+    relationships: list[PDFRelationship]
+    source: str
+    filename: str
+    ontology: str | None
+
+
+class ImportedNode(TypedDict):
+    id: int
+    labels: list[str]
+    label: str
+    properties: dict[str, object]
+
+
+ImportedRelationship = TypedDict(
+    "ImportedRelationship",
+    {
+        "id": int,
+        "type": str,
+        "from": int,
+        "to": int,
+        "properties": dict[str, object],
+    },
+)
+
+
+class ImportedGraph(TypedDict):
+    status: Literal["success"]
+    nodes: list[ImportedNode]
+    relationships: list[ImportedRelationship]
+    source: Literal["neo4j", "neo4j_sample"]
+    kg_label: str | None
+    query: NotRequired[str]
+    total_nodes_in_db: int
+    total_relationships_in_db: int
+    loaded_nodes: int
+    loaded_relationships: int
+    complete_import: NotRequired[bool]
+    sample_mode: NotRequired[bool]
+    sample_strategy: NotRequired[str]
+
+
+class GraphLabels(TypedDict):
+    status: Literal["success"]
+    labels: list[str]
+
+
+class FileSaveSuccess(TypedDict):
+    status: Literal["success"]
+    message: str
+    file_path: str
+
+
+class GraphSaveSuccess(TypedDict):
+    status: Literal["success"]
+    message: str
+    clear_database: bool
+    nodes_processed: int
+    relationships_processed: int
+
+
+class StorableNode(TypedDict):
+    id: str | int
+    label: NotRequired[str]
+    properties: NotRequired[dict[str, object]]
+
+
+StorableRelationship = TypedDict(
+    "StorableRelationship",
+    {
+        "from": str | int,
+        "to": str | int,
+        "type": str,
+        "id": NotRequired[str | int],
+        "properties": NotRequired[dict[str, object]],
+    },
+)
+
+
+class StorableGraph(TypedDict, total=False):
+    nodes: list[StorableNode]
+    supernodes: list[StorableNode]
+    relationships: list[StorableRelationship]
 
 
 class KGLoader:
     def __init__(self) -> None:
         # Handle both Docker and local environments
         default_uri: str = "bolt://localhost:7687"
-        configured_uri = os.getenv("NEO4J_URI", default_uri)
+        configured_uri: str = os.getenv("NEO4J_URI", default_uri)
 
         # If running in Docker, use the configured URI, otherwise use localhost
         if os.getenv("DOCKER_ENV") == "true":
-            self.neo4j_uri = configured_uri
+            self.neo4j_uri: str = configured_uri
         else:
             # Replace docker service name with localhost for local development
             self.neo4j_uri = configured_uri.replace("neo4j:7687", "localhost:7687")
 
-        self.neo4j_user = os.getenv("NEO4J_USERNAME", "neo4j")
-        self.neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
+        self.neo4j_user: str = os.getenv("NEO4J_USERNAME", "neo4j")
+        self.neo4j_password: str = os.getenv("NEO4J_PASSWORD", "password")
 
         logger.info("KGLoader initialized with Neo4j URI: %s", self.neo4j_uri)
-        self.last_import_dir = None
+        self.last_import_dir: str | None = None
 
-    def _load_ontology(self, ontology_path: str) -> dict:
+    def _load_ontology(self, ontology_path: str) -> LoaderOntology:
         """Load ontology from JSON or OWL file"""
         if ontology_path.endswith(".json"):
             with open(ontology_path, "r") as f:
                 return json.load(f)
         elif ontology_path.endswith(".owl"):
-            onto = get_ontology(ontology_path).load()
+            onto: Ontology = get_ontology(ontology_path).load()
             return {
                 "node_labels": [cls.name for cls in onto.classes()],
                 "relationship_types": [prop.name for prop in onto.object_properties()],
@@ -46,18 +185,20 @@ class KGLoader:
         else:
             raise ValueError(f"Unsupported ontology format: {ontology_path}")
 
-    def load_from_pdf(self, file_path: str, ontology_path: str | None = None) -> dict:
+    def load_from_pdf(
+        self, file_path: str, ontology_path: str | None = None
+    ) -> PDFLoadSuccess | LoaderFailure:
         """Extract text from PDF and structure as knowledge graph using optional ontology"""
         try:
             logger.info("Loading PDF: %s", file_path)
             self.last_import_dir = os.path.dirname(file_path)
-            reader = PdfReader(file_path)
-            text = ""
+            reader: PdfReader = PdfReader(file_path)
+            text: str = ""
             for page in reader.pages:
                 text += page.extract_text() + "\n"
 
             # Load ontology if provided
-            ontology = {}
+            ontology: LoaderOntology = {}
             if ontology_path:
                 try:
                     ontology = self._load_ontology(ontology_path)
@@ -81,7 +222,7 @@ class KGLoader:
             }
         except Exception as e:
             # Capture full error details for debugging
-            error_details = {
+            error_details: LoaderErrorDetails = {
                 "error_type": type(e).__name__,
                 "error_message": str(e),
                 "error_args": e.args,
@@ -93,17 +234,19 @@ class KGLoader:
                 "details": error_details,
             }
 
-    def list_kg_labels(self, uri: str, user: str, password: str) -> dict:
+    def list_kg_labels(
+        self, uri: str, user: str, password: str
+    ) -> GraphLabels | LoaderFailure:
         """List available KG labels in Neo4j database"""
         try:
-            driver = GraphDatabase.driver(uri, auth=basic_auth(user, password))
+            driver: Driver = GraphDatabase.driver(uri, auth=basic_auth(user, password))
             driver.verify_connectivity()
 
             with driver.session(
                 database=os.getenv("NEO4J_DATABASE", "neo4j")
             ) as session:
-                result = session.run("CALL db.labels()")
-                labels = [record["label"] for record in result]
+                result: Result = session.run("CALL db.labels()")
+                labels: list[str] = [record["label"] for record in result]
                 return {"status": "success", "labels": labels}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -117,7 +260,7 @@ class KGLoader:
         query: str | None = None,
         limit: int | None = None,
         sample_mode: bool = False,
-    ) -> dict:
+    ) -> ImportedGraph | LoaderFailure:
         """Fetch data from Neo4j database with enhanced options for complete KG import
 
         Args:
@@ -129,11 +272,11 @@ class KGLoader:
             limit: Maximum number of nodes to retrieve (None = no limit)
             sample_mode: If True, loads a representative sample for large graphs
         """
-        driver = None
-        session = None
+        driver: Driver | None = None
+        session: Session | None = None
         try:
             # Set last_import_dir to kg_storage directory for consistent export behavior
-            kg_storage_dir = os.path.abspath(
+            kg_storage_dir: str = os.path.abspath(
                 os.path.join(os.path.dirname(__file__), "kg_storage")
             )
             os.makedirs(kg_storage_dir, exist_ok=True)
@@ -141,15 +284,19 @@ class KGLoader:
 
             driver = GraphDatabase.driver(uri, auth=basic_auth(user, password))
             driver.verify_connectivity()
-            db_name = os.getenv("NEO4J_DATABASE", "neo4j")
+            db_name: str = os.getenv("NEO4J_DATABASE", "neo4j")
             session = driver.session(database=db_name)
 
             # First, get database statistics
-            stats_result = session.run("MATCH (n) RETURN count(n) as node_count")
-            total_nodes = (stats_result.single() or {"node_count": 0})["node_count"]
+            stats_result: Result = session.run(
+                "MATCH (n) RETURN count(n) as node_count"
+            )
+            total_nodes: int = (stats_result.single() or {"node_count": 0})[
+                "node_count"
+            ]
 
             stats_result = session.run("MATCH ()-[r]->() RETURN count(r) as rel_count")
-            total_relationships = (stats_result.single() or {"rel_count": 0})[
+            total_relationships: int = (stats_result.single() or {"rel_count": 0})[
                 "rel_count"
             ]
 
@@ -170,9 +317,9 @@ class KGLoader:
 
             if query:
                 # Custom query provided
-                node_query = query
+                node_query: str = query
                 # Try to extract relationships for custom queries
-                rel_query = "MATCH ()-[r]->() RETURN r, startNode(r) as start, endNode(r) as end"
+                rel_query: str = "MATCH ()-[r]->() RETURN r, startNode(r) as start, endNode(r) as end"
                 if limit:
                     rel_query += f" LIMIT {limit}"
             elif kg_label:
@@ -204,17 +351,19 @@ class KGLoader:
                     rel_query += f" LIMIT {limit}"
 
             logger.debug("Executing node query: %s", node_query)
-            result = session.run(node_query)
-            nodes = []
-            node_id_map = {}  # Map Neo4j internal IDs to our node indices
+            result: Result = session.run(node_query)
+            nodes: list[ImportedNode] = []
+            node_id_map: dict[
+                int, int
+            ] = {}  # Map Neo4j internal IDs to our node indices
 
             for record in result:
                 # Handle UNION query that returns "node" column (aliased from either n or d)
-                node = record.get("node")
+                node: Node | None = record.get("node")
                 if node is None:
                     continue  # Skip if node column is missing
 
-                properties = {}
+                properties: dict[str, object] = {}
                 for key, value in dict(node).items():
                     if isinstance(
                         value, (list, dict, str, int, float, bool, type(None))
@@ -224,7 +373,7 @@ class KGLoader:
                         properties[key] = str(value)
 
                 # Use Neo4j internal ID as our node ID for consistency
-                node_data = {
+                node_data: ImportedNode = {
                     "id": node.id,
                     "labels": list(node.labels),
                     "label": list(node.labels)[0] if node.labels else "Node",
@@ -237,13 +386,13 @@ class KGLoader:
 
             # Get relationships
             logger.debug("Executing relationship query: %s", rel_query)
-            rel_result = session.run(rel_query)
-            relationships = []
+            rel_result: Result = session.run(rel_query)
+            relationships: list[ImportedRelationship] = []
 
             for record in rel_result:
-                rel = record["r"]
-                start_node = record["start"]
-                end_node = record["end"]
+                rel: Relationship = record["r"]
+                start_node: Node = record["start"]
+                end_node: Node = record["end"]
 
                 # Only include relationships where both nodes were loaded
                 if start_node.id in node_id_map and end_node.id in node_id_map:
@@ -282,7 +431,7 @@ class KGLoader:
                 "complete_import": limit is None and not kg_label and not query,
             }
         except Exception as e:
-            error_details = {
+            error_details: LoaderErrorDetails = {
                 "error_type": type(e).__name__,
                 "error_message": str(e),
                 "error_args": e.args,
@@ -297,10 +446,14 @@ class KGLoader:
                 driver.close()
 
     def _load_neo4j_sample_with_driver(
-        self, driver, kg_label: str, total_nodes: int, total_relationships: int
-    ) -> dict:
+        self,
+        driver: "Driver",
+        kg_label: str | None,
+        total_nodes: int,
+        total_relationships: int,
+    ) -> ImportedGraph | LoaderFailure:
         """Load a representative sample from a large Neo4j graph with proper session management"""
-        session = None
+        session: Session | None = None
         try:
             session = driver.session(database=os.getenv("NEO4J_DATABASE", "neo4j"))
             return self._load_neo4j_sample(
@@ -315,16 +468,22 @@ class KGLoader:
                 driver.close()
 
     def _load_neo4j_sample(
-        self, session, kg_label: str, total_nodes: int, total_relationships: int
-    ) -> dict:
+        self,
+        session: "Session",
+        kg_label: str | None,
+        total_nodes: int,
+        total_relationships: int,
+    ) -> ImportedGraph | LoaderFailure:
         """Load a representative sample from a large Neo4j graph"""
         try:
             # Sample strategy: get high-degree nodes and their neighborhoods
-            sample_size = min(500, total_nodes // 10)  # Sample 10% or max 500 nodes
+            sample_size: int = min(
+                500, total_nodes // 10
+            )  # Sample 10% or max 500 nodes
 
             if kg_label:
                 # Sample nodes with highest degree (most connected)
-                sample_query = f"""
+                sample_query: str = f"""
                 MATCH (n:`{kg_label}`)
                 WITH n, size((n)--()) as degree
                 ORDER BY degree DESC
@@ -332,7 +491,7 @@ class KGLoader:
                 RETURN n
                 """
 
-                rel_query = f"""
+                rel_query: str = f"""
                 MATCH (a:`{kg_label}`)-[r]->(b:`{kg_label}`)
                 WITH a, r, b, size((a)--()) + size((b)--()) as combined_degree
                 ORDER BY combined_degree DESC
@@ -364,13 +523,13 @@ class KGLoader:
             )
 
             # Load sample nodes
-            result = session.run(sample_query)
-            nodes = []
-            node_id_map = {}
+            result: Result = session.run(sample_query)
+            nodes: list[ImportedNode] = []
+            node_id_map: dict[int, int] = {}
 
             for record in result:
-                node = record["n"]
-                properties = {}
+                node: Node = record["n"]
+                properties: dict[str, object] = {}
                 for key, value in dict(node).items():
                     if isinstance(
                         value, (list, dict, str, int, float, bool, type(None))
@@ -379,7 +538,7 @@ class KGLoader:
                     else:
                         properties[key] = str(value)
 
-                node_data = {
+                node_data: ImportedNode = {
                     "id": node.id,
                     "labels": list(node.labels),
                     "label": list(node.labels)[0] if node.labels else "Node",
@@ -389,13 +548,13 @@ class KGLoader:
                 node_id_map[node.id] = node.id
 
             # Load sample relationships
-            rel_result = session.run(rel_query)
-            relationships = []
+            rel_result: Result = session.run(rel_query)
+            relationships: list[ImportedRelationship] = []
 
             for record in rel_result:
-                rel = record["r"]
-                start_node = record["start"]
-                end_node = record["end"]
+                rel: Relationship = record["r"]
+                start_node: Node = record["start"]
+                end_node: Node = record["end"]
 
                 if start_node.id in node_id_map and end_node.id in node_id_map:
                     properties = {}
@@ -435,19 +594,19 @@ class KGLoader:
             return {"status": "error", "message": f"Sample loading failed: {e!s}"}
 
     def _create_graph_with_ontology(
-        self, text: str, ontology: dict
-    ) -> tuple[list, list, list]:
+        self, text: str, ontology: LoaderOntology
+    ) -> tuple[list[PDFNode], list[PDFNode], list[PDFRelationship]]:
         """Create knowledge graph with ontology harmonization and supernodes"""
         # Extract entities using ontology if available
-        entities = []
-        supernodes = []
-        relationships = []
+        entities: list[PDFNode] = []
+        supernodes: list[PDFNode] = []
+        relationships: list[PDFRelationship] = []
 
         # Create supernodes from ontology categories
-        supernode_map = {}
+        supernode_map: dict[str, str] = {}
         if "categories" in ontology:
             for i, category in enumerate(ontology["categories"]):
-                supernode = {
+                supernode: PDFNode = {
                     "id": f"supernode_{i}",
                     "label": category["name"],
                     "properties": {
@@ -459,14 +618,14 @@ class KGLoader:
                 supernode_map[category["name"]] = supernode["id"]
 
         # Extract entities and map to ontology
-        words = set(text.split())
-        entity_counter = 0
+        words: set[str] = set(text.split())
+        entity_counter: int = 0
         for word in words:
             if len(word) < 4:  # Skip short words
                 continue
 
             # Find matching ontology category
-            supernode_id = None
+            supernode_id: str | None = None
             if "mappings" in ontology:
                 for mapping in ontology["mappings"]:
                     if word.lower() in mapping.get("terms", []):
@@ -474,7 +633,7 @@ class KGLoader:
                         break
 
             # Create entity node
-            entity = {
+            entity: PDFNode = {
                 "id": f"entity_{entity_counter}",
                 "label": word.capitalize(),
                 "properties": {
@@ -518,9 +677,9 @@ class KGLoader:
         uri: str,
         user: str,
         password: str,
-        graph_data: dict,
+        graph_data: StorableGraph,
         clear_database: bool = False,
-    ) -> dict:
+    ) -> GraphSaveSuccess | LoaderFailure:
         """Save knowledge graph to Neo4j database with supernode support and duplicate handling
 
         Args:
@@ -532,7 +691,7 @@ class KGLoader:
         """
         try:
             # Use password directly without escaping
-            driver = GraphDatabase.driver(uri, auth=basic_auth(user, password))
+            driver: Driver = GraphDatabase.driver(uri, auth=basic_auth(user, password))
 
             with driver.session(
                 database=os.getenv("NEO4J_DATABASE", "neo4j")
@@ -542,22 +701,24 @@ class KGLoader:
                     session.run("MATCH (n) DETACH DELETE n")
                     logger.info("Cleared existing database data")
 
-                node_map = {}
+                node_map: dict[str | int, str] = {}
 
                 # Create all nodes (entities and supernodes) using MERGE to avoid duplicates
-                all_nodes = graph_data.get("nodes", []) + graph_data.get(
-                    "supernodes", []
-                )
+                all_nodes: list[StorableNode] = graph_data.get(
+                    "nodes", []
+                ) + graph_data.get("supernodes", [])
                 for node in all_nodes:
                     # Sanitize labels: replace spaces with underscores
-                    labels = node.get("label", "Node").replace(" ", "_")
-                    properties = {k: v for k, v in node.get("properties", {}).items()}
+                    labels: str = node.get("label", "Node").replace(" ", "_")
+                    properties: dict[str, object] = {
+                        k: v for k, v in node.get("properties", {}).items()
+                    }
 
                     # Use MERGE based on a unique identifier
                     # If node has an 'id' property, use that, otherwise use a combination of properties
                     if "id" in properties:
                         unique_key: str = "id"
-                        unique_value = properties["id"]
+                        unique_value: object = properties["id"]
                     elif "name" in properties:
                         unique_key = "name"
                         unique_value = properties["name"]
@@ -565,21 +726,23 @@ class KGLoader:
                         # Create a hash of all properties as a unique identifier
                         import hashlib
 
-                        prop_str = json.dumps(properties, sort_keys=True)
+                        prop_str: str = json.dumps(properties, sort_keys=True)
                         unique_value = hashlib.md5(prop_str.encode()).hexdigest()[:8]
                         unique_key = "unique_hash"
                         properties["unique_hash"] = unique_value
 
                     # Use MERGE to create if doesn't exist, or match if it does
-                    merge_clause = f"MERGE (n:{labels} {{{unique_key}: $unique_value}})"
+                    merge_clause: str = (
+                        f"MERGE (n:{labels} {{{unique_key}: $unique_value}})"
+                    )
                     set_clause: str = "SET n += $properties"
 
-                    result = session.run(
+                    result: Result = session.run(
                         f"{merge_clause} {set_clause} RETURN elementId(n) as node_id",
                         unique_value=unique_value,
                         properties=properties,
                     )
-                    node_id = result.single()["node_id"]
+                    node_id: str = result.single()["node_id"]
                     node_map[node["id"]] = (
                         node_id  # Map our KG node ID to Neo4j node ID
                     )
@@ -587,16 +750,16 @@ class KGLoader:
                 # Create relationships using the node_map, also with MERGE to avoid duplicates
                 for rel in graph_data.get("relationships", []):
                     # Use the original node IDs to look up Neo4j internal IDs
-                    start_neo4j_id = node_map.get(rel["from"])
-                    end_neo4j_id = node_map.get(rel["to"])
+                    start_neo4j_id: str | None = node_map.get(rel["from"])
+                    end_neo4j_id: str | None = node_map.get(rel["to"])
 
                     if start_neo4j_id is not None and end_neo4j_id is not None:
                         # MERGE relationships based on the relationship type and connected nodes
-                        rel_properties = rel.get("properties", {})
+                        rel_properties: dict[str, object] = rel.get("properties", {})
 
                         # Add a relationship ID if provided
                         if "id" in rel:
-                            rel_id_value = rel["id"]
+                            rel_id_value: str | int = rel["id"]
                             rel_properties["rel_id"] = rel_id_value
                         else:
                             # Use a combination of node IDs and type as unique identifier
@@ -635,7 +798,7 @@ class KGLoader:
 
         except Exception as e:
             # Capture full error details for debugging
-            error_details = {
+            error_details: LoaderErrorDetails = {
                 "error_type": type(e).__name__,
                 "error_message": str(e),
                 "error_args": e.args,
@@ -647,7 +810,9 @@ class KGLoader:
                 "details": error_details,
             }
 
-    def save_to_file(self, graph_data: dict, file_path: str) -> dict:
+    def save_to_file(
+        self, graph_data: Mapping[str, object], file_path: str
+    ) -> FileSaveSuccess | LoaderFailure:
         """Save knowledge graph to a JSON file
 
         Args:
@@ -658,12 +823,12 @@ class KGLoader:
             # If file_path is just a filename (no directory separators), save to kg_storage
             if os.path.dirname(file_path) == "":
                 # Just a filename provided - save to kg_storage directory
-                kg_storage_dir = os.path.join(os.getcwd(), "kg_storage")
+                kg_storage_dir: str = os.path.join(os.getcwd(), "kg_storage")
                 os.makedirs(kg_storage_dir, exist_ok=True)
                 file_path = os.path.join(kg_storage_dir, file_path)
             else:
                 # Full path provided - use it as is, but ensure directory exists
-                dir_path = os.path.dirname(file_path)
+                dir_path: str = os.path.dirname(file_path)
                 os.makedirs(dir_path, exist_ok=True)
 
             # Ensure .json extension
@@ -686,5 +851,5 @@ class KGLoader:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    loader = KGLoader()
+    loader: KGLoader = KGLoader()
     logger.info("KGLoader ready for Neo4j URI: %s", loader.neo4j_uri)
