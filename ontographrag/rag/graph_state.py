@@ -10,9 +10,65 @@ import math
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from itertools import combinations
-from typing import Any
+from typing import Literal
 
 from typing_extensions import TypedDict
+
+
+class StateRelationship(TypedDict, total=False):
+    key: object
+    element_id: object
+    source: object
+    type: object
+    target: object
+    negated: object
+
+
+class StatePath(TypedDict, total=False):
+    node_ids: Iterable[object] | None
+    path: object
+
+
+class StateEntity(TypedDict, total=False):
+    id: object
+    min_hops: int | float | str | None
+
+
+class StateChunk(TypedDict, total=False):
+    chunk_id: object
+    chunk_element_id: object
+    text: object
+    linked_entity_ids: Iterable[object] | None
+    entities: Sequence[StateEntity | None] | None
+
+
+class StateDiagnostics(TypedDict, total=False):
+    seed_entity_ids: Iterable[object] | None
+    seed_entity_names: Iterable[object] | None
+    seed_entities: Iterable[object] | None
+
+
+class GraphStateContext(TypedDict, total=False):
+    diagnostics: StateDiagnostics | None
+    chunks: Sequence[StateChunk | None] | None
+    entities: dict[str, StateEntity | None] | None
+    relationships: Sequence[StateRelationship | None] | None
+    traversal_paths: Sequence[StatePath | None] | None
+    retrieval_route: object
+    search_method: object
+
+
+class GraphStateSample(TypedDict, total=False):
+    seed_entity_ids: list[str] | None
+    entity_ids: list[str] | None
+    relationship_ids: list[str] | None
+    path_ids: list[str] | None
+    chunk_ids: list[str] | None
+    seed_signature: str | None
+    path_signature: str | None
+    subgraph_signature: str | None
+    chunk_signature: str | None
+    route: str | None
 
 
 class GraphStateSummary(TypedDict):
@@ -73,7 +129,7 @@ def _signature(values: Iterable[object]) -> str:
     return "||".join(items) if items else "<empty>"
 
 
-def _relationship_id(rel: dict[str, Any]) -> str:
+def _relationship_id(rel: StateRelationship | None) -> str:
     if not isinstance(rel, dict):
         return ""
     return (
@@ -92,10 +148,10 @@ def _relationship_id(rel: dict[str, Any]) -> str:
     )
 
 
-def _path_id(path_entry: dict[str, Any]) -> str:
+def _path_id(path_entry: StatePath | None) -> str:
     if not isinstance(path_entry, dict):
         return ""
-    node_ids = path_entry.get("node_ids") or []
+    node_ids: Iterable[object] = path_entry.get("node_ids") or []
     if node_ids:
         return "->".join(
             _clean_id(node_id) for node_id in node_ids if _clean_id(node_id)
@@ -103,7 +159,7 @@ def _path_id(path_entry: dict[str, Any]) -> str:
     return _clean_id(path_entry.get("path"))
 
 
-def _chunk_id(chunk: dict[str, Any]) -> str:
+def _chunk_id(chunk: StateChunk | None) -> str:
     if not isinstance(chunk, dict):
         return ""
     return (
@@ -113,7 +169,7 @@ def _chunk_id(chunk: dict[str, Any]) -> str:
     )
 
 
-def _entity_ids_from_chunks(chunks: Sequence[dict[str, Any]]) -> list[str]:
+def _entity_ids_from_chunks(chunks: Sequence[StateChunk | None]) -> list[str]:
     ids: list[str] = []
     for chunk in chunks:
         if not isinstance(chunk, dict):
@@ -126,15 +182,17 @@ def _entity_ids_from_chunks(chunks: Sequence[dict[str, Any]]) -> list[str]:
 
 
 def summarize_context_graph_state(
-    context: dict[str, Any] | None,
+    context: GraphStateContext | None,
 ) -> GraphStateSummary:
     """Return a compact symbolic state summary for one retrieved context."""
     context = context or {}
-    diagnostics = context.get("diagnostics") or {}
-    chunks = context.get("chunks") or []
-    entities = context.get("entities") or {}
-    relationships = context.get("relationships") or []
-    traversal_paths = context.get("traversal_paths") or []
+    diagnostics: StateDiagnostics = context.get("diagnostics") or {}
+    chunks: Sequence[StateChunk | None] = context.get("chunks") or []
+    entities: dict[str, StateEntity | None] = context.get("entities") or {}
+    relationships: Sequence[StateRelationship | None] = (
+        context.get("relationships") or []
+    )
+    traversal_paths: Sequence[StatePath | None] = context.get("traversal_paths") or []
 
     seed_entity_ids: list[str] = [
         _clean_id(eid)
@@ -214,10 +272,12 @@ def mean_pairwise_jaccard(sets: Sequence[Iterable[object]]) -> float:
 
 
 def graph_state_diversity(
-    sample_states: Sequence[dict[str, Any]],
+    sample_states: Sequence[GraphStateSample | GraphStateSummary | None],
 ) -> EmptyGraphStateDiversity | GraphStateDiversity:
     """Compute entropy/Jaccard diversity across per-sample graph states."""
-    states = [state or {} for state in sample_states]
+    states: list[GraphStateSample | GraphStateSummary] = [
+        state or {} for state in sample_states
+    ]
     if not states:
         return {
             "sample_count": 0,
@@ -228,7 +288,15 @@ def graph_state_diversity(
             "route_entropy": 0.0,
         }
 
-    def labels(key: str) -> list[str]:
+    def labels(
+        key: Literal[
+            "seed_signature",
+            "path_signature",
+            "subgraph_signature",
+            "chunk_signature",
+            "route",
+        ],
+    ) -> list[str]:
         return [str(state.get(key) or "<empty>") for state in states]
 
     seed_sets: list[list[str]] = [
@@ -275,7 +343,9 @@ def graph_state_diversity(
     }
 
 
-def dominant_anchor_id(sample_states: Sequence[dict[str, Any]]) -> str:
+def dominant_anchor_id(
+    sample_states: Sequence[GraphStateSample | GraphStateSummary | None],
+) -> str:
     """Return the most frequent seed entity id across sample states."""
     diversity: EmptyGraphStateDiversity | GraphStateDiversity = graph_state_diversity(
         sample_states

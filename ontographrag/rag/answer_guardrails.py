@@ -1,45 +1,56 @@
 import json
 import logging
 import re
-from typing import Any
+from collections.abc import Mapping, Sequence
 
+from langchain_core.language_models.base import LanguageModelLike
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
+from typing_extensions import TypedDict
+
+
+class GuardrailVerdict(TypedDict):
+    decision: str
+    answers_question: bool
+    supported_by_context: bool
+    reason: str
+    raw: str
 
 
 RUNTIME_GUARDRAIL_ABSTENTION: str = "I’m not confident the retrieved evidence supports a reliable answer to that question."
 
 
 def render_guardrail_context(
-    chunks: list[dict[str, Any]], max_chunks: int = 8, max_chars: int = 320
+    chunks: Sequence[Mapping[str, object]], max_chunks: int = 8, max_chars: int = 320
 ) -> str:
     rendered: list[str] = []
     for idx, chunk in enumerate(chunks[:max_chunks], 1):
-        text = " ".join(str(chunk.get("text", "")).split())
+        text: str = " ".join(str(chunk.get("text", "")).split())
         text = text[:max_chars]
-        document = str(chunk.get("document") or chunk.get("doc_name") or "unknown")
+        document: str = str(chunk.get("document") or chunk.get("doc_name") or "unknown")
         rendered.append(f"[{idx}] {document}: {text}")
     return "\n".join(rendered)
 
 
-def parse_guardrail_verdict(raw: str) -> dict[str, Any]:
-    text = str(raw or "").strip()
-    payload: dict[str, Any] = {}
+def parse_guardrail_verdict(raw: str) -> GuardrailVerdict:
+    text: str = str(raw or "").strip()
+    payload: dict[str, object] = {}
 
     if text:
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", text, re.DOTALL)
+            match: re.Match[str] | None = re.search(r"\{.*\}", text, re.DOTALL)
             if match:
                 try:
                     payload = json.loads(match.group(0))
                 except json.JSONDecodeError:
                     payload = {}
 
-    decision = str(payload.get("decision") or "").strip().lower()
+    decision: str = str(payload.get("decision") or "").strip().lower()
     if decision not in {"keep", "retry", "abstain"}:
-        lowered = text.lower()
+        lowered: str = text.lower()
         if "abstain" in lowered:
             decision = "abstain"
         elif "retry" in lowered:
@@ -51,22 +62,24 @@ def parse_guardrail_verdict(raw: str) -> dict[str, Any]:
             # avoid surfacing unsupported answers.
             decision = "abstain"
 
-    def _boolish(value: Any, default: bool) -> bool:
+    def _boolish(value: object, default: bool) -> bool:
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
-            lowered = value.strip().lower()
+            lowered: str = value.strip().lower()
             if lowered in {"true", "yes", "1"}:
                 return True
             if lowered in {"false", "no", "0"}:
                 return False
         return default
 
-    answers_question = _boolish(payload.get("answers_question"), decision == "keep")
-    supported_by_context = _boolish(
+    answers_question: bool = _boolish(
+        payload.get("answers_question"), decision == "keep"
+    )
+    supported_by_context: bool = _boolish(
         payload.get("supported_by_context"), decision == "keep"
     )
-    reason = str(payload.get("reason") or text or "").strip()
+    reason: str = str(payload.get("reason") or text or "").strip()
 
     return {
         "decision": decision,
@@ -81,10 +94,10 @@ def evaluate_runtime_answer_guardrail(
     *,
     question: str,
     answer: str,
-    chunks: list[dict[str, Any]],
-    llm: Any,
-) -> dict[str, Any]:
-    prompt = ChatPromptTemplate.from_messages(
+    chunks: Sequence[Mapping[str, object]],
+    llm: LanguageModelLike,
+) -> GuardrailVerdict:
+    prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
@@ -112,10 +125,10 @@ def evaluate_runtime_answer_guardrail(
         ]
     )
 
-    evidence = render_guardrail_context(chunks)
+    evidence: str = render_guardrail_context(chunks)
     try:
-        chain = prompt | llm | StrOutputParser()
-        raw = chain.invoke(
+        chain: Runnable[dict[str, str], str] = prompt | llm | StrOutputParser()
+        raw: str = chain.invoke(
             {
                 "question": question,
                 "answer": answer,

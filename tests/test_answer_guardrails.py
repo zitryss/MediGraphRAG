@@ -5,6 +5,7 @@ pytest.importorskip("langchain_core", reason="langchain_core not installed")
 from langchain_core.runnables import RunnableLambda
 
 from ontographrag.rag.answer_guardrails import (
+    GuardrailVerdict,
     evaluate_runtime_answer_guardrail,
     parse_guardrail_verdict,
     render_guardrail_context,
@@ -12,7 +13,7 @@ from ontographrag.rag.answer_guardrails import (
 
 
 def test_parse_guardrail_verdict_from_json() -> None:
-    verdict = parse_guardrail_verdict(
+    verdict: GuardrailVerdict = parse_guardrail_verdict(
         '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}'
     )
     assert verdict["decision"] == "retry"
@@ -22,7 +23,7 @@ def test_parse_guardrail_verdict_from_json() -> None:
 
 
 def test_parse_guardrail_verdict_from_embedded_json() -> None:
-    verdict = parse_guardrail_verdict(
+    verdict: GuardrailVerdict = parse_guardrail_verdict(
         'verdict: {"decision":"abstain","answers_question":false,"supported_by_context":false,"reason":"insufficient evidence"}'
     )
     assert verdict["decision"] == "abstain"
@@ -31,12 +32,12 @@ def test_parse_guardrail_verdict_from_embedded_json() -> None:
 
 
 def test_render_guardrail_context_limits_chunks() -> None:
-    chunks = [
+    chunks: list[dict[str, str]] = [
         {"document": "a.txt", "text": "first chunk"},
         {"document": "b.txt", "text": "second chunk"},
         {"document": "c.txt", "text": "third chunk"},
     ]
-    rendered = render_guardrail_context(chunks, max_chunks=2)
+    rendered: str = render_guardrail_context(chunks, max_chunks=2)
     assert "[1] a.txt: first chunk" in rendered
     assert "[2] b.txt: second chunk" in rendered
     assert "third chunk" not in rendered
@@ -45,7 +46,7 @@ def test_render_guardrail_context_limits_chunks() -> None:
 def test_parse_guardrail_verdict_ambiguous_defaults_to_abstain() -> None:
     # When LLM output contains neither "keep", "retry", nor "abstain", the
     # conservative default must be abstain (not keep).
-    verdict = parse_guardrail_verdict("I'm not sure about this one.")
+    verdict: GuardrailVerdict = parse_guardrail_verdict("I'm not sure about this one.")
     assert verdict["decision"] == "abstain"
     assert verdict["answers_question"] is False
     assert verdict["supported_by_context"] is False
@@ -53,17 +54,17 @@ def test_parse_guardrail_verdict_ambiguous_defaults_to_abstain() -> None:
 
 def test_parse_guardrail_verdict_keep_keyword_detected() -> None:
     # Prose containing "keep" should resolve to keep when no JSON is present.
-    verdict = parse_guardrail_verdict("You should keep this answer.")
+    verdict: GuardrailVerdict = parse_guardrail_verdict("You should keep this answer.")
     assert verdict["decision"] == "keep"
 
 
 def test_evaluate_runtime_answer_guardrail_uses_llm_json() -> None:
-    llm = RunnableLambda(
+    llm: RunnableLambda[object, str] = RunnableLambda(
         lambda _: (
             '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}'
         )
     )
-    verdict = evaluate_runtime_answer_guardrail(
+    verdict: GuardrailVerdict = evaluate_runtime_answer_guardrail(
         question="Who directed Lost and Delirious?",
         answer="Léa Pool",
         chunks=[
