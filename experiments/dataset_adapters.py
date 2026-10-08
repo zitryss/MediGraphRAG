@@ -16,13 +16,14 @@ import json
 import logging
 import os
 import re
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any
+from typing import Protocol, TypeAlias, TypeVar, cast
 
-from typing_extensions import TypedDict
+from typing_extensions import ReadOnly, TypedDict
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 QUESTION_CONTEXT_ROLE_SOURCE_DOCUMENT: str = "source_document"
@@ -118,6 +119,23 @@ class TaskType(Enum):
     FREE_TEXT = "free_text"  # open-ended (HotpotQA bridge, 2WikiMultiHopQA)
 
 
+class InferenceRecordData(TypedDict):
+    id: str
+    dataset: str
+    question: str
+    contexts: list[str]
+    context_titles: list[str | None] | None
+    options: dict[str, str] | None
+    task_type: str
+
+
+class GoldRecordData(TypedDict):
+    id: str
+    short_answer: str
+    long_answer: str | None
+    aliases: list[str] | None
+
+
 @dataclass
 class InferenceRecord:
     """Canonical record for model inference (what the model can see)."""
@@ -130,8 +148,9 @@ class InferenceRecord:
     options: dict[str, str] | None = None
     task_type: str = "binary"
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+    def to_dict(self) -> InferenceRecordData:
+        # asdict retains recursive copying; the schema mirrors these dataclass fields.
+        return cast(InferenceRecordData, asdict(self))
 
 
 @dataclass
@@ -143,8 +162,9 @@ class GoldRecord:
     long_answer: str | None = None
     aliases: list[str] | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+    def to_dict(self) -> GoldRecordData:
+        # Keep the gold-only serialization separate from inference input.
+        return cast(GoldRecordData, asdict(self))
 
 
 # =============================================================================
@@ -162,6 +182,181 @@ class PubMedQARecord(TypedDict, total=False):
     CONTEXTS: list[str | TextContext]
     final_decision: str
     LONG_ANSWER: str
+
+
+# These are consumed-field views, not validation of decoded dataset files.
+# Object-valued fields below are deliberately only stringified or type-guarded.
+class RealMedQAFields(TypedDict, total=False):
+    id: ReadOnly[object]
+    _id: ReadOnly[object]
+    row_id: ReadOnly[object]
+    Question: ReadOnly[object]
+    question: ReadOnly[object]
+    Recommendation: ReadOnly[object]
+    recommendation: ReadOnly[object]
+    Answer: ReadOnly[object]
+    answer: ReadOnly[object]
+    Plausible: ReadOnly[object]
+    plausible: ReadOnly[object]
+    Answered: ReadOnly[object]
+    answered: ReadOnly[object]
+
+
+class RealMedQARecord(RealMedQAFields, total=False):
+    _normalized_plausible: ReadOnly[object]
+    _normalized_answered: ReadOnly[object]
+    _fallback_id: ReadOnly[object]
+
+
+class NormalizedRealMedQARecord(RealMedQAFields):
+    _normalized_plausible: str
+    _normalized_answered: str
+    _fallback_id: str
+
+
+class BioASQRecord(TypedDict, total=False):
+    id: ReadOnly[str]
+    body: ReadOnly[str]
+    type: ReadOnly[str]
+    exact_answer: ReadOnly[str | Sequence[str | list[str]]]
+    ideal_answer: ReadOnly[str | list[str]]
+    snippets: ReadOnly[Sequence[TextContext]]
+
+
+class MedQARecord(TypedDict, total=False):
+    id: ReadOnly[str]
+    question: ReadOnly[str]
+    options: ReadOnly[Mapping[str, str]]
+    answer_idx: ReadOnly[object]
+    answer: ReadOnly[object]
+
+
+class MedMCQARecord(TypedDict, total=False):
+    id: ReadOnly[str]
+    question: ReadOnly[str]
+    opa: ReadOnly[str]
+    opb: ReadOnly[str]
+    opc: ReadOnly[str]
+    opd: ReadOnly[str]
+    cop: ReadOnly[int]
+
+
+class MMLURecord(TypedDict, total=False):
+    id: ReadOnly[str]
+    question: ReadOnly[str]
+    A: ReadOnly[str]
+    B: ReadOnly[str]
+    C: ReadOnly[str]
+    D: ReadOnly[str]
+    answer: ReadOnly[str]
+
+
+class MMLUProducedRecord(TypedDict):
+    """Exact named columns; read_csv does not guarantee textual cell values."""
+
+    id: str
+    question: object
+    A: object
+    B: object
+    C: object
+    D: object
+    answer: object
+
+
+# JSON represents title/sentence pairs as heterogeneous lists, not tuples.
+PassagePair: TypeAlias = tuple[str, list[str]] | list[str | list[str]]
+
+
+class HotpotQARecord(TypedDict, total=False):
+    _id: ReadOnly[str]
+    question: ReadOnly[str]
+    answer: ReadOnly[str]
+    type: ReadOnly[str]
+    context: ReadOnly[Sequence[PassagePair]]
+
+
+class TwoWikiRecord(HotpotQARecord, total=False):
+    answer_aliases: ReadOnly[Iterable[object] | None]
+
+
+class MuSiQueParagraph(TypedDict, total=False):
+    title: ReadOnly[object]
+    paragraph_text: ReadOnly[object]
+    paragraph: ReadOnly[object]
+    context: ReadOnly[object]
+    text: ReadOnly[object]
+
+
+class MuSiQueRecord(TypedDict, total=False):
+    id: ReadOnly[str]
+    _id: ReadOnly[str]
+    question: ReadOnly[object]
+    answer: ReadOnly[object]
+    answer_aliases: ReadOnly[Iterable[object] | None]
+    paragraphs: ReadOnly[Iterable[object] | None]
+    context: ReadOnly[object]
+
+
+class MedHopRecord(TypedDict, total=False):
+    id: ReadOnly[str]
+    query: ReadOnly[object]
+    answer: ReadOnly[object]
+    supports: ReadOnly[Iterable[object] | None]
+    candidates: ReadOnly[Iterable[object] | None]
+
+
+class MultiHopRAGEvidence(TypedDict, total=False):
+    title: ReadOnly[object]
+    source: ReadOnly[object]
+    category: ReadOnly[object]
+    published_at: ReadOnly[object]
+    fact: ReadOnly[object]
+
+
+class MultiHopRAGDocument(TypedDict, total=False):
+    title: ReadOnly[object]
+    author: ReadOnly[object]
+    source: ReadOnly[object]
+    category: ReadOnly[object]
+    published_at: ReadOnly[object]
+    body: ReadOnly[object]
+
+
+class MultiHopRAGRecord(TypedDict, total=False):
+    id: ReadOnly[str]
+    query: ReadOnly[Hashable]
+    answer: ReadOnly[object]
+    evidence_list: ReadOnly[Iterable[object] | None]
+
+
+class BiomedicalDocument(TypedDict, total=False):
+    title: ReadOnly[object]
+    abstract: ReadOnly[object]
+    text: ReadOnly[object]
+    body: ReadOnly[object]
+    contents: ReadOnly[object]
+    pmid: ReadOnly[object]
+    PMID: ReadOnly[object]
+    id: ReadOnly[object]
+
+
+class HotpotDocument(TypedDict, total=False):
+    title: ReadOnly[object]
+    source_title: ReadOnly[object]
+    text: ReadOnly[object]
+    paragraph: ReadOnly[object]
+    contents: ReadOnly[object]
+
+
+class HopCountRecord(TypedDict, total=False):
+    question_decomposition: ReadOnly[object]
+    decomposition: ReadOnly[object]
+    reasoning_steps: ReadOnly[object]
+    sub_questions: ReadOnly[object]
+    supporting_questions: ReadOnly[object]
+    evidence_list: ReadOnly[object]
+    evidences: ReadOnly[object]
+    supporting_facts: ReadOnly[object]
 
 
 def adapt_pubmedqa(
@@ -215,18 +410,18 @@ def _stable_record_id(prefix: str, *parts: object) -> str:
 
 
 def _normalize_realmedqa_verdict(value: object) -> str:
-    text = re.sub(r"\s+", " ", str(value or "").strip().lower())
+    text: str = re.sub(r"\s+", " ", str(value or "").strip().lower())
     return text
 
 
-def _is_realmedqa_ideal_record(raw_data: dict[str, Any]) -> bool:
-    plausible = _normalize_realmedqa_verdict(
+def _is_realmedqa_ideal_record(raw_data: RealMedQARecord) -> bool:
+    plausible: str = _normalize_realmedqa_verdict(
         raw_data.get(
             "_normalized_plausible",
             raw_data.get("Plausible", raw_data.get("plausible", "")),
         )
     )
-    answered = _normalize_realmedqa_verdict(
+    answered: str = _normalize_realmedqa_verdict(
         raw_data.get(
             "_normalized_answered",
             raw_data.get("Answered", raw_data.get("answered", "")),
@@ -236,7 +431,7 @@ def _is_realmedqa_ideal_record(raw_data: dict[str, Any]) -> bool:
 
 
 def adapt_realmedqa(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: RealMedQARecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt RealMedQA format.
@@ -252,8 +447,8 @@ def adapt_realmedqa(
     because it is the gold answer text. Retrieval should instead operate over
     the shared recommendation corpus built from the dataset rows.
     """
-    question = str(raw_data.get("Question", raw_data.get("question", ""))).strip()
-    recommendation = str(
+    question: str = str(raw_data.get("Question", raw_data.get("question", ""))).strip()
+    recommendation: str = str(
         raw_data.get(
             "Recommendation",
             raw_data.get(
@@ -289,7 +484,7 @@ def adapt_realmedqa(
 
 
 def adapt_bioasq(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: BioASQRecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt BioASQ format.
@@ -298,20 +493,20 @@ def adapt_bioasq(
     """
     if q_id is None:
         q_id = raw_data.get("id", "")
-    question = raw_data.get("body", "")
-    q_type = raw_data.get("type", "")
+    question: str = raw_data.get("body", "")
+    q_type: str = raw_data.get("type", "")
 
     # Extract contexts from snippets
-    raw_snippets = raw_data.get("snippets", [])
-    contexts = [s.get("text", "") for s in raw_snippets if s.get("text")]
+    raw_snippets: Sequence[TextContext] = raw_data.get("snippets", [])
+    contexts: list[str] = [s.get("text", "") for s in raw_snippets if s.get("text")]
 
     # For yes/no questions
     if q_type == "yesno":
-        exact_answer = raw_data.get("exact_answer", "")
-        short_answer = exact_answer.lower() if exact_answer else ""
-        task_type = TaskType.BINARY.value
-        options = {"A": "yes", "B": "no"}
-        aliases = None
+        exact_answer: str | Sequence[str | list[str]] = raw_data.get("exact_answer", "")
+        short_answer: str = exact_answer.lower() if exact_answer else ""
+        task_type: str = TaskType.BINARY.value
+        options: dict[str, str] | None = {"A": "yes", "B": "no"}
+        aliases: list[str] | None = None
     elif q_type == "factoid":
         # exact_answer is often [['entity_name', 'alias', ...], ...].
         # Keep the first synonym as the primary answer and preserve the rest
@@ -345,7 +540,7 @@ def adapt_bioasq(
         aliases = None
 
     # Ideal answer serves as long answer
-    long_answer = raw_data.get("ideal_answer", "")
+    long_answer: str | list[str] = raw_data.get("ideal_answer", "")
 
     return (
         InferenceRecord(
@@ -366,7 +561,7 @@ def adapt_bioasq(
 
 
 def adapt_medqa(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: MedQARecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedQA (USMLE) format.
@@ -375,29 +570,29 @@ def adapt_medqa(
     """
     if q_id is None:
         q_id = raw_data.get("id", str(hash(raw_data.get("question", "")))[:10])
-    question = raw_data.get("question", "")
-    raw_options = raw_data.get("options", {})
-    answer_idx = raw_data.get("answer_idx", 0)
-    explicit_answer = str(raw_data.get("answer", "")).strip()
+    question: str = raw_data.get("question", "")
+    raw_options: Mapping[str, str] = raw_data.get("options", {})
+    answer_idx: object = raw_data.get("answer_idx", 0)
+    explicit_answer: str = str(raw_data.get("answer", "")).strip()
 
     # Options are like {"0": "option text", "1": "...", ...} or {"A": "...", "B": "...", ...}
     # Map to A, B, C, D format
-    options = {}
+    options: dict[str, str] = {}
     for k, v in raw_options.items():
         # Normalize key to A, B, C, D
         if k.isdigit():
-            idx = int(k)
-            key = chr(ord("A") + idx)
+            idx: int = int(k)
+            key: str = chr(ord("A") + idx)
         else:
             key = k.upper()
         options[key] = v
 
     # Prefer the explicit answer text when the release provides it.
     if explicit_answer:
-        short_answer = explicit_answer.lower()
+        short_answer: str = explicit_answer.lower()
     else:
         correct_key: str | None = None
-        answer_keys = list(options.keys())
+        answer_keys: list[str] = list(options.keys())
         if isinstance(answer_idx, int):
             if 0 <= answer_idx < len(answer_keys):
                 correct_key = answer_keys[answer_idx]
@@ -408,7 +603,7 @@ def adapt_medqa(
                 if 0 <= idx < len(answer_keys):
                     correct_key = answer_keys[idx]
             else:
-                letter_key = answer_idx.upper()
+                letter_key: str = answer_idx.upper()
                 if letter_key in options:
                     correct_key = letter_key
 
@@ -433,7 +628,7 @@ def adapt_medqa(
 
 
 def adapt_medmcqa(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: MedMCQARecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedMCQA format.
@@ -442,9 +637,9 @@ def adapt_medmcqa(
     """
     if q_id is None:
         q_id = raw_data.get("id", "")
-    question = raw_data.get("question", "")
+    question: str = raw_data.get("question", "")
 
-    options = {
+    options: dict[str, str] = {
         "A": raw_data.get("opa", ""),
         "B": raw_data.get("opb", ""),
         "C": raw_data.get("opc", ""),
@@ -452,9 +647,9 @@ def adapt_medmcqa(
     }
 
     # cop is 1-indexed (1=A, 2=B, etc.)
-    cop = raw_data.get("cop", 1)
-    correct_key = chr(ord("A") + cop - 1)
-    short_answer = options.get(correct_key, "").lower()
+    cop: int = raw_data.get("cop", 1)
+    correct_key: str = chr(ord("A") + cop - 1)
+    short_answer: str = options.get(correct_key, "").lower()
 
     return (
         InferenceRecord(
@@ -472,7 +667,7 @@ def adapt_medmcqa(
 
 
 def adapt_mmlu(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: MMLURecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MMLU format (single row).
@@ -481,9 +676,9 @@ def adapt_mmlu(
     """
     if q_id is None:
         q_id = raw_data.get("id", "")
-    question = raw_data.get("question", "")
+    question: str = raw_data.get("question", "")
 
-    options = {
+    options: dict[str, str] = {
         "A": raw_data.get("A", ""),
         "B": raw_data.get("B", ""),
         "C": raw_data.get("C", ""),
@@ -491,8 +686,8 @@ def adapt_mmlu(
     }
 
     # Answer is single letter A, B, C, or D
-    answer_letter = raw_data.get("answer", "A").upper()
-    short_answer = options.get(answer_letter, "").lower()
+    answer_letter: str = raw_data.get("answer", "A").upper()
+    short_answer: str = options.get(answer_letter, "").lower()
 
     return (
         InferenceRecord(
@@ -510,7 +705,7 @@ def adapt_mmlu(
 
 
 def adapt_hotpotqa(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: HotpotQARecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt HotpotQA (fullwiki) format.
@@ -525,22 +720,22 @@ def adapt_hotpotqa(
     """
     if q_id is None:
         q_id = raw_data.get("_id", "")
-    question = raw_data.get("question", "")
-    answer = raw_data.get("answer", "").lower().strip()
-    q_type = raw_data.get("type", "bridge")
+    question: str = raw_data.get("question", "")
+    answer: str = raw_data.get("answer", "").lower().strip()
+    q_type: str = raw_data.get("type", "bridge")
 
     # Each context entry is [title, [sent0, sent1, ...]]
     # Flatten to one string per passage (title + sentences joined)
-    contexts = []
+    contexts: list[str] = []
     context_titles: list[str | None] = []
     for title, sentences in raw_data.get("context", []):
-        passage = title + ". " + " ".join(sentences)
+        passage: str = title + ". " + " ".join(sentences)
         contexts.append(passage)
         context_titles.append(str(title).strip() or None)
 
     if q_type == "comparison" and answer in {"yes", "no"}:
-        task_type = TaskType.BINARY.value
-        options = {"A": "yes", "B": "no"}
+        task_type: str = TaskType.BINARY.value
+        options: dict[str, str] | None = {"A": "yes", "B": "no"}
     else:
         task_type = TaskType.FREE_TEXT.value
         options = None
@@ -565,7 +760,7 @@ def adapt_hotpotqa(
 
 
 def adapt_hotpotqa_fullwiki(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: HotpotQARecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """Adapt HotpotQA FullWiki while keeping a distinct dataset label."""
     inf_rec, gold_rec = adapt_hotpotqa(raw_data, q_id=q_id)
@@ -574,7 +769,7 @@ def adapt_hotpotqa_fullwiki(
 
 
 def adapt_2wikimultihopqa(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: TwoWikiRecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt 2WikiMultiHopQA format.
@@ -587,31 +782,31 @@ def adapt_2wikimultihopqa(
     """
     if q_id is None:
         q_id = raw_data.get("_id", "")
-    question = raw_data.get("question", "")
-    answer = raw_data.get("answer", "").lower().strip()
-    q_type = raw_data.get("type", "bridge")
+    question: str = raw_data.get("question", "")
+    answer: str = raw_data.get("answer", "").lower().strip()
+    q_type: str = raw_data.get("type", "bridge")
 
     # Same structure as HotpotQA context
-    contexts = []
+    contexts: list[str] = []
     context_titles: list[str | None] = []
     for title, sentences in raw_data.get("context", []):
-        passage = title + ". " + " ".join(sentences)
+        passage: str = title + ". " + " ".join(sentences)
         contexts.append(passage)
         context_titles.append(str(title).strip() or None)
 
     # Only use explicit answer aliases if the release provides them.
-    aliases = [
+    raw_aliases: list[str] = [
         str(a).lower().strip()
         for a in (raw_data.get("answer_aliases", []) or [])
         if str(a).strip()
     ]
-    aliases = [a for a in aliases if a and a != answer] or None
+    aliases: list[str] | None = [a for a in raw_aliases if a and a != answer] or None
 
     # Types: comparison, bridge_comparison, compositional, inference
     # comparison type may have yes/no or entity answers
     if q_type in {"comparison", "bridge_comparison"} and answer in {"yes", "no"}:
-        task_type = TaskType.BINARY.value
-        options = {"A": "yes", "B": "no"}
+        task_type: str = TaskType.BINARY.value
+        options: dict[str, str] | None = {"A": "yes", "B": "no"}
     else:
         task_type = TaskType.FREE_TEXT.value
         options = None
@@ -636,7 +831,7 @@ def adapt_2wikimultihopqa(
 
 
 def adapt_musique(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: MuSiQueRecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MuSiQue format.
@@ -653,22 +848,22 @@ def adapt_musique(
     if q_id is None:
         q_id = raw_data.get("id", raw_data.get("_id", ""))
 
-    question = str(raw_data.get("question", "")).strip()
-    short_answer = str(raw_data.get("answer", "")).lower().strip()
+    question: str = str(raw_data.get("question", "")).strip()
+    short_answer: str = str(raw_data.get("answer", "")).lower().strip()
 
     # Build contexts from paragraph objects when available.
     contexts: list[str] = []
     context_titles: list[str | None] = []
     for p in raw_data.get("paragraphs", []) or []:
         if not isinstance(p, dict):
-            txt = str(p).strip()
+            txt: str = str(p).strip()
             if txt:
                 contexts.append(txt)
                 context_titles.append(None)
             continue
 
-        title = str(p.get("title", "")).strip()
-        paragraph_text = str(
+        title: str = str(p.get("title", "")).strip()
+        paragraph_text: str = str(
             p.get("paragraph_text", p.get("paragraph", p.get("context", "")))
         ).strip()
 
@@ -681,12 +876,12 @@ def adapt_musique(
 
     # Fallback to generic context key if paragraphs are absent.
     if not contexts:
-        raw_context = raw_data.get("context", [])
+        raw_context: object = raw_data.get("context", [])
         if isinstance(raw_context, list):
             for entry in raw_context:
                 if isinstance(entry, (list, tuple)) and len(entry) >= 2:
                     title = str(entry[0]).strip()
-                    body = " ".join(
+                    body: str = " ".join(
                         str(x).strip() for x in (entry[1] or []) if str(x).strip()
                     )
                     if body:
@@ -706,7 +901,7 @@ def adapt_musique(
                         contexts.append(txt)
                         context_titles.append(None)
 
-    aliases = [
+    aliases: list[str] = [
         str(a).lower().strip()
         for a in (raw_data.get("answer_aliases", []) or [])
         if str(a).strip()
@@ -733,7 +928,7 @@ def adapt_musique(
 
 
 def adapt_medhop(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: MedHopRecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedHop format.
@@ -752,21 +947,21 @@ def adapt_medhop(
     if q_id is None:
         q_id = raw_data.get("id", "")
 
-    question = str(raw_data.get("query", "")).strip()
-    short_answer = str(raw_data.get("answer", "")).lower().strip()
+    question: str = str(raw_data.get("query", "")).strip()
+    short_answer: str = str(raw_data.get("answer", "")).lower().strip()
 
-    contexts = [
+    contexts: list[str] = [
         str(ctx).strip()
         for ctx in (raw_data.get("supports", []) or [])
         if str(ctx).strip()
     ]
 
-    candidates = [
+    candidates: list[str] = [
         str(candidate).strip()
         for candidate in (raw_data.get("candidates", []) or [])
         if str(candidate).strip()
     ]
-    options = {
+    options: dict[str, str] | None = {
         chr(ord("A") + idx): candidate for idx, candidate in enumerate(candidates)
     } or None
 
@@ -788,21 +983,21 @@ def adapt_medhop(
     )
 
 
-def _format_multihoprag_evidence_item(item: dict[str, Any]) -> str:
+def _format_multihoprag_evidence_item(item: MultiHopRAGEvidence) -> str:
     """Format one evidence snippet from MultiHop-RAG for compact provenance-rich display."""
     parts: list[str] = []
 
-    def _clean(value: Any) -> str:
+    def _clean(value: object) -> str:
         if value is None:
             return ""
-        text = str(value).strip()
+        text: str = str(value).strip()
         return "" if text.lower() == "none" else text
 
-    title = _clean(item.get("title", ""))
-    source = _clean(item.get("source", ""))
-    category = _clean(item.get("category", ""))
-    published_at = _clean(item.get("published_at", ""))
-    fact = _clean(item.get("fact", ""))
+    title: str = _clean(item.get("title", ""))
+    source: str = _clean(item.get("source", ""))
+    category: str = _clean(item.get("category", ""))
+    published_at: str = _clean(item.get("published_at", ""))
+    fact: str = _clean(item.get("fact", ""))
 
     if title:
         parts.append(f"Title: {title}")
@@ -818,22 +1013,22 @@ def _format_multihoprag_evidence_item(item: dict[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-def _format_multihoprag_corpus_document(doc: dict[str, Any]) -> str:
+def _format_multihoprag_corpus_document(doc: MultiHopRAGDocument) -> str:
     """Format one MultiHop-RAG corpus document for indexing / KG construction."""
     parts: list[str] = []
 
-    def _clean(value: Any) -> str:
+    def _clean(value: object) -> str:
         if value is None:
             return ""
-        text = str(value).strip()
+        text: str = str(value).strip()
         return "" if text.lower() == "none" else text
 
-    title = _clean(doc.get("title", ""))
-    author = _clean(doc.get("author", ""))
-    source = _clean(doc.get("source", ""))
-    category = _clean(doc.get("category", ""))
-    published_at = _clean(doc.get("published_at", ""))
-    body = _clean(doc.get("body", ""))
+    title: str = _clean(doc.get("title", ""))
+    author: str = _clean(doc.get("author", ""))
+    source: str = _clean(doc.get("source", ""))
+    category: str = _clean(doc.get("category", ""))
+    published_at: str = _clean(doc.get("published_at", ""))
+    body: str = _clean(doc.get("body", ""))
 
     if title:
         parts.append(f"Title: {title}")
@@ -852,7 +1047,7 @@ def _format_multihoprag_corpus_document(doc: dict[str, Any]) -> str:
 
 
 def adapt_multihoprag(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: MultiHopRAGRecord, q_id: str | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MultiHop-RAG format.
@@ -872,21 +1067,21 @@ def adapt_multihoprag(
     if q_id is None:
         q_id = raw_data.get("id", f"multihoprag_{abs(hash(raw_data.get('query', '')))}")
 
-    question = str(raw_data.get("query", "")).strip()
-    short_answer = str(raw_data.get("answer", "")).lower().strip()
+    question: str = str(raw_data.get("query", "")).strip()
+    short_answer: str = str(raw_data.get("answer", "")).lower().strip()
 
-    evidence_list = raw_data.get("evidence_list", []) or []
-    contexts = []
+    evidence_list: Iterable[object] = raw_data.get("evidence_list", []) or []
+    contexts: list[str] = []
     for item in evidence_list:
         if not isinstance(item, dict):
             continue
-        formatted = _format_multihoprag_evidence_item(item)
+        formatted: str = _format_multihoprag_evidence_item(item)
         if formatted:
             contexts.append(formatted)
 
     if short_answer in {"yes", "no"}:
-        task_type = TaskType.BINARY.value
-        options = {"A": "yes", "B": "no"}
+        task_type: str = TaskType.BINARY.value
+        options: dict[str, str] | None = {"A": "yes", "B": "no"}
     else:
         task_type = TaskType.FREE_TEXT.value
         options = None
@@ -913,7 +1108,42 @@ def adapt_multihoprag(
 # Adapter Registry
 # =============================================================================
 
-ADAPTERS = {
+
+RawInput_contra = TypeVar("RawInput_contra", contravariant=True)
+
+
+class DatasetAdapter(Protocol[RawInput_contra]):
+    def __call__(
+        self,
+        raw_data: RawInput_contra,
+        q_id: str | None = None,
+    ) -> tuple[InferenceRecord, GoldRecord]: ...
+
+
+class PubMedQAAdapter(Protocol):
+    def __call__(
+        self,
+        raw_data: PubMedQARecord,
+        q_id: str | int | None = None,
+    ) -> tuple[InferenceRecord, GoldRecord]: ...
+
+
+Adapter: TypeAlias = (
+    PubMedQAAdapter
+    | DatasetAdapter[RealMedQARecord]
+    | DatasetAdapter[BioASQRecord]
+    | DatasetAdapter[MedQARecord]
+    | DatasetAdapter[MedMCQARecord]
+    | DatasetAdapter[MMLURecord]
+    | DatasetAdapter[HotpotQARecord]
+    | DatasetAdapter[TwoWikiRecord]
+    | DatasetAdapter[MuSiQueRecord]
+    | DatasetAdapter[MedHopRecord]
+    | DatasetAdapter[MultiHopRAGRecord]
+)
+
+
+ADAPTERS: dict[str, Adapter] = {
     "pubmedqa": adapt_pubmedqa,
     "realmedqa": adapt_realmedqa,
     "bioasq": adapt_bioasq,
@@ -932,7 +1162,7 @@ ADAPTERS = {
 def infer_hop_count_from_raw(
     dataset_name: str,
     question_id: str,
-    raw_question: dict[str, Any],
+    raw_question: HopCountRecord,
 ) -> int | None:
     """
     Infer reasoning hop count from raw dataset metadata when available.
@@ -950,20 +1180,20 @@ def infer_hop_count_from_raw(
             "sub_questions",
             "supporting_questions",
         ):
-            value = raw_question.get(key)
+            value: object = raw_question.get(key)
             if isinstance(value, list) and value:
                 return len(value)
 
         if dataset_name == "multihoprag":
-            evidence_list = raw_question.get("evidence_list")
+            evidence_list: object = raw_question.get("evidence_list")
             if isinstance(evidence_list, list) and evidence_list:
                 return len(evidence_list)
 
         if dataset_name == "2wikimultihopqa":
-            evidences = raw_question.get("evidences")
+            evidences: object = raw_question.get("evidences")
             if isinstance(evidences, list) and evidences:
                 return len(evidences)
-            supporting_facts = raw_question.get("supporting_facts")
+            supporting_facts: object = raw_question.get("supporting_facts")
             if isinstance(supporting_facts, list) and supporting_facts:
                 return len(supporting_facts)
 
@@ -972,7 +1202,9 @@ def infer_hop_count_from_raw(
             if isinstance(supporting_facts, list) and supporting_facts:
                 return len(supporting_facts)
 
-    match = re.match(r"(?i)^(\d+)hop", str(question_id or "").strip())
+    match: re.Match[str] | None = re.match(
+        r"(?i)^(\d+)hop", str(question_id or "").strip()
+    )
     if match:
         return int(match.group(1))
     return None
@@ -1003,15 +1235,16 @@ def get_dataset_corpus_profile(dataset_name: str) -> DatasetCorpusProfile:
     }
 
 
-def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
+def load_raw_dataset(dataset_name: str) -> object:
     """
     Load raw dataset from MIRAGE rawdata directory.
 
     Returns dict mapping id -> raw record.
     """
+    idx: Hashable
     dataset_name = dataset_name.lower()
 
-    file_paths = {
+    file_paths: dict[str, str] = {
         "pubmedqa": "MIRAGE/rawdata/pubmedqa/data/test_set.json",
         "realmedqa": "MIRAGE/rawdata/realmedqa/RealMedQA.json",
         "bioasq": "MIRAGE/rawdata/bioasq/Task10BGoldenEnriched/10B1_golden.json",
@@ -1030,12 +1263,12 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
         "musique": "MIRAGE/rawdata/musique/dev.jsonl",
     }
 
-    file_path = file_paths.get(dataset_name)
+    file_path: str | None = file_paths.get(dataset_name)
     if not file_path:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
     if dataset_name == "realmedqa":
-        candidates = [
+        candidates: list[str] = [
             "MIRAGE/rawdata/realmedqa/RealMedQA.json",
             "MIRAGE/rawdata/realmedqa/RealMedQA.jsonl",
             "MIRAGE/rawdata/realmedqa/train.json",
@@ -1043,12 +1276,16 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
             "MIRAGE/rawdata/realmedqa/RealMedQA.csv",
             "MIRAGE/rawdata/realmedqa/train.csv",
         ]
-        rows = _load_realmedqa_records(candidates)
+        rows: list[NormalizedRealMedQARecord] | None = _load_realmedqa_records(
+            candidates
+        )
         if rows is None:
             raise FileNotFoundError(
                 "RealMedQA dataset file not found. Looked for: " + ", ".join(candidates)
             )
-        ideal_rows = [row for row in rows if _is_realmedqa_ideal_record(row)]
+        ideal_rows: list[NormalizedRealMedQARecord] = [
+            row for row in rows if _is_realmedqa_ideal_record(row)
+        ]
         return {
             str(
                 row.get(
@@ -1067,7 +1304,7 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
             "MIRAGE/rawdata/musique/musique_full_v1.0_dev.jsonl",
             "MIRAGE/rawdata/musique/musique_ans_v1.0_test.jsonl",
         ]
-        existing = next((p for p in candidates if os.path.exists(p)), None)
+        existing: str | None = next((p for p in candidates if os.path.exists(p)), None)
         if existing:
             file_path = existing
         else:
@@ -1084,7 +1321,7 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
 
     elif dataset_name == "bioasq":
         with open(file_path, "r") as f:
-            data = json.load(f)
+            data: object = json.load(f)
         # BioASQ has "questions" key with list
         if "questions" in data:
             return {q["id"]: q for q in data["questions"]}
@@ -1092,18 +1329,18 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
 
     elif dataset_name == "medqa":
         # JSONL format
-        data = {}
+        medqa_records: dict[Hashable, object] = {}
         with open(file_path, "r") as f:
             for idx, line in enumerate(f):
                 line = line.strip()
                 if line:
                     try:
-                        item = json.loads(line)
-                        q_id = item.get("id", f"medqa_{idx}")
-                        data[q_id] = item
+                        item: object = json.loads(line)
+                        q_id: object = item.get("id", f"medqa_{idx}")
+                        medqa_records[q_id] = item
                     except json.JSONDecodeError:
                         continue
-        return data
+        return medqa_records
 
     elif dataset_name == "medmcqa":
         # JSON format with list
@@ -1117,9 +1354,9 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
         # MMLU is special - directory with multiple CSV files
         import pandas as pd
 
-        data = {}
-        mmlu_dir = file_path
-        domain_files = [
+        mmlu_records: dict[str, MMLUProducedRecord] = {}
+        mmlu_dir: str = file_path
+        domain_files: list[str] = [
             "anatomy_test.csv",
             "clinical_knowledge_test.csv",
             "college_biology_test.csv",
@@ -1128,15 +1365,15 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
             "professional_medicine_test.csv",
         ]
         for domain_file in domain_files:
-            full_path = os.path.join(mmlu_dir, domain_file)
+            full_path: str = os.path.join(mmlu_dir, domain_file)
             if os.path.exists(full_path):
-                df = pd.read_csv(
+                df: pd.DataFrame = pd.read_csv(
                     full_path, names=["question", "A", "B", "C", "D", "answer"]
                 )
-                domain = domain_file.replace("_test.csv", "")
+                domain: str = domain_file.replace("_test.csv", "")
                 for idx, row in df.iterrows():
                     q_id = f"{domain}_{idx}"
-                    data[q_id] = {
+                    mmlu_records[q_id] = {
                         "id": q_id,
                         "question": row["question"],
                         "A": row["A"],
@@ -1145,7 +1382,7 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
                         "D": row["D"],
                         "answer": row["answer"],
                     }
-        return data
+        return mmlu_records
 
     elif dataset_name in {
         "hotpotqa",
@@ -1156,7 +1393,7 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
     }:
         # Both use JSON list format: [{_id, question, answer, context, ...}, ...]
         with open(file_path, "r") as f:
-            items = json.load(f)
+            items: object = json.load(f)
         if isinstance(items, list):
             return {
                 str(item.get("_id", item.get("id", f"{dataset_name}_{idx}"))): item
@@ -1172,7 +1409,7 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
         return items
 
     elif dataset_name == "musique":
-        data = {}
+        musique_records: dict[str, object] = {}
 
         if file_path.endswith(".jsonl"):
             with open(file_path, "r") as f:
@@ -1185,8 +1422,8 @@ def load_raw_dataset(dataset_name: str) -> dict[str, Any]:
                     except json.JSONDecodeError:
                         continue
                     q_id = item.get("id", item.get("_id", f"musique_{idx}"))
-                    data[str(q_id)] = item
-            return data
+                    musique_records[str(q_id)] = item
+            return musique_records
 
         # JSON list/dict fallback
         with open(file_path, "r") as f:
@@ -1227,11 +1464,11 @@ def normalize_dataset(
             f"Unknown dataset: {dataset_name}. Available: {list(ADAPTERS.keys())}"
         )
 
-    adapter = ADAPTERS[dataset_name]
-    raw_data = load_raw_dataset(dataset_name)
+    adapter: Adapter = ADAPTERS[dataset_name]
+    raw_data: object = load_raw_dataset(dataset_name)
 
-    inference_records = []
-    gold_records = []
+    inference_records: list[InferenceRecord] = []
+    gold_records: list[GoldRecord] = []
 
     for q_id, raw_record in raw_data.items():
         try:
@@ -1244,11 +1481,11 @@ def normalize_dataset(
             continue
 
     # Validate ID sets match
-    inf_ids = set(r.id for r in inference_records)
-    gold_ids = set(r.id for r in gold_records)
+    inf_ids: set[str] = set(r.id for r in inference_records)
+    gold_ids: set[str] = set(r.id for r in gold_records)
     if inf_ids != gold_ids:
-        missing_gold = inf_ids - gold_ids
-        missing_inf = gold_ids - inf_ids
+        missing_gold: set[str] = inf_ids - gold_ids
+        missing_inf: set[str] = gold_ids - inf_ids
         if missing_gold:
             logger.warning(
                 f"Missing gold records for {len(missing_gold)} inference records"
@@ -1329,7 +1566,7 @@ def build_context_corpus(inference_records: list[InferenceRecord]) -> list[str]:
     return [p.text for p in build_passage_corpus(inference_records)]
 
 
-def _load_optional_json_records(paths: list[str]) -> list[dict[str, Any]] | None:
+def _load_optional_json_records(paths: list[str]) -> list[object] | None:
     """Load the first existing JSON/JSONL/CSV corpus file from a list of candidate paths."""
     for path in paths:
         if not os.path.exists(path):
@@ -1337,18 +1574,18 @@ def _load_optional_json_records(paths: list[str]) -> list[dict[str, Any]] | None
 
         if path.endswith(".csv"):
             with open(path, "r", newline="") as f:
-                reader = csv.DictReader(f)
+                reader: csv.DictReader[str] = csv.DictReader(f)
                 return [dict(row) for row in reader]
 
         if path.endswith(".jsonl"):
-            records: list[dict[str, Any]] = []
+            records: list[object] = []
             with open(path, "r") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
                     try:
-                        item = json.loads(line)
+                        item: object = json.loads(line)
                     except json.JSONDecodeError:
                         continue
                     if isinstance(item, dict):
@@ -1356,12 +1593,12 @@ def _load_optional_json_records(paths: list[str]) -> list[dict[str, Any]] | None
             return records
 
         with open(path, "r") as f:
-            data = json.load(f)
+            data: object = json.load(f)
         if isinstance(data, list):
             return [item for item in data if isinstance(item, dict)]
         if isinstance(data, dict):
             for key in ("records", "documents", "data", "abstracts"):
-                value = data.get(key)
+                value: object = data.get(key)
                 if isinstance(value, list):
                     return [item for item in value if isinstance(item, dict)]
     return None
@@ -1369,18 +1606,18 @@ def _load_optional_json_records(paths: list[str]) -> list[dict[str, Any]] | None
 
 def _load_realmedqa_records(
     candidate_paths: list[str],
-) -> list[dict[str, Any]] | None:
+) -> list[NormalizedRealMedQARecord] | None:
     """Load RealMedQA records from JSON/JSONL/CSV and normalize verifier fields."""
-    records = _load_optional_json_records(candidate_paths)
+    records: list[object] | None = _load_optional_json_records(candidate_paths)
     if records is None:
         return None
 
-    normalized: list[dict[str, Any]] = []
+    normalized: list[NormalizedRealMedQARecord] = []
     for idx, row in enumerate(records):
         if not isinstance(row, dict):
             continue
-        question = str(row.get("Question", row.get("question", ""))).strip()
-        recommendation = str(
+        question: str = str(row.get("Question", row.get("question", ""))).strip()
+        recommendation: str = str(
             row.get(
                 "Recommendation",
                 row.get("recommendation", row.get("Answer", row.get("answer", ""))),
@@ -1389,7 +1626,7 @@ def _load_realmedqa_records(
         if not question or not recommendation:
             continue
 
-        item = dict(row)
+        item: NormalizedRealMedQARecord = dict(row)
         item["_normalized_plausible"] = _normalize_realmedqa_verdict(
             row.get("Plausible", row.get("plausible", ""))
         )
@@ -1403,8 +1640,8 @@ def _load_realmedqa_records(
     return normalized
 
 
-def _format_realmedqa_recommendation_document(doc: dict[str, Any]) -> str:
-    recommendation = str(
+def _format_realmedqa_recommendation_document(doc: RealMedQARecord) -> str:
+    recommendation: str = str(
         doc.get(
             "Recommendation",
             doc.get("recommendation", doc.get("Answer", doc.get("answer", ""))),
@@ -1413,13 +1650,13 @@ def _format_realmedqa_recommendation_document(doc: dict[str, Any]) -> str:
     return f"Recommendation:\n{recommendation}" if recommendation else ""
 
 
-def _format_biomedical_corpus_document(doc: dict[str, Any]) -> str:
+def _format_biomedical_corpus_document(doc: BiomedicalDocument) -> str:
     """Format a generic biomedical abstract/document record for indexing."""
-    title = str(doc.get("title", "")).strip()
-    abstract = str(
+    title: str = str(doc.get("title", "")).strip()
+    abstract: str = str(
         doc.get("abstract", doc.get("text", doc.get("body", doc.get("contents", ""))))
     ).strip()
-    pmid = str(doc.get("pmid", doc.get("PMID", doc.get("id", "")))).strip()
+    pmid: str = str(doc.get("pmid", doc.get("PMID", doc.get("id", "")))).strip()
 
     parts: list[str] = []
     if pmid:
@@ -1431,12 +1668,14 @@ def _format_biomedical_corpus_document(doc: dict[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-def _format_hotpotqa_corpus_document(doc: dict[str, Any]) -> str:
+def _format_hotpotqa_corpus_document(doc: HotpotDocument) -> str:
     """Format a HotpotQA shared-corpus paragraph for indexing."""
-    title = str(doc.get("title", doc.get("source_title", ""))).strip()
-    text_value = doc.get("text", doc.get("paragraph", doc.get("contents", "")))
+    title: str = str(doc.get("title", doc.get("source_title", ""))).strip()
+    text_value: object = doc.get("text", doc.get("paragraph", doc.get("contents", "")))
     if isinstance(text_value, list):
-        text = " ".join(str(part).strip() for part in text_value if str(part).strip())
+        text: str = " ".join(
+            str(part).strip() for part in text_value if str(part).strip()
+        )
     else:
         text = str(text_value or "").strip()
 
@@ -1453,14 +1692,14 @@ def _build_optional_shared_corpus_passages(
     candidate_paths: list[str],
 ) -> list[ContextPassage] | None:
     """Build passages from an optional local shared-corpus file if one exists."""
-    docs = _load_optional_json_records(candidate_paths)
+    docs: list[object] | None = _load_optional_json_records(candidate_paths)
     if docs is None:
         return None
 
     seen: set[str | tuple[str, str]] = set()
     passages: list[ContextPassage] = []
     for idx, doc in enumerate(docs):
-        text = _format_biomedical_corpus_document(doc)
+        text: str = _format_biomedical_corpus_document(doc)
         if text and text not in seen:
             seen.add(text)
             passages.append(
@@ -1506,7 +1745,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
             ],
         )
     if dataset_name == "realmedqa":
-        docs = _load_realmedqa_records(
+        realmed_docs: list[NormalizedRealMedQARecord] | None = _load_realmedqa_records(
             [
                 "MIRAGE/rawdata/realmedqa/RealMedQA.json",
                 "MIRAGE/rawdata/realmedqa/RealMedQA.jsonl",
@@ -1516,13 +1755,15 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
                 "MIRAGE/rawdata/realmedqa/train.csv",
             ]
         )
-        if docs is None:
+        if realmed_docs is None:
             return None
 
         seen: set[str | tuple[str, str]] = set()
         passages: list[ContextPassage] = []
-        for idx, doc in enumerate(d for d in docs if _is_realmedqa_ideal_record(d)):
-            text = _format_realmedqa_recommendation_document(doc)
+        for idx, doc in enumerate(
+            d for d in realmed_docs if _is_realmedqa_ideal_record(d)
+        ):
+            text: str = _format_realmedqa_recommendation_document(doc)
             if text and text not in seen:
                 seen.add(text)
                 passages.append(
@@ -1543,7 +1784,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
                 )
         return passages
     if dataset_name == "hotpotqa_fullwiki":
-        docs = _load_optional_json_records(
+        docs: list[object] | None = _load_optional_json_records(
             [
                 "MIRAGE/rawdata/hotpotqa/fullwiki_corpus.jsonl",
                 "MIRAGE/rawdata/hotpotqa/hotpotqa_fullwiki_corpus.jsonl",
@@ -1554,8 +1795,8 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
         if docs is None:
             return None
 
-        seen: set[str | tuple[str, str]] = set()
-        passages: list[ContextPassage] = []
+        seen = set()
+        passages = []
         for idx, doc in enumerate(docs):
             text = _format_hotpotqa_corpus_document(doc)
             if not text or text in seen:
@@ -1588,8 +1829,8 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
     if docs is None:
         return None
 
-    seen: set[str | tuple[str, str]] = set()
-    passages: list[ContextPassage] = []
+    seen = set()
+    passages = []
     for idx, doc in enumerate(docs):
         if not isinstance(doc, dict):
             continue
@@ -1628,7 +1869,7 @@ def validate_no_leakage(
 
     Returns True only if both checks pass.
     """
-    gold_by_id = {r.id: r for r in gold_records}
+    gold_by_id: dict[str, GoldRecord] = {r.id: r for r in gold_records}
 
     for rec in inference_records:
         if rec.id not in gold_by_id:
@@ -1645,29 +1886,29 @@ def validate_no_leakage(
     # Collect all meaningful surface forms for each gold record: primary answer,
     # aliases, and any long-answer variant.  Check every surface form so that
     # multi-answer datasets (e.g. 2WikiMultiHopQA) don't slip through.
-    _binary = {"yes", "no", "true", "false", "maybe"}
-    leakage_count = 0
+    _binary: set[str] = {"yes", "no", "true", "false", "maybe"}
+    leakage_count: int = 0
     for rec in inference_records:
-        gold = gold_by_id.get(rec.id)
+        gold: GoldRecord | None = gold_by_id.get(rec.id)
         if gold is None:
             continue
         # Collect all answer surface forms from the gold record
-        primary = str(
+        primary: str = str(
             getattr(gold, "short_answer", "") or getattr(gold, "answer", "") or ""
         ).strip()
-        long_ans = str(getattr(gold, "long_answer", "") or "").strip()
-        aliases = list(getattr(gold, "aliases", None) or [])
-        all_answers = {primary, long_ans, *aliases} - {""}
+        long_ans: str = str(getattr(gold, "long_answer", "") or "").strip()
+        aliases: list[str] = list(getattr(gold, "aliases", None) or [])
+        all_answers: set[str] = {primary, long_ans, *aliases} - {""}
         # Filter: skip empty, binary, or too-short strings
-        candidates = [
+        candidates: list[str] = [
             a.lower()
             for a in all_answers
             if a and a.lower() not in _binary and len(a) > 3
         ]
         if not candidates:
             continue
-        contexts = getattr(rec, "contexts", []) or []
-        ctx_texts = [str(c).lower() for c in contexts]
+        contexts: list[str] = getattr(rec, "contexts", []) or []
+        ctx_texts: list[str] = [str(c).lower() for c in contexts]
         for surface in candidates:
             if any(surface in ctx for ctx in ctx_texts):
                 logger.warning(
