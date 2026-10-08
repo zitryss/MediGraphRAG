@@ -5,14 +5,14 @@ from experiments.answer_formatting import (
 
 
 def test_pubmedqa_instructions_include_maybe() -> None:
-    text = build_answer_instructions("pubmedqa", "binary")
+    text: str = build_answer_instructions("pubmedqa", "binary")
     assert "yes, no, or maybe" in text
     assert "exactly one word" in text.lower()
     assert "study conclusion" in text.lower()
 
 
 def test_mcq_instructions_include_options() -> None:
-    text = build_answer_instructions(
+    text: str = build_answer_instructions(
         "medhop",
         "mcq",
         options={"A": "Protein X", "B": "Protein Y"},
@@ -23,7 +23,7 @@ def test_mcq_instructions_include_options() -> None:
 
 
 def test_multihoprag_instructions_make_abstention_last_resort() -> None:
-    text = build_answer_instructions("multihoprag", "free_text")
+    text: str = build_answer_instructions("multihoprag", "free_text")
     assert "Insufficient Information" in text
     assert "shortest correct entity" in text
     assert "last resort" in text.lower()
@@ -31,14 +31,14 @@ def test_multihoprag_instructions_make_abstention_last_resort() -> None:
 
 
 def test_2wiki_free_text_instructions_are_short_answer_only() -> None:
-    text = build_answer_instructions("2wikimultihopqa", "free_text")
+    text: str = build_answer_instructions("2wikimultihopqa", "free_text")
     assert "short-answer multi-hop qa task" in text.lower()
     assert "shortest correct entity" in text.lower()
     assert "do not write an explanatory sentence" in text.lower()
 
 
 def test_realmedqa_instructions_expect_concise_recommendation() -> None:
-    text = build_answer_instructions("realmedqa", "free_text")
+    text: str = build_answer_instructions("realmedqa", "free_text")
     assert "clinical recommendation qa" in text.lower()
     assert "1 to 3 sentences" in text.lower()
     assert "insufficient information" in text.lower()

@@ -1,10 +1,12 @@
-from pathlib import Path
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ontographrag.api.runtime_helpers import (
+    ReadinessReport,
+    SupportGuardrailVerdict,
     build_readiness_report,
     build_support_guardrail_verdict,
     configured_provider_names_from_env,
@@ -22,7 +24,7 @@ def test_parse_request_timeout_seconds_clamps_values() -> None:
 
 
 def test_configured_provider_names_from_env_detects_keys() -> None:
-    providers = configured_provider_names_from_env(
+    providers: list[str] = configured_provider_names_from_env(
         {
             "OPENAI_API_KEY": "x",
             "OPENROUTER_API_KEY": "y",
@@ -49,7 +51,7 @@ def test_guardrail_forces_abstention_only_on_non_keep_verdicts() -> None:
 
 
 def test_support_guardrail_abstains_when_two_signals_are_weak() -> None:
-    verdict = build_support_guardrail_verdict(
+    verdict: SupportGuardrailVerdict = build_support_guardrail_verdict(
         enabled=True,
         mode="retry_then_abstain",
         structural_support=0.21,
@@ -63,7 +65,7 @@ def test_support_guardrail_abstains_when_two_signals_are_weak() -> None:
 
 
 def test_support_guardrail_keeps_when_only_one_signal_is_weak() -> None:
-    verdict = build_support_guardrail_verdict(
+    verdict: SupportGuardrailVerdict = build_support_guardrail_verdict(
         enabled=True,
         mode="retry_then_abstain",
         structural_support=0.62,
@@ -76,7 +78,7 @@ def test_support_guardrail_keeps_when_only_one_signal_is_weak() -> None:
 
 
 def test_support_guardrail_disabled_exposes_would_abstain_without_suppressing() -> None:
-    verdict = build_support_guardrail_verdict(
+    verdict: SupportGuardrailVerdict = build_support_guardrail_verdict(
         enabled=False,
         mode="abstain_only",
         structural_support=0.12,
@@ -90,13 +92,15 @@ def test_support_guardrail_disabled_exposes_would_abstain_without_suppressing() 
 
 
 def test_filesystem_write_probe_ok(tmp_path: Path) -> None:
+    ok: bool
+    detail: str
     ok, detail = filesystem_write_probe_ok(tmp_path)
     assert ok is True
     assert "Can write to" in detail
 
 
 def test_build_readiness_report_flags_missing_dependencies() -> None:
-    report = build_readiness_report(
+    report: ReadinessReport = build_readiness_report(
         neo4j_ready=True,
         rag_runtime_ready=False,
         write_probe_ok=True,
@@ -105,3 +109,37 @@ def test_build_readiness_report_flags_missing_dependencies() -> None:
     )
     assert report["ready"] is False
     assert report["status"] == "not_ready"
+
+
+class FloatConvertible:
+    def __float__(self) -> float:
+        return 0.8
+
+
+def test_timeout_conversion_fallback_and_numeric_clamps() -> None:
+    assert parse_request_timeout_seconds(None) == 120
+    assert parse_request_timeout_seconds(object()) == 120
+    assert parse_request_timeout_seconds("-20") == 15
+    assert parse_request_timeout_seconds("100000") == 300
+
+
+def test_guardrail_preserves_numeric_conversion_and_unavailable_signals() -> None:
+    verdict: SupportGuardrailVerdict = build_support_guardrail_verdict(
+        enabled=True,
+        mode="abstain_only",
+        structural_support="0.8",
+        grounding_support=FloatConvertible(),
+        confidence=0.8,
+    )
+    assert verdict["final_decision"] == "keep"
+    assert verdict["weak_signal_count"] == 0
+    for unavailable in (None, object(), "not-a-number", float("nan")):
+        verdict = build_support_guardrail_verdict(
+            enabled=True,
+            mode="abstain_only",
+            structural_support=unavailable,
+            grounding_support=unavailable,
+            confidence=unavailable,
+        )
+        assert verdict["weak_signal_count"] == 0
+        assert verdict["final_decision"] == "keep"

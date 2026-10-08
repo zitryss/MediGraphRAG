@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
+import matplotlib.pyplot as plt
 import pytest
+from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
 from experiments import visualize_results as visual
@@ -22,7 +25,13 @@ def result_blocks() -> list[visual.ResultBlock]:
             "task_type": "factoid",
         }
         for prefix in ["vanilla", "kg"]:
-            row.update({f"{prefix}_{m}": (i + 1) / 10 for m in metrics})
+            # Names come from the producer's finite UNCERTAINTY_METRIC_SPECS;
+            # each generated key is one optional numeric PlotDetail field.
+            row.update(
+                cast(
+                    visual.PlotDetail, {f"{prefix}_{m}": (i + 1) / 10 for m in metrics}
+                )
+            )
         details.append(row)
     config: visual.ConfigResult = {
         "config": {"name": "unit", "similarity_threshold": 0.1, "max_chunks": 2},
@@ -53,10 +62,20 @@ def result_blocks() -> list[visual.ResultBlock]:
         },
     }
     for prefix in ["vanilla", "kg"]:
-        config.update({f"{prefix}_avg_{m}": 0.4 for m in metrics})
-        config[f"{prefix}_avg_compute_times"] = {
-            m: 0.01 * (i + 1) for i, m in enumerate(metrics)
-        }
+        # Same finite metric names populate the matching average fields.
+        config.update(
+            cast(visual.ConfigResult, {f"{prefix}_avg_{m}": 0.4 for m in metrics})
+        )
+        config.update(
+            cast(
+                visual.ConfigResult,
+                {
+                    f"{prefix}_avg_compute_times": {
+                        m: 0.01 * (i + 1) for i, m in enumerate(metrics)
+                    }
+                },
+            )
+        )
     return [{"dataset": "unit", "config_results": [config]}]
 
 
@@ -86,7 +105,7 @@ def test_plots_emit_png_artifacts(
         data: bytes = Path(path).read_bytes()
         assert data.startswith(b"\x89PNG\r\n\x1a\n")
         assert len(data) > 1000
-    visual.plt.close("all")
+    plt.close("all")
 
 
 @pytest.mark.parametrize("multi", [False, True])
@@ -111,7 +130,7 @@ def test_legacy_aggregation_means(multi: bool, tmp_path: Path) -> None:
     ] == pytest.approx(0.4)
     overall: visual.OverallMetrics = visual.aggregate_overall(results)
     assert overall["kg_rag"]["accuracy"] == 0.8
-    figure = visual.create_overall_comparison_chart(
+    figure: Figure | None = visual.create_overall_comparison_chart(
         overall, ["accuracy"], str(tmp_path / "overall.png")
     )
     assert figure is not None
@@ -120,7 +139,7 @@ def test_legacy_aggregation_means(multi: bool, tmp_path: Path) -> None:
     ]
     assert len(bars) == 2
     assert [patch.get_height() for patch in bars] == pytest.approx([0.4, 0.8])
-    visual.plt.close("all")
+    plt.close("all")
 
 
 def test_new_schema_aggregation_and_bar_values(
@@ -133,7 +152,7 @@ def test_new_schema_aggregation_and_bar_values(
     aggregated: visual.AggregatedMetrics = visual.aggregate_by_config(results)
     assert aggregated["unit"]["kg_rag"]["accuracy"] == 0.75
     assert visual.aggregate_overall(results)["vanilla_rag"]["accuracy"] == 0.5
-    figure = visual.create_comparison_chart(
+    figure: Figure | None = visual.create_comparison_chart(
         aggregated, ["accuracy"], str(tmp_path / "comparison.png")
     )
     assert figure is not None
@@ -142,4 +161,4 @@ def test_new_schema_aggregation_and_bar_values(
     ]
     assert len(bars) == 2
     assert [patch.get_height() for patch in bars] == [0.5, 0.75]
-    visual.plt.close("all")
+    plt.close("all")

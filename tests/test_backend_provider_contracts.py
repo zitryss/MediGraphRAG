@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import google.generativeai as genai
 import httpx
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -17,8 +18,8 @@ from ontographrag.providers import model_providers as providers
 )
 def test_real_provider_factories(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(providers, "OpenAIClient", Mock())
-    monkeypatch.setattr(providers.genai, "configure", Mock())
-    provider = providers.get_provider(name.upper())
+    monkeypatch.setattr(genai, "configure", Mock())
+    provider: providers.ModelProvider = providers.get_provider(name.upper())
     assert isinstance(provider, providers.ModelProvider)
     with pytest.raises(ValueError, match="Unsupported"):
         providers.get_provider("unsupported")
@@ -43,11 +44,11 @@ def test_http_provider_payload_and_http_failure(
     name: str, key: str, url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(key, "unit-token")
-    response = Mock()
+    response: Mock = Mock()
     response.json.return_value = {"choices": [{"message": {"content": "answer"}}]}
-    post = Mock(return_value=response)
-    monkeypatch.setattr(providers.httpx, "post", post)
-    provider = providers.get_provider(name)
+    post: Mock = Mock(return_value=response)
+    monkeypatch.setattr(httpx, "post", post)
+    provider: providers.ModelProvider = providers.get_provider(name)
     assert (
         provider.generate("system", "question", "unit-model", temperature=0.7)
         == "answer"
@@ -70,31 +71,31 @@ def test_http_provider_payload_and_http_failure(
 
 
 def test_openai_constructor_and_generation(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = Mock()
+    client: Mock = Mock()
     client.chat.completions.create.return_value = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="answer"))]
     )
-    factory = Mock(return_value=client)
+    factory: Mock = Mock(return_value=client)
     monkeypatch.setattr(providers, "OpenAIClient", factory)
     monkeypatch.setenv("OPENAI_API_KEY", "unit")
-    provider = providers.OpenAIProvider()
+    provider: providers.OpenAIProvider = providers.OpenAIProvider()
     assert factory.call_args.kwargs["api_key"] == "unit"
     assert provider.generate("s", "u", "m") == "answer"
     assert client.chat.completions.create.call_args.kwargs["temperature"] == 1
 
 
 def test_huggingface_and_gemini_generation(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = Mock()
+    client: Mock = Mock()
     client.text_generation.return_value = "answer"
     monkeypatch.setattr(providers, "InferenceClient", Mock(return_value=client))
     assert providers.HuggingFaceProvider().generate("s", "u", "m") == "answer"
     client.text_generation.assert_called_once_with(
         prompt="s\n\nu", model="m", temperature=0
     )
-    model = Mock()
+    model: Mock = Mock()
     model.generate_content.return_value = SimpleNamespace(text="gemini answer")
-    monkeypatch.setattr(providers.genai, "configure", Mock())
-    monkeypatch.setattr(providers.genai, "GenerativeModel", Mock(return_value=model))
+    monkeypatch.setattr(genai, "configure", Mock())
+    monkeypatch.setattr(genai, "GenerativeModel", Mock(return_value=model))
     assert (
         providers.GeminiProvider().generate("s", "u", "m", temperature=0.9)
         == "gemini answer"
@@ -115,7 +116,7 @@ def test_ollama_json_contract(
 ) -> None:
     import ollama
 
-    chat = Mock(return_value={"message": {"content": content}})
+    chat: Mock = Mock(return_value={"message": {"content": content}})
     monkeypatch.setattr(ollama, "chat", chat)
     assert (
         providers.OllamaProvider().generate("s", "u", "m", force_json=force) == expected
@@ -140,9 +141,11 @@ def test_ollama_json_contract(
     ],
 )
 def test_adapter_invocation(input_value: object, system: str, user: str) -> None:
-    provider = Mock()
+    provider: Mock = Mock()
     provider.generate.return_value = "answer"
-    adapter = providers.LangChainRunnableAdapter(provider, "m", temperature=0.3)
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider, "m", temperature=0.3
+    )
     assert adapter.invoke(input_value) == "answer"
     provider.generate.assert_called_once_with(system, user, "m", temperature=0.3)
     assert adapter.bind(x=1) is adapter
@@ -150,8 +153,8 @@ def test_adapter_invocation(input_value: object, system: str, user: str) -> None
 
 
 def test_embedding_fallback_and_exhaustion(monkeypatch: pytest.MonkeyPatch) -> None:
-    model = object()
-    factory = Mock(side_effect=[ImportError("unavailable"), model])
+    model: object = object()
+    factory: Mock = Mock(side_effect=[ImportError("unavailable"), model])
     monkeypatch.setattr(providers, "get_embedding_model", factory)
     assert providers.get_embedding_method("huggingface") == ("openai", model)
     assert [c.args[0] for c in factory.call_args_list] == ["huggingface", "openai"]

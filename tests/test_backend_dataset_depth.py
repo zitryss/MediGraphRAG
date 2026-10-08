@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from experiments import dataset_adapters as adapters
+from experiments.dataset_adapters import GoldRecord, InferenceRecord
 
 
 @pytest.mark.parametrize(
@@ -14,8 +13,10 @@ from experiments import dataset_adapters as adapters
     [("1", "", "beta"), ("b", "", "beta"), (99, "", ""), (0, "Explicit", "explicit")],
 )
 def test_medqa_release_answer_variants(
-    answer_idx: Any, explicit: str, expected: str
+    answer_idx: str | int, explicit: str, expected: str
 ) -> None:
+    inference: InferenceRecord
+    gold: GoldRecord
     inference, gold = adapters.adapt_medqa(
         {
             "id": "q",
@@ -43,8 +44,10 @@ def test_medqa_release_answer_variants(
     ],
 )
 def test_bioasq_factoid_aliases_stay_in_gold(
-    raw: list, expected: str, aliases: list[str] | None
+    raw: list[str] | list[list[str]], expected: str, aliases: list[str] | None
 ) -> None:
+    inference: InferenceRecord
+    gold: GoldRecord
     inference, gold = adapters.adapt_bioasq(
         {
             "id": "q",
@@ -60,6 +63,8 @@ def test_bioasq_factoid_aliases_stay_in_gold(
 
 
 def test_musique_paragraph_and_legacy_context_variants() -> None:
+    record: InferenceRecord
+    gold: GoldRecord
     record, gold = adapters.adapt_musique(
         {
             "id": "q",
@@ -77,6 +82,7 @@ def test_musique_paragraph_and_legacy_context_variants() -> None:
     assert record.contexts == ["Title. Body", "Existing title body", "plain"]
     assert record.context_titles == ["Title", "Existing", None]
     assert gold.aliases == ["alias"]
+    legacy: InferenceRecord
     legacy, _ = adapters.adapt_musique(
         {
             "context": [
@@ -91,6 +97,8 @@ def test_musique_paragraph_and_legacy_context_variants() -> None:
 
 
 def test_medhop_candidates_and_multihoprag_evidence_do_not_include_gold() -> None:
+    record: InferenceRecord
+    gold: GoldRecord
     record, gold = adapters.adapt_medhop(
         {
             "id": "q",
@@ -102,6 +110,8 @@ def test_medhop_candidates_and_multihoprag_evidence_do_not_include_gold() -> Non
     )
     assert record.options == {"A": "DrugA", "B": "DrugB"}
     assert record.contexts == ["Source evidence"] and gold.short_answer == "drugb"
+    binary: InferenceRecord
+    answer: GoldRecord
     binary, answer = adapters.adapt_multihoprag(
         {
             "id": "q",

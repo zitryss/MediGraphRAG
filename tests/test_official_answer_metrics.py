@@ -5,6 +5,8 @@ from experiments.official_answer_metrics import (
 
 
 def test_wrapped_answer_gets_partial_f1_but_not_exact_match() -> None:
+    em: float
+    f1: float
     em, f1 = compute_answer_em_f1(
         "The answer is Sam Bankman-Fried.",
         "Sam Bankman-Fried",
@@ -14,6 +16,8 @@ def test_wrapped_answer_gets_partial_f1_but_not_exact_match() -> None:
 
 
 def test_alias_can_rescue_em_and_f1() -> None:
+    em: float
+    f1: float
     em, f1 = compute_answer_em_f1(
         "acetylsalicylic acid",
         "aspirin",
@@ -24,6 +28,8 @@ def test_alias_can_rescue_em_and_f1() -> None:
 
 
 def test_partial_overlap_scores_fractional_f1() -> None:
+    em: float
+    f1: float
     em, f1 = compute_answer_em_f1(
         "sam bankman",
         "sam bankman fried",

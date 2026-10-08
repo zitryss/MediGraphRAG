@@ -17,7 +17,7 @@ def test_extract_pmid_from_url_handles_pubmed_url_and_raw_id() -> None:
 
 
 def test_load_bioasq_pmids_collects_from_documents_and_snippets(tmp_path: Path) -> None:
-    bioasq_path = tmp_path / "bioasq.json"
+    bioasq_path: Path = tmp_path / "bioasq.json"
     bioasq_path.write_text(
         """
         {
@@ -41,7 +41,7 @@ def test_load_bioasq_pmids_collects_from_documents_and_snippets(tmp_path: Path) 
 
 
 def test_parse_pubmed_article_xml_extracts_title_and_abstract() -> None:
-    xml = """
+    xml: str = """
     <PubmedArticleSet>
       <PubmedArticle>
         <MedlineCitation>
@@ -58,7 +58,7 @@ def test_parse_pubmed_article_xml_extracts_title_and_abstract() -> None:
     </PubmedArticleSet>
     """.strip()
 
-    records = parse_pubmed_article_xml(xml)
+    records: dict[str, dict[str, str]] = parse_pubmed_article_xml(xml)
     assert records["34022131"]["title"] == "Sample title"
     assert (
         records["34022131"]["abstract"]

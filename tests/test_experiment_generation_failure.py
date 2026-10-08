@@ -1,26 +1,24 @@
 import os
-from typing import Any
+from typing import TYPE_CHECKING
+
+from tests.offline_support import ExperimentModule
+
+if TYPE_CHECKING:
+    from experiments.experiment import MIRAGEEvaluationPipeline, StudyEvaluationConfig
 
 import pytest
 
-MIRAGEEvaluationPipeline: Any = None
 
-
-@pytest.fixture(autouse=True)
-def _isolated_pipeline(experiment_module, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(
-        globals(),
-        "MIRAGEEvaluationPipeline",
-        experiment_module.MIRAGEEvaluationPipeline,
+def _make_pipeline(experiment_module: ExperimentModule) -> "MIRAGEEvaluationPipeline":
+    return experiment_module.MIRAGEEvaluationPipeline.__new__(
+        experiment_module.MIRAGEEvaluationPipeline
     )
 
 
-def _make_pipeline():
-    return MIRAGEEvaluationPipeline.__new__(MIRAGEEvaluationPipeline)
-
-
-def test_exact_insufficient_information_is_failure_when_gold_is_specific() -> None:
-    pipeline = _make_pipeline()
+def test_exact_insufficient_information_is_failure_when_gold_is_specific(
+    experiment_module: ExperimentModule,
+) -> None:
+    pipeline: MIRAGEEvaluationPipeline = _make_pipeline(experiment_module)
 
     assert (
         pipeline._is_generation_failure(
@@ -32,8 +30,10 @@ def test_exact_insufficient_information_is_failure_when_gold_is_specific() -> No
     )
 
 
-def test_exact_insufficient_information_is_not_failure_when_gold_matches() -> None:
-    pipeline = _make_pipeline()
+def test_exact_insufficient_information_is_not_failure_when_gold_matches(
+    experiment_module: ExperimentModule,
+) -> None:
+    pipeline: MIRAGEEvaluationPipeline = _make_pipeline(experiment_module)
 
     assert (
         pipeline._is_generation_failure(
@@ -45,13 +45,17 @@ def test_exact_insufficient_information_is_not_failure_when_gold_matches() -> No
     )
 
 
-def test_small_retrieval_study_builds_expected_variants() -> None:
-    configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
-        profile="small",
-        similarity_thresholds=[0.1],
-        max_chunks_values=[10],
-        retrieval_temperature_values=[0.0],
-        retrieval_shortlist_factor=4,
+def test_small_retrieval_study_builds_expected_variants(
+    experiment_module: ExperimentModule,
+) -> None:
+    configs: list[StudyEvaluationConfig] = (
+        experiment_module.MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
+            profile="small",
+            similarity_thresholds=[0.1],
+            max_chunks_values=[10],
+            retrieval_temperature_values=[0.0],
+            retrieval_shortlist_factor=4,
+        )
     )
 
     assert [cfg["retrieval_variant"] for cfg in configs] == [
@@ -65,13 +69,17 @@ def test_small_retrieval_study_builds_expected_variants() -> None:
     assert configs[-1]["kg_system"]["retrieval_mode"] == "hybrid_auto"
 
 
-def test_final_pair_retrieval_study_builds_expected_variants() -> None:
-    configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
-        profile="final_pair",
-        similarity_thresholds=[0.1],
-        max_chunks_values=[10],
-        retrieval_temperature_values=[0.0],
-        retrieval_shortlist_factor=4,
+def test_final_pair_retrieval_study_builds_expected_variants(
+    experiment_module: ExperimentModule,
+) -> None:
+    configs: list[StudyEvaluationConfig] = (
+        experiment_module.MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
+            profile="final_pair",
+            similarity_thresholds=[0.1],
+            max_chunks_values=[10],
+            retrieval_temperature_values=[0.0],
+            retrieval_shortlist_factor=4,
+        )
     )
 
     assert [cfg["retrieval_variant"] for cfg in configs] == [
@@ -85,11 +93,14 @@ def test_final_pair_retrieval_study_builds_expected_variants() -> None:
 
 
 def test_temporary_env_restores_original_values(
+    experiment_module: ExperimentModule,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_QUERY_FUSION", "1")
 
-    with MIRAGEEvaluationPipeline._temporary_env({"ONTOGRAPHRAG_QUERY_FUSION": "0"}):
+    with experiment_module.MIRAGEEvaluationPipeline._temporary_env(
+        {"ONTOGRAPHRAG_QUERY_FUSION": "0"}
+    ):
         assert os.environ["ONTOGRAPHRAG_QUERY_FUSION"] == "0"
 
     assert os.environ["ONTOGRAPHRAG_QUERY_FUSION"] == "1"

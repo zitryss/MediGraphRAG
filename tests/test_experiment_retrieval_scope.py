@@ -1,33 +1,120 @@
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, NotRequired, Unpack
+
+from typing_extensions import TypedDict
+
+from tests.offline_support import ExperimentModule
+
+if TYPE_CHECKING:
+    from experiments.experiment import (
+        MIRAGEEvaluationPipeline,
+        RoutingDistribution,
+        SamplingResponse,
+        StudyEvaluationConfig,
+    )
 
 import pytest
 
-MIRAGEEvaluationPipeline: Any = None
-experiment_mod: Any = None
+
+class SamplingCall(TypedDict, total=False):
+    question: str
+    llm: object
+    document_names: list[str] | None
+    similarity_threshold: float
+    max_chunks: int
+    extra_context_texts: list[str] | None
+    kg_name: str | None
+    answer_instructions: str | None
+    question_id: str | None
+    retrieval_temperature: float
+    retrieval_shortlist_factor: int
+    retrieval_sample_id: int
+    runtime_guardrail: bool | None
+    runtime_guardrail_mode: str | None
 
 
-@pytest.fixture(autouse=True)
-def _isolated_pipeline(experiment_module, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(
-        globals(),
-        "MIRAGEEvaluationPipeline",
-        experiment_module.MIRAGEEvaluationPipeline,
+class BuilderOptions(TypedDict, total=False):
+    chunk_size: int
+    chunk_overlap: int
+    neo4j_uri: str
+    neo4j_user: str
+    neo4j_password: str
+    neo4j_database: str
+    embedding_model: str
+    enable_anchor_constrained_extraction: bool
+    enable_self_reflection: bool
+    enable_anchor_coverage_supplement: bool
+    enable_cross_passage_relation_recovery: bool
+    self_consistency_n: int
+    few_shot_example_count: int
+    enable_low_confidence_triple_reverification: bool
+    low_confidence_reverify_threshold: float
+    min_triple_confidence: float
+    relationship_type_similarity_threshold: float
+    enable_umls_linking: bool
+    enable_soft_entity_linking: bool
+    enable_fragmentation_repair: bool
+    enable_graph_summaries: bool
+    enable_claim_extraction: bool
+
+
+class PassageBuildCall(TypedDict):
+    passages: list[SimpleNamespace]
+    llm: object
+    file_name: str
+    model_name: str
+    kg_name: str
+    doc_metadata: dict[str, str]
+    doc_hash: str | None
+
+
+class BuildMetadata(TypedDict):
+    stored_in_neo4j: bool
+    stored_relationships: int
+    total_passages: int
+    total_chunks: int
+    total_entities: int
+
+
+class BuildResult(TypedDict):
+    metadata: BuildMetadata
+
+
+class BuildCalls(TypedDict, total=False):
+    kwargs: BuilderOptions
+    generate_kwargs: PassageBuildCall
+
+
+class RoutingDetail(TypedDict):
+    kg_retrieval_route: str
+    kg_route_reason: str
+    kg_generation_failed: NotRequired[bool]
+
+
+class KGContractFixture(TypedDict):
+    passages: list[SimpleNamespace]
+    build_meta: dict[str, str]
+    records_for_kg: list[dict[str, str]]
+    evaluable_inference_records: list[dict[str, str]]
+
+
+def _make_benchmark(experiment_module: ExperimentModule) -> "MIRAGEEvaluationPipeline":
+    benchmark: MIRAGEEvaluationPipeline = (
+        experiment_module.MIRAGEEvaluationPipeline.__new__(
+            experiment_module.MIRAGEEvaluationPipeline
+        )
     )
-    monkeypatch.setitem(globals(), "experiment_mod", experiment_module)
-
-
-def _make_benchmark():
-    benchmark = MIRAGEEvaluationPipeline.__new__(MIRAGEEvaluationPipeline)
     benchmark.QUESTION_SCOPED_DATASETS = frozenset(
         {"musique", "hotpotqa", "2wikimultihopqa", "pubmedqa"}
     )
     return benchmark
 
 
-def test_validate_retrieval_scope_rejects_cross_question_chunks() -> None:
-    benchmark = _make_benchmark()
-    rag_result = {
+def test_validate_retrieval_scope_rejects_cross_question_chunks(
+    experiment_module: ExperimentModule,
+) -> None:
+    benchmark: MIRAGEEvaluationPipeline = _make_benchmark(experiment_module)
+    rag_result: SamplingResponse = {
         "context": {
             "chunks": [
                 {
@@ -51,9 +138,11 @@ def test_validate_retrieval_scope_rejects_cross_question_chunks() -> None:
     )
 
 
-def test_validate_retrieval_scope_allows_matching_question_scope() -> None:
-    benchmark = _make_benchmark()
-    rag_result = {
+def test_validate_retrieval_scope_allows_matching_question_scope(
+    experiment_module: ExperimentModule,
+) -> None:
+    benchmark: MIRAGEEvaluationPipeline = _make_benchmark(experiment_module)
+    rag_result: SamplingResponse = {
         "context": {
             "chunks": [
                 {
@@ -83,17 +172,21 @@ def test_validate_retrieval_scope_allows_matching_question_scope() -> None:
     )
 
 
-def test_collect_sample_responses_preserves_question_scope_and_sampling_pool() -> None:
-    benchmark = _make_benchmark()
+def test_collect_sample_responses_preserves_question_scope_and_sampling_pool(
+    experiment_module: ExperimentModule,
+) -> None:
+    benchmark: MIRAGEEvaluationPipeline = _make_benchmark(experiment_module)
     benchmark.entropy_samples = 2
     benchmark.llm = object()
 
-    calls = []
+    calls: list[SamplingCall] = []
 
     class FakeRAGSystem:
-        def generate_response(self, **kwargs):
+        def generate_response(
+            self, **kwargs: Unpack[SamplingCall]
+        ) -> "SamplingResponse":
             calls.append(kwargs)
-            sample_id = kwargs["retrieval_sample_id"]
+            sample_id: int = kwargs["retrieval_sample_id"]
             return {
                 "response": f"sample-response-{sample_id}",
                 "context": {
@@ -103,6 +196,9 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool() -
                 },
             }
 
+    responses: list[str]
+    retrieved_chunk_texts: list[str]
+    overlap: float
     responses, retrieved_chunk_texts, overlap = benchmark._collect_sample_responses(
         FakeRAGSystem(),
         question="Who wrote Dune?",
@@ -121,13 +217,17 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool() -
     assert [call["retrieval_sample_id"] for call in calls] == [0, 1]
 
 
-def test_retrieval_study_configs_do_not_override_embedding_profile() -> None:
-    configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
-        profile="small",
-        similarity_thresholds=[0.1],
-        max_chunks_values=[10],
-        retrieval_temperature_values=[0.0],
-        retrieval_shortlist_factor=4,
+def test_retrieval_study_configs_do_not_override_embedding_profile(
+    experiment_module: ExperimentModule,
+) -> None:
+    configs: list[StudyEvaluationConfig] = (
+        experiment_module.MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
+            profile="small",
+            similarity_thresholds=[0.1],
+            max_chunks_values=[10],
+            retrieval_temperature_values=[0.0],
+            retrieval_shortlist_factor=4,
+        )
     )
 
     assert len(configs) == 5
@@ -135,13 +235,17 @@ def test_retrieval_study_configs_do_not_override_embedding_profile() -> None:
         assert "retrieval_profile" not in config["retrieval_stack"]
 
 
-def test_final_pair_configs_do_not_override_embedding_profile() -> None:
-    configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
-        profile="final_pair",
-        similarity_thresholds=[0.1],
-        max_chunks_values=[10],
-        retrieval_temperature_values=[0.0],
-        retrieval_shortlist_factor=4,
+def test_final_pair_configs_do_not_override_embedding_profile(
+    experiment_module: ExperimentModule,
+) -> None:
+    configs: list[StudyEvaluationConfig] = (
+        experiment_module.MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
+            profile="final_pair",
+            similarity_thresholds=[0.1],
+            max_chunks_values=[10],
+            retrieval_temperature_values=[0.0],
+            retrieval_shortlist_factor=4,
+        )
     )
 
     assert len(configs) == 2
@@ -156,9 +260,14 @@ def test_final_pair_configs_do_not_override_embedding_profile() -> None:
 
 
 def test_full_kg_builder_profile_enables_stronger_extraction(
+    experiment_module: ExperimentModule,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    benchmark = MIRAGEEvaluationPipeline.__new__(MIRAGEEvaluationPipeline)
+    benchmark: MIRAGEEvaluationPipeline = (
+        experiment_module.MIRAGEEvaluationPipeline.__new__(
+            experiment_module.MIRAGEEvaluationPipeline
+        )
+    )
     benchmark.DATASET_KG_SCOPE_EVALUATION_SUBSET = "evaluation_subset"
     benchmark.dataset_kg_scope = "evaluation_subset"
     benchmark.kg_builder_profile = "full"
@@ -172,27 +281,34 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
     benchmark.DATASET_TRACKS = {"realmedqa": "biomedical_grounding"}
     benchmark.DEFAULT_TRACK = "other"
 
-    benchmark._prepare_dataset_kg_contract = lambda dataset_name, force_resample=False: {
-        "passages": [
-            SimpleNamespace(
-                text="Passage text",
-                dataset=dataset_name,
-                question_id="q1",
-                passage_index=0,
-            )
-        ],
-        "build_meta": {},
-        "records_for_kg": [{"id": "q1"}],
-        "evaluable_inference_records": [{"id": "q1"}],
-    }
+    def prepare_contract(
+        dataset_name: str, force_resample: bool = False
+    ) -> KGContractFixture:
+        return {
+            "passages": [
+                SimpleNamespace(
+                    text="Passage text",
+                    dataset=dataset_name,
+                    question_id="q1",
+                    passage_index=0,
+                )
+            ],
+            "build_meta": {},
+            "records_for_kg": [{"id": "q1"}],
+            "evaluable_inference_records": [{"id": "q1"}],
+        }
 
-    seen = {}
+    benchmark._prepare_dataset_kg_contract = prepare_contract
+
+    seen: BuildCalls = {}
 
     class FakeBuilder:
-        def __init__(self, **kwargs) -> None:
+        def __init__(self, **kwargs: Unpack[BuilderOptions]) -> None:
             seen["kwargs"] = kwargs
 
-        def generate_knowledge_graph_from_passages(self, **kwargs):
+        def generate_knowledge_graph_from_passages(
+            self, **kwargs: Unpack[PassageBuildCall]
+        ) -> BuildResult:
             seen["generate_kwargs"] = kwargs
             return {
                 "metadata": {
@@ -204,7 +320,9 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
                 }
             }
 
-    monkeypatch.setattr(experiment_mod, "UnifiedOntologyGuidedKGCreator", FakeBuilder)
+    monkeypatch.setattr(
+        experiment_module, "UnifiedOntologyGuidedKGCreator", FakeBuilder
+    )
 
     assert benchmark._build_kg_for_dataset("realmedqa") is True
     assert seen["kwargs"]["enable_anchor_constrained_extraction"] is True
@@ -224,8 +342,10 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
     assert seen["kwargs"]["enable_claim_extraction"] is True
 
 
-def test_kg_routing_distribution_counts_entity_first_and_dense_fallback() -> None:
-    details = [
+def test_kg_routing_distribution_counts_entity_first_and_dense_fallback(
+    experiment_module: ExperimentModule,
+) -> None:
+    details: list[RoutingDetail] = [
         {"kg_retrieval_route": "entity_first", "kg_route_reason": "success"},
         {"kg_retrieval_route": "semantic_only", "kg_route_reason": "no_graph_signal"},
         {"kg_retrieval_route": "rfge", "kg_route_reason": "entity_first_failed"},
@@ -236,7 +356,11 @@ def test_kg_routing_distribution_counts_entity_first_and_dense_fallback() -> Non
         },
     ]
 
-    dist = MIRAGEEvaluationPipeline._compute_kg_routing_distribution(details)
+    dist: RoutingDistribution = (
+        experiment_module.MIRAGEEvaluationPipeline._compute_kg_routing_distribution(
+            details
+        )
+    )
 
     assert dist["n"] == 3
     assert dist["routes"]["entity_first"]["count"] == 1
@@ -248,9 +372,10 @@ def test_kg_routing_distribution_counts_entity_first_and_dense_fallback() -> Non
 
 
 def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
+    experiment_module: ExperimentModule,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    benchmark = _make_benchmark()
+    benchmark: MIRAGEEvaluationPipeline = _make_benchmark(experiment_module)
     benchmark.dataset_kg_scope = "evaluation_subset"
     benchmark.neo4j_uri = "bolt://localhost:7687"
     benchmark.neo4j_user = "neo4j"
@@ -260,27 +385,34 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
     benchmark.llm_model = "gpt-4o-mini"
     benchmark.rebuild_kg = False
 
-    benchmark._prepare_dataset_kg_contract = lambda dataset_name, force_resample=False: {
-        "passages": [
-            SimpleNamespace(
-                text="Passage text",
-                dataset=dataset_name,
-                question_id="q1",
-                passage_index=0,
-            )
-        ],
-        "build_meta": {},
-        "records_for_kg": [{"id": "q1"}],
-        "evaluable_inference_records": [{"id": "q1"}],
-    }
+    def prepare_contract(
+        dataset_name: str, force_resample: bool = False
+    ) -> KGContractFixture:
+        return {
+            "passages": [
+                SimpleNamespace(
+                    text="Passage text",
+                    dataset=dataset_name,
+                    question_id="q1",
+                    passage_index=0,
+                )
+            ],
+            "build_meta": {},
+            "records_for_kg": [{"id": "q1"}],
+            "evaluable_inference_records": [{"id": "q1"}],
+        }
 
-    seen = {}
+    benchmark._prepare_dataset_kg_contract = prepare_contract
+
+    seen: BuildCalls = {}
 
     class FakeBuilder:
-        def __init__(self, **kwargs) -> None:
+        def __init__(self, **kwargs: Unpack[BuilderOptions]) -> None:
             seen["kwargs"] = kwargs
 
-        def generate_knowledge_graph_from_passages(self, **kwargs):
+        def generate_knowledge_graph_from_passages(
+            self, **kwargs: Unpack[PassageBuildCall]
+        ) -> BuildResult:
             seen["generate_kwargs"] = kwargs
             return {
                 "metadata": {
@@ -292,7 +424,9 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
                 }
             }
 
-    monkeypatch.setattr(experiment_mod, "UnifiedOntologyGuidedKGCreator", FakeBuilder)
+    monkeypatch.setattr(
+        experiment_module, "UnifiedOntologyGuidedKGCreator", FakeBuilder
+    )
 
     assert benchmark._build_kg_for_dataset("2wikimultihopqa") is True
     assert seen["kwargs"]["enable_self_reflection"] is False

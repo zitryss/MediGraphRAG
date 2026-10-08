@@ -5,10 +5,11 @@ import json
 import socket
 import sys
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import ModuleType
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
 
 import dotenv
@@ -16,11 +17,16 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.test_backend_api_contracts import AppExports
+
+if TYPE_CHECKING:
+    from ontographrag.providers.model_providers import LangChainRunnableAdapter
+
 
 @pytest.fixture
 def isolated_app(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> Iterator[ModuleType]:
+) -> Iterator[AppExports]:
     def blocked(*args: object, **kwargs: object) -> None:
         raise AssertionError("Unexpected external connection")
 
@@ -30,7 +36,7 @@ def isolated_app(
     env_file.write_text(
         "ONTOGRAPHRAG_REQUEST_TIMEOUT_SECONDS=240\nALLOWED_ORIGINS=https://baseline.invalid\n"
     )
-    real_load = dotenv.load_dotenv
+    real_load: Callable[[Path], bool] = dotenv.load_dotenv
 
     def controlled_dotenv(*args: object, **kwargs: object) -> bool:
         return real_load(env_file)
@@ -54,16 +60,17 @@ def isolated_app(
     monkeypatch.setattr(module, "get_graphDB_driver", blocked)
     monkeypatch.setattr(module, "get_rag_system", blocked)
     monkeypatch.setattr(module, "get_llm_provider", blocked)
-    yield module
+    # The fixed app.py loader executes the same exports as AppExports.
+    yield cast(AppExports, module)
 
 
-def test_openapi_contract(isolated_app: ModuleType) -> None:
+def test_openapi_contract(isolated_app: AppExports) -> None:
     reference: Path = Path(__file__).parent / "fixtures/quality_baseline/openapi.json"
     assert isolated_app.app.openapi() == json.loads(reference.read_text())
 
 
 def test_import_configuration(
-    isolated_app: ModuleType, monkeypatch: pytest.MonkeyPatch
+    isolated_app: AppExports, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert isolated_app._REQUEST_TIMEOUT_SECONDS == 15
     assert isolated_app._cors_origins == ["https://baseline.invalid"]
@@ -75,7 +82,7 @@ def test_import_configuration(
     assert isolated_app._rag_system is None
 
 
-def test_http_health_error_and_validation(isolated_app: ModuleType) -> None:
+def test_http_health_error_and_validation(isolated_app: AppExports) -> None:
     client: TestClient = TestClient(isolated_app.app, raise_server_exceptions=False)
     headers: dict[str, str] = {"X-Request-ID": "baseline-request"}
     response: httpx.Response = client.get("/health", headers=headers)
@@ -104,7 +111,7 @@ def test_http_health_error_and_validation(isolated_app: ModuleType) -> None:
 
 
 def test_completed_progress_stream(
-    isolated_app: ModuleType, monkeypatch: pytest.MonkeyPatch
+    isolated_app: AppExports, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(isolated_app, "_kg_progress", deque(["first", "second"]))
     client: TestClient = TestClient(isolated_app.app)
@@ -119,7 +126,7 @@ def test_completed_progress_stream(
 
 
 def test_startup_and_health_graph_calls(
-    isolated_app: ModuleType, monkeypatch: pytest.MonkeyPatch
+    isolated_app: AppExports, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     driver: MagicMock = MagicMock()
     factory: MagicMock = MagicMock(return_value=driver)
@@ -161,7 +168,7 @@ def test_startup_and_health_graph_calls(
     ],
 )
 def test_chat_validation(
-    isolated_app: ModuleType,
+    isolated_app: AppExports,
     monkeypatch: pytest.MonkeyPatch,
     body: dict[str, object],
     detail: str,
@@ -181,7 +188,7 @@ def test_chat_validation(
 
 
 def test_chat_success_contract(
-    isolated_app: ModuleType, monkeypatch: pytest.MonkeyPatch
+    isolated_app: AppExports, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(isolated_app, "neo4j_ready", True)
     rag: MagicMock = MagicMock()
@@ -206,7 +213,9 @@ def test_chat_success_contract(
     assert response.json() == json.loads(reference.read_text())
     rag_factory.assert_called_once_with(embedding_model=None)
     provider_factory.assert_called_once_with("openrouter", "openai/gpt-oss-120b:free")
-    args = rag.generate_response.call_args.args
+    args: tuple[str, LangChainRunnableAdapter, list[str]] = (
+        rag.generate_response.call_args.args
+    )
     assert args[0] == "test" and args[2] == []
     assert args[1].provider is provider_factory.return_value
     assert args[1].model == "openai/gpt-oss-120b:free"

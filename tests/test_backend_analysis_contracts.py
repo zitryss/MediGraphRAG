@@ -7,16 +7,424 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypedDict, cast
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
 if TYPE_CHECKING:
-    from experiments.verbalized_confidence import ConfidenceDocument
+    from openai import OpenAI
+
     from experiments.gps_v2_replay import ReplayQuestion, ReplayStore
     from experiments.lockin_accounting_analysis import AccountingRow
+    from experiments.verbalized_confidence import ConfidenceDocument
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable as gps_v3_depth_matched_Iterable
+    from collections.abc import Iterable as lockin_accounting_analysis_Iterable
+    from collections.abc import Iterator as make_concentration_figure_Iterator
+    from collections.abc import Mapping as rejudge_wave1_Mapping
+    from collections.abc import Mapping as reporting_robustness_Mapping
+    from collections.abc import Sequence as certificate_eval_Sequence
+    from collections.abc import Sequence as make_concentration_figure_Sequence
+    from collections.abc import Sequence as trust_analysis_Sequence
+    from pathlib import Path as prepare_hotpotqa_fullwiki_corpus_Path
+    from typing import TypeGuard as lockin_accounting_analysis_TypeGuard
+
+    import numpy as certificate_eval_np
+    import numpy as diversity_run_analysis_np
+    import numpy as make_concentration_figure_np
+    import numpy as make_migration_figure_np
+    import numpy as trust_analysis_np
+    from numpy.typing import ArrayLike as trust_analysis_ArrayLike
+    from numpy.typing import NDArray as certificate_eval_NDArray
+    from numpy.typing import NDArray as make_concentration_figure_NDArray
+    from numpy.typing import NDArray as trust_analysis_NDArray
+
+    from experiments.anchor_masking_intervention import (
+        InterventionCandidate as anchor_masking_intervention_InterventionCandidate,
+    )
+    from experiments.certificate_eval import (
+        CertificateRow as certificate_eval_CertificateRow,
+    )
+    from experiments.gps_v2_replay import (
+        ReplayArtifact as gps_v3_depth_matched_ReplayArtifact,
+    )
+    from experiments.gps_v2_replay import (
+        ReplayScore as gps_v3_depth_matched_ReplayScore,
+    )
+    from experiments.gps_v2_replay import (
+        ReplayStore as gps_v3_depth_matched_ReplayStore,
+    )
+    from experiments.gps_v3_depth_matched import HopRow as gps_v3_depth_matched_HopRow
+    from experiments.graph_state_diversity_analysis import (
+        DiversityRow as graph_state_diversity_analysis_DiversityRow,
+    )
+    from experiments.lockin_accounting_analysis import (
+        AccountingRow as lockin_accounting_analysis_AccountingRow,
+    )
+    from experiments.lockin_accounting_analysis import (
+        AccountingSummary as lockin_accounting_analysis_AccountingSummary,
+    )
+    from experiments.make_concentration_figure import (
+        BinnedMeans as make_concentration_figure_BinnedMeans,
+    )
+    from experiments.make_concentration_figure import (
+        ConcentrationDetail as make_concentration_figure_ConcentrationDetail,
+    )
+    from experiments.make_migration_figure import MigrationPoint
+    from experiments.reporting_robustness import (
+        AnsweredCounts as reporting_robustness_AnsweredCounts,
+    )
+    from experiments.reporting_robustness import (
+        CompleteCase as reporting_robustness_CompleteCase,
+    )
+    from experiments.reporting_robustness import (
+        ContingencyTable as reporting_robustness_ContingencyTable,
+    )
+    from experiments.trust_analysis import SilentRateRow
+    from experiments.verbalized_confidence import (
+        ConfidenceRow as verbalized_confidence_ConfidenceRow,
+    )
+    from experiments.wave1_analysis import SilentCI as wave1_analysis_SilentCI
+    from ontographrag.rag.systems.enhanced_rag_system import (
+        EnhancedRAGSystem as anchor_masking_intervention_EnhancedRAGSystem,
+    )
+
+
+class BootstrapExports(Protocol):
+    @staticmethod
+    def aurec(
+        correct: gps_v3_depth_matched_Iterable[bool],
+        uncertainty: gps_v3_depth_matched_Iterable[float],
+    ) -> float | None: ...
+
+    @staticmethod
+    def auroc_ci(
+        scores: gps_v3_depth_matched_Iterable[float],
+        wrong: gps_v3_depth_matched_Iterable[bool],
+    ) -> tuple[float | None, float | None, float | None]: ...
+
+    @staticmethod
+    def latest_artifact(slug: str, strict: bool = ...) -> str | None: ...
+
+
+class GpsV3DepthMatchedExports(Protocol):
+    @staticmethod
+    def aurec(
+        correct: gps_v3_depth_matched_Iterable[bool],
+        uncertainty: gps_v3_depth_matched_Iterable[float],
+    ) -> float | None: ...
+
+    @staticmethod
+    def auroc_ci(
+        scores: gps_v3_depth_matched_Iterable[float],
+        wrong: gps_v3_depth_matched_Iterable[bool],
+    ) -> tuple[float | None, float | None, float | None]: ...
+
+    @staticmethod
+    def expected_hop(slug: str, row: gps_v3_depth_matched_HopRow | None) -> int: ...
+
+    @staticmethod
+    def latest_artifact(slug: str, strict: bool = ...) -> str | None: ...
+
+    @staticmethod
+    def load_artifact(
+        slug: str, strict: bool = ...
+    ) -> gps_v3_depth_matched_ReplayArtifact: ...
+
+    @staticmethod
+    def score_from_store_depth_matched(
+        store_row: gps_v3_depth_matched_ReplayStore | None,
+        expected_depth: int,
+        tau: float = ...,
+        gamma: float = ...,
+    ) -> gps_v3_depth_matched_ReplayScore: ...
+
+    @staticmethod
+    def scored_rows(
+        slug: str, strict: bool = ..., side: str = ...
+    ) -> list[tuple[str, float | None, bool]]: ...
+
+    @staticmethod
+    def scores_for(
+        slug: str, strict: bool = ..., side: str = ...
+    ) -> dict[str, float | None]: ...
+
+
+class TrustAnalysisExports(Protocol):
+    @staticmethod
+    def auroc(
+        scores: trust_analysis_ArrayLike,
+        wrong: trust_analysis_Sequence[bool]
+        | trust_analysis_NDArray[trust_analysis_np.int64],
+    ) -> float | None: ...
+
+    @staticmethod
+    def selective_risk(
+        scores: trust_analysis_ArrayLike,
+        correct: trust_analysis_ArrayLike,
+        coverages: trust_analysis_Sequence[float] = ...,
+    ) -> dict[str, float]: ...
+
+    @staticmethod
+    def silent_rate(
+        rows: trust_analysis_Sequence[SilentRateRow],
+    ) -> tuple[float | None, int]: ...
+
+
+class RejudgeIndependentExports(Protocol):
+    @staticmethod
+    def judge_one(
+        client: OpenAI, q: str, expected: str, response: str, retries: int = ...
+    ) -> bool | None: ...
+
+    time: ModuleType
+
+
+class VerbalizedConfidenceExports(Protocol):
+    @staticmethod
+    def ask_conf(
+        client: OpenAI, question: str, response: str, retries: int = ...
+    ) -> float | None: ...
+
+    @staticmethod
+    def load_details(
+        slug: str, policy: str
+    ) -> list[verbalized_confidence_ConfidenceRow]: ...
+
+
+class CertificateEvalExports(Protocol):
+    @staticmethod
+    def certificate_mask(
+        rows: certificate_eval_Sequence[certificate_eval_CertificateRow],
+        sd_thresh: float,
+    ) -> certificate_eval_NDArray[
+        certificate_eval_np.bool_ | certificate_eval_np.float64
+    ]: ...
+
+    @staticmethod
+    def main() -> None: ...
+
+
+class GraphStateDiversityAnalysisExports(Protocol):
+    @staticmethod
+    def main() -> None: ...
+
+    @staticmethod
+    def plot(rows: list[graph_state_diversity_analysis_DiversityRow]) -> list[str]: ...
+
+
+class PrepareHotpotqaFullwikiCorpusExports(Protocol):
+    @staticmethod
+    def _load_hotpot(
+        path: prepare_hotpotqa_fullwiki_corpus_Path,
+    ) -> list[dict[str, RawJSON]]: ...
+
+    @staticmethod
+    def prepare_corpus(
+        *,
+        hotpot_file: prepare_hotpotqa_fullwiki_corpus_Path,
+        output: prepare_hotpotqa_fullwiki_corpus_Path,
+        selection_output: prepare_hotpotqa_fullwiki_corpus_Path,
+        dataset_name: str,
+        num_samples: int | None,
+        subset_seed: int,
+        overwrite: bool,
+    ) -> CorpusSummary: ...
+
+
+class LockinAccountingAnalysisExports(Protocol):
+    @staticmethod
+    def account(
+        rows: lockin_accounting_analysis_Iterable[
+            lockin_accounting_analysis_AccountingRow
+        ],
+    ) -> lockin_accounting_analysis_AccountingSummary: ...
+
+    @staticmethod
+    def finite(value: object) -> lockin_accounting_analysis_TypeGuard[int | float]: ...
+
+    @staticmethod
+    def gps_flags(row: lockin_accounting_analysis_AccountingRow) -> bool: ...
+
+    @staticmethod
+    def silent_bucket(row: lockin_accounting_analysis_AccountingRow) -> str: ...
+
+
+class DiversityRunAnalysisExports(Protocol):
+    @staticmethod
+    def fin(x: float | str | None) -> bool | diversity_run_analysis_np.bool_: ...
+
+    @staticmethod
+    def main(pattern: str) -> None: ...
+
+
+class MakeConcentrationFigureExports(Protocol):
+    @staticmethod
+    def binned_means(
+        x: make_concentration_figure_NDArray[
+            make_concentration_figure_np.float64 | make_concentration_figure_np.int64
+        ]
+        | list[float],
+        y: make_concentration_figure_NDArray[
+            make_concentration_figure_np.float64 | make_concentration_figure_np.int64
+        ]
+        | list[float],
+        n_bins: int = ...,
+        boot: int = ...,
+    ) -> make_concentration_figure_BinnedMeans: ...
+
+    @staticmethod
+    def points(
+        rows: make_concentration_figure_Sequence[
+            make_concentration_figure_ConcentrationDetail
+        ],
+        pre: str,
+    ) -> make_concentration_figure_Iterator[
+        make_concentration_figure_NDArray[make_concentration_figure_np.float64]
+    ]: ...
+
+
+class AnchorMaskingInterventionExports(Protocol):
+    @staticmethod
+    def _make_kg_system(
+        policy: str,
+    ) -> anchor_masking_intervention_EnhancedRAGSystem: ...
+
+    @staticmethod
+    def _question_id_for_scope(dataset: str, qid: str) -> str | None: ...
+
+    @staticmethod
+    def select_candidates(
+        dataset: str,
+        policy: str,
+        *,
+        sd_threshold: float,
+        seu_threshold: float,
+        wrong_only: bool,
+        require_populated_route: bool,
+        limit: int,
+    ) -> list[anchor_masking_intervention_InterventionCandidate]: ...
+
+
+class GpsSensitivityExports(Protocol):
+    @staticmethod
+    def auroc_at(
+        slug: str, strict: bool, tau: float, gamma: float
+    ) -> tuple[float | None, int]: ...
+
+
+class Wave1AnalysisExports(Protocol):
+    @staticmethod
+    def silent_cis() -> dict[str, dict[str, wave1_analysis_SilentCI]]: ...
+
+    @staticmethod
+    def wilson_ci(k: int, n: int, z: float = ...) -> list[float] | None: ...
+
+
+class ReportingRobustnessExports(Protocol):
+    @staticmethod
+    def answered_counts() -> dict[
+        str, dict[str, reporting_robustness_AnsweredCounts]
+    ]: ...
+
+    @staticmethod
+    def odds_ratio_mh(
+        tables: reporting_robustness_Mapping[
+            str, reporting_robustness_ContingencyTable
+        ],
+    ) -> float | None: ...
+
+    @staticmethod
+    def realmedqa_adaptive_strict_complete_case() -> (
+        reporting_robustness_CompleteCase
+    ): ...
+
+
+class RejudgeWave1Exports(Protocol):
+    @staticmethod
+    def metric_aurocs(
+        slug: str, policy: str, labels_by_qid: rejudge_wave1_Mapping[str, bool | None]
+    ) -> dict[str, tuple[float | None, int]]: ...
+
+
+class ResidueAuditExports(Protocol):
+    @staticmethod
+    def main() -> None: ...
+
+
+class MakeMigrationFigureExports(Protocol):
+    @staticmethod
+    def main() -> None: ...
+
+    plt: ModuleType
+
+    @staticmethod
+    def xy(
+        r: MigrationPoint,
+    ) -> tuple[make_migration_figure_np.float64, float]: ...
+
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
+    from experiments.anchor_masking_intervention import (
+        CandidateDetail,
+        InterventionCandidate,
+    )
+    from experiments.certificate_eval import CertificateReport, CertificateRow
+    from experiments.diversity_run_analysis import TraceDetail, TraceReport
+    from experiments.gps_v2_replay import ReplayArtifact
+    from experiments.graph_state_diversity_analysis import (
+        DiversityDetail,
+        DiversityReport,
+    )
+    from experiments.lockin_accounting_analysis import AccountingSummary
+    from experiments.make_concentration_figure import ConcentrationDetail
+    from experiments.residue_audit import ResidueDetail, ResidueReport
+    from experiments.wave1_analysis import SilentCI
+
+
+class SilentRow(TypedDict):
+    correct: bool
+    dse: float | None
+    sd: float
+
+
+class RejudgeRow(TypedDict):
+    qid: str
+    sd: float
+    seu: float
+
+
+class CorpusSummary(TypedDict):
+    dataset: str
+    hotpot_file: str
+    output: str
+    selection_output: str
+    available_questions: int
+    selected_questions: int
+    corpus_documents: int
+
+
+class CorpusDocument(TypedDict):
+    text: str
+    source_question_ids: list[str]
+
+
+class MigrationRow(TypedDict):
+    qid: str
+    correct: bool
+    sd: float
+    seu: float
+
+
+RawJSON: TypeAlias = (
+    None | bool | int | float | str | list["RawJSON"] | dict[str, "RawJSON"]
+)
 
 
 class CorpusOptions(TypedDict):
@@ -35,7 +443,7 @@ def test_auroc_bootstrap_and_rejection_integral(
     monkeypatch: pytest.MonkeyPatch,
     name: str,
 ) -> None:
-    module: ModuleType = analysis_import(name)
+    module: BootstrapExports = cast(BootstrapExports, analysis_import(name))
     monkeypatch.setattr(module, "B", 30)
     monkeypatch.setattr(module, "RNG", np.random.default_rng(9))
     assert module.auroc_ci([0, 1], [False, True]) == (1, 1, 1)
@@ -62,8 +470,12 @@ def test_depth_matched_score(
     expected: float,
     reason: str | None,
 ) -> None:
-    module: ModuleType = analysis_import("gps_v3_depth_matched")
-    result = module.score_from_store_depth_matched(store, 2)
+    module: GpsV3DepthMatchedExports = cast(
+        GpsV3DepthMatchedExports, analysis_import("gps_v3_depth_matched")
+    )
+    result: gps_v3_depth_matched_ReplayScore = module.score_from_store_depth_matched(
+        store, 2
+    )
     assert result["score"] == pytest.approx(expected)
     assert result["null_reason"] == reason
 
@@ -73,7 +485,9 @@ def test_depth_replay_files_and_null_denominators(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    module: ModuleType = analysis_import("gps_v3_depth_matched")
+    module: GpsV3DepthMatchedExports = cast(
+        GpsV3DepthMatchedExports, analysis_import("gps_v3_depth_matched")
+    )
     monkeypatch.setattr(module, "REPO", str(tmp_path))
     monkeypatch.setattr(module, "RUNS", str(tmp_path))
     run: Path = tmp_path / "run"
@@ -109,9 +523,11 @@ def test_depth_replay_files_and_null_denominators(
 def test_trust_silent_failure_and_selective_risk(
     analysis_import: Callable[[str], ModuleType],
 ) -> None:
-    module: ModuleType = analysis_import("trust_analysis")
+    module: TrustAnalysisExports = cast(
+        TrustAnalysisExports, analysis_import("trust_analysis")
+    )
     assert module.silent_rate([]) == (None, 0)
-    rows = [
+    rows: list[SilentRow] = [
         {"correct": False, "dse": 0, "sd": 0},
         {"correct": False, "dse": None, "sd": 0},
         {"correct": True, "dse": 0, "sd": 0},
@@ -135,7 +551,9 @@ def test_independent_judge_parsing_and_retry(
     word: str | None,
     expected: bool | None,
 ) -> None:
-    module: ModuleType = analysis_import("rejudge_independent")
+    module: RejudgeIndependentExports = cast(
+        RejudgeIndependentExports, analysis_import("rejudge_independent")
+    )
     client: Mock = Mock()
     client.chat.completions.create.return_value = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=word))]
@@ -158,7 +576,9 @@ def test_independent_judge_parsing_and_retry(
 def test_verbal_confidence_parser(
     analysis_import: Callable[[str], ModuleType], text: str, expected: float | None
 ) -> None:
-    module: ModuleType = analysis_import("verbalized_confidence")
+    module: VerbalizedConfidenceExports = cast(
+        VerbalizedConfidenceExports, analysis_import("verbalized_confidence")
+    )
     client: Mock = Mock()
     client.chat.completions.create.return_value = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=text))]
@@ -171,8 +591,10 @@ def test_certificate_mask_and_artifact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    module: ModuleType = analysis_import("certificate_eval")
-    rows = [
+    module: CertificateEvalExports = cast(
+        CertificateEvalExports, analysis_import("certificate_eval")
+    )
+    rows: list[CertificateRow] = [
         (0.1, 0.2, 0.3, True),
         (0.2, 0.3, 0.4, True),
         (0.8, 0.9, 0.9, False),
@@ -185,7 +607,7 @@ def test_certificate_mask_and_artifact(
     monkeypatch.setattr(module, "RNG", np.random.default_rng(4))
     (tmp_path / "results/analyses").mkdir(parents=True)
     module.main()
-    result = json.loads(
+    result: CertificateReport = json.loads(
         (tmp_path / "results/analyses/certificate_eval.json").read_text()
     )
     assert result["pooled_certificate"] == {
@@ -203,8 +625,11 @@ def test_graph_diversity_analysis_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    module: ModuleType = analysis_import("graph_state_diversity_analysis")
-    details = [
+    module: GraphStateDiversityAnalysisExports = cast(
+        GraphStateDiversityAnalysisExports,
+        analysis_import("graph_state_diversity_analysis"),
+    )
+    details: list[DiversityDetail] = [
         {
             "question_id": str(i),
             "kg_correct": bool(i % 2),
@@ -214,7 +639,8 @@ def test_graph_diversity_analysis_artifacts(
         }
         for i in range(6)
     ]
-    details += [{"question_id": "absent"}]
+    absent_details: list[DiversityDetail] = [{"question_id": "absent"}]
+    details += absent_details
     monkeypatch.setattr(
         module, "_iter_result_details", lambda: iter([("unit", "adaptive", details)])
     )
@@ -222,7 +648,7 @@ def test_graph_diversity_analysis_artifacts(
     monkeypatch.setattr(module, "OUT_JSON", str(tmp_path / "summary.json"))
     assert module.plot([]) == []
     module.main()
-    result = json.loads((tmp_path / "summary.json").read_text())
+    result: DiversityReport = json.loads((tmp_path / "summary.json").read_text())
     assert result["row_count"] == 6
     assert result["rows_by_dataset_policy"] == {"unit:adaptive": 6}
     assert {Path(p).suffix for p in result["figures"]} == {".png", ".pdf"}
@@ -237,7 +663,10 @@ def test_fullwiki_corpus_deduplicates_and_persists_selection(
     from experiments import subset_selection
 
     monkeypatch.setitem(sys.modules, "subset_selection", subset_selection)
-    module: ModuleType = analysis_import("prepare_hotpotqa_fullwiki_corpus")
+    module: PrepareHotpotqaFullwikiCorpusExports = cast(
+        PrepareHotpotqaFullwikiCorpusExports,
+        analysis_import("prepare_hotpotqa_fullwiki_corpus"),
+    )
     path: Path = tmp_path / "raw.json"
     path.write_text(
         json.dumps(
@@ -260,10 +689,10 @@ def test_fullwiki_corpus_deduplicates_and_persists_selection(
         "subset_seed": 42,
         "overwrite": False,
     }
-    result = module.prepare_corpus(**opts)
+    result: CorpusSummary = module.prepare_corpus(**opts)
     assert result["selected_questions"] == 2
     assert result["corpus_documents"] == 1
-    doc = json.loads(opts["output"].read_text())
+    doc: CorpusDocument = json.loads(opts["output"].read_text())
     assert doc["text"] == "Title. one two"
     assert doc["source_question_ids"] == ["q1", "q2"]
     assert json.loads(opts["selection_output"].read_text())["question_ids"] == [
@@ -293,8 +722,10 @@ def test_fullwiki_corpus_deduplicates_and_persists_selection(
 def test_lockin_partition(
     analysis_import: Callable[[str], ModuleType], changes: AccountingRow, bucket: str
 ) -> None:
-    module: ModuleType = analysis_import("lockin_accounting_analysis")
-    row = {
+    module: LockinAccountingAnalysisExports = cast(
+        LockinAccountingAnalysisExports, analysis_import("lockin_accounting_analysis")
+    )
+    row: AccountingRow = {
         "correct": False,
         "dse": 0,
         "sd": 0,
@@ -305,7 +736,7 @@ def test_lockin_partition(
         **changes,
     }
     assert module.silent_bucket(row) == bucket
-    result = module.account([row])
+    result: AccountingSummary = module.account([row])
     assert result["answered"] == 1
     assert result["buckets"] == {bucket: 1}
     assert module.account([])["silent_upper_bound_rate"] is None
@@ -318,9 +749,11 @@ def test_diversity_analysis_numeric_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    module: ModuleType = analysis_import("diversity_run_analysis")
+    module: DiversityRunAnalysisExports = cast(
+        DiversityRunAnalysisExports, analysis_import("diversity_run_analysis")
+    )
     path: Path = tmp_path / "results.json"
-    rows = [
+    rows: list[TraceDetail] = [
         {
             "kg_graph_state_sample_count": 2,
             "kg_correct": False,
@@ -329,7 +762,11 @@ def test_diversity_analysis_numeric_output(
         }
         for i in range(6)
     ]
-    rows += [{"kg_generation_failed": True}, {"kg_graph_state_sample_count": 1}]
+    unavailable_rows: list[TraceDetail] = [
+        {"kg_generation_failed": True},
+        {"kg_graph_state_sample_count": 1},
+    ]
+    rows += unavailable_rows
     path.write_text(
         json.dumps(
             {
@@ -341,7 +778,7 @@ def test_diversity_analysis_numeric_output(
     )
     monkeypatch.setattr(module, "OUT", str(tmp_path / "analysis.json"))
     module.main(str(path))
-    result = json.loads((tmp_path / "analysis.json").read_text())
+    result: TraceReport = json.loads((tmp_path / "analysis.json").read_text())
     assert result["n_answered"] == 7
     assert result["n_with_traces"] == 6
     assert result["stability_mean_jaccard"]["chunk"]["mean"] == pytest.approx(0.75)
@@ -357,12 +794,18 @@ def test_concentration_points_and_bootstrap(
     analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setitem(sys.modules, "make_figures", ModuleType("make_figures"))
-    module: ModuleType = analysis_import("make_concentration_figure")
-    rows = [
+    module: MakeConcentrationFigureExports = cast(
+        MakeConcentrationFigureExports, analysis_import("make_concentration_figure")
+    )
+    rows: list[ConcentrationDetail] = [
         {"kg_retrieval_overlap": 0.5, "kg_sd_uq": 0, "kg_correct": False},
         {"kg_retrieval_overlap": 0.8, "kg_sd_uq": 0.1, "kg_correct": True},
         {},
     ]
+    ow: NDArray[np.float64]
+    sw: NDArray[np.float64]
+    oc: NDArray[np.float64]
+    sc: NDArray[np.float64]
     ow, sw, oc, sc = module.points(rows, "kg")
     assert ow.tolist() == [0.5]
     assert sw.tolist() == [-12]
@@ -370,6 +813,9 @@ def test_concentration_points_and_bootstrap(
     assert sc[0] == pytest.approx(-1)
     assert module.binned_means([], []) == ([], [], [])
     monkeypatch.setattr(module, "RNG", np.random.default_rng(1))
+    mids: list[float]
+    means: list[float]
+    cis: list[tuple[float, float]]
     mids, means, cis = module.binned_means(np.arange(16), np.ones(16), boot=10)
     assert len(mids) == 4
     assert means == [1] * 4
@@ -382,14 +828,16 @@ def test_anchor_mask_candidate_filters_and_scoping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "experiments.experiment", experiment_module)
-    module: ModuleType = analysis_import("anchor_masking_intervention")
-    base = {
+    module: AnchorMaskingInterventionExports = cast(
+        AnchorMaskingInterventionExports, analysis_import("anchor_masking_intervention")
+    )
+    base: CandidateDetail = {
         "question_id": "q",
         "kg_sd_uq": 0,
         "kg_support_entailment_uncertainty": 0.9,
         "kg_retrieval_route": "entity_first",
     }
-    rows = [
+    rows: list[CandidateDetail] = [
         {**base, "kg_generation_failed": True},
         {},
         {**base, "kg_sd_uq": 1},
@@ -397,8 +845,12 @@ def test_anchor_mask_candidate_filters_and_scoping(
         {**base, "kg_retrieval_route": "entity_first_empty"},
         base,
     ]
-    monkeypatch.setattr(module, "_result_details", lambda *a: rows)
-    selected = module.select_candidates(
+
+    def fake_result_details(*a: object) -> list[CandidateDetail]:
+        return rows
+
+    monkeypatch.setattr(module, "_result_details", fake_result_details)
+    selected: list[InterventionCandidate] = module.select_candidates(
         "hotpotqa",
         "kg",
         sd_threshold=0.1,
@@ -419,7 +871,9 @@ def test_anchor_mask_candidate_filters_and_scoping(
 def test_sensitivity_replay_skips_unusable_and_scores(
     analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    module: ModuleType = analysis_import("gps_sensitivity")
+    module: GpsSensitivityExports = cast(
+        GpsSensitivityExports, analysis_import("gps_sensitivity")
+    )
     questions: list[ReplayQuestion] = [
         {
             "question_id": "a",
@@ -434,12 +888,20 @@ def test_sensitivity_replay_skips_unusable_and_scores(
         {"question_id": "c", "store": {"kg": {"null_reason": "generation_failed"}}},
         {"question_id": "d"},
     ]
+
+    def fake_load_artifact(*a: object, **kw: object) -> ReplayArtifact:
+        return {"source_result": "unit", "questions": questions}
+
     monkeypatch.setattr(
         module,
         "load_artifact",
-        lambda *a, **kw: {"source_result": "unit", "questions": questions},
+        fake_load_artifact,
     )
-    monkeypatch.setattr(module, "row_map", lambda *a: {})
+
+    def fake_row_map(*a: object) -> dict[str, gps_v3_depth_matched_HopRow]:
+        return {}
+
+    monkeypatch.setattr(module, "row_map", fake_row_map)
     assert module.auroc_at("hotpotqa", False, 0.6, 0.4) == (1, 2)
     questions[1]["kg_correct"] = True
     assert module.auroc_at("hotpotqa", False, 0.6, 0.4) == (None, 2)
@@ -448,23 +910,32 @@ def test_sensitivity_replay_skips_unusable_and_scores(
 def test_wave1_wilson_and_silent_counts(
     analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    module: ModuleType = analysis_import("wave1_analysis")
+    module: Wave1AnalysisExports = cast(
+        Wave1AnalysisExports, analysis_import("wave1_analysis")
+    )
     assert module.wilson_ci(0, 0) is None
-    lo, hi = module.wilson_ci(5, 10)
+    lo: float
+    hi: float
+    # wilson_ci returns None only for n == 0; this fixture supplies n == 10.
+    lo, hi = cast(list[float], module.wilson_ci(5, 10))
     assert lo == pytest.approx(1 - hi)
     assert 0.2 < lo < 0.3
     monkeypatch.setattr(module, "KEY", {"unit": "Unit"})
     monkeypatch.setattr(module, "STRICT_RUNS", {})
-    monkeypatch.setattr(
-        module,
-        "rows_for",
-        lambda *a: [
+
+    def fake_rows_for(*a: object) -> list[SilentRow]:
+        return [
             {"correct": False, "dse": 0, "sd": 0},
             {"correct": False, "dse": 1, "sd": 0.5},
             {"correct": True, "dse": 0, "sd": 0},
-        ],
+        ]
+
+    monkeypatch.setattr(
+        module,
+        "rows_for",
+        fake_rows_for,
     )
-    result = module.silent_cis()
+    result: dict[str, dict[str, SilentCI]] = module.silent_cis()
     assert result["unit"]["kg"]["rate"] == 0.5
     assert result["pooled"]["kg"]["n"] == 2
 
@@ -474,7 +945,9 @@ def test_reporting_odds_ratio_and_answered_denominators(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    module: ModuleType = analysis_import("reporting_robustness")
+    module: ReportingRobustnessExports = cast(
+        ReportingRobustnessExports, analysis_import("reporting_robustness")
+    )
     assert module.odds_ratio_mh({}) is None
     assert module.odds_ratio_mh(
         {
@@ -521,13 +994,25 @@ def test_reporting_odds_ratio_and_answered_denominators(
 def test_rejudge_metric_denominators(
     analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    module: ModuleType = analysis_import("rejudge_wave1")
-    rows = [{"qid": str(i), "sd": i / 12, "seu": i / 12} for i in range(12)]
-    monkeypatch.setattr(module, "rows_for", lambda *a: rows)
-    monkeypatch.setattr(
-        module, "gps_scores", lambda *a, **kw: {str(i): i / 12 for i in range(12)}
+    module: RejudgeWave1Exports = cast(
+        RejudgeWave1Exports, analysis_import("rejudge_wave1")
     )
-    result = module.metric_aurocs("unit", "kg", {str(i): i < 6 for i in range(12)})
+    rows: list[RejudgeRow] = [
+        {"qid": str(i), "sd": i / 12, "seu": i / 12} for i in range(12)
+    ]
+
+    def fake_rows_for(*a: object) -> list[RejudgeRow]:
+        return rows
+
+    monkeypatch.setattr(module, "rows_for", fake_rows_for)
+
+    def fake_gps_scores(*a: object, **kw: object) -> dict[str, float]:
+        return {str(i): i / 12 for i in range(12)}
+
+    monkeypatch.setattr(module, "gps_scores", fake_gps_scores)
+    result: dict[str, tuple[float | None, int]] = module.metric_aurocs(
+        "unit", "kg", {str(i): i < 6 for i in range(12)}
+    )
     assert result == {"sd_uq": (1, 12), "seu": (1, 12), "gps": (1, 12)}
     assert module.metric_aurocs("unit", "kg", {})["gps"] == (None, 0)
 
@@ -537,14 +1022,20 @@ def test_residue_audit_filter_and_artifact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    module: ModuleType = analysis_import("residue_audit")
+    module: ResidueAuditExports = cast(
+        ResidueAuditExports, analysis_import("residue_audit")
+    )
     monkeypatch.setattr(module, "REPO", str(tmp_path))
     monkeypatch.setattr(module, "KEY", {"unit": "Unit"})
     monkeypatch.setattr(module, "MANIFEST", {"Unit": {"result_path": "result.json"}})
     monkeypatch.setattr(module, "SLUGS", ["unit"])
     monkeypatch.setattr(module, "OUT_PATH", str(tmp_path / "out.json"))
-    monkeypatch.setattr(module, "gps_cache", lambda *a: {"q1": 0, "q2": 0})
-    base = {
+
+    def fake_gps_cache(*a: object) -> dict[str, int]:
+        return {"q1": 0, "q2": 0}
+
+    monkeypatch.setattr(module, "gps_cache", fake_gps_cache)
+    base: ResidueDetail = {
         "question_id": "q1",
         "question": "q",
         "expected": "a",
@@ -571,7 +1062,7 @@ def test_residue_audit_filter_and_artifact(
         )
     )
     module.main()
-    result = json.loads((tmp_path / "out.json").read_text())
+    result: ResidueReport = json.loads((tmp_path / "out.json").read_text())
     assert result["count"] == 1
     assert result["cases"][0]["response"] == "b"
     assert "cannot be confirmed" in result["caveat"]
@@ -583,15 +1074,21 @@ def test_migration_figure_artifacts(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setitem(sys.modules, "make_figures", ModuleType("make_figures"))
-    module: ModuleType = analysis_import("make_migration_figure")
+    module: MakeMigrationFigureExports = cast(
+        MakeMigrationFigureExports, analysis_import("make_migration_figure")
+    )
     monkeypatch.setattr(module, "OUT", str(tmp_path))
+
+    def fake_rows_for(*a: object) -> list[MigrationRow]:
+        return [
+            {"qid": "q1", "correct": False, "sd": 0, "seu": 0.2},
+            {"qid": "q2", "correct": False, "sd": 0.001, "seu": 0.8},
+        ]
+
     monkeypatch.setattr(
         module,
         "rows_for",
-        lambda *a: [
-            {"qid": "q1", "correct": False, "sd": 0, "seu": 0.2},
-            {"qid": "q2", "correct": False, "sd": 0.001, "seu": 0.8},
-        ],
+        fake_rows_for,
     )
     assert module.xy({"sd": 0, "seu": 0.2}) == (-12, 0.2)
     module.main()
@@ -614,7 +1111,9 @@ def test_verbal_confidence_load_details_selects_policy_and_excludes_failures(
     policy: str,
     expected: list[tuple[str, str, str, bool]],
 ) -> None:
-    module: ModuleType = analysis_import("verbalized_confidence")
+    module: VerbalizedConfidenceExports = cast(
+        VerbalizedConfidenceExports, analysis_import("verbalized_confidence")
+    )
     payload: ConfidenceDocument = {
         "config_results": [
             {

@@ -22,7 +22,8 @@ from scripts import check_arxiv_package as package
     ],
 )
 def test_supporting_fact_shapes(
-    support: object, expected: list[tuple[str, int]]
+    support: audit.SupportingFacts | list[list[str | int]] | None,
+    expected: list[tuple[str, int]],
 ) -> None:
     assert audit._get_supporting_facts({"supporting_facts": support}) == expected
 

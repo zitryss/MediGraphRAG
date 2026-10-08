@@ -2,6 +2,9 @@ import pytest
 
 from experiments import dataset_adapters as dataset_adapters_module
 from experiments.dataset_adapters import (
+    ContextPassage,
+    DatasetCorpusProfile,
+    GoldRecord,
     InferenceRecord,
     TaskType,
     adapt_2wikimultihopqa,
@@ -19,7 +22,7 @@ from experiments.dataset_adapters import (
 
 
 def test_adapt_medhop_maps_supports_and_candidates() -> None:
-    raw = {
+    raw: dict[str, str | list[str]] = {
         "id": "medhop_1",
         "query": "Which protein mediates the interaction between drug A and drug B?",
         "answer": "Protein X",
@@ -30,6 +33,8 @@ def test_adapt_medhop_maps_supports_and_candidates() -> None:
         ],
     }
 
+    inf: InferenceRecord
+    gold: GoldRecord
     inf, gold = adapt_medhop(raw)
 
     assert inf.id == "medhop_1"
@@ -46,7 +51,7 @@ def test_adapt_medhop_maps_supports_and_candidates() -> None:
 
 
 def test_adapt_medqa_handles_letter_answer_idx() -> None:
-    raw = {
+    raw: dict[str, str | dict[str, str]] = {
         "question": "Which action is correct?",
         "options": {
             "A": "Option A",
@@ -58,6 +63,8 @@ def test_adapt_medqa_handles_letter_answer_idx() -> None:
         "answer": "Option B",
     }
 
+    inf: InferenceRecord
+    gold: GoldRecord
     inf, gold = adapt_medqa(raw, q_id="medqa_1")
 
     assert inf.id == "medqa_1"
@@ -69,7 +76,7 @@ def test_adapt_medqa_handles_letter_answer_idx() -> None:
 
 
 def test_adapt_multihoprag_maps_query_answer_and_evidence() -> None:
-    raw = {
+    raw: dict[str, str | list[dict[str, str]]] = {
         "query": "Did the Reuters piece come before the AP piece?",
         "answer": "yes",
         "question_type": "temporal_query",
@@ -91,6 +98,8 @@ def test_adapt_multihoprag_maps_query_answer_and_evidence() -> None:
         ],
     }
 
+    inf: InferenceRecord
+    gold: GoldRecord
     inf, gold = adapt_multihoprag(raw, q_id="mhr_1")
 
     assert inf.id == "mhr_1"
@@ -110,7 +119,7 @@ def test_adapt_multihoprag_maps_query_answer_and_evidence() -> None:
 
 
 def test_adapt_bioasq_factoid_preserves_aliases() -> None:
-    raw = {
+    raw: dict[str, str | list[list[str]] | list[dict[str, str]]] = {
         "id": "bioasq_1",
         "body": "What drug is also known as acetylsalicylic acid?",
         "type": "factoid",
@@ -119,6 +128,8 @@ def test_adapt_bioasq_factoid_preserves_aliases() -> None:
         "snippets": [{"text": "Aspirin, or acetylsalicylic acid, is commonly used."}],
     }
 
+    inf: InferenceRecord
+    gold: GoldRecord
     inf, gold = adapt_bioasq(raw)
 
     assert inf.task_type == TaskType.FREE_TEXT.value
@@ -127,7 +138,7 @@ def test_adapt_bioasq_factoid_preserves_aliases() -> None:
 
 
 def test_adapt_2wiki_does_not_infer_aliases_from_evidences() -> None:
-    raw = {
+    raw: dict[str, str | list[list[str | list[str]]]] = {
         "_id": "2wiki_1",
         "question": "Who is the mother of the director of Polish-Russian War?",
         "answer": "Małgorzata Braunek",
@@ -139,19 +150,20 @@ def test_adapt_2wiki_does_not_infer_aliases_from_evidences() -> None:
         ],
     }
 
+    gold: GoldRecord
     _, gold = adapt_2wikimultihopqa(raw)
     assert gold.aliases is None
 
 
 def test_bioasq_profile_marks_question_contexts_as_gold_evidence() -> None:
-    profile = get_dataset_corpus_profile("bioasq")
+    profile: DatasetCorpusProfile = get_dataset_corpus_profile("bioasq")
 
     assert profile["question_context_role"] == "gold_evidence"
     assert profile["requires_shared_corpus_for_fair_retrieval"] is True
 
 
 def test_adapt_realmedqa_uses_question_only_and_recommendation_as_gold() -> None:
-    raw = {
+    raw: dict[str, str] = {
         "Question": "How should beta-blockers be titrated in heart failure?",
         "Recommendation": "Introduce beta-blockers in a start low, go slow manner and monitor after each titration.",
         "Generator": "LLM",
@@ -159,6 +171,8 @@ def test_adapt_realmedqa_uses_question_only_and_recommendation_as_gold() -> None
         "Answered": "Completely",
     }
 
+    inf: InferenceRecord
+    gold: GoldRecord
     inf, gold = adapt_realmedqa(raw, q_id="realmedqa_1")
 
     assert inf.id == "realmedqa_1"
@@ -172,29 +186,37 @@ def test_adapt_realmedqa_uses_question_only_and_recommendation_as_gold() -> None
 
 
 def test_realmedqa_profile_requires_shared_corpus() -> None:
-    profile = get_dataset_corpus_profile("realmedqa")
+    profile: DatasetCorpusProfile = get_dataset_corpus_profile("realmedqa")
 
     assert profile["question_context_role"] == "no_context"
     assert profile["requires_shared_corpus_for_fair_retrieval"] is True
 
 
-def test_multihoprag_uses_shared_corpus_for_fair_retrieval() -> None:
-    profile = get_dataset_corpus_profile("multihoprag")
-    original_loader = dataset_adapters_module._load_optional_json_records
-    dataset_adapters_module._load_optional_json_records = lambda candidate_paths: [
-        {
-            "title": "Reuters sample",
-            "source": "Reuters",
-            "author": "Reporter",
-            "category": "business",
-            "published_at": "2023-10-01T12:00:00+00:00",
-            "body": "Reuters reported the event first.",
-        }
-    ]
-    try:
-        passages = build_global_corpus_passages("multihoprag")
-    finally:
-        dataset_adapters_module._load_optional_json_records = original_loader
+def test_multihoprag_uses_shared_corpus_for_fair_retrieval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile: DatasetCorpusProfile = get_dataset_corpus_profile("multihoprag")
+
+    def fake_loader(paths: list[str]) -> list[dict[str, str]]:
+        return [
+            {
+                "title": "Reuters sample",
+                "source": "Reuters",
+                "author": "Reporter",
+                "category": "business",
+                "published_at": "2023-10-01T12:00:00+00:00",
+                "body": "Reuters reported the event first.",
+            }
+        ]
+
+    patch: pytest.MonkeyPatch
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            dataset_adapters_module, "_load_optional_json_records", fake_loader
+        )
+        passages: list[ContextPassage] | None = build_global_corpus_passages(
+            "multihoprag"
+        )
 
     assert profile["question_context_role"] == "gold_evidence"
     assert profile["requires_shared_corpus_for_fair_retrieval"] is True
@@ -209,9 +231,9 @@ def test_multihoprag_shared_corpus_absent_without_local_corpus(
     monkeypatch.setattr(
         dataset_adapters_module,
         "_load_optional_json_records",
-        lambda candidate_paths: None,
+        _missing_records,
     )
-    passages = build_global_corpus_passages("multihoprag")
+    passages: list[ContextPassage] | None = build_global_corpus_passages("multihoprag")
     assert passages is None
 
 
@@ -221,19 +243,17 @@ def test_bioasq_shared_corpus_absent_without_local_abstract_corpus(
     monkeypatch.setattr(
         dataset_adapters_module,
         "_load_optional_json_records",
-        lambda candidate_paths: None,
+        _missing_records,
     )
-    passages = build_global_corpus_passages("bioasq")
+    passages: list[ContextPassage] | None = build_global_corpus_passages("bioasq")
     assert passages is None
 
 
 def test_realmedqa_shared_corpus_uses_verified_ideal_subset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        dataset_adapters_module,
-        "_load_realmedqa_records",
-        lambda candidate_paths: [
+    def fake_load_realmedqa_records(candidate_paths: list[str]) -> list[dict[str, str]]:
+        return [
             {
                 "Question": "Q1",
                 "Recommendation": "R1",
@@ -248,9 +268,14 @@ def test_realmedqa_shared_corpus_uses_verified_ideal_subset(
                 "_normalized_answered": "completely",
                 "_fallback_id": "realmedqa_b",
             },
-        ],
+        ]
+
+    monkeypatch.setattr(
+        dataset_adapters_module,
+        "_load_realmedqa_records",
+        fake_load_realmedqa_records,
     )
-    passages = build_global_corpus_passages("realmedqa")
+    passages: list[ContextPassage] | None = build_global_corpus_passages("realmedqa")
 
     assert passages is not None
     assert len(passages) == 1
@@ -259,7 +284,7 @@ def test_realmedqa_shared_corpus_uses_verified_ideal_subset(
 
 
 def test_infer_hop_count_from_raw_uses_question_decomposition_when_present() -> None:
-    raw = {
+    raw: dict[str, list[dict[str, str]]] = {
         "question_decomposition": [
             {"q": "step 1"},
             {"q": "step 2"},
@@ -271,20 +296,20 @@ def test_infer_hop_count_from_raw_uses_question_decomposition_when_present() -> 
 
 
 def test_infer_hop_count_from_raw_uses_dataset_specific_evidence_fields() -> None:
-    multihoprag_raw = {
+    multihoprag_raw: dict[str, list[dict[str, str]]] = {
         "evidence_list": [
             {"fact": "A"},
             {"fact": "B"},
             {"fact": "C"},
         ]
     }
-    twowiki_raw = {
+    twowiki_raw: dict[str, list[list[str]]] = {
         "evidences": [
             ["A", "rel", "B"],
             ["B", "rel", "C"],
         ]
     }
-    hotpot_raw = {
+    hotpot_raw: dict[str, list[list[str | int]]] = {
         "supporting_facts": [
             ["Title A", 0],
             ["Title B", 1],
@@ -303,7 +328,7 @@ def test_infer_hop_count_from_raw_falls_back_to_id_prefix() -> None:
 def test_build_passage_corpus_preserves_question_local_duplicates_when_requested() -> (
     None
 ):
-    records = [
+    records: list[InferenceRecord] = [
         InferenceRecord(
             id="q1",
             dataset="musique",
@@ -320,8 +345,10 @@ def test_build_passage_corpus_preserves_question_local_duplicates_when_requested
         ),
     ]
 
-    deduped = build_passage_corpus(records)
-    question_scoped = build_passage_corpus(records, dedupe_across_questions=False)
+    deduped: list[ContextPassage] = build_passage_corpus(records)
+    question_scoped: list[ContextPassage] = build_passage_corpus(
+        records, dedupe_across_questions=False
+    )
 
     assert len(deduped) == 3
     assert len(question_scoped) == 4
@@ -332,7 +359,7 @@ def test_build_passage_corpus_preserves_question_local_duplicates_when_requested
 
 
 def test_build_passage_corpus_preserves_structured_titles_with_periods() -> None:
-    raw = {
+    raw: dict[str, str | list[list[str | list[str]]]] = {
         "_id": "hp1",
         "question": "Which film starred James Bond?",
         "answer": "dr. no",
@@ -342,9 +369,16 @@ def test_build_passage_corpus_preserves_structured_titles_with_periods() -> None
         ],
     }
 
+    inf: InferenceRecord
     inf, _ = adapt_hotpotqa(raw)
-    passages = build_passage_corpus([inf], dedupe_across_questions=False)
+    passages: list[ContextPassage] = build_passage_corpus(
+        [inf], dedupe_across_questions=False
+    )
 
     assert len(passages) == 1
     assert passages[0].text.startswith("Dr. No. James Bond")
     assert passages[0].source_title == "Dr. No"
+
+
+def _missing_records(candidate_paths: list[str]) -> None:
+    return None

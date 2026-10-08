@@ -4,9 +4,11 @@ import socket
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import google.generativeai as genai
 import httpx
 import pytest
 import typer
+from click.testing import Result
 from typer.testing import CliRunner
 
 from ontographrag import cli
@@ -39,8 +41,8 @@ def test_cli_ask_defaults_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
     factory: MagicMock = MagicMock()
     client: MagicMock = factory.return_value.__enter__.return_value
     client.post.return_value = response
-    monkeypatch.setattr(cli.httpx, "Client", factory)
-    result = CliRunner().invoke(
+    monkeypatch.setattr(httpx, "Client", factory)
+    result: Result = CliRunner().invoke(
         cli.app, ["ask", "Why?", "--server", "http://baseline.invalid///"]
     )
     assert result.exit_code == 0, result.output
@@ -80,7 +82,7 @@ def test_cli_serve_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     run: MagicMock = MagicMock()
     monkeypatch.setattr(uvicorn, "run", run)
-    result = CliRunner().invoke(cli.app, ["serve"])
+    result: Result = CliRunner().invoke(cli.app, ["serve"])
     assert result.exit_code == 0, result.output
     run.assert_called_once_with(
         "ontographrag.api.app:app", host="0.0.0.0", port=8004, reload=False
@@ -95,7 +97,9 @@ def test_openai_constructor_and_request(monkeypatch: pytest.MonkeyPatch) -> None
         choices=[SimpleNamespace(message=SimpleNamespace(content="answer"))],
     )
     monkeypatch.setattr(model_providers, "OpenAIClient", factory)
-    provider = model_providers.get_provider("OpenAI", model="ignored", temperature=0.25)
+    provider: model_providers.ModelProvider = model_providers.get_provider(
+        "OpenAI", model="ignored", temperature=0.25
+    )
     factory.assert_called_once_with(api_key="fake-key", timeout=17.0)
     assert provider.generate("system", "user", "model") == "answer"
     factory.return_value.chat.completions.create.assert_called_once_with(
@@ -125,9 +129,9 @@ def test_gemini_constructor_and_temperature(monkeypatch: pytest.MonkeyPatch) -> 
     configure: MagicMock = MagicMock()
     model: MagicMock = MagicMock()
     model.return_value.generate_content.return_value.text = "answer"
-    monkeypatch.setattr(model_providers.genai, "configure", configure)
-    monkeypatch.setattr(model_providers.genai, "GenerativeModel", model)
-    provider = model_providers.get_provider("gemini")
+    monkeypatch.setattr(genai, "configure", configure)
+    monkeypatch.setattr(genai, "GenerativeModel", model)
+    provider: model_providers.ModelProvider = model_providers.get_provider("gemini")
     configure.assert_called_once_with(api_key="fake-gemini")
     assert (
         provider.generate("system", "user", "gemini-model", temperature=0.9) == "answer"

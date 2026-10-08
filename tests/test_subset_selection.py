@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from experiments.subset_selection import (
+    QuestionSubsetResolution,
     deterministic_subset_ids,
     resolve_question_subset,
     selection_file_path,
@@ -16,10 +17,14 @@ from experiments.subset_selection import (
 
 
 def test_deterministic_subset_ids_is_seeded_and_order_preserving() -> None:
-    ordered_ids = [f"q{i}" for i in range(10)]
+    ordered_ids: list[str] = [f"q{i}" for i in range(10)]
 
-    selected_once = deterministic_subset_ids(ordered_ids, num_samples=4, subset_seed=7)
-    selected_twice = deterministic_subset_ids(ordered_ids, num_samples=4, subset_seed=7)
+    selected_once: list[str] = deterministic_subset_ids(
+        ordered_ids, num_samples=4, subset_seed=7
+    )
+    selected_twice: list[str] = deterministic_subset_ids(
+        ordered_ids, num_samples=4, subset_seed=7
+    )
 
     assert selected_once == selected_twice
     assert len(selected_once) == 4
@@ -30,8 +35,12 @@ def test_deterministic_subset_ids_is_seeded_and_order_preserving() -> None:
 
 
 def test_selection_file_path_is_seed_specific(tmp_path: Path) -> None:
-    seed_1 = selection_file_path(tmp_path, "musique", num_samples=100, subset_seed=1)
-    seed_2 = selection_file_path(tmp_path, "musique", num_samples=100, subset_seed=2)
+    seed_1: Path = selection_file_path(
+        tmp_path, "musique", num_samples=100, subset_seed=1
+    )
+    seed_2: Path = selection_file_path(
+        tmp_path, "musique", num_samples=100, subset_seed=2
+    )
 
     assert seed_1 != seed_2
     assert "seed1" in seed_1.name
@@ -41,22 +50,22 @@ def test_selection_file_path_is_seed_specific(tmp_path: Path) -> None:
 def test_resolve_question_subset_creates_and_then_reuses_saved_ids(
     tmp_path: Path,
 ) -> None:
-    selection_path = selection_file_path(
+    selection_path: Path = selection_file_path(
         tmp_path,
         "musique",
         num_samples=3,
         subset_seed=11,
     )
-    available_ids = [f"q{i}" for i in range(8)]
+    available_ids: list[str] = [f"q{i}" for i in range(8)]
 
-    created = resolve_question_subset(
+    created: QuestionSubsetResolution = resolve_question_subset(
         dataset_name="musique",
         available_question_ids=available_ids,
         num_samples=3,
         subset_seed=11,
         selection_path=selection_path,
     )
-    reused = resolve_question_subset(
+    reused: QuestionSubsetResolution = resolve_question_subset(
         dataset_name="musique",
         available_question_ids=available_ids,
         num_samples=3,
@@ -75,22 +84,22 @@ def test_resolve_question_subset_creates_and_then_reuses_saved_ids(
 def test_resolve_question_subset_reuses_persisted_ids_when_params_change(
     tmp_path: Path,
 ) -> None:
-    selection_path = selection_file_path(
+    selection_path: Path = selection_file_path(
         tmp_path,
         "hotpotqa",
         num_samples=5,
         subset_seed=3,
     )
-    available_ids = [f"q{i}" for i in range(12)]
+    available_ids: list[str] = [f"q{i}" for i in range(12)]
 
-    initial = resolve_question_subset(
+    initial: QuestionSubsetResolution = resolve_question_subset(
         dataset_name="hotpotqa",
         available_question_ids=available_ids,
         num_samples=5,
         subset_seed=3,
         selection_path=selection_path,
     )
-    reused = resolve_question_subset(
+    reused: QuestionSubsetResolution = resolve_question_subset(
         dataset_name="hotpotqa",
         available_question_ids=available_ids,
         num_samples=7,
@@ -108,22 +117,22 @@ def test_resolve_question_subset_reuses_persisted_ids_when_params_change(
 def test_resolve_question_subset_force_resample_overwrites_existing_selection(
     tmp_path: Path,
 ) -> None:
-    selection_path = selection_file_path(
+    selection_path: Path = selection_file_path(
         tmp_path,
         "pubmedqa",
         num_samples=4,
         subset_seed=1,
     )
-    available_ids = [f"q{i}" for i in range(10)]
+    available_ids: list[str] = [f"q{i}" for i in range(10)]
 
-    first = resolve_question_subset(
+    first: QuestionSubsetResolution = resolve_question_subset(
         dataset_name="pubmedqa",
         available_question_ids=available_ids,
         num_samples=4,
         subset_seed=1,
         selection_path=selection_path,
     )
-    second = resolve_question_subset(
+    second: QuestionSubsetResolution = resolve_question_subset(
         dataset_name="pubmedqa",
         available_question_ids=available_ids,
         num_samples=4,
@@ -139,7 +148,7 @@ def test_resolve_question_subset_force_resample_overwrites_existing_selection(
 def test_resolve_question_subset_requires_existing_file_when_requested(
     tmp_path: Path,
 ) -> None:
-    selection_path = selection_file_path(
+    selection_path: Path = selection_file_path(
         tmp_path,
         "bioasq",
         num_samples=1,
@@ -158,7 +167,7 @@ def test_resolve_question_subset_requires_existing_file_when_requested(
 
 
 def test_resolve_question_subset_errors_on_missing_saved_ids(tmp_path: Path) -> None:
-    selection_path = selection_file_path(
+    selection_path: Path = selection_file_path(
         tmp_path,
         "2wikimultihopqa",
         num_samples=2,
