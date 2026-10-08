@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ontographrag.rag.graph_state import GraphStateContext, StateChunk, StateEntity
 from ontographrag.rag.retrieval_sampling import select_ranked_subset
 
 if TYPE_CHECKING:
@@ -18,7 +19,6 @@ if TYPE_CHECKING:
         OntologyGuidedKGCreator,
     )
     from ontographrag.kg.chunking import ChunkingHost
-
     from shared.common_fn import GraphQuery, MergeDocument
 
 
@@ -50,3 +50,23 @@ def sampled_numbers(rows: list[int]) -> list[int]:
         shortlist_factor=2,
         score_getter=float,
     )
+
+
+class ConcreteStateEntity(StateEntity):
+    id: str
+    min_hops: int
+
+
+class ConcreteStateChunk(StateChunk):
+    chunk_id: str
+    text: str
+    entities: list[ConcreteStateEntity]
+
+
+class ConcreteStateContext(GraphStateContext):
+    chunks: list[ConcreteStateChunk]
+    entities: dict[str, ConcreteStateEntity]
+
+
+def graph_state_projection(context: ConcreteStateContext) -> GraphStateContext:
+    return context

@@ -8,67 +8,67 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from itertools import combinations
 from typing import Literal
 
-from typing_extensions import TypedDict
+from typing_extensions import ReadOnly, TypedDict
 
 
 class StateRelationship(TypedDict, total=False):
-    key: object
-    element_id: object
-    source: object
-    type: object
-    target: object
-    negated: object
+    key: ReadOnly[object]
+    element_id: ReadOnly[object]
+    source: ReadOnly[object]
+    type: ReadOnly[object]
+    target: ReadOnly[object]
+    negated: ReadOnly[object]
 
 
 class StatePath(TypedDict, total=False):
-    node_ids: Iterable[object] | None
-    path: object
+    node_ids: ReadOnly[Iterable[object] | None]
+    path: ReadOnly[object]
 
 
 class StateEntity(TypedDict, total=False):
-    id: object
-    min_hops: int | float | str | None
+    id: ReadOnly[object]
+    min_hops: ReadOnly[int | float | str | None]
 
 
 class StateChunk(TypedDict, total=False):
-    chunk_id: object
-    chunk_element_id: object
-    text: object
-    linked_entity_ids: Iterable[object] | None
-    entities: Sequence[StateEntity | None] | None
+    chunk_id: ReadOnly[object]
+    chunk_element_id: ReadOnly[object]
+    text: ReadOnly[object]
+    linked_entity_ids: ReadOnly[Iterable[object] | None]
+    entities: ReadOnly[Sequence[StateEntity | None] | None]
 
 
 class StateDiagnostics(TypedDict, total=False):
-    seed_entity_ids: Iterable[object] | None
-    seed_entity_names: Iterable[object] | None
-    seed_entities: Iterable[object] | None
+    seed_entity_ids: ReadOnly[Iterable[object] | None]
+    seed_entity_names: ReadOnly[Iterable[object] | None]
+    seed_entities: ReadOnly[Iterable[object] | None]
 
 
 class GraphStateContext(TypedDict, total=False):
-    diagnostics: StateDiagnostics | None
-    chunks: Sequence[StateChunk | None] | None
-    entities: dict[str, StateEntity | None] | None
-    relationships: Sequence[StateRelationship | None] | None
-    traversal_paths: Sequence[StatePath | None] | None
-    retrieval_route: object
-    search_method: object
+    diagnostics: ReadOnly[StateDiagnostics | None]
+    chunks: ReadOnly[Sequence[StateChunk | None] | None]
+    entities: ReadOnly[Mapping[str, StateEntity | None] | None]
+    relationships: ReadOnly[Sequence[StateRelationship | None] | None]
+    traversal_paths: ReadOnly[Sequence[StatePath | None] | None]
+    retrieval_route: ReadOnly[object]
+    search_method: ReadOnly[object]
 
 
 class GraphStateSample(TypedDict, total=False):
-    seed_entity_ids: list[str] | None
-    entity_ids: list[str] | None
-    relationship_ids: list[str] | None
-    path_ids: list[str] | None
-    chunk_ids: list[str] | None
-    seed_signature: str | None
-    path_signature: str | None
-    subgraph_signature: str | None
-    chunk_signature: str | None
-    route: str | None
+    seed_entity_ids: ReadOnly[Sequence[str] | None]
+    entity_ids: ReadOnly[Sequence[str] | None]
+    relationship_ids: ReadOnly[Sequence[str] | None]
+    path_ids: ReadOnly[Sequence[str] | None]
+    chunk_ids: ReadOnly[Sequence[str] | None]
+    seed_signature: ReadOnly[str | None]
+    path_signature: ReadOnly[str | None]
+    subgraph_signature: ReadOnly[str | None]
+    chunk_signature: ReadOnly[str | None]
+    route: ReadOnly[str | None]
 
 
 class GraphStateSummary(TypedDict):
@@ -188,7 +188,7 @@ def summarize_context_graph_state(
     context = context or {}
     diagnostics: StateDiagnostics = context.get("diagnostics") or {}
     chunks: Sequence[StateChunk | None] = context.get("chunks") or []
-    entities: dict[str, StateEntity | None] = context.get("entities") or {}
+    entities: Mapping[str, StateEntity | None] = context.get("entities") or {}
     relationships: Sequence[StateRelationship | None] = (
         context.get("relationships") or []
     )
@@ -299,18 +299,20 @@ def graph_state_diversity(
     ) -> list[str]:
         return [str(state.get(key) or "<empty>") for state in states]
 
-    seed_sets: list[list[str]] = [
+    seed_sets: list[Sequence[str]] = [
         state.get("seed_entity_ids") or [] for state in states
     ]
-    entity_sets: list[list[str]] = [state.get("entity_ids") or [] for state in states]
-    path_sets: list[list[str]] = [state.get("path_ids") or [] for state in states]
+    entity_sets: list[Sequence[str]] = [
+        state.get("entity_ids") or [] for state in states
+    ]
+    path_sets: list[Sequence[str]] = [state.get("path_ids") or [] for state in states]
     subgraph_sets: list[list[str]] = [
         list(state.get("entity_ids") or [])
         + list(state.get("relationship_ids") or [])
         + list(state.get("path_ids") or [])
         for state in states
     ]
-    chunk_sets: list[list[str]] = [state.get("chunk_ids") or [] for state in states]
+    chunk_sets: list[Sequence[str]] = [state.get("chunk_ids") or [] for state in states]
     seed_counter: Counter[str] = Counter(
         eid for state in states for eid in (state.get("seed_entity_ids") or [])
     )
