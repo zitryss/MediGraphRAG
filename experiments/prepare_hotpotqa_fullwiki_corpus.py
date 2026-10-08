@@ -18,7 +18,12 @@ import json
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, cast
+
+from typing_extensions import ReadOnly, TypedDict
+
+if TYPE_CHECKING:
+    from experiments.subset_selection import SubsetIdentity, SubsetPayload
 
 from subset_selection import (
     deterministic_subset_ids,
@@ -27,22 +32,54 @@ from subset_selection import (
 )
 
 
-def _load_hotpot(path: Path) -> list[dict[str, Any]]:
+class HotpotQuestion(TypedDict, total=False):
+    """Consumed fields from unvalidated JSON records, not a validated schema."""
+
+    _id: ReadOnly[object]
+    id: ReadOnly[object]
+    context: ReadOnly[object]
+
+
+class CorpusDocument(TypedDict):
+    id: str
+    title: str
+    text: str
+    source_question_ids: list[str]
+    source: str
+
+
+class CorpusPreparationSummary(TypedDict):
+    dataset: str
+    hotpot_file: str
+    output: str
+    selection_output: str
+    available_questions: int
+    selected_questions: int
+    corpus_documents: int
+
+
+def _load_hotpot(path: Path) -> list[HotpotQuestion]:
     with path.open("r") as f:
-        data = json.load(f)
+        data: object = json.load(f)
     if not isinstance(data, list):
         raise ValueError(f"Expected a JSON list in {path}")
-    return [item for item in data if isinstance(item, dict)]
+    return [
+        cast(HotpotQuestion, item)
+        for item in cast(list[object], data)
+        if isinstance(item, dict)
+    ]
 
 
-def _question_id(item: dict[str, Any], idx: int) -> str:
+def _question_id(item: HotpotQuestion, idx: int) -> str:
     return str(item.get("_id", item.get("id", f"hotpotqa_{idx}")))
 
 
-def _paragraph_text(title: str, sentences: Any) -> str:
+def _paragraph_text(title: str, sentences: object) -> str:
     if isinstance(sentences, list):
-        body = " ".join(
-            str(sentence).strip() for sentence in sentences if str(sentence).strip()
+        body: str = " ".join(
+            str(sentence).strip()
+            for sentence in cast(list[object], sentences)
+            if str(sentence).strip()
         )
     else:
         body = str(sentences or "").strip()
@@ -51,17 +88,22 @@ def _paragraph_text(title: str, sentences: Any) -> str:
 
 
 def _iter_question_paragraphs(
-    item: dict[str, Any],
+    item: HotpotQuestion,
     question_id: str,
 ) -> Iterable[tuple[str, str, str]]:
-    for passage_idx, passage in enumerate(item.get("context", []) or []):
-        if not isinstance(passage, (list, tuple)) or len(passage) < 2:
+    passages: Iterable[object] = item.get("context", []) or []
+    for _passage_idx, passage in enumerate(passages):
+        if (
+            not isinstance(passage, (list, tuple))
+            or len(cast(Sequence[object], passage)) < 2
+        ):
             continue
-        title = str(passage[0] or "").strip()
-        text = _paragraph_text(title, passage[1])
+        parts: Sequence[object] = cast(Sequence[object], passage)
+        title: str = str(parts[0] or "").strip()
+        text: str = _paragraph_text(title, parts[1])
         if not text:
             continue
-        doc_key = f"{title}\n{text}"
+        doc_key: str = f"{title}\n{text}"
         yield doc_key, title, text
 
 
@@ -75,13 +117,13 @@ def _write_selection(
     subset_seed: int,
 ) -> None:
     selection_path.parent.mkdir(parents=True, exist_ok=True)
-    identity = subset_identity(
+    identity: SubsetIdentity = subset_identity(
         dataset_name=dataset_name,
         question_ids=selected_ids,
         num_samples=num_samples,
         subset_seed=subset_seed,
     )
-    payload = {
+    payload: SubsetPayload = {
         "version": 1,
         "dataset": dataset_name,
         "created_at": datetime.now().isoformat(),
@@ -105,29 +147,37 @@ def prepare_corpus(
     num_samples: int | None,
     subset_seed: int,
     overwrite: bool,
-) -> dict[str, Any]:
+) -> CorpusPreparationSummary:
     if output.exists() and not overwrite:
         raise FileExistsError(
-            f"Output already exists: {output}. Pass --overwrite to replace it."
+            f"Output already exists: {output}. Pass --overwrite to replace it.",
         )
     if selection_output.exists() and not overwrite:
         raise FileExistsError(
-            f"Selection already exists: {selection_output}. Pass --overwrite to replace it."
+            f"Selection already exists: {selection_output}. Pass --overwrite to replace it.",
         )
 
-    records = _load_hotpot(hotpot_file)
-    ordered_ids = [_question_id(item, idx) for idx, item in enumerate(records)]
-    selected_ids = deterministic_subset_ids(ordered_ids, num_samples, subset_seed)
-    selected_id_set = set(selected_ids)
+    records: list[HotpotQuestion] = _load_hotpot(hotpot_file)
+    ordered_ids: list[str] = [
+        _question_id(item, idx) for idx, item in enumerate(records)
+    ]
+    selected_ids: list[str] = deterministic_subset_ids(
+        ordered_ids,
+        num_samples,
+        subset_seed,
+    )
+    _selected_id_set: set[str] = set(selected_ids)
 
-    by_id = {_question_id(item, idx): item for idx, item in enumerate(records)}
-    docs: dict[str, dict[str, Any]] = {}
+    by_id: dict[str, HotpotQuestion] = {
+        _question_id(item, idx): item for idx, item in enumerate(records)
+    }
+    docs: dict[str, CorpusDocument] = {}
     for question_id in selected_ids:
-        item = by_id.get(question_id)
+        item: HotpotQuestion | None = by_id.get(question_id)
         if not item:
             continue
         for doc_key, title, text in _iter_question_paragraphs(item, question_id):
-            doc = docs.setdefault(
+            doc: CorpusDocument = docs.setdefault(
                 doc_key,
                 {
                     "id": f"hotpot_fullwiki_doc_{len(docs)}",
@@ -165,8 +215,8 @@ def prepare_corpus(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Build a shared HotpotQA FullWiki corpus from selected FullWiki retrieved paragraphs."
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Build a shared HotpotQA FullWiki corpus from selected FullWiki retrieved paragraphs.",
     )
     parser.add_argument(
         "--hotpot-file",
@@ -188,15 +238,15 @@ def main() -> None:
         help="Defaults to results/selections/<dataset>__n<num>_seed<seed>.json",
     )
     parser.add_argument("--overwrite", action="store_true")
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
-    selection_output = args.selection_output or selection_file_path(
+    selection_output: Path = args.selection_output or selection_file_path(
         Path("results") / "selections",
         args.dataset_name,
         num_samples=args.num_samples,
         subset_seed=args.subset_seed,
     )
-    summary = prepare_corpus(
+    summary: CorpusPreparationSummary = prepare_corpus(
         hotpot_file=args.hotpot_file,
         output=args.output,
         selection_output=selection_output,

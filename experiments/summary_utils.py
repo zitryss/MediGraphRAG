@@ -8,9 +8,35 @@ can be imported freely in unit tests without the full experiment stack.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Literal
 
-from typing_extensions import TypedDict
+from typing_extensions import ReadOnly, TypedDict
+
+
+class SummaryConfigName(TypedDict, total=False):
+    name: ReadOnly[str]
+
+
+class SummaryConfigResult(TypedDict, total=False):
+    """Fields consumed from fresh results or permissive historical summaries."""
+
+    config: ReadOnly[SummaryConfigName]
+    vanilla_accuracy: ReadOnly[object]
+    kg_accuracy: ReadOnly[object]
+    vanilla_answer_f1: ReadOnly[object]
+    kg_answer_f1: ReadOnly[object]
+    vanilla_answer_em: ReadOnly[object]
+    kg_answer_em: ReadOnly[object]
+    vanilla_answered_questions: ReadOnly[object]
+    kg_answered_questions: ReadOnly[object]
+    vanilla_accuracy_raw: ReadOnly[object]
+    kg_accuracy_raw: ReadOnly[object]
+
+
+class SummaryDatasetBlock(TypedDict, total=False):
+    dataset: ReadOnly[str]
+    track: ReadOnly[str]
+    config_results: ReadOnly[Sequence[SummaryConfigResult]]
 
 
 class AccuracyBreakdown(TypedDict):
@@ -186,7 +212,7 @@ def compute_accuracy_breakdown(
 
 
 def compute_hop_accuracy_breakdown(
-    details: list[dict[str, Any]],
+    details: Sequence[Mapping[str, object]],
     *,
     metric_names: list[str] | None = None,
 ) -> dict[str, HopAccuracySummary]:
@@ -204,7 +230,7 @@ def compute_hop_accuracy_breakdown(
     Returns a dict keyed by hop bucket label such as ``2-hop`` or ``4-hop``.
     Rows without a valid positive hop count are ignored.
     """
-    selected_metric_names = (
+    selected_metric_names: list[str] = (
         metric_names
         if metric_names is not None
         else [
@@ -214,9 +240,9 @@ def compute_hop_accuracy_breakdown(
         ]
     )
 
-    def _as_hop_count(value: Any) -> int | None:
+    def _as_hop_count(value: object) -> int | None:
         try:
-            hop = int(value)
+            hop: int = int(value)
         except (TypeError, ValueError):
             return None
         return hop if hop > 0 else None
@@ -224,14 +250,18 @@ def compute_hop_accuracy_breakdown(
     def _bucket_label(hop: int) -> str:
         return f"{hop}-hop" if hop <= 4 else "5+-hop"
 
-    def _mean(rows: list[dict[str, Any]], key: str, default: float = 0.0) -> float:
+    def _mean(
+        rows: Sequence[Mapping[str, object]],
+        key: str,
+        default: float = 0.0,
+    ) -> float:
         if not rows:
             return default
         return sum(float(row.get(key, default) or default) for row in rows) / len(rows)
 
-    by_bucket: dict[str, list[dict[str, Any]]] = {}
+    by_bucket: dict[str, list[Mapping[str, object]]] = {}
     for row in details:
-        hop = _as_hop_count(row.get("hop_count"))
+        hop: int | None = _as_hop_count(row.get("hop_count"))
         if hop is None:
             continue
         by_bucket.setdefault(_bucket_label(hop), []).append(row)
@@ -241,8 +271,8 @@ def compute_hop_accuracy_breakdown(
         by_bucket.keys(),
         key=lambda b: 999 if b == "5+-hop" else int(b.split("-", 1)[0]),
     ):
-        rows = by_bucket[bucket]
-        acc = compute_accuracy_breakdown(rows)
+        rows: list[Mapping[str, object]] = by_bucket[bucket]
+        acc: AccuracyBreakdown = compute_accuracy_breakdown(rows)
         output[bucket] = {
             "n": len(rows),
             "vanilla_accuracy": acc["vanilla_accuracy"],
@@ -271,7 +301,7 @@ def compute_hop_accuracy_breakdown(
 
 
 def accumulate_track_accuracy(
-    dataset_blocks: list[dict[str, Any]],
+    dataset_blocks: Sequence[SummaryDatasetBlock],
 ) -> dict[str, list[TrackAccuracySummary]]:
     """
     Compute per-track macro accuracy from a list of dataset result blocks.
@@ -295,13 +325,14 @@ def accumulate_track_accuracy(
     track_accumulators: dict[tuple[str, str], TrackAccumulator] = {}
 
     for block in dataset_blocks:
-        dataset_name = block.get("dataset", "")
-        track = block.get("track", "unknown")
+        dataset_name: str = block.get("dataset", "")
+        track: str = block.get("track", "unknown")
         for cfg_res in block.get("config_results", []):
-            cfg_name = cfg_res.get("config", {}).get("name", "default")
-            acc_key = (track, cfg_name)
-            ta = track_accumulators.setdefault(
-                acc_key, {"vanilla_acc": [], "kg_acc": [], "datasets": []}
+            cfg_name: str = cfg_res.get("config", {}).get("name", "default")
+            acc_key: tuple[str, str] = (track, cfg_name)
+            ta: TrackAccumulator = track_accumulators.setdefault(
+                acc_key,
+                {"vanilla_acc": [], "kg_acc": [], "datasets": []},
             )
             if dataset_name not in ta["datasets"]:
                 ta["datasets"].append(dataset_name)
@@ -312,7 +343,7 @@ def accumulate_track_accuracy(
 
     result: dict[str, list[TrackAccuracySummary]] = {}
     for (track, cfg_name), ta in track_accumulators.items():
-        n = len(ta["datasets"])
+        n: int = len(ta["datasets"])
         result.setdefault(track, []).append(
             {
                 "config_name": cfg_name,
@@ -320,12 +351,12 @@ def accumulate_track_accuracy(
                 "datasets": ta["datasets"],
                 "vanilla_macro_accuracy": sum(ta["vanilla_acc"]) / n if n else None,
                 "kg_macro_accuracy": sum(ta["kg_acc"]) / n if n else None,
-            }
+            },
         )
     return result
 
 
-def _system_metric_prefix(system_name: str) -> str:
+def _system_metric_prefix(system_name: str) -> Literal["vanilla", "kg"]:
     if system_name == "vanilla_rag":
         return "vanilla"
     if system_name == "kg_rag":
@@ -334,9 +365,10 @@ def _system_metric_prefix(system_name: str) -> str:
 
 
 def _candidate_rank_tuple(
-    cfg_res: dict[str, Any], system_name: str
+    cfg_res: SummaryConfigResult,
+    system_name: str,
 ) -> tuple[float, float, float, int, float]:
-    prefix = _system_metric_prefix(system_name)
+    prefix: Literal["vanilla", "kg"] = _system_metric_prefix(system_name)
     return (
         float(cfg_res.get(f"{prefix}_accuracy", 0.0) or 0.0),
         float(cfg_res.get(f"{prefix}_answer_f1", 0.0) or 0.0),
@@ -347,7 +379,7 @@ def _candidate_rank_tuple(
 
 
 def select_best_retrieval_configs(
-    dataset_blocks: list[dict[str, Any]],
+    dataset_blocks: Sequence[SummaryDatasetBlock],
 ) -> RetrievalConfigurationSelection:
     """
     Pick the strongest config per dataset and overall for vanilla and KG-RAG.
@@ -366,15 +398,17 @@ def select_best_retrieval_configs(
     }
 
     for block in dataset_blocks:
-        dataset_name = str(block.get("dataset", "unknown"))
-        config_results = list(block.get("config_results", []))
+        dataset_name: str = str(block.get("dataset", "unknown"))
+        config_results: list[SummaryConfigResult] = list(
+            block.get("config_results", []),
+        )
         if not config_results:
             continue
 
         per_dataset[dataset_name] = {}
         for system_name in ("vanilla_rag", "kg_rag"):
-            prefix = _system_metric_prefix(system_name)
-            best_cfg = max(
+            prefix: Literal["vanilla", "kg"] = _system_metric_prefix(system_name)
+            best_cfg: SummaryConfigResult = max(
                 config_results,
                 key=lambda cfg: (
                     _candidate_rank_tuple(cfg, system_name),
@@ -387,16 +421,16 @@ def select_best_retrieval_configs(
                 "answer_f1": float(best_cfg.get(f"{prefix}_answer_f1", 0.0) or 0.0),
                 "answer_em": float(best_cfg.get(f"{prefix}_answer_em", 0.0) or 0.0),
                 "answered_questions": int(
-                    best_cfg.get(f"{prefix}_answered_questions", 0) or 0
+                    best_cfg.get(f"{prefix}_answered_questions", 0) or 0,
                 ),
                 "accuracy_raw": float(
-                    best_cfg.get(f"{prefix}_accuracy_raw", 0.0) or 0.0
+                    best_cfg.get(f"{prefix}_accuracy_raw", 0.0) or 0.0,
                 ),
             }
 
             for cfg_res in config_results:
-                cfg_name = str(cfg_res.get("config", {}).get("name", "default"))
-                row = macro_rows[system_name].setdefault(
+                cfg_name: str = str(cfg_res.get("config", {}).get("name", "default"))
+                row: MacroAccumulator = macro_rows[system_name].setdefault(
                     cfg_name,
                     {
                         "datasets": [],
@@ -409,26 +443,26 @@ def select_best_retrieval_configs(
                 )
                 row["datasets"].append(dataset_name)
                 row["accuracy"].append(
-                    float(cfg_res.get(f"{prefix}_accuracy", 0.0) or 0.0)
+                    float(cfg_res.get(f"{prefix}_accuracy", 0.0) or 0.0),
                 )
                 row["answer_f1"].append(
-                    float(cfg_res.get(f"{prefix}_answer_f1", 0.0) or 0.0)
+                    float(cfg_res.get(f"{prefix}_answer_f1", 0.0) or 0.0),
                 )
                 row["answer_em"].append(
-                    float(cfg_res.get(f"{prefix}_answer_em", 0.0) or 0.0)
+                    float(cfg_res.get(f"{prefix}_answer_em", 0.0) or 0.0),
                 )
                 row["answered_questions"].append(
-                    int(cfg_res.get(f"{prefix}_answered_questions", 0) or 0)
+                    int(cfg_res.get(f"{prefix}_answered_questions", 0) or 0),
                 )
                 row["accuracy_raw"].append(
-                    float(cfg_res.get(f"{prefix}_accuracy_raw", 0.0) or 0.0)
+                    float(cfg_res.get(f"{prefix}_accuracy_raw", 0.0) or 0.0),
                 )
 
     overall: dict[str, OverallConfigurationSelection] = {}
     for system_name, cfg_map in macro_rows.items():
         candidates: list[MacroConfigurationMetrics] = []
         for cfg_name, row in cfg_map.items():
-            n = max(1, len(row["datasets"]))
+            n: int = max(1, len(row["datasets"]))
             candidates.append(
                 {
                     "config_name": cfg_name,
@@ -439,11 +473,11 @@ def select_best_retrieval_configs(
                     "macro_answer_em": sum(row["answer_em"]) / n,
                     "macro_answered_questions": sum(row["answered_questions"]) / n,
                     "macro_accuracy_raw": sum(row["accuracy_raw"]) / n,
-                }
+                },
             )
         if not candidates:
             continue
-        best = max(
+        best: MacroConfigurationMetrics = max(
             candidates,
             key=lambda row: (
                 float(row["macro_accuracy"]),

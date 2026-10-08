@@ -1,11 +1,45 @@
 """Helpers for deciding whether an existing dataset KG can be safely reused."""
 
-from typing import Any
+from typing_extensions import ReadOnly, TypedDict
+
+
+class ExistingKGMetadata(TypedDict, total=False):
+    """Unvalidated stored values; normalization remains in the comparison."""
+
+    uses_global_corpus: ReadOnly[object]
+    corpus_source: ReadOnly[object]
+    question_context_role: ReadOnly[object]
+    dataset_kg_scope: ReadOnly[object]
+    content_hash: ReadOnly[object]
+    kg_build_fingerprint_version: ReadOnly[object]
+    kg_builder: ReadOnly[object]
+    kg_chunk_size: ReadOnly[object]
+    kg_chunk_overlap: ReadOnly[object]
+    kg_extraction_provider: ReadOnly[object]
+    kg_extraction_model: ReadOnly[object]
+    kg_embedding_provider: ReadOnly[object]
+    selection_key: ReadOnly[object]
+
+
+class ExpectedKGMetadata(TypedDict, total=False):
+    usesGlobalCorpus: ReadOnly[object]
+    corpusSource: ReadOnly[object]
+    questionContextRole: ReadOnly[object]
+    datasetKgScope: ReadOnly[object]
+    contentHash: ReadOnly[object]
+    kgBuildFingerprintVersion: ReadOnly[object]
+    kgBuilder: ReadOnly[object]
+    kgChunkSize: ReadOnly[object]
+    kgChunkOverlap: ReadOnly[object]
+    kgExtractionProvider: ReadOnly[object]
+    kgExtractionModel: ReadOnly[object]
+    kgEmbeddingProvider: ReadOnly[object]
+    selectionKey: ReadOnly[object]
 
 
 def assess_dataset_kg_compatibility(
-    existing_meta: dict[str, Any],
-    expected_meta: dict[str, Any],
+    existing_meta: ExistingKGMetadata,
+    expected_meta: ExpectedKGMetadata,
     *,
     evaluation_subset_scope: str = "evaluation_subset",
 ) -> tuple[bool, list[str]]:
@@ -20,10 +54,10 @@ def assess_dataset_kg_compatibility(
         expected_key: str,
         label: str,
         *,
-        normalizer=None,
+        normalizer: type[int] | type[bool] | None = None,
     ) -> None:
-        existing_value = existing_meta.get(existing_key)
-        expected_value = expected_meta.get(expected_key)
+        existing_value: object = existing_meta.get(existing_key)
+        expected_value: object = expected_meta.get(expected_key)
         if existing_value in (None, "") or expected_value in (None, ""):
             return
         if normalizer is not None:
@@ -31,11 +65,14 @@ def assess_dataset_kg_compatibility(
             expected_value = normalizer(expected_value)
         if existing_value != expected_value:
             reasons.append(
-                f"{label} mismatch (stored={existing_value!r}, expected={expected_value!r})"
+                f"{label} mismatch (stored={existing_value!r}, expected={expected_value!r})",
             )
 
     _compare(
-        "uses_global_corpus", "usesGlobalCorpus", "usesGlobalCorpus", normalizer=bool
+        "uses_global_corpus",
+        "usesGlobalCorpus",
+        "usesGlobalCorpus",
+        normalizer=bool,
     )
     _compare("corpus_source", "corpusSource", "corpusSource")
     _compare("question_context_role", "questionContextRole", "questionContextRole")
@@ -55,7 +92,7 @@ def assess_dataset_kg_compatibility(
     _compare("kg_embedding_provider", "kgEmbeddingProvider", "kgEmbeddingProvider")
 
     if expected_meta.get("datasetKgScope") == evaluation_subset_scope and not bool(
-        expected_meta.get("usesGlobalCorpus")
+        expected_meta.get("usesGlobalCorpus"),
     ):
         _compare("selection_key", "selectionKey", "selectionKey")
 
