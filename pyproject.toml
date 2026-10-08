@@ -185,6 +185,7 @@ dev = [
     "botocore-stubs==1.40.52",
     "mypy-boto3-bedrock-runtime==1.40.41",
     "pandas-stubs==2.2.3.250527",
+    "scipy-stubs==1.16.2.4",
     "types-requests==2.32.0.20250328",
     "hatchling==1.27.0",
     "twine==6.2.0",
