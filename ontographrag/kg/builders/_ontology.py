@@ -52,7 +52,7 @@ class OntologySchemaMixin:
         }
         return _map.get((raw or "string").strip().lower(), PropertyType.STRING)
 
-    def _load_ontology(self, ontology_path: str):
+    def _load_ontology(self, ontology_path: str) -> None:
         """Load ontology from OWL/RDF (XML) or Ontology Playground-style JSON.
 
         Both paths normalise into:
@@ -383,7 +383,7 @@ class OntologySchemaMixin:
             source_path=ontology_path,
         )
 
-    def _validate_ontology_structure(self):
+    def _validate_ontology_structure(self) -> None:
         """
         Validate and clean ontology class and relationship structures to prevent "string indices must be integers" errors
         """

@@ -26,7 +26,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = json.load(
     open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
 )
-KEY = {
+KEY: dict[str, str] = {
     "pubmedqa": "Pubmedqa",
     "realmedqa": "Realmedqa",
     "hotpotqa": "Hotpotqa",
@@ -34,7 +34,7 @@ KEY = {
     "2wikimultihopqa": "2Wikimultihopqa",
     "musique": "Musique",
 }
-STRICT_RUNS = {
+STRICT_RUNS: dict[str, str] = {
     "realmedqa": "results/latest_kg_design_final_metrics/runs/"
     "20260528-174538-realmedqa-n230-full-metrics-evaluation-subset/"
     "mirage_realmedqa_results.json",
@@ -42,8 +42,8 @@ STRICT_RUNS = {
     "20260529-120453-2wikimultihopqa-n250-full-metrics-evaluation-subset/"
     "mirage_2wikimultihopqa_results.json",
 }
-SD_FLOOR = 1e-9
-B = 2000
+SD_FLOOR: float = 1e-9
+B: int = 2000
 RNG = np.random.default_rng(42)
 
 
@@ -114,7 +114,7 @@ def auroc(scores, wrong):
     return float(roc_auc_score([int(w) for w in wrong], scores))
 
 
-def main():
+def main() -> None:
     out = {"silent_failure": {}, "operating_points": {}, "paired_tests": {}}
 
     # ── A1: silent-failure rates ────────────────────────────────────────────

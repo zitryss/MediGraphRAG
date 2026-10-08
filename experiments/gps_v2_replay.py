@@ -52,7 +52,7 @@ from experiments.uncertainty_metrics import (
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(REPO_ROOT, "paper", "figures", "latest_results_manifest.json")
 
-DATASETS = {
+DATASETS: dict[str, tuple[str, bool, int]] = {
     # slug -> (manifest key, question_scoped, structural max_hops)
     "pubmedqa": ("Pubmedqa", True, 2),
     "realmedqa": ("Realmedqa", False, 2),
@@ -62,16 +62,16 @@ DATASETS = {
     "musique": ("Musique", True, 4),
 }
 
-DENSE_CFG = "dense_floor_thr0.1_k10_rt0p0"
-KG_CFG = "kg_entity_first_thr0.1_k10_rt0p0"
+DENSE_CFG: str = "dense_floor_thr0.1_k10_rt0p0"
+KG_CFG: str = "kg_entity_first_thr0.1_k10_rt0p0"
 
-MIN_NAME_LENGTH = 4
-MAX_ENTITIES = 5  # per side, matching GPS-v1
-MAX_SOFT_SPANS = 24  # candidate spans embedded per text
+MIN_NAME_LENGTH: int = 4
+MAX_ENTITIES: int = 5  # per side, matching GPS-v1
+MAX_SOFT_SPANS: int = 24  # candidate spans embedded per text
 TAU_LOOSE = float(
     os.environ.get("GPS_TAU_LOOSE", 0.60)
 )  # store floor; grid taus filter above this
-TAU_Q = 0.75  # fixed question-side soft-fallback threshold (not tuned)
+TAU_Q: float = 0.75  # fixed question-side soft-fallback threshold (not tuned)
 GRID_TAU = tuple(
     float(x) for x in os.environ.get("GPS_GRID_TAU", "0.60,0.65,0.72,0.80").split(",")
 )
@@ -127,7 +127,7 @@ def _merged_rows(
 class ScopedEntityIndex:
     """Entities (with embeddings) visible in one (kg_name, question_id) scope."""
 
-    def __init__(self, session, kg_name: str, question_id: str | None):
+    def __init__(self, session, kg_name: str, question_id: str | None) -> None:
         scope = _question_local_entity_support_predicate(
             "e", kg_name=kg_name, question_id=question_id
         )
@@ -344,7 +344,7 @@ def summarize(
 
 def run_dataset(
     slug: str, env: dict[str, str], encoder, grid: bool, tau: float, gamma: float
-):
+) -> None:
     from neo4j import GraphDatabase
 
     manifest_key, scoped, max_hops = DATASETS[slug]
@@ -462,7 +462,7 @@ def run_dataset(
             )
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", required=True, help="slug or 'all'")
     ap.add_argument("--grid", action="store_true", help="dev grid (RealMedQA only)")

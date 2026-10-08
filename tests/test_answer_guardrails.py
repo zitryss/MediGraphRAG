@@ -11,7 +11,7 @@ from ontographrag.rag.answer_guardrails import (
 )
 
 
-def test_parse_guardrail_verdict_from_json():
+def test_parse_guardrail_verdict_from_json() -> None:
     verdict = parse_guardrail_verdict(
         '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}'
     )
@@ -21,7 +21,7 @@ def test_parse_guardrail_verdict_from_json():
     assert verdict["reason"] == "off target"
 
 
-def test_parse_guardrail_verdict_from_embedded_json():
+def test_parse_guardrail_verdict_from_embedded_json() -> None:
     verdict = parse_guardrail_verdict(
         'verdict: {"decision":"abstain","answers_question":false,"supported_by_context":false,"reason":"insufficient evidence"}'
     )
@@ -30,7 +30,7 @@ def test_parse_guardrail_verdict_from_embedded_json():
     assert verdict["supported_by_context"] is False
 
 
-def test_render_guardrail_context_limits_chunks():
+def test_render_guardrail_context_limits_chunks() -> None:
     chunks = [
         {"document": "a.txt", "text": "first chunk"},
         {"document": "b.txt", "text": "second chunk"},
@@ -42,7 +42,7 @@ def test_render_guardrail_context_limits_chunks():
     assert "third chunk" not in rendered
 
 
-def test_parse_guardrail_verdict_ambiguous_defaults_to_abstain():
+def test_parse_guardrail_verdict_ambiguous_defaults_to_abstain() -> None:
     # When LLM output contains neither "keep", "retry", nor "abstain", the
     # conservative default must be abstain (not keep).
     verdict = parse_guardrail_verdict("I'm not sure about this one.")
@@ -51,13 +51,13 @@ def test_parse_guardrail_verdict_ambiguous_defaults_to_abstain():
     assert verdict["supported_by_context"] is False
 
 
-def test_parse_guardrail_verdict_keep_keyword_detected():
+def test_parse_guardrail_verdict_keep_keyword_detected() -> None:
     # Prose containing "keep" should resolve to keep when no JSON is present.
     verdict = parse_guardrail_verdict("You should keep this answer.")
     assert verdict["decision"] == "keep"
 
 
-def test_evaluate_runtime_answer_guardrail_uses_llm_json():
+def test_evaluate_runtime_answer_guardrail_uses_llm_json() -> None:
     llm = RunnableLambda(
         lambda _: (
             '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}'

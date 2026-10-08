@@ -1,3 +1,4 @@
+from pathlib import Path
 import json
 
 import numpy as np
@@ -6,7 +7,9 @@ import pytest
 from experiments import hop_stratified_analysis as hop
 
 
-def test_load_details_raises_on_ambiguous_multi_config(tmp_path, monkeypatch):
+def test_load_details_raises_on_ambiguous_multi_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(hop, "PREFERRED_CONFIG_NAME", None)
     payload = {
         "config_results": [
@@ -21,7 +24,9 @@ def test_load_details_raises_on_ambiguous_multi_config(tmp_path, monkeypatch):
         hop.load_details(str(path))
 
 
-def test_load_details_prefers_default_config(tmp_path, monkeypatch):
+def test_load_details_prefers_default_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(hop, "PREFERRED_CONFIG_NAME", None)
     payload = {
         "config_results": [
@@ -37,7 +42,9 @@ def test_load_details_prefers_default_config(tmp_path, monkeypatch):
     assert details == [{"id": "right"}]
 
 
-def test_compute_stats_excludes_generation_failures_and_uses_sps_as_uncertainty():
+def test_compute_stats_excludes_generation_failures_and_uses_sps_as_uncertainty() -> (
+    None
+):
     details = [
         {
             "kg_correct": True,
@@ -80,7 +87,7 @@ def test_compute_stats_excludes_generation_failures_and_uses_sps_as_uncertainty(
     assert not np.isnan(stats["subgraph_perturbation_stability"]["ppv"])
 
 
-def test_compute_stats_excludes_gps_null_rows():
+def test_compute_stats_excludes_gps_null_rows() -> None:
     details = [
         {
             "kg_correct": True,

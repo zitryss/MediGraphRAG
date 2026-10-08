@@ -22,7 +22,7 @@ from ontographrag.kg.utils.source_node import sourceNode
 load_dotenv()
 
 
-def delete_file_from_gcs(bucket_name, folder_name, file_name):
+def delete_file_from_gcs(bucket_name, folder_name, file_name) -> None:
     """Compatibility hook for deployments that previously enabled GCS cleanup."""
     logging.warning(
         "GCS cleanup requested for gs://%s/%s/%s, but no GCS client is configured",
@@ -33,10 +33,10 @@ def delete_file_from_gcs(bucket_name, folder_name, file_name):
 
 
 class graphDBdataAccess:
-    def __init__(self, graph: Neo4jGraph):
+    def __init__(self, graph: Neo4jGraph) -> None:
         self.graph = graph
 
-    def update_exception_db(self, file_name, exp_msg, retry_condition=None):
+    def update_exception_db(self, file_name, exp_msg, retry_condition=None) -> None:
         try:
             job_status = "Failed"
             result = self.get_current_status_document_node(file_name)
@@ -69,7 +69,9 @@ class graphDBdataAccess:
             )
             raise Exception(error_message)
 
-    def create_source_node(self, obj_source_node: sourceNode, kg_name: str = None):
+    def create_source_node(
+        self, obj_source_node: sourceNode, kg_name: str = None
+    ) -> None:
         try:
             job_status = "New"
             logging.info(
@@ -124,7 +126,7 @@ class graphDBdataAccess:
             self.update_exception_db(self, obj_source_node.file_name, error_message)
             raise Exception(error_message)
 
-    def update_source_node(self, obj_source_node: sourceNode):
+    def update_source_node(self, obj_source_node: sourceNode) -> None:
         try:
             params = {}
             if (
@@ -208,7 +210,7 @@ class graphDBdataAccess:
         list_of_json_objects = [entry["d"] for entry in result]
         return list_of_json_objects
 
-    def update_KNN_graph(self):
+    def update_KNN_graph(self) -> None:
         """
         Update the graph node with SIMILAR relationship where embedding scrore match
         """

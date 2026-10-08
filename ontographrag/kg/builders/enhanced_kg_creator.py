@@ -62,7 +62,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         enable_claim_extraction: bool = False,
         max_summary_entities: int = 6,
         max_summary_relationships: int = 6,
-    ):
+    ) -> None:
         # Resolve env-var defaults here so no hardcoded URIs appear in source code
         neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_user = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")

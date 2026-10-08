@@ -27,7 +27,7 @@ from experiments.lockin_accounting_analysis import (
 )
 
 OUT_PATH = os.path.join(REPO, "results", "analyses", "residue_audit.json")
-SLUGS = [
+SLUGS: list[str] = [
     "pubmedqa",
     "realmedqa",
     "hotpotqa",
@@ -84,7 +84,7 @@ def calm_rows_for(slug):
     return found
 
 
-def main():
+def main() -> None:
     residue = []
     for slug in SLUGS:
         try:

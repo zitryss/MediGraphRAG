@@ -7,7 +7,7 @@ from .models import (
     RetrievalResult,
 )
 
-__all__ = [
+__all__: list[str] = [
     "Chunk",
     "Entity",
     "Relationship",

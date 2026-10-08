@@ -18,7 +18,7 @@ from experiments.certificate_eval import certificate_mask, load_all
 from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS, rows_for
 
 RNG = np.random.default_rng(42)
-B = 5000
+B: int = 5000
 
 
 def answered_counts():
@@ -210,7 +210,7 @@ def headline_effect_sizes():
     }
 
 
-def main():
+def main() -> None:
     out = {
         "note": "Saved-artifact reporting checks; no KG/retrieval/generation reruns.",
         "answered_counts": answered_counts(),

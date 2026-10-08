@@ -25,8 +25,8 @@ import matplotlib.gridspec as gridspec
 
 from experiments.trust_analysis import rows_for
 
-FLOOR = 1e-12
-N_ARROWS = 12
+FLOOR: float = 1e-12
+N_ARROWS: int = 12
 OUT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "paper", "figures"
 )
@@ -45,7 +45,7 @@ def xy(r):
     return np.log10(max(r["sd"], 0.0) + FLOOR), r["seu"]
 
 
-def main():
+def main() -> None:
     fig = plt.figure(figsize=(4.6, 3.4))
     gs = gridspec.GridSpec(2, 1, height_ratios=[1, 3.6], hspace=0.06)
     panels = [("2wikimultihopqa", "2WikiMHQA")]

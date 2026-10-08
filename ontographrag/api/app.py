@@ -100,7 +100,7 @@ _rag_system: EnhancedRAGSystem = None
 _rag_system_lock = threading.Lock()
 _rag_system_embedding: str | None = None
 
-_DEFAULT_TASK_TYPE_BY_DATASET = {
+_DEFAULT_TASK_TYPE_BY_DATASET: dict[str, str] = {
     "pubmedqa": "binary",
     "realmedqa": "free_text",
     "hotpotqa": "free_text",
@@ -152,10 +152,10 @@ def invalidate_rag_system(reason: str = "") -> None:
 from ontographrag.kg.csv_processor import MedicalReportCSVProcessor
 
 # Configuration constants for input validation
-MAX_FILE_SIZE_MB = 50
+MAX_FILE_SIZE_MB: int = 50
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-ALLOWED_FILE_EXTENSIONS = {".pdf", ".txt", ".csv", ".json", ".xml"}
-ALLOWED_ONTOLOGY_EXTENSIONS = {".owl", ".rdf", ".ttl", ".xml", ".json"}
+ALLOWED_FILE_EXTENSIONS: set[str] = {".pdf", ".txt", ".csv", ".json", ".xml"}
+ALLOWED_ONTOLOGY_EXTENSIONS: set[str] = {".owl", ".rdf", ".ttl", ".xml", ".json"}
 
 
 def validate_file_upload(
@@ -328,7 +328,7 @@ from ontographrag.kg.utils.graph_query import get_graphDB_driver
 #                   document is likely a scan. Surya is optional; if not
 #                   installed the pipeline warns and accepts the thin output.
 # ---------------------------------------------------------------------------
-_MIN_CHARS_PER_PAGE = 80  # below this avg we treat the PDF as a scan
+_MIN_CHARS_PER_PAGE: int = 80  # below this avg we treat the PDF as a scan
 
 
 def _extract_text_from_bytes(data: bytes, filename: str) -> tuple[str, str]:
@@ -461,8 +461,8 @@ app.mount(
 # Optional API key authentication — only enforced when APP_API_KEY is set in the environment.
 # In development (no APP_API_KEY) all requests pass through.
 _APP_API_KEY = os.getenv("APP_API_KEY")
-_OPEN_AUTH_PATHS = {"/", "/health", "/ready"}
-_OPEN_AUTH_PREFIXES = ("/static",)
+_OPEN_AUTH_PATHS: set[str] = {"/", "/health", "/ready"}
+_OPEN_AUTH_PREFIXES: tuple[str] = ("/static",)
 
 
 def require_api_key(request: Request) -> None:

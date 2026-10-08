@@ -23,10 +23,10 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-QUESTION_CONTEXT_ROLE_SOURCE_DOCUMENT = "source_document"
-QUESTION_CONTEXT_ROLE_RETRIEVAL_BUNDLE = "retrieval_bundle"
-QUESTION_CONTEXT_ROLE_GOLD_EVIDENCE = "gold_evidence"
-QUESTION_CONTEXT_ROLE_NONE = "no_context"
+QUESTION_CONTEXT_ROLE_SOURCE_DOCUMENT: str = "source_document"
+QUESTION_CONTEXT_ROLE_RETRIEVAL_BUNDLE: str = "retrieval_bundle"
+QUESTION_CONTEXT_ROLE_GOLD_EVIDENCE: str = "gold_evidence"
+QUESTION_CONTEXT_ROLE_NONE: str = "no_context"
 
 
 DATASET_CORPUS_PROFILES: dict[str, dict[str, Any]] = {

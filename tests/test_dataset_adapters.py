@@ -1,3 +1,5 @@
+import pytest
+
 from experiments import dataset_adapters as dataset_adapters_module
 from experiments.dataset_adapters import (
     InferenceRecord,
@@ -5,18 +7,18 @@ from experiments.dataset_adapters import (
     adapt_2wikimultihopqa,
     adapt_bioasq,
     adapt_hotpotqa,
-    adapt_medqa,
     adapt_medhop,
+    adapt_medqa,
     adapt_multihoprag,
     adapt_realmedqa,
-    build_passage_corpus,
     build_global_corpus_passages,
+    build_passage_corpus,
     get_dataset_corpus_profile,
     infer_hop_count_from_raw,
 )
 
 
-def test_adapt_medhop_maps_supports_and_candidates():
+def test_adapt_medhop_maps_supports_and_candidates() -> None:
     raw = {
         "id": "medhop_1",
         "query": "Which protein mediates the interaction between drug A and drug B?",
@@ -43,7 +45,7 @@ def test_adapt_medhop_maps_supports_and_candidates():
     assert gold.aliases is None
 
 
-def test_adapt_medqa_handles_letter_answer_idx():
+def test_adapt_medqa_handles_letter_answer_idx() -> None:
     raw = {
         "question": "Which action is correct?",
         "options": {
@@ -66,7 +68,7 @@ def test_adapt_medqa_handles_letter_answer_idx():
     assert gold.short_answer == "option b"
 
 
-def test_adapt_multihoprag_maps_query_answer_and_evidence():
+def test_adapt_multihoprag_maps_query_answer_and_evidence() -> None:
     raw = {
         "query": "Did the Reuters piece come before the AP piece?",
         "answer": "yes",
@@ -107,7 +109,7 @@ def test_adapt_multihoprag_maps_query_answer_and_evidence():
     assert gold.aliases is None
 
 
-def test_adapt_bioasq_factoid_preserves_aliases():
+def test_adapt_bioasq_factoid_preserves_aliases() -> None:
     raw = {
         "id": "bioasq_1",
         "body": "What drug is also known as acetylsalicylic acid?",
@@ -124,7 +126,7 @@ def test_adapt_bioasq_factoid_preserves_aliases():
     assert gold.aliases == ["acetylsalicylic acid"]
 
 
-def test_adapt_2wiki_does_not_infer_aliases_from_evidences():
+def test_adapt_2wiki_does_not_infer_aliases_from_evidences() -> None:
     raw = {
         "_id": "2wiki_1",
         "question": "Who is the mother of the director of Polish-Russian War?",
@@ -141,14 +143,14 @@ def test_adapt_2wiki_does_not_infer_aliases_from_evidences():
     assert gold.aliases is None
 
 
-def test_bioasq_profile_marks_question_contexts_as_gold_evidence():
+def test_bioasq_profile_marks_question_contexts_as_gold_evidence() -> None:
     profile = get_dataset_corpus_profile("bioasq")
 
     assert profile["question_context_role"] == "gold_evidence"
     assert profile["requires_shared_corpus_for_fair_retrieval"] is True
 
 
-def test_adapt_realmedqa_uses_question_only_and_recommendation_as_gold():
+def test_adapt_realmedqa_uses_question_only_and_recommendation_as_gold() -> None:
     raw = {
         "Question": "How should beta-blockers be titrated in heart failure?",
         "Recommendation": "Introduce beta-blockers in a start low, go slow manner and monitor after each titration.",
@@ -169,14 +171,14 @@ def test_adapt_realmedqa_uses_question_only_and_recommendation_as_gold():
     assert gold.long_answer == raw["Recommendation"]
 
 
-def test_realmedqa_profile_requires_shared_corpus():
+def test_realmedqa_profile_requires_shared_corpus() -> None:
     profile = get_dataset_corpus_profile("realmedqa")
 
     assert profile["question_context_role"] == "no_context"
     assert profile["requires_shared_corpus_for_fair_retrieval"] is True
 
 
-def test_multihoprag_uses_shared_corpus_for_fair_retrieval():
+def test_multihoprag_uses_shared_corpus_for_fair_retrieval() -> None:
     profile = get_dataset_corpus_profile("multihoprag")
     original_loader = dataset_adapters_module._load_optional_json_records
     dataset_adapters_module._load_optional_json_records = lambda candidate_paths: [
@@ -201,7 +203,9 @@ def test_multihoprag_uses_shared_corpus_for_fair_retrieval():
     assert "Title: Reuters sample" in passages[0].text
 
 
-def test_multihoprag_shared_corpus_absent_without_local_corpus(monkeypatch):
+def test_multihoprag_shared_corpus_absent_without_local_corpus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         dataset_adapters_module,
         "_load_optional_json_records",
@@ -211,7 +215,9 @@ def test_multihoprag_shared_corpus_absent_without_local_corpus(monkeypatch):
     assert passages is None
 
 
-def test_bioasq_shared_corpus_absent_without_local_abstract_corpus(monkeypatch):
+def test_bioasq_shared_corpus_absent_without_local_abstract_corpus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         dataset_adapters_module,
         "_load_optional_json_records",
@@ -221,7 +227,9 @@ def test_bioasq_shared_corpus_absent_without_local_abstract_corpus(monkeypatch):
     assert passages is None
 
 
-def test_realmedqa_shared_corpus_uses_verified_ideal_subset(monkeypatch):
+def test_realmedqa_shared_corpus_uses_verified_ideal_subset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         dataset_adapters_module,
         "_load_realmedqa_records",
@@ -250,7 +258,7 @@ def test_realmedqa_shared_corpus_uses_verified_ideal_subset(monkeypatch):
     assert passages[0].text == "Recommendation:\nR1"
 
 
-def test_infer_hop_count_from_raw_uses_question_decomposition_when_present():
+def test_infer_hop_count_from_raw_uses_question_decomposition_when_present() -> None:
     raw = {
         "question_decomposition": [
             {"q": "step 1"},
@@ -262,7 +270,7 @@ def test_infer_hop_count_from_raw_uses_question_decomposition_when_present():
     assert infer_hop_count_from_raw("musique", "3hop__example", raw) == 3
 
 
-def test_infer_hop_count_from_raw_uses_dataset_specific_evidence_fields():
+def test_infer_hop_count_from_raw_uses_dataset_specific_evidence_fields() -> None:
     multihoprag_raw = {
         "evidence_list": [
             {"fact": "A"},
@@ -288,11 +296,13 @@ def test_infer_hop_count_from_raw_uses_dataset_specific_evidence_fields():
     assert infer_hop_count_from_raw("hotpotqa", "hotpot_1", hotpot_raw) == 2
 
 
-def test_infer_hop_count_from_raw_falls_back_to_id_prefix():
+def test_infer_hop_count_from_raw_falls_back_to_id_prefix() -> None:
     assert infer_hop_count_from_raw("musique", "4hop1__abc", {}) == 4
 
 
-def test_build_passage_corpus_preserves_question_local_duplicates_when_requested():
+def test_build_passage_corpus_preserves_question_local_duplicates_when_requested() -> (
+    None
+):
     records = [
         InferenceRecord(
             id="q1",
@@ -321,7 +331,7 @@ def test_build_passage_corpus_preserves_question_local_duplicates_when_requested
     ]
 
 
-def test_build_passage_corpus_preserves_structured_titles_with_periods():
+def test_build_passage_corpus_preserves_structured_titles_with_periods() -> None:
     raw = {
         "_id": "hp1",
         "question": "Which film starred James Bond?",

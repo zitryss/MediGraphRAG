@@ -33,7 +33,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from langchain_core.runnables import RunnableLambda
 from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -90,7 +89,7 @@ def _stub_llm(response: str):
 
 # StubGraph that returns pre-configured ctx per call
 class _StubGraph:
-    def __init__(self, hop_ctxs):
+    def __init__(self, hop_ctxs) -> None:
         self._ctxs = list(hop_ctxs)
 
     def query(self, q, params=None):
@@ -139,10 +138,10 @@ def _run_iterative(
         except StopIteration:
             return None
 
-    def _no_vec(*a, **kw):
+    def _no_vec(*a, **kw) -> None:
         return None
 
-    def _no_text(*a, **kw):
+    def _no_text(*a, **kw) -> None:
         return None
 
     orig_vec = getattr(system, "_vector_similarity_search", None)
@@ -190,13 +189,13 @@ def _run_iterative(
 class TestReturnsNoneOnEmptyHops:
     sys_ = _make_system()
 
-    def test_none_when_no_chunks(self):
+    def test_none_when_no_chunks(self) -> None:
         result = _run_iterative(
             self.sys_, hop_contexts=[None, None], sub_questions=["Q1?", "Q2?"]
         )
         assert result is None
 
-    def test_none_when_empty_chunk_lists(self):
+    def test_none_when_empty_chunk_lists(self) -> None:
         hop1 = _hop_ctx(chunks=[])
         hop2 = _hop_ctx(chunks=[])
         result = _run_iterative(
@@ -226,25 +225,25 @@ class TestBridgeAnswerRejection:
             bridge_response=bridge_response,
         )
 
-    def test_valid_bridge_returns_result(self):
+    def test_valid_bridge_returns_result(self) -> None:
         result = self._run("Aspirin")
         assert result is not None
 
-    def test_bad_phrase_i_dont_know_still_returns_result(self):
+    def test_bad_phrase_i_dont_know_still_returns_result(self) -> None:
         # Bridge is rejected but retrieval completes with both hops
         result = self._run("I don't know")
         assert result is not None
         assert len(result["chunks"]) >= 1
 
-    def test_bad_phrase_unknown_still_returns_result(self):
+    def test_bad_phrase_unknown_still_returns_result(self) -> None:
         result = self._run("unknown")
         assert result is not None
 
-    def test_empty_bridge_still_returns_result(self):
+    def test_empty_bridge_still_returns_result(self) -> None:
         result = self._run("")
         assert result is not None
 
-    def test_bridge_exceeding_200_chars_rejected(self):
+    def test_bridge_exceeding_200_chars_rejected(self) -> None:
         # Overly long "answer" is rejected — retrieval still succeeds
         long_bridge = "X" * 201
         result = self._run(long_bridge)
@@ -259,7 +258,7 @@ class TestBridgeAnswerRejection:
 class TestCrossHopDedup:
     sys_ = _make_system()
 
-    def test_shared_chunk_activates_both_hops(self):
+    def test_shared_chunk_activates_both_hops(self) -> None:
         # Hop 0 retrieves chunk A (linked to entity e1).
         # Hop 1 retrieves the same chunk A again (deduplicated as new_chunks=[])
         # plus a fresh chunk B (linked to e2).
@@ -316,7 +315,7 @@ class TestCrossHopDedup:
 class TestGroundingAnchoredToHop0:
     sys_ = _make_system()
 
-    def test_grounding_from_hop0_not_later_hops(self):
+    def test_grounding_from_hop0_not_later_hops(self) -> None:
         # Hop 0: grounding_quality=0.3, seed_entity_count=1
         # Hop 1: grounding_quality=0.9, seed_entity_count=10 (should be ignored)
         c1 = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
@@ -334,7 +333,7 @@ class TestGroundingAnchoredToHop0:
         assert result["grounding_quality"] == 0.3
         assert result["seed_entity_count"] == 1
 
-    def test_grounding_not_overwritten_by_empty_hop(self):
+    def test_grounding_not_overwritten_by_empty_hop(self) -> None:
         c1 = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
         hop0 = _hop_ctx([c1], grounding_quality=0.5, seed_entity_count=2)
         hop1 = _hop_ctx([])  # empty hop
@@ -356,7 +355,7 @@ class TestGroundingAnchoredToHop0:
 class TestDatasetSpecificSubquestionHopCaps:
     sys_ = _make_system()
 
-    def test_2wiki_is_capped_to_one_hop_per_subquestion(self):
+    def test_2wiki_is_capped_to_one_hop_per_subquestion(self) -> None:
         assert (
             self.sys_._iterative_subquestion_max_hops_for_kg("2wikimultihopqa", 2) == 1
         )
@@ -364,7 +363,7 @@ class TestDatasetSpecificSubquestionHopCaps:
             self.sys_._iterative_subquestion_max_hops_for_kg("2wikimultihopqa", 4) == 1
         )
 
-    def test_other_datasets_keep_relaxed_default_cap(self):
+    def test_other_datasets_keep_relaxed_default_cap(self) -> None:
         assert self.sys_._iterative_subquestion_max_hops_for_kg("musique", 4) == 3
         assert self.sys_._iterative_subquestion_max_hops_for_kg("multihoprag", 4) == 3
         assert self.sys_._iterative_subquestion_max_hops_for_kg("hotpotqa", 2) == 2
@@ -373,7 +372,7 @@ class TestDatasetSpecificSubquestionHopCaps:
 class TestIterativeRetrievalQueryAnchoring:
     sys_ = _make_system()
 
-    def test_musique_later_hops_keep_original_question_anchor(self):
+    def test_musique_later_hops_keep_original_question_anchor(self) -> None:
         query = self.sys_._iterative_retrieval_query(
             "Where is the headquarters of the Radio Television of the country whose co-official language is the same as the one Politika is written in?",
             "Which country has [BRIDGE] as a co-official language?",
@@ -386,7 +385,7 @@ class TestIterativeRetrievalQueryAnchoring:
         assert "Next hop target:" in query
         assert "Radio Television" in query
 
-    def test_2wiki_later_hops_remain_local(self):
+    def test_2wiki_later_hops_remain_local(self) -> None:
         query = self.sys_._iterative_retrieval_query(
             "Who is the father-in-law of Helena Palaiologina, Despotess of Serbia?",
             "Who is [BRIDGE]'s father?",
@@ -396,7 +395,7 @@ class TestIterativeRetrievalQueryAnchoring:
         )
         assert query == "Who is [BRIDGE]'s father?"
 
-    def test_anchor_datasets_get_larger_later_hop_budget(self):
+    def test_anchor_datasets_get_larger_later_hop_budget(self) -> None:
         assert self.sys_._iterative_hop_retrieval_budget("musique", 1, 6) == 12
         assert self.sys_._iterative_hop_retrieval_budget("multihoprag", 2, 8) == 12
         assert self.sys_._iterative_hop_retrieval_budget("2wikimultihopqa", 1, 6) == 6
@@ -410,7 +409,9 @@ class TestIterativeRetrievalQueryAnchoring:
 class TestHybridRetrievalRouting:
     sys_ = _make_system()
 
-    def test_comparison_query_with_single_branch_graph_context_prefers_vector(self):
+    def test_comparison_query_with_single_branch_graph_context_prefers_vector(
+        self,
+    ) -> None:
         graph_chunk = _chunk(
             "Riding the California Trail is a 1947 American Western film directed by William Nigh.",
             score=1.0,
@@ -461,7 +462,9 @@ class TestHybridRetrievalRouting:
         texts = [chunk["text"] for chunk in result["chunks"]]
         assert any("Lost and Delirious" in text for text in texts)
 
-    def test_graph_context_meaningfulness_requires_both_comparison_branches(self):
+    def test_graph_context_meaningfulness_requires_both_comparison_branches(
+        self,
+    ) -> None:
         graph_ctx = _hop_ctx(
             [
                 _chunk(
@@ -486,7 +489,7 @@ class TestHybridRetrievalRouting:
             graph_ctx,
         )
 
-    def test_comparison_chunk_rerank_prioritizes_explicit_branches(self):
+    def test_comparison_chunk_rerank_prioritizes_explicit_branches(self) -> None:
         chunks = [
             _chunk(
                 "Fred F. Sears was an American film director.",
@@ -521,7 +524,7 @@ class TestHybridRetrievalRouting:
 class TestEntityAndPathPruning:
     sys_ = _make_system()
 
-    def test_entity_not_linked_to_retained_chunk_is_dropped(self):
+    def test_entity_not_linked_to_retained_chunk_is_dropped(self) -> None:
         # We set max_chunks=1, so only the higher-score chunk survives.
         c_high = _chunk(
             "Aspirin reduces fever.", score=1.0, linked_entity_ids=["e_keep"]
@@ -553,7 +556,7 @@ class TestEntityAndPathPruning:
         assert "e_keep" in result["entities"]
         assert "e_drop" not in result["entities"]
 
-    def test_relationship_dropped_when_either_endpoint_pruned(self):
+    def test_relationship_dropped_when_either_endpoint_pruned(self) -> None:
         c_high = _chunk("Aspirin reduces fever.", score=1.0, linked_entity_ids=["e1"])
         c_low = _chunk(
             "Metformin treats diabetes.", score=0.1, linked_entity_ids=["e2"]
@@ -586,7 +589,7 @@ class TestEntityAndPathPruning:
         # e2 not retained → relationship must be absent
         assert not any(r.get("target") == "e2" for r in result["relationships"])
 
-    def test_path_without_node_ids_is_kept(self):
+    def test_path_without_node_ids_is_kept(self) -> None:
         # Paths without node_ids are legacy; they must not be dropped
         c = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1"])
         hop_ctx = _hop_ctx(
@@ -601,7 +604,7 @@ class TestEntityAndPathPruning:
         assert result is not None
         assert any("A -> B" in p["path"] for p in result["traversal_paths"])
 
-    def test_path_with_unknown_node_id_is_dropped(self):
+    def test_path_with_unknown_node_id_is_dropped(self) -> None:
         c = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1"])
         hop_ctx = _hop_ctx(
             chunks=[c],
@@ -624,7 +627,7 @@ class TestEntityAndPathPruning:
             "Aspirin -> Fever" in p["path"] for p in result["traversal_paths"]
         )
 
-    def test_path_with_all_retained_node_ids_kept(self):
+    def test_path_with_all_retained_node_ids_kept(self) -> None:
         c = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1", "e2"])
         hop_ctx = _hop_ctx(
             chunks=[c],

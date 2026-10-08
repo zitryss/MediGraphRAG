@@ -16,7 +16,7 @@ from pathlib import Path
 import seaborn as sns
 
 # ── Data sources ──────────────────────────────────────────────────────────────
-RUNS = {
+RUNS: dict[str, str] = {
     "BioASQ": "results/runs/20260402-172730-bioasq-n100-full-metrics-evaluation-subset/mirage_bioasq_results.json",
     "RealMedQA": "results/runs/20260402-155138-realmedqa-n100-full-metrics-evaluation-subset/mirage_realmedqa_results.json",
     "PubMedQA": "results/runs/20260401-074100-pubmedqa-n100-full-metrics-evaluation-subset-rebuildkg/mirage_pubmedqa_results.json",
@@ -27,7 +27,7 @@ RUNS = {
 
 # ── Measure layout ────────────────────────────────────────────────────────────
 # (internal_key, display_label, family)
-MEASURES = [
+MEASURES: list[tuple[str, str, str]] = [
     # Output estimators
     ("semantic_entropy", "SE", "output"),
     ("discrete_semantic_entropy", "DSE", "output"),
@@ -48,13 +48,20 @@ MEASURES = [
     ("evidence_conflict_uncertainty", "ECU", "grounding"),
 ]
 
-FAMILY_COLORS = {
+FAMILY_COLORS: dict[str, str] = {
     "output": "#3A7DC9",  # blue
     "structural": "#E07B39",  # orange
     "grounding": "#4BAE8A",  # green
 }
 
-DATASET_ORDER = ["BioASQ", "RealMedQA", "PubMedQA", "2Wiki", "HotpotQA", "MultiHopRAG"]
+DATASET_ORDER: list[str] = [
+    "BioASQ",
+    "RealMedQA",
+    "PubMedQA",
+    "2Wiki",
+    "HotpotQA",
+    "MultiHopRAG",
+]
 PREFERRED_CONFIG_NAME = os.environ.get("MIRAGE_CONFIG_NAME")
 
 

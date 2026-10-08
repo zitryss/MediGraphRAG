@@ -27,7 +27,7 @@ from scipy.stats import spearmanr
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "results", "analyses", "diversity_run_analysis.json")
 
-OVERLAPS = [
+OVERLAPS: list[tuple[str, str]] = [
     ("seed_entity", "kg_seed_entity_jaccard"),
     ("path", "kg_path_jaccard"),
     ("subgraph", "kg_subgraph_jaccard"),
@@ -50,7 +50,7 @@ def fin(x):
         return False
 
 
-def main(pattern):
+def main(pattern) -> None:
     paths = (
         sorted(glob.glob(pattern)) if any(c in pattern for c in "*?[") else [pattern]
     )

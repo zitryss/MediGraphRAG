@@ -1,11 +1,12 @@
+from pathlib import Path
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ontographrag.api.runtime_helpers import (
-    build_support_guardrail_verdict,
     build_readiness_report,
+    build_support_guardrail_verdict,
     configured_provider_names_from_env,
     filesystem_write_probe_ok,
     guardrail_forces_abstention,
@@ -13,14 +14,14 @@ from ontographrag.api.runtime_helpers import (
 )
 
 
-def test_parse_request_timeout_seconds_clamps_values():
+def test_parse_request_timeout_seconds_clamps_values() -> None:
     assert parse_request_timeout_seconds("not-a-number") == 120
     assert parse_request_timeout_seconds("5") == 15
     assert parse_request_timeout_seconds("900") == 300
     assert parse_request_timeout_seconds("60") == 60
 
 
-def test_configured_provider_names_from_env_detects_keys():
+def test_configured_provider_names_from_env_detects_keys() -> None:
     providers = configured_provider_names_from_env(
         {
             "OPENAI_API_KEY": "x",
@@ -31,7 +32,7 @@ def test_configured_provider_names_from_env_detects_keys():
     assert providers == ["openai", "openrouter", "ollama"]
 
 
-def test_guardrail_forces_abstention_only_on_non_keep_verdicts():
+def test_guardrail_forces_abstention_only_on_non_keep_verdicts() -> None:
     assert (
         guardrail_forces_abstention({"enabled": True, "final_decision": "abstain"})
         is True
@@ -47,7 +48,7 @@ def test_guardrail_forces_abstention_only_on_non_keep_verdicts():
     assert guardrail_forces_abstention(None) is False
 
 
-def test_support_guardrail_abstains_when_two_signals_are_weak():
+def test_support_guardrail_abstains_when_two_signals_are_weak() -> None:
     verdict = build_support_guardrail_verdict(
         enabled=True,
         mode="retry_then_abstain",
@@ -61,7 +62,7 @@ def test_support_guardrail_abstains_when_two_signals_are_weak():
     assert verdict["weak_signal_count"] == 2
 
 
-def test_support_guardrail_keeps_when_only_one_signal_is_weak():
+def test_support_guardrail_keeps_when_only_one_signal_is_weak() -> None:
     verdict = build_support_guardrail_verdict(
         enabled=True,
         mode="retry_then_abstain",
@@ -74,7 +75,7 @@ def test_support_guardrail_keeps_when_only_one_signal_is_weak():
     assert verdict["would_abstain"] is False
 
 
-def test_support_guardrail_disabled_exposes_would_abstain_without_suppressing():
+def test_support_guardrail_disabled_exposes_would_abstain_without_suppressing() -> None:
     verdict = build_support_guardrail_verdict(
         enabled=False,
         mode="abstain_only",
@@ -88,13 +89,13 @@ def test_support_guardrail_disabled_exposes_would_abstain_without_suppressing():
     assert verdict["final_decision"] == "keep"
 
 
-def test_filesystem_write_probe_ok(tmp_path):
+def test_filesystem_write_probe_ok(tmp_path: Path) -> None:
     ok, detail = filesystem_write_probe_ok(tmp_path)
     assert ok is True
     assert "Can write to" in detail
 
 
-def test_build_readiness_report_flags_missing_dependencies():
+def test_build_readiness_report_flags_missing_dependencies() -> None:
     report = build_readiness_report(
         neo4j_ready=True,
         rag_runtime_ready=False,

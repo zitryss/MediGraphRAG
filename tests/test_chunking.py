@@ -1,17 +1,20 @@
+import pytest
 import sys
 import types
 
 from ontographrag.kg.chunking import chunk_text
 
 
-def test_chunk_text_falls_back_when_tiktoken_splitter_is_unavailable(monkeypatch):
+def test_chunk_text_falls_back_when_tiktoken_splitter_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeSplitter:
-        def __init__(self, chunk_size, chunk_overlap):
+        def __init__(self, chunk_size, chunk_overlap) -> None:
             self.chunk_size = chunk_size
             self.chunk_overlap = chunk_overlap
 
         @classmethod
-        def from_tiktoken_encoder(cls, chunk_size, chunk_overlap):
+        def from_tiktoken_encoder(cls, chunk_size, chunk_overlap) -> None:
             raise RuntimeError("offline tokenizer assets unavailable")
 
         def split_text(self, text):

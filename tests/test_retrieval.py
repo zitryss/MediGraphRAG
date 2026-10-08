@@ -29,7 +29,6 @@ from ontographrag.rag.systems.vanilla_rag_system import VanillaRAGSystem
 import ontographrag.rag.systems.enhanced_rag_system as enhanced_rag_module
 import ontographrag.rag.systems.vanilla_rag_system as vanilla_rag_module
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -65,19 +64,19 @@ def _minimal_context(
 class TestClassifyQuestionType:
     sys_ = _make_system()
 
-    def test_statistical_term_detected(self):
+    def test_statistical_term_detected(self) -> None:
         assert (
             self.sys_.classify_question_type("What is the incidence rate of diabetes?")
             == "statistical"
         )
 
-    def test_how_many_is_statistical(self):
+    def test_how_many_is_statistical(self) -> None:
         assert (
             self.sys_.classify_question_type("How many patients were enrolled?")
             == "statistical"
         )
 
-    def test_what_percentage_is_statistical(self):
+    def test_what_percentage_is_statistical(self) -> None:
         assert (
             self.sys_.classify_question_type(
                 "What percentage of cases respond to metformin?"
@@ -85,7 +84,7 @@ class TestClassifyQuestionType:
             == "statistical"
         )
 
-    def test_explain_is_semantic(self):
+    def test_explain_is_semantic(self) -> None:
         assert (
             self.sys_.classify_question_type(
                 "Explain the mechanism of insulin resistance."
@@ -93,20 +92,20 @@ class TestClassifyQuestionType:
             == "semantic"
         )
 
-    def test_what_is_is_semantic(self):
+    def test_what_is_is_semantic(self) -> None:
         assert (
             self.sys_.classify_question_type("What is the role of TBK1 in signalling?")
             == "semantic"
         )
 
-    def test_generic_relational_question(self):
+    def test_generic_relational_question(self) -> None:
         qt = self.sys_.classify_question_type("Does aspirin treat fever?")
         assert qt in ("generic", "semantic", "statistical"), f"Unexpected type: {qt}"
 
-    def test_case_insensitive(self):
+    def test_case_insensitive(self) -> None:
         assert self.sys_.classify_question_type("EXPLAIN THE MECHANISM") == "semantic"
 
-    def test_returns_string(self):
+    def test_returns_string(self) -> None:
         result = self.sys_.classify_question_type("Some random text.")
         assert isinstance(result, str)
         assert result in ("statistical", "semantic", "generic")
@@ -118,31 +117,31 @@ class TestClassifyQuestionType:
 
 
 class TestGroundingQuality:
-    def test_perfect_grounding_capped_at_1(self):
+    def test_perfect_grounding_capped_at_1(self) -> None:
         # 3 content words, 5 matched → capped at 1.0
         score = EnhancedRAGSystem._grounding_quality("Metformin treats diabetes", 5)
         assert score == 1.0
 
-    def test_partial_grounding(self):
+    def test_partial_grounding(self) -> None:
         # "Metformin treats diabetes" has 3 content words (>=4 chars: Metformin, treats, diabetes)
         # 1 matched → 1/3
         score = EnhancedRAGSystem._grounding_quality("Metformin treats diabetes", 1)
         assert abs(score - 1 / 3) < 1e-9
 
-    def test_zero_matched_returns_0(self):
+    def test_zero_matched_returns_0(self) -> None:
         score = EnhancedRAGSystem._grounding_quality("Metformin treats diabetes", 0)
         assert score == 0.0
 
-    def test_empty_query_returns_0(self):
+    def test_empty_query_returns_0(self) -> None:
         score = EnhancedRAGSystem._grounding_quality("", 3)
         assert score == 0.0
 
-    def test_short_words_only_returns_0(self):
+    def test_short_words_only_returns_0(self) -> None:
         # All words < 4 chars → no content words → 0.0
         score = EnhancedRAGSystem._grounding_quality("do it now", 1)
         assert score == 0.0
 
-    def test_output_in_unit_interval(self):
+    def test_output_in_unit_interval(self) -> None:
         for n in range(6):
             score = EnhancedRAGSystem._grounding_quality(
                 "Aspirin reduces fever inflammation", n
@@ -151,7 +150,7 @@ class TestGroundingQuality:
 
 
 class TestQuestionLocalGraphScope:
-    def test_entity_support_clause_contains_question_local_constraints(self):
+    def test_entity_support_clause_contains_question_local_constraints(self) -> None:
         clause = EnhancedRAGSystem._question_local_entity_support_clause(
             "e",
             kg_name="musique",
@@ -160,7 +159,7 @@ class TestQuestionLocalGraphScope:
         assert "c.questionId = $question_id" in clause
         assert "d.kgName = $kg_name" in clause
 
-    def test_entity_support_clause_contains_document_scope(self):
+    def test_entity_support_clause_contains_document_scope(self) -> None:
         clause = EnhancedRAGSystem._question_local_entity_support_clause(
             "e",
             kg_name="custom_kg",
@@ -170,7 +169,7 @@ class TestQuestionLocalGraphScope:
         assert "d.kgName = $kg_name" in clause
         assert "d.fileName IN $document_names" in clause
 
-    def test_pair_support_clause_is_true_without_question_id(self):
+    def test_pair_support_clause_is_true_without_question_id(self) -> None:
         clause = EnhancedRAGSystem._question_local_pair_support_clause(
             "e1",
             "e2",
@@ -179,7 +178,7 @@ class TestQuestionLocalGraphScope:
         )
         assert clause == "true"
 
-    def test_pair_support_clause_scopes_to_documents_without_question_id(self):
+    def test_pair_support_clause_scopes_to_documents_without_question_id(self) -> None:
         clause = EnhancedRAGSystem._question_local_pair_support_clause(
             "e1",
             "e2",
@@ -191,7 +190,7 @@ class TestQuestionLocalGraphScope:
         assert "d1.fileName IN $document_names" in clause
         assert "d2.fileName IN $document_names" in clause
 
-    def test_pair_support_clause_contains_question_bundle_constraints(self):
+    def test_pair_support_clause_contains_question_bundle_constraints(self) -> None:
         clause = EnhancedRAGSystem._question_local_pair_support_clause(
             "e1",
             "e2",
@@ -205,11 +204,11 @@ class TestQuestionLocalGraphScope:
         assert "coalesce(c1.passageIndex, -1) = coalesce(c2.passageIndex, -1)" in clause
         assert "d1.kgName = $kg_name" in clause
 
-    def test_expand_entities_via_graph_adds_question_local_path_scope(self):
+    def test_expand_entities_via_graph_adds_question_local_path_scope(self) -> None:
         sys_ = _make_system()
 
         class FakeGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.query_text = None
                 self.params = None
 
@@ -233,11 +232,11 @@ class TestQuestionLocalGraphScope:
         assert "c1.questionId = $question_id" in graph.query_text
         assert "c2.questionId = $question_id" in graph.query_text
 
-    def test_expand_entities_via_graph_adds_document_scope(self):
+    def test_expand_entities_via_graph_adds_document_scope(self) -> None:
         sys_ = _make_system()
 
         class FakeGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.query_text = None
                 self.params = None
 
@@ -260,7 +259,7 @@ class TestQuestionLocalGraphScope:
         assert graph.params["document_names"] == ["doc_a.txt"]
         assert "d.fileName IN $document_names" in graph.query_text
 
-    def test_final_chunk_selection_prunes_off_chunk_relationships(self):
+    def test_final_chunk_selection_prunes_off_chunk_relationships(self) -> None:
         context = {
             "chunks": [
                 {
@@ -321,36 +320,36 @@ class TestDecomposeQuestion:
 
         return RunnableLambda(lambda _: response)
 
-    def test_valid_json_array_returned(self):
+    def test_valid_json_array_returned(self) -> None:
         llm = self._llm('["Who founded CRISPR?", "What country are they from?"]')
         result = self.sys_._decompose_question("Multi hop question?", llm, max_hops=2)
         assert isinstance(result, list)
         assert len(result) == 2
         assert all(isinstance(q, str) for q in result)
 
-    def test_malformed_json_falls_back_to_original(self):
+    def test_malformed_json_falls_back_to_original(self) -> None:
         llm = self._llm("I cannot decompose this.")
         result = self.sys_._decompose_question("Original question?", llm, max_hops=2)
         assert result == ["Original question?"]
 
-    def test_empty_response_falls_back(self):
+    def test_empty_response_falls_back(self) -> None:
         llm = self._llm("")
         result = self.sys_._decompose_question("Some question?", llm, max_hops=2)
         assert result == ["Some question?"]
 
-    def test_single_item_array_falls_back(self):
+    def test_single_item_array_falls_back(self) -> None:
         # Needs >= 2 sub-questions; single-item signals LLM didn't decompose
         llm = self._llm('["Only one question?"]')
         result = self.sys_._decompose_question("Some question?", llm, max_hops=2)
         assert result == ["Some question?"]
 
-    def test_result_capped_to_max_hops(self):
+    def test_result_capped_to_max_hops(self) -> None:
         many = '["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"]'
         llm = self._llm(many)
         result = self.sys_._decompose_question("Multi hop question?", llm, max_hops=3)
         assert len(result) <= 3
 
-    def test_always_returns_list(self):
+    def test_always_returns_list(self) -> None:
         llm = self._llm("garbage [] more garbage")
         result = self.sys_._decompose_question("X?", llm)
         assert isinstance(result, list)
@@ -365,7 +364,7 @@ class TestExtractQueryEntities:
 
         return RunnableLambda(lambda _: response)
 
-    def test_dedupes_and_caps_entities(self):
+    def test_dedupes_and_caps_entities(self) -> None:
         self.sys_._entity_extraction_cache = {}
         llm = self._llm(
             json.dumps(
@@ -405,7 +404,7 @@ class TestExtractQueryEntities:
 class TestPprEntityScores:
     sys_ = _make_system()
 
-    def test_bidirectional_walk_and_dangling_mass_preserved(self):
+    def test_bidirectional_walk_and_dangling_mass_preserved(self) -> None:
         scores = self.sys_._ppr_entity_scores(
             seed_ids=["a"],
             all_entity_ids=["a", "b", "c"],
@@ -418,7 +417,7 @@ class TestPprEntityScores:
 
 
 class TestMergeRetrievalContexts:
-    def test_preserves_nonzero_seed_entity_count_from_secondary(self):
+    def test_preserves_nonzero_seed_entity_count_from_secondary(self) -> None:
         merged = EnhancedRAGSystem._merge_retrieval_contexts(
             {
                 "query": "test",
@@ -449,12 +448,14 @@ class TestMergeRetrievalContexts:
 
 
 class TestVanillaQuestionScopedRetrieval:
-    def test_retrieval_vector_question_scope_falls_back_to_parent_chunk_scope(self):
+    def test_retrieval_vector_question_scope_falls_back_to_parent_chunk_scope(
+        self,
+    ) -> None:
         system = VanillaRAGSystem.__new__(VanillaRAGSystem)
         system._vector_index_name = None
 
         class FakeGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.queries = []
 
             def query(self, query, params=None):
@@ -511,12 +512,14 @@ class TestVanillaQuestionScopedRetrieval:
         assert len(context["chunks"]) == 1
         assert context["chunks"][0]["question_id"] == "q1"
 
-    def test_retrieval_vector_empty_question_scope_falls_back_to_chunk_vector(self):
+    def test_retrieval_vector_empty_question_scope_falls_back_to_chunk_vector(
+        self,
+    ) -> None:
         system = VanillaRAGSystem.__new__(VanillaRAGSystem)
         system._vector_index_name = None
 
         class FakeGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.queries = []
 
             def query(self, query, params=None):
@@ -566,14 +569,16 @@ class TestVanillaQuestionScopedRetrieval:
 
 
 class TestEnhancedQuestionScopedVectorRetrieval:
-    def test_retrieval_vector_question_scope_falls_back_to_parent_chunk_scope(self):
+    def test_retrieval_vector_question_scope_falls_back_to_parent_chunk_scope(
+        self,
+    ) -> None:
         system = _make_system()
         system._active_vector_index_name = "retrieval_vector"
         system.check_vector_index = lambda: True
         system._generate_query_embedding = lambda _: [0.0, 0.1]
 
         class FakeGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.queries = []
 
             def query(self, query, params=None):
@@ -626,14 +631,16 @@ class TestEnhancedQuestionScopedVectorRetrieval:
         assert len(context["chunks"]) == 1
         assert context["chunks"][0]["question_id"] == "q1"
 
-    def test_retrieval_vector_empty_question_scope_falls_back_to_chunk_vector(self):
+    def test_retrieval_vector_empty_question_scope_falls_back_to_chunk_vector(
+        self,
+    ) -> None:
         system = _make_system()
         system._active_vector_index_name = "retrieval_vector"
         system.check_vector_index = lambda: True
         system._generate_query_embedding = lambda _: [0.0, 0.1]
 
         class FakeGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.queries = []
 
             def query(self, query, params=None):
@@ -680,8 +687,8 @@ class TestEnhancedQuestionScopedVectorRetrieval:
 
 class TestLateInteractionFirstStageRetrieval:
     def test_enhanced_semantic_search_prefers_late_interaction_backend(
-        self, monkeypatch
-    ):
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         system = _make_system()
         system.retrieval_mode = "vector_only"
         system.use_rfge = True
@@ -723,8 +730,8 @@ class TestLateInteractionFirstStageRetrieval:
         assert context["chunks"][0]["text"] == "Late interaction evidence."
 
     def test_enhanced_semantic_search_falls_back_to_vector_when_late_interaction_empty(
-        self, monkeypatch
-    ):
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         system = _make_system()
         system._first_stage_late_interaction_enabled = lambda: True
         system._late_interaction_search = lambda *args, **kwargs: {
@@ -767,7 +774,9 @@ class TestLateInteractionFirstStageRetrieval:
         assert context["search_method"] == "vector_similarity"
         assert context["chunks"][0]["text"] == "Vector fallback."
 
-    def test_enhanced_late_interaction_unapplied_returns_empty(self, monkeypatch):
+    def test_enhanced_late_interaction_unapplied_returns_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         system = _make_system()
         system._late_interaction_scope_key = lambda **kwargs: ("scope",)
         system._late_interaction_corpus_rows = lambda *args, **kwargs: [
@@ -796,7 +805,9 @@ class TestLateInteractionFirstStageRetrieval:
         assert context["search_method"] == "late_interaction_unavailable"
         assert context["late_interaction_stage"]["reason"] == "model_unavailable"
 
-    def test_enhanced_semantic_search_can_bypass_first_stage_late_interaction(self):
+    def test_enhanced_semantic_search_can_bypass_first_stage_late_interaction(
+        self,
+    ) -> None:
         system = _make_system()
         system._first_stage_late_interaction_enabled = lambda: True
         system._late_interaction_search = lambda *args, **kwargs: pytest.fail(
@@ -833,7 +844,9 @@ class TestLateInteractionFirstStageRetrieval:
         assert context["search_method"] == "vector_similarity"
         assert context["chunks"][0]["text"] == "Dense floor."
 
-    def test_vanilla_late_interaction_unapplied_returns_empty(self, monkeypatch):
+    def test_vanilla_late_interaction_unapplied_returns_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         system = VanillaRAGSystem.__new__(VanillaRAGSystem)
         system._late_interaction_scope_key = lambda **kwargs: ("scope",)
         system._late_interaction_corpus_rows = lambda *args, **kwargs: [
@@ -859,7 +872,9 @@ class TestLateInteractionFirstStageRetrieval:
         assert context["search_method"] == "vanilla_late_interaction_unavailable"
         assert context["late_interaction_stage"]["reason"] == "model_unavailable"
 
-    def test_vanilla_context_prefers_late_interaction_backend(self, monkeypatch):
+    def test_vanilla_context_prefers_late_interaction_backend(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         system = VanillaRAGSystem.__new__(VanillaRAGSystem)
         system._first_stage_late_interaction_enabled = lambda: True
 
@@ -893,11 +908,11 @@ class TestLateInteractionFirstStageRetrieval:
 
 
 class TestEnhancedAdjacentChunkRecovery:
-    def test_adjacent_chunk_recovery_appends_neighbor_with_entities(self):
+    def test_adjacent_chunk_recovery_appends_neighbor_with_entities(self) -> None:
         system = _make_system()
 
         class FakeGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.queries = []
 
             def query(self, query, params=None):
@@ -965,7 +980,7 @@ class TestEnhancedAdjacentChunkRecovery:
 
 
 class TestDocumentScopedEnhancedRetrieval:
-    def test_get_rag_context_forwards_document_names_to_entity_first(self):
+    def test_get_rag_context_forwards_document_names_to_entity_first(self) -> None:
         system = _make_system()
         system.retrieval_mode = "hybrid_auto"
         system.use_rfge = True
@@ -1032,7 +1047,7 @@ class TestDocumentScopedEnhancedRetrieval:
 class TestEnhancedRetrievalUpgrades:
     sys_ = _make_system()
 
-    def test_lexical_rerank_prioritizes_query_overlap(self):
+    def test_lexical_rerank_prioritizes_query_overlap(self) -> None:
         chunks = [
             {
                 "text": "Generic background passage.",
@@ -1052,7 +1067,9 @@ class TestEnhancedRetrievalUpgrades:
         assert "Lost and Delirious" in sorted_chunks[0]["text"]
 
 
-def test_enhanced_query_fusion_supplements_missing_comparison_branch(monkeypatch):
+def test_enhanced_query_fusion_supplements_missing_comparison_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     system = _make_system()
 
     question = "Which film has the director born later, Riding The California Trail or Lost And Delirious?"
@@ -1155,7 +1172,9 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(monkeypatch
     assert "Lost and Delirious" in result["response"]
 
 
-def test_vanilla_query_fusion_supplements_missing_comparison_branch(monkeypatch):
+def test_vanilla_query_fusion_supplements_missing_comparison_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     system = VanillaRAGSystem.__new__(VanillaRAGSystem)
 
     question = "Which film has the director born later, Riding The California Trail or Lost And Delirious?"
@@ -1227,7 +1246,9 @@ def test_vanilla_query_fusion_supplements_missing_comparison_branch(monkeypatch)
     assert "Lost and Delirious" in result["response"]
 
 
-def test_enhanced_generate_response_respects_reranker_order(monkeypatch):
+def test_enhanced_generate_response_respects_reranker_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import ontographrag.rag.systems.enhanced_rag_system as enhanced_mod
 
     system = _make_system()
@@ -1319,7 +1340,9 @@ def test_enhanced_generate_response_respects_reranker_order(monkeypatch):
     assert result["reranker"]["applied"] is True
 
 
-def test_vanilla_generate_response_respects_reranker_order(monkeypatch):
+def test_vanilla_generate_response_respects_reranker_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import ontographrag.rag.systems.vanilla_rag_system as vanilla_mod
 
     system = VanillaRAGSystem.__new__(VanillaRAGSystem)
@@ -1392,7 +1415,9 @@ def test_vanilla_generate_response_respects_reranker_order(monkeypatch):
     assert result["reranker"]["applied"] is True
 
 
-def test_enhanced_generate_response_respects_late_interaction_order(monkeypatch):
+def test_enhanced_generate_response_respects_late_interaction_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import ontographrag.rag.systems.enhanced_rag_system as enhanced_mod
 
     system = _make_system()
@@ -1484,7 +1509,9 @@ def test_enhanced_generate_response_respects_late_interaction_order(monkeypatch)
     assert result["late_interaction"]["applied"] is True
 
 
-def test_vanilla_generate_response_respects_late_interaction_order(monkeypatch):
+def test_vanilla_generate_response_respects_late_interaction_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import ontographrag.rag.systems.vanilla_rag_system as vanilla_mod
 
     system = VanillaRAGSystem.__new__(VanillaRAGSystem)
@@ -1565,14 +1592,14 @@ def test_vanilla_generate_response_respects_late_interaction_order(monkeypatch):
 class TestFormatContextForLLM:
     sys_ = _make_system()
 
-    def test_returns_three_strings(self):
+    def test_returns_three_strings(self) -> None:
         ctx = _minimal_context()
         result = self.sys_.format_context_for_llm(ctx)
         assert isinstance(result, tuple)
         assert len(result) == 3
         assert all(isinstance(s, str) for s in result)
 
-    def test_chunks_rendered_in_evidence_block(self):
+    def test_chunks_rendered_in_evidence_block(self) -> None:
         ctx = _minimal_context(
             chunks=[
                 {
@@ -1586,7 +1613,7 @@ class TestFormatContextForLLM:
         evidence_block, _, _ = self.sys_.format_context_for_llm(ctx)
         assert "Aspirin reduces fever." in evidence_block
 
-    def test_ungrounded_paths_are_demoted_to_structural_hints(self):
+    def test_ungrounded_paths_are_demoted_to_structural_hints(self) -> None:
         ctx = _minimal_context(
             chunks=[
                 {
@@ -1609,7 +1636,9 @@ class TestFormatContextForLLM:
         assert "no passage retrieved" in evidence_block
         assert "REASONING CHAINS:\nChain" not in evidence_block
 
-    def test_path_with_matching_provenance_position_stays_in_reasoning_chains(self):
+    def test_path_with_matching_provenance_position_stays_in_reasoning_chains(
+        self,
+    ) -> None:
         ctx = _minimal_context(
             chunks=[
                 {
@@ -1633,12 +1662,12 @@ class TestFormatContextForLLM:
         assert "REASONING CHAINS:\nChain 1" in evidence_block
         assert "STRUCTURAL HINTS" not in evidence_block
 
-    def test_no_chunks_returns_no_evidence_message(self):
+    def test_no_chunks_returns_no_evidence_message(self) -> None:
         ctx = _minimal_context()
         evidence_block, _, _ = self.sys_.format_context_for_llm(ctx)
         assert evidence_block  # must be non-empty (shows placeholder)
 
-    def test_relationships_rendered_in_paths(self):
+    def test_relationships_rendered_in_paths(self) -> None:
         ctx = _minimal_context(
             entities={
                 "e1": {"id": "Aspirin", "type": "Drug", "description": "Aspirin"}
@@ -1648,7 +1677,7 @@ class TestFormatContextForLLM:
         _, _, paths_str = self.sys_.format_context_for_llm(ctx)
         assert "TREATS" in paths_str
 
-    def test_negated_relationships_rendered_in_paths(self):
+    def test_negated_relationships_rendered_in_paths(self) -> None:
         ctx = _minimal_context(
             entities={
                 "e1": {"id": "Aspirin", "type": "Drug", "description": "Aspirin"},
@@ -1661,19 +1690,19 @@ class TestFormatContextForLLM:
         _, _, paths_str = self.sys_.format_context_for_llm(ctx)
         assert "NOT TREATS" in paths_str
 
-    def test_no_graph_data_shows_fallback_message(self):
+    def test_no_graph_data_shows_fallback_message(self) -> None:
         ctx = _minimal_context()
         _, _, paths_str = self.sys_.format_context_for_llm(ctx)
         assert "No graph" in paths_str
 
-    def test_traversal_paths_rendered(self):
+    def test_traversal_paths_rendered(self) -> None:
         ctx = _minimal_context(
             traversal_paths=[{"path": "Aspirin -> TREATS -> Fever", "hops": 1}]
         )
         _, _, paths_str = self.sys_.format_context_for_llm(ctx)
         assert "Aspirin -> TREATS -> Fever" in paths_str
 
-    def test_seed_vs_neighbor_entity_labelling(self):
+    def test_seed_vs_neighbor_entity_labelling(self) -> None:
         ctx = _minimal_context(
             entities={
                 "e1": {
@@ -1696,7 +1725,7 @@ class TestFormatContextForLLM:
 
 
 class TestGraphEvidenceFormatting:
-    def test_relationship_identity_distinguishes_negation(self):
+    def test_relationship_identity_distinguishes_negation(self) -> None:
         positive = EnhancedRAGSystem._relationship_identity(
             {"source": "drug", "target": "symptom", "type": "TREATS", "negated": False}
         )
@@ -1705,7 +1734,7 @@ class TestGraphEvidenceFormatting:
         )
         assert positive != negative
 
-    def test_relationship_label_includes_condition_and_quantitative(self):
+    def test_relationship_label_includes_condition_and_quantitative(self) -> None:
         label = EnhancedRAGSystem._format_relationship_label(
             {
                 "type": "ASSOCIATED_WITH",
@@ -1715,7 +1744,7 @@ class TestGraphEvidenceFormatting:
         )
         assert label == "ASSOCIATED_WITH [in mice] (p<0.05)"
 
-    def test_passage_only_evidence_block_uses_chunks_only(self):
+    def test_passage_only_evidence_block_uses_chunks_only(self) -> None:
         system = _make_system()
         context = _minimal_context(
             chunks=[{"text": "The study concludes yes."}],
@@ -1729,7 +1758,9 @@ class TestGraphEvidenceFormatting:
         assert "The study concludes yes." in evidence_block
         assert "TREATS" not in evidence_block
 
-    def test_pubmedqa_uses_passage_only_prompt(self, monkeypatch):
+    def test_pubmedqa_uses_passage_only_prompt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         system = _make_system()
         system.rag_prompt = object()
         captured = {}
@@ -1802,7 +1833,7 @@ class TestTraversalRelevanceGate:
             for i, (hop, eid) in enumerate(entries)
         ]
 
-    def test_seed_chunks_always_kept(self):
+    def test_seed_chunks_always_kept(self) -> None:
         """Seed chunks (min_hop=0) are never filtered regardless of threshold."""
         s = _make_system()
         s._TRAVERSAL_CHUNK_MIN_SIM = 0.99  # impossibly high threshold
@@ -1814,7 +1845,7 @@ class TestTraversalRelevanceGate:
         # Confirm seed chunks survive when gate is disabled
         assert all(c["min_hop"] == 0 for c in chunks)
 
-    def test_gate_disabled_at_zero_threshold(self):
+    def test_gate_disabled_at_zero_threshold(self) -> None:
         """Setting threshold to 0.0 skips the gate entirely."""
         s = _make_system()
         s._TRAVERSAL_CHUNK_MIN_SIM = 0.0
@@ -1860,7 +1891,7 @@ class TestPerPassageChunkCap:
         s._MAX_CHUNKS_PER_PASSAGE = cap
         return s._apply_per_passage_chunk_cap(chunks)
 
-    def test_cap_limits_per_passage(self):
+    def test_cap_limits_per_passage(self) -> None:
         chunks = self._chunks_from_passages([("q1", 0)] * 5 + [("q1", 1)] * 3)
         result = self._apply_cap(chunks, cap=2)
         from collections import Counter
@@ -1869,12 +1900,12 @@ class TestPerPassageChunkCap:
         assert counts["q1::p0"] == 2
         assert counts["q1::p1"] == 2
 
-    def test_cap_preserves_all_when_under_limit(self):
+    def test_cap_preserves_all_when_under_limit(self) -> None:
         chunks = self._chunks_from_passages([("q1", 0), ("q1", 1), ("q1", 2)])
         result = self._apply_cap(chunks, cap=2)
         assert len(result) == 3  # one per passage, all under cap
 
-    def test_cap_zero_disables(self):
+    def test_cap_zero_disables(self) -> None:
         """cap=0 means the guard `if _passage_cap > 0` is False; all chunks pass."""
         _chunks = self._chunks_from_passages([("q1", 0)] * 10)
         # With cap=0 the guard is skipped; simulate by not calling _apply_cap
@@ -1882,7 +1913,7 @@ class TestPerPassageChunkCap:
         s._MAX_CHUNKS_PER_PASSAGE = 0
         assert s._MAX_CHUNKS_PER_PASSAGE == 0  # passes without applying cap
 
-    def test_cap_without_passage_metadata_falls_back_to_chunk_id(self):
+    def test_cap_without_passage_metadata_falls_back_to_chunk_id(self) -> None:
         """Chunks lacking passage_index are keyed by chunk_id (not grouped)."""
         chunks = [
             {
@@ -1908,11 +1939,11 @@ class TestPerPassageChunkCap:
         # Each has a unique chunk_id key so none are dropped
         assert len(result) == 5
 
-    def test_default_cap_is_two(self):
+    def test_default_cap_is_two(self) -> None:
         s = _make_system()
         assert s._MAX_CHUNKS_PER_PASSAGE == 2
 
-    def test_cap_keeps_highest_scoring_chunk_per_passage(self):
+    def test_cap_keeps_highest_scoring_chunk_per_passage(self) -> None:
         chunks = [
             {
                 "text": "low",
@@ -1973,7 +2004,7 @@ class TestPerPassageChunkCap:
 
 
 class TestRetrievalCacheInvalidation:
-    def test_enhanced_clear_retrieval_caches_resets_state(self):
+    def test_enhanced_clear_retrieval_caches_resets_state(self) -> None:
         s = _make_system()
         s._vector_index_available = True
         s._active_vector_index_name = "retrieval_chunk_vectors"
@@ -1991,7 +2022,7 @@ class TestRetrievalCacheInvalidation:
         assert s._entity_extraction_cache == {}
         assert s._late_interaction_corpus_cache == {}
 
-    def test_vanilla_clear_retrieval_caches_resets_state(self):
+    def test_vanilla_clear_retrieval_caches_resets_state(self) -> None:
         s = _make_vanilla_system()
         s._vector_index_name = "retrieval_chunk_vectors"
         s._late_interaction_corpus_cache = {"scope": [{"chunk_id": "c1"}]}

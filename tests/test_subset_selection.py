@@ -15,7 +15,7 @@ from experiments.subset_selection import (
 )
 
 
-def test_deterministic_subset_ids_is_seeded_and_order_preserving():
+def test_deterministic_subset_ids_is_seeded_and_order_preserving() -> None:
     ordered_ids = [f"q{i}" for i in range(10)]
 
     selected_once = deterministic_subset_ids(ordered_ids, num_samples=4, subset_seed=7)
@@ -29,7 +29,7 @@ def test_deterministic_subset_ids_is_seeded_and_order_preserving():
     ]
 
 
-def test_selection_file_path_is_seed_specific(tmp_path: Path):
+def test_selection_file_path_is_seed_specific(tmp_path: Path) -> None:
     seed_1 = selection_file_path(tmp_path, "musique", num_samples=100, subset_seed=1)
     seed_2 = selection_file_path(tmp_path, "musique", num_samples=100, subset_seed=2)
 
@@ -38,7 +38,9 @@ def test_selection_file_path_is_seed_specific(tmp_path: Path):
     assert "seed2" in seed_2.name
 
 
-def test_resolve_question_subset_creates_and_then_reuses_saved_ids(tmp_path: Path):
+def test_resolve_question_subset_creates_and_then_reuses_saved_ids(
+    tmp_path: Path,
+) -> None:
     selection_path = selection_file_path(
         tmp_path,
         "musique",
@@ -72,7 +74,7 @@ def test_resolve_question_subset_creates_and_then_reuses_saved_ids(tmp_path: Pat
 
 def test_resolve_question_subset_reuses_persisted_ids_when_params_change(
     tmp_path: Path,
-):
+) -> None:
     selection_path = selection_file_path(
         tmp_path,
         "hotpotqa",
@@ -105,7 +107,7 @@ def test_resolve_question_subset_reuses_persisted_ids_when_params_change(
 
 def test_resolve_question_subset_force_resample_overwrites_existing_selection(
     tmp_path: Path,
-):
+) -> None:
     selection_path = selection_file_path(
         tmp_path,
         "pubmedqa",
@@ -134,7 +136,9 @@ def test_resolve_question_subset_force_resample_overwrites_existing_selection(
     assert second.question_ids != first.question_ids
 
 
-def test_resolve_question_subset_requires_existing_file_when_requested(tmp_path: Path):
+def test_resolve_question_subset_requires_existing_file_when_requested(
+    tmp_path: Path,
+) -> None:
     selection_path = selection_file_path(
         tmp_path,
         "bioasq",
@@ -153,7 +157,7 @@ def test_resolve_question_subset_requires_existing_file_when_requested(tmp_path:
         )
 
 
-def test_resolve_question_subset_errors_on_missing_saved_ids(tmp_path: Path):
+def test_resolve_question_subset_errors_on_missing_saved_ids(tmp_path: Path) -> None:
     selection_path = selection_file_path(
         tmp_path,
         "2wikimultihopqa",

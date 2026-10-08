@@ -1264,7 +1264,7 @@ class StorageMixin:
             logging.error(f"Error storing knowledge graph: {e}")
             return False
 
-    def _create_vector_indexes(self, graph):
+    def _create_vector_indexes(self, graph) -> None:
         """
         Create vector indexes and unique constraints for RAG functionality
         """

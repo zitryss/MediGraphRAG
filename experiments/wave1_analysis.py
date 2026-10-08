@@ -398,7 +398,7 @@ def compute_times():
     }
 
 
-def main():
+def main() -> None:
     out = {
         "threshold_sensitivity": threshold_sensitivity(),
         "silent_wilson_cis": silent_cis(),

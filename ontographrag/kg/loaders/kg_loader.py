@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class KGLoader:
-    def __init__(self):
+    def __init__(self) -> None:
         # Handle both Docker and local environments
         default_uri = "bolt://localhost:7687"
         configured_uri = os.getenv("NEO4J_URI", default_uri)

@@ -23,7 +23,9 @@ class ModelProvider(ABC):
 
 
 class LangChainRunnableAdapter(Runnable):
-    def __init__(self, provider: ModelProvider, model: str, temperature: float = 1.0):
+    def __init__(
+        self, provider: ModelProvider, model: str, temperature: float = 1.0
+    ) -> None:
         self.provider = provider
         self.model = model
         self.temperature = temperature
@@ -86,7 +88,7 @@ LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 
 
 class OpenAIProvider(ModelProvider):
-    def __init__(self):
+    def __init__(self) -> None:
         self.client = OpenAIClient(
             api_key=os.getenv("OPENAI_API_KEY"),
             timeout=LLM_TIMEOUT_SECONDS,
@@ -153,7 +155,7 @@ class OllamaProvider(ModelProvider):
 
 
 class GeminiProvider(ModelProvider):
-    def __init__(self):
+    def __init__(self) -> None:
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
     def generate(
@@ -247,7 +249,7 @@ class OpenRouterProvider(ModelProvider):
 class TemperatureLockedProvider(ModelProvider):
     """Wrap a provider and force a fixed temperature on every generate call."""
 
-    def __init__(self, provider: ModelProvider, temperature: float = 0.0):
+    def __init__(self, provider: ModelProvider, temperature: float = 0.0) -> None:
         self.provider = provider
         self.temperature = temperature
 

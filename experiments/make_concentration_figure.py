@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "paper", "figures")
-FLOOR = 1e-12
+FLOOR: float = 1e-12
 RNG = np.random.default_rng(42)
 C_WRONG, C_OK = "#B2182B", "#888888"
 
@@ -71,7 +71,7 @@ def binned_means(x, y, n_bins=4, boot=500):
     return mids, means, cis
 
 
-def single_panel(srcs):
+def single_panel(srcs) -> None:
     """Main-text figure: the 2Wiki KG panel that carries the mechanism."""
     name, rows = srcs[0]
     fig, ax = plt.subplots(figsize=(3.4, 2.7))
@@ -129,7 +129,7 @@ def single_panel(srcs):
     plt.close(fig)
 
 
-def main():
+def main() -> None:
     srcs = [
         (
             "2WikiMHQA",

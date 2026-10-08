@@ -7,7 +7,7 @@ from experiments.prepare_bioasq_corpus import (
 )
 
 
-def test_extract_pmid_from_url_handles_pubmed_url_and_raw_id():
+def test_extract_pmid_from_url_handles_pubmed_url_and_raw_id() -> None:
     assert (
         extract_pmid_from_url("http://www.ncbi.nlm.nih.gov/pubmed/34022131")
         == "34022131"
@@ -16,7 +16,7 @@ def test_extract_pmid_from_url_handles_pubmed_url_and_raw_id():
     assert extract_pmid_from_url("https://example.com/not-pubmed") is None
 
 
-def test_load_bioasq_pmids_collects_from_documents_and_snippets(tmp_path: Path):
+def test_load_bioasq_pmids_collects_from_documents_and_snippets(tmp_path: Path) -> None:
     bioasq_path = tmp_path / "bioasq.json"
     bioasq_path.write_text(
         """
@@ -40,7 +40,7 @@ def test_load_bioasq_pmids_collects_from_documents_and_snippets(tmp_path: Path):
     assert load_bioasq_pmids(bioasq_path) == ["111", "222"]
 
 
-def test_parse_pubmed_article_xml_extracts_title_and_abstract():
+def test_parse_pubmed_article_xml_extracts_title_and_abstract() -> None:
     xml = """
     <PubmedArticleSet>
       <PubmedArticle>

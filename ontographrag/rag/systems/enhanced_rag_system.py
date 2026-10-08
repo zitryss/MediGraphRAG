@@ -191,7 +191,7 @@ class EnhancedRAGSystem(
         allow_vector_fallback: bool = True,  # retry/fallback to vector when graph is thin
         max_chunks_per_passage: int = None,  # per-passage chunk cap (None → class default)
         traversal_chunk_min_sim: float = None,  # min query-chunk cosine for hop-1+ chunks
-    ):
+    ) -> None:
         # Load Neo4j credentials from environment variables if not provided
         self.neo4j_uri = neo4j_uri if neo4j_uri is not None else os.getenv("NEO4J_URI")
         self.neo4j_user = (

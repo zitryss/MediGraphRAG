@@ -22,13 +22,13 @@ from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
 class TestEnhancedGroundingHelpers:
     system = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
 
-    def test_content_query_tokens_drop_common_question_words(self):
+    def test_content_query_tokens_drop_common_question_words(self) -> None:
         tokens = self.system._content_query_tokens(
             "What company owns the manufacturer of Learjet 60?"
         )
         assert tokens == ["owns", "manufacturer", "learjet"]
 
-    def test_matched_query_tokens_do_not_inflate_with_many_entities(self):
+    def test_matched_query_tokens_do_not_inflate_with_many_entities(self) -> None:
         query = "What company owns the manufacturer of Learjet 60?"
         matched = self.system._count_matched_query_tokens(
             query,
@@ -45,7 +45,7 @@ class TestEnhancedGroundingHelpers:
         assert matched == 1
         assert grounding == pytest.approx(1 / 3)
 
-    def test_grounding_quality_caps_at_one(self):
+    def test_grounding_quality_caps_at_one(self) -> None:
         query = "Which province borders the province containing Lago District?"
         matched = self.system._count_matched_query_tokens(
             query,
@@ -55,7 +55,9 @@ class TestEnhancedGroundingHelpers:
 
         assert 0.0 <= grounding <= 1.0
 
-    def test_symbolic_entity_lookup_query_splits_alias_use_across_with_clauses(self):
+    def test_symbolic_entity_lookup_query_splits_alias_use_across_with_clauses(
+        self,
+    ) -> None:
         query = self.system._build_symbolic_entity_lookup_query("")
 
         assert "toLower(coalesce(e.name, '')) AS entity_name" in query

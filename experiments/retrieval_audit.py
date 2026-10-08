@@ -608,7 +608,7 @@ def _print_report(agg: dict[str, Any], results: list[dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Evidence-level retrieval audit for KG vs vanilla recall gap"
     )

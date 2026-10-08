@@ -12,18 +12,64 @@ from collections.abc import Iterable, Sequence
 from itertools import combinations
 from typing import Any
 
+from typing_extensions import TypedDict
 
-def _clean_id(value: Any) -> str:
-    text = str(value or "").strip()
+
+class GraphStateSummary(TypedDict):
+    route: str
+    search_method: str
+    seed_entity_ids: list[str]
+    seed_entity_names: list[str]
+    entity_ids: list[str]
+    relationship_ids: list[str]
+    path_ids: list[str]
+    chunk_ids: list[str]
+    seed_signature: str
+    path_signature: str
+    subgraph_signature: str
+    chunk_signature: str
+    entity_count: int
+    relationship_count: int
+    path_count: int
+    chunk_count: int
+
+
+class EmptyGraphStateDiversity(TypedDict):
+    sample_count: int
+    seed_entity_entropy: float
+    path_entropy: float
+    subgraph_entropy: float
+    chunk_entropy: float
+    route_entropy: float
+
+
+class GraphStateDiversity(EmptyGraphStateDiversity):
+    empty_state_count: int
+    seed_entity_entropy_norm: float
+    path_entropy_norm: float
+    subgraph_entropy_norm: float
+    chunk_entropy_norm: float
+    route_entropy_norm: float
+    seed_entity_jaccard: float
+    entity_jaccard: float
+    path_jaccard: float
+    subgraph_jaccard: float
+    chunk_jaccard: float
+    dominant_seed_entity_id: str
+    dominant_seed_entity_fraction: float
+
+
+def _clean_id(value: object) -> str:
+    text: str = str(value or "").strip()
     return text
 
 
-def _set_from(values: Iterable[Any]) -> set[str]:
+def _set_from(values: Iterable[object]) -> set[str]:
     return {text for text in (_clean_id(v) for v in values) if text}
 
 
-def _signature(values: Iterable[Any]) -> str:
-    items = sorted(_set_from(values))
+def _signature(values: Iterable[object]) -> str:
+    items: list[str] = sorted(_set_from(values))
     return "||".join(items) if items else "<empty>"
 
 
@@ -79,7 +125,9 @@ def _entity_ids_from_chunks(chunks: Sequence[dict[str, Any]]) -> list[str]:
     return [eid for eid in ids if eid]
 
 
-def summarize_context_graph_state(context: dict[str, Any] | None) -> dict[str, Any]:
+def summarize_context_graph_state(
+    context: dict[str, Any] | None,
+) -> GraphStateSummary:
     """Return a compact symbolic state summary for one retrieved context."""
     context = context or {}
     diagnostics = context.get("diagnostics") or {}
@@ -88,7 +136,7 @@ def summarize_context_graph_state(context: dict[str, Any] | None) -> dict[str, A
     relationships = context.get("relationships") or []
     traversal_paths = context.get("traversal_paths") or []
 
-    seed_entity_ids = [
+    seed_entity_ids: list[str] = [
         _clean_id(eid)
         for eid in (diagnostics.get("seed_entity_ids") or [])
         if _clean_id(eid)
@@ -100,7 +148,7 @@ def summarize_context_graph_state(context: dict[str, Any] | None) -> dict[str, A
             if isinstance(info, dict) and int(info.get("min_hops", 99) or 99) == 0
         ]
 
-    seed_entity_names = [
+    seed_entity_names: list[str] = [
         _clean_id(name)
         for name in (
             diagnostics.get("seed_entity_names")
@@ -109,12 +157,12 @@ def summarize_context_graph_state(context: dict[str, Any] | None) -> dict[str, A
         )
         if _clean_id(name)
     ]
-    entity_ids = list(entities.keys()) or _entity_ids_from_chunks(chunks)
-    relationship_ids = [_relationship_id(rel) for rel in relationships]
-    path_ids = [_path_id(path) for path in traversal_paths]
-    chunk_ids = [_chunk_id(chunk) for chunk in chunks]
+    entity_ids: list[str] = list(entities.keys()) or _entity_ids_from_chunks(chunks)
+    relationship_ids: list[str] = [_relationship_id(rel) for rel in relationships]
+    path_ids: list[str] = [_path_id(path) for path in traversal_paths]
+    chunk_ids: list[str] = [_chunk_id(chunk) for chunk in chunks]
 
-    subgraph_items = list(entity_ids) + relationship_ids + path_ids
+    subgraph_items: list[str] = list(entity_ids) + relationship_ids + path_ids
     return {
         "route": _clean_id(context.get("retrieval_route")),
         "search_method": _clean_id(context.get("search_method")),
@@ -139,9 +187,9 @@ def shannon_entropy(labels: Sequence[str]) -> float:
     labels = [str(label) for label in labels]
     if not labels:
         return 0.0
-    n = len(labels)
-    counts = Counter(labels)
-    value = float(-sum((c / n) * math.log(c / n, 2) for c in counts.values()))
+    n: int = len(labels)
+    counts: Counter[str] = Counter(labels)
+    value: float = float(-sum((c / n) * math.log(c / n, 2) for c in counts.values()))
     return 0.0 if abs(value) < 1e-12 else value
 
 
@@ -149,23 +197,25 @@ def normalized_entropy(labels: Sequence[str]) -> float:
     labels = [str(label) for label in labels]
     if len(labels) <= 1:
         return 0.0
-    denom = math.log(len(labels), 2)
+    denom: float = math.log(len(labels), 2)
     return float(shannon_entropy(labels) / denom) if denom > 0 else 0.0
 
 
-def mean_pairwise_jaccard(sets: Sequence[Iterable[Any]]) -> float:
-    clean_sets = [_set_from(values) for values in sets]
-    pairs = list(combinations(clean_sets, 2))
+def mean_pairwise_jaccard(sets: Sequence[Iterable[object]]) -> float:
+    clean_sets: list[set[str]] = [_set_from(values) for values in sets]
+    pairs: list[tuple[set[str], set[str]]] = list(combinations(clean_sets, 2))
     if not pairs:
         return 1.0 if clean_sets else 0.0
-    vals = []
+    vals: list[float] = []
     for left, right in pairs:
-        union = left | right
+        union: set[str] = left | right
         vals.append((len(left & right) / len(union)) if union else 1.0)
     return float(sum(vals) / len(vals)) if vals else 0.0
 
 
-def graph_state_diversity(sample_states: Sequence[dict[str, Any]]) -> dict[str, Any]:
+def graph_state_diversity(
+    sample_states: Sequence[dict[str, Any]],
+) -> EmptyGraphStateDiversity | GraphStateDiversity:
     """Compute entropy/Jaccard diversity across per-sample graph states."""
     states = [state or {} for state in sample_states]
     if not states:
@@ -181,17 +231,19 @@ def graph_state_diversity(sample_states: Sequence[dict[str, Any]]) -> dict[str, 
     def labels(key: str) -> list[str]:
         return [str(state.get(key) or "<empty>") for state in states]
 
-    seed_sets = [state.get("seed_entity_ids") or [] for state in states]
-    entity_sets = [state.get("entity_ids") or [] for state in states]
-    path_sets = [state.get("path_ids") or [] for state in states]
-    subgraph_sets = [
+    seed_sets: list[list[str]] = [
+        state.get("seed_entity_ids") or [] for state in states
+    ]
+    entity_sets: list[list[str]] = [state.get("entity_ids") or [] for state in states]
+    path_sets: list[list[str]] = [state.get("path_ids") or [] for state in states]
+    subgraph_sets: list[list[str]] = [
         list(state.get("entity_ids") or [])
         + list(state.get("relationship_ids") or [])
         + list(state.get("path_ids") or [])
         for state in states
     ]
-    chunk_sets = [state.get("chunk_ids") or [] for state in states]
-    seed_counter = Counter(
+    chunk_sets: list[list[str]] = [state.get("chunk_ids") or [] for state in states]
+    seed_counter: Counter[str] = Counter(
         eid for state in states for eid in (state.get("seed_entity_ids") or [])
     )
     dominant_seed_id, dominant_seed_count = ("", 0)
@@ -225,5 +277,7 @@ def graph_state_diversity(sample_states: Sequence[dict[str, Any]]) -> dict[str, 
 
 def dominant_anchor_id(sample_states: Sequence[dict[str, Any]]) -> str:
     """Return the most frequent seed entity id across sample states."""
-    diversity = graph_state_diversity(sample_states)
+    diversity: EmptyGraphStateDiversity | GraphStateDiversity = graph_state_diversity(
+        sample_states
+    )
     return str(diversity.get("dominant_seed_entity_id") or "")

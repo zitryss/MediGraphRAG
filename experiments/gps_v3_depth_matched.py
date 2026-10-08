@@ -34,13 +34,13 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNS = os.path.join(REPO, "results", "latest_kg_design_final_metrics", "runs")
 OUT_PATH = os.path.join(REPO, "results", "analyses", "gps_v3_depth_matched.json")
 
-TAU = 0.60
-GAMMA = 0.4
-MAX_ENTITIES = 5
-B = 2000
+TAU: float = 0.60
+GAMMA: float = 0.4
+MAX_ENTITIES: int = 5
+B: int = 2000
 RNG = np.random.default_rng(42)
 
-SLUGS = [
+SLUGS: list[str] = [
     "pubmedqa",
     "realmedqa",
     "hotpotqa",

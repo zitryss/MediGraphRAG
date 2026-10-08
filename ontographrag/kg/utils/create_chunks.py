@@ -13,7 +13,7 @@ class CreateChunksofDocument:
     Class to create chunks from documents
     """
 
-    def __init__(self, pages: list[Document], graph: Neo4jGraph):
+    def __init__(self, pages: list[Document], graph: Neo4jGraph) -> None:
         self.pages = pages
         self.graph = graph
 

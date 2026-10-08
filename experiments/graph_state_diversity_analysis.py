@@ -113,7 +113,7 @@ def plot(rows: list[dict[str, Any]]) -> list[str]:
     return outputs
 
 
-def main():
+def main() -> None:
     rows = collect_rows()
     by_dataset: dict[str, int] = {}
     for row in rows:

@@ -75,7 +75,7 @@ class StubGraph:
     Each call to .query() pops the first entry from the list.
     """
 
-    def __init__(self, query_results=None):
+    def __init__(self, query_results=None) -> None:
         self._results = list(query_results or [])
         self.queries = []  # recorded (query_str, params) pairs
 
@@ -102,7 +102,7 @@ def stub_graph():
 class StubLLM:
     """Minimal stand-in for a LangChain Runnable that returns a fixed string."""
 
-    def __init__(self, response: str = "[]"):
+    def __init__(self, response: str = "[]") -> None:
         self._response = response
 
     def invoke(self, inputs):
@@ -114,7 +114,7 @@ class StubLLM:
 
 
 class _Chain:
-    def __init__(self, *parts):
+    def __init__(self, *parts) -> None:
         self._parts = parts
 
     def __or__(self, other):

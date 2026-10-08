@@ -116,7 +116,7 @@ class OntologyGuidedKGCreator(
         enable_claim_extraction: bool = False,
         max_summary_entities: int = 6,
         max_summary_relationships: int = 6,
-    ):
+    ) -> None:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         env_retrieval_chunk_size = os.getenv("RETRIEVAL_CHUNK_SIZE")

@@ -32,7 +32,9 @@ def _base_context() -> dict:
     }
 
 
-def test_enhanced_retry_then_abstain_sets_final_decision_to_abstain(monkeypatch):
+def test_enhanced_retry_then_abstain_sets_final_decision_to_abstain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     system = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
     verdicts = [
         {
@@ -70,7 +72,7 @@ def test_enhanced_retry_then_abstain_sets_final_decision_to_abstain(monkeypatch)
     assert metadata["retry_verdict"]["decision"] == "retry"
 
 
-def test_vanilla_abstention_zeroes_confidence(monkeypatch):
+def test_vanilla_abstention_zeroes_confidence(monkeypatch: pytest.MonkeyPatch) -> None:
     system = VanillaRAGSystem.__new__(VanillaRAGSystem)
     context = _base_context()
 
@@ -95,7 +97,7 @@ def test_vanilla_abstention_zeroes_confidence(monkeypatch):
     assert result["confidence"] == 0.0
 
 
-def test_enhanced_abstention_zeroes_confidence(monkeypatch):
+def test_enhanced_abstention_zeroes_confidence(monkeypatch: pytest.MonkeyPatch) -> None:
     system = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
     context = {
         **_base_context(),
@@ -138,7 +140,9 @@ def test_enhanced_abstention_zeroes_confidence(monkeypatch):
     assert result["confidence"] == 0.0
 
 
-def test_enhanced_retrieval_span_context_does_not_retry_vector_only(monkeypatch):
+def test_enhanced_retrieval_span_context_does_not_retry_vector_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     system = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
     context = {
         **_base_context(),

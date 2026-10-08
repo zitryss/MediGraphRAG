@@ -23,7 +23,9 @@ class DocumentCSVProcessor:
     to use as a stable document ID.
     """
 
-    def __init__(self, text_column: str, id_column: str = None, delimiter: str = ","):
+    def __init__(
+        self, text_column: str, id_column: str = None, delimiter: str = ","
+    ) -> None:
         """
         Args:
             text_column: Name of the column that contains the document text.
@@ -169,7 +171,7 @@ class MedicalReportCSVProcessor:
         "full_report_text",  # Last column containing complete report
     ]
 
-    def __init__(self, delimiter: str = "|"):
+    def __init__(self, delimiter: str = "|") -> None:
         """
         Initialize CSV processor
 
@@ -397,7 +399,7 @@ class MedicalReportCSVProcessor:
 
         return report
 
-    def create_csv_template(self, template_path: str, num_sample_rows: int = 3):
+    def create_csv_template(self, template_path: str, num_sample_rows: int = 3) -> None:
         """
         Create a CSV template file with expected medical report field names
 
@@ -649,7 +651,9 @@ class MedicalReportCSVProcessor:
 
 
 # Convenience function for creating template
-def create_medical_csv_template(template_path: str = "medical_reports_template.csv"):
+def create_medical_csv_template(
+    template_path: str = "medical_reports_template.csv",
+) -> None:
     """
     Create a pipe-delimited CSV template for medical reports
 

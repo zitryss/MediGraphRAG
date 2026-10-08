@@ -7,7 +7,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 
-RUNTIME_GUARDRAIL_ABSTENTION = "I’m not confident the retrieved evidence supports a reliable answer to that question."
+RUNTIME_GUARDRAIL_ABSTENTION: str = "I’m not confident the retrieved evidence supports a reliable answer to that question."
 
 
 def render_guardrail_context(

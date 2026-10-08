@@ -7,7 +7,7 @@ MIRAGEEvaluationPipeline: Any = None
 
 
 @pytest.fixture(autouse=True)
-def _isolated_pipeline(experiment_module, monkeypatch):
+def _isolated_pipeline(experiment_module, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(
         globals(),
         "MIRAGEEvaluationPipeline",
@@ -19,7 +19,7 @@ def _make_pipeline():
     return MIRAGEEvaluationPipeline.__new__(MIRAGEEvaluationPipeline)
 
 
-def test_exact_insufficient_information_is_failure_when_gold_is_specific():
+def test_exact_insufficient_information_is_failure_when_gold_is_specific() -> None:
     pipeline = _make_pipeline()
 
     assert (
@@ -32,7 +32,7 @@ def test_exact_insufficient_information_is_failure_when_gold_is_specific():
     )
 
 
-def test_exact_insufficient_information_is_not_failure_when_gold_matches():
+def test_exact_insufficient_information_is_not_failure_when_gold_matches() -> None:
     pipeline = _make_pipeline()
 
     assert (
@@ -45,7 +45,7 @@ def test_exact_insufficient_information_is_not_failure_when_gold_matches():
     )
 
 
-def test_small_retrieval_study_builds_expected_variants():
+def test_small_retrieval_study_builds_expected_variants() -> None:
     configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
         profile="small",
         similarity_thresholds=[0.1],
@@ -65,7 +65,7 @@ def test_small_retrieval_study_builds_expected_variants():
     assert configs[-1]["kg_system"]["retrieval_mode"] == "hybrid_auto"
 
 
-def test_final_pair_retrieval_study_builds_expected_variants():
+def test_final_pair_retrieval_study_builds_expected_variants() -> None:
     configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
         profile="final_pair",
         similarity_thresholds=[0.1],
@@ -84,7 +84,9 @@ def test_final_pair_retrieval_study_builds_expected_variants():
     assert configs[1]["executed_systems"] == ["kg_rag"]
 
 
-def test_temporary_env_restores_original_values(monkeypatch):
+def test_temporary_env_restores_original_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_QUERY_FUSION", "1")
 
     with MIRAGEEvaluationPipeline._temporary_env({"ONTOGRAPHRAG_QUERY_FUSION": "0"}):

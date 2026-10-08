@@ -4,14 +4,14 @@ from experiments.answer_formatting import (
 )
 
 
-def test_pubmedqa_instructions_include_maybe():
+def test_pubmedqa_instructions_include_maybe() -> None:
     text = build_answer_instructions("pubmedqa", "binary")
     assert "yes, no, or maybe" in text
     assert "exactly one word" in text.lower()
     assert "study conclusion" in text.lower()
 
 
-def test_mcq_instructions_include_options():
+def test_mcq_instructions_include_options() -> None:
     text = build_answer_instructions(
         "medhop",
         "mcq",
@@ -22,7 +22,7 @@ def test_mcq_instructions_include_options():
     assert "B. Protein Y" in text
 
 
-def test_multihoprag_instructions_make_abstention_last_resort():
+def test_multihoprag_instructions_make_abstention_last_resort() -> None:
     text = build_answer_instructions("multihoprag", "free_text")
     assert "Insufficient Information" in text
     assert "shortest correct entity" in text
@@ -30,14 +30,14 @@ def test_multihoprag_instructions_make_abstention_last_resort():
     assert "best-supported answer span" in text.lower()
 
 
-def test_2wiki_free_text_instructions_are_short_answer_only():
+def test_2wiki_free_text_instructions_are_short_answer_only() -> None:
     text = build_answer_instructions("2wikimultihopqa", "free_text")
     assert "short-answer multi-hop qa task" in text.lower()
     assert "shortest correct entity" in text.lower()
     assert "do not write an explanatory sentence" in text.lower()
 
 
-def test_realmedqa_instructions_expect_concise_recommendation():
+def test_realmedqa_instructions_expect_concise_recommendation() -> None:
     text = build_answer_instructions("realmedqa", "free_text")
     assert "clinical recommendation qa" in text.lower()
     assert "1 to 3 sentences" in text.lower()
@@ -45,7 +45,7 @@ def test_realmedqa_instructions_expect_concise_recommendation():
     assert "last resort" in text.lower()
 
 
-def test_realmedqa_contract_truncates_to_concise_recommendation():
+def test_realmedqa_contract_truncates_to_concise_recommendation() -> None:
     text = (
         "Recommend dialectical behavior therapy. "
         "Do not exclude people with BPD from services. "
@@ -58,7 +58,7 @@ def test_realmedqa_contract_truncates_to_concise_recommendation():
     )
 
 
-def test_realmedqa_contract_normalizes_insufficient_information():
+def test_realmedqa_contract_normalizes_insufficient_information() -> None:
     assert (
         normalize_answer_to_contract(
             "realmedqa",
@@ -69,7 +69,7 @@ def test_realmedqa_contract_normalizes_insufficient_information():
     )
 
 
-def test_pubmedqa_answer_contract_normalizes_leading_label():
+def test_pubmedqa_answer_contract_normalizes_leading_label() -> None:
     assert (
         normalize_answer_to_contract(
             "pubmedqa",
@@ -88,7 +88,7 @@ def test_pubmedqa_answer_contract_normalizes_leading_label():
     )
 
 
-def test_bioasq_binary_contract_normalizes_leading_label():
+def test_bioasq_binary_contract_normalizes_leading_label() -> None:
     assert (
         normalize_answer_to_contract(
             "bioasq",
@@ -99,7 +99,7 @@ def test_bioasq_binary_contract_normalizes_leading_label():
     )
 
 
-def test_generic_binary_contract_normalizes_leading_label():
+def test_generic_binary_contract_normalizes_leading_label() -> None:
     assert (
         normalize_answer_to_contract(
             "hotpotqa",
@@ -111,12 +111,12 @@ def test_generic_binary_contract_normalizes_leading_label():
     )
 
 
-def test_free_text_answers_are_left_unchanged():
+def test_free_text_answers_are_left_unchanged() -> None:
     text = "Lost and Delirious"
     assert normalize_answer_to_contract("musique", "free_text", text) == text
 
 
-def test_bioasq_factoid_contract_extracts_subject_phrase():
+def test_bioasq_factoid_contract_extracts_subject_phrase() -> None:
     assert (
         normalize_answer_to_contract(
             "bioasq",
@@ -128,7 +128,7 @@ def test_bioasq_factoid_contract_extracts_subject_phrase():
     )
 
 
-def test_bioasq_factoid_contract_extracts_numeric_span():
+def test_bioasq_factoid_contract_extracts_numeric_span() -> None:
     assert (
         normalize_answer_to_contract(
             "bioasq",
@@ -140,7 +140,7 @@ def test_bioasq_factoid_contract_extracts_numeric_span():
     )
 
 
-def test_short_answer_wrapper_is_removed_for_multihop_datasets():
+def test_short_answer_wrapper_is_removed_for_multihop_datasets() -> None:
     assert (
         normalize_answer_to_contract(
             "2wikimultihopqa",
@@ -151,7 +151,7 @@ def test_short_answer_wrapper_is_removed_for_multihop_datasets():
     )
 
 
-def test_multihop_yes_no_answers_are_collapsed_to_label_only():
+def test_multihop_yes_no_answers_are_collapsed_to_label_only() -> None:
     assert (
         normalize_answer_to_contract(
             "hotpotqa",
@@ -163,7 +163,7 @@ def test_multihop_yes_no_answers_are_collapsed_to_label_only():
     )
 
 
-def test_multihop_date_answers_extract_short_date_span():
+def test_multihop_date_answers_extract_short_date_span() -> None:
     assert (
         normalize_answer_to_contract(
             "hotpotqa",
@@ -175,7 +175,7 @@ def test_multihop_date_answers_extract_short_date_span():
     )
 
 
-def test_multihop_club_answers_strip_common_suffixes():
+def test_multihop_club_answers_strip_common_suffixes() -> None:
     assert (
         normalize_answer_to_contract(
             "hotpotqa",
@@ -187,6 +187,6 @@ def test_multihop_club_answers_strip_common_suffixes():
     )
 
 
-def test_generic_fallback_keeps_chat_like_answer_intact():
+def test_generic_fallback_keeps_chat_like_answer_intact() -> None:
     text = "The study suggests a modest benefit, but confidence is limited."
     assert normalize_answer_to_contract("", "free_text", text) == text

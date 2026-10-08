@@ -21,8 +21,8 @@ from experiments.gps_v2_replay import _load_env
 from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 from experiments.trust_analysis import rows_for, REPO, MANIFEST, KEY, STRICT_RUNS
 
-JUDGE_MODEL = "meta-llama/llama-3.3-70b-instruct"
-SYSTEM_PROMPT = """You are a strict answer evaluator for a factoid question answering
+JUDGE_MODEL: str = "meta-llama/llama-3.3-70b-instruct"
+SYSTEM_PROMPT: str = """You are a strict answer evaluator for a factoid question answering
 task. Your job is to decide if a model's response is CORRECT.
 
 Rules:
@@ -32,7 +32,7 @@ Rules:
   are ok).
 - The response is INCORRECT if the model says it doesn't know, cannot
   determine, or provides a factually different answer."""
-USER_TMPL = """Question: {question}
+USER_TMPL: str = """Question: {question}
 Expected answer: {expected}
 Model response: {response}
 
@@ -136,7 +136,7 @@ def metric_aurocs(policy, labels_by_qid):
     return out
 
 
-def main():
+def main() -> None:
     client = get_client()
     results = {"judge_model": JUDGE_MODEL}
     for policy in ("adaptive", "strict"):

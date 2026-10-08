@@ -27,10 +27,10 @@ from experiments.gps_v2_replay import score_from_store
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNS = os.path.join(REPO, "results", "latest_kg_design_final_metrics", "runs")
 TAU, GAMMA = 0.60, 0.4
-B = 2000
+B: int = 2000
 RNG = np.random.default_rng(42)
 
-SLUGS = [
+SLUGS: list[str] = [
     "pubmedqa",
     "realmedqa",
     "hotpotqa",
@@ -98,7 +98,7 @@ def percentile_ranks(values):
     return ranks
 
 
-def main():
+def main() -> None:
     out = {
         "frozen": {"tau": TAU, "gamma": GAMMA},
         "adaptive": {},

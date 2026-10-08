@@ -13,6 +13,7 @@ They lock down the behaviours that must survive refactoring:
   - synonym merge type guard reads e.type / e.ontology_class
 """
 
+from pathlib import Path
 import hashlib
 import json
 import re
@@ -36,7 +37,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ontographrag.kg.builders import ontology_guided_kg_creator as builder_mod
 from ontographrag.kg.builders.ontology_guided_kg_creator import OntologyGuidedKGCreator
 from ontographrag.schemas.models import EntityType, OntologySchema, RelationshipType
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -129,18 +129,18 @@ def _chunk_id(kg_name: str, file_name: str, text: str) -> str:
 
 
 class TestEntityNameValidation:
-    def test_allows_named_biomedical_identifier(self):
+    def test_allows_named_biomedical_identifier(self) -> None:
         assert builder_mod._is_valid_entity_name("IL-6") is True
         assert builder_mod._is_valid_entity_name("p53") is True
 
-    def test_rejects_generic_hub_term(self):
+    def test_rejects_generic_hub_term(self) -> None:
         assert builder_mod._is_valid_entity_name("treatment") is False
 
-    def test_rejects_bare_numeric_fragment(self):
+    def test_rejects_bare_numeric_fragment(self) -> None:
         assert builder_mod._is_valid_entity_name("123") is False
         assert builder_mod._is_valid_entity_name("12.5") is False
 
-    def test_rejects_punctuation_only_fragment(self):
+    def test_rejects_punctuation_only_fragment(self) -> None:
         assert builder_mod._is_valid_entity_name("...") is False
         assert builder_mod._is_valid_entity_name("--") is False
 
@@ -153,24 +153,24 @@ class TestEntityNameValidation:
 class TestChunkIdScoping:
     """chunk_id must be unique across different (kg_name, file_name, text) tuples."""
 
-    def test_same_text_different_kg_gives_different_id(self):
+    def test_same_text_different_kg_gives_different_id(self) -> None:
         t = "Aspirin reduces fever."
         id1 = _chunk_id("kg_a", "doc.txt", t)
         id2 = _chunk_id("kg_b", "doc.txt", t)
         assert id1 != id2
 
-    def test_same_text_different_file_gives_different_id(self):
+    def test_same_text_different_file_gives_different_id(self) -> None:
         t = "Aspirin reduces fever."
         id1 = _chunk_id("kg_a", "doc1.txt", t)
         id2 = _chunk_id("kg_a", "doc2.txt", t)
         assert id1 != id2
 
-    def test_same_inputs_gives_stable_id(self):
+    def test_same_inputs_gives_stable_id(self) -> None:
         id1 = _chunk_id("kg_a", "doc.txt", "text")
         id2 = _chunk_id("kg_a", "doc.txt", "text")
         assert id1 == id2
 
-    def test_id_is_40_char_hex(self):
+    def test_id_is_40_char_hex(self) -> None:
         cid = _chunk_id("kg_a", "doc.txt", "hello")
         assert re.fullmatch(r"[0-9a-f]{40}", cid)
 
@@ -221,7 +221,7 @@ class TestPassageProvenanceStorage:
             },
         }
 
-    def test_chunk_storage_includes_passage_provenance(self, stub_graph):
+    def test_chunk_storage_includes_passage_provenance(self, stub_graph) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -241,7 +241,7 @@ class TestPassageProvenanceStorage:
         assert params["question_id"] == "q1"
         assert params["passage_index"] == 0
 
-    def test_mentions_use_global_chunk_index_and_source(self, stub_graph):
+    def test_mentions_use_global_chunk_index_and_source(self, stub_graph) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -260,7 +260,7 @@ class TestPassageProvenanceStorage:
 
 
 class TestCrossPassageRecoveryScoping:
-    def test_cross_passage_groups_respect_question_bundle_boundaries(self):
+    def test_cross_passage_groups_respect_question_bundle_boundaries(self) -> None:
         creator = _make_creator()
         Passage = type("Passage", (), {})
         passages = []
@@ -303,7 +303,9 @@ class TestCrossPassageRecoveryScoping:
 
 
 class TestPassageSourceTitlePropagation:
-    def test_passage_aware_build_prefers_structured_source_title(self, monkeypatch):
+    def test_passage_aware_build_prefers_structured_source_title(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         creator = _make_creator()
         captured = {}
 
@@ -372,7 +374,7 @@ class TestPassageSourceTitlePropagation:
 
     def test_storage_sanitizes_nested_metadata_and_relationship_properties(
         self, stub_graph
-    ):
+    ) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -475,7 +477,9 @@ class TestPassageSourceTitlePropagation:
         assert isinstance(rel_params["properties"]["schema_hint"], str)
         assert '"name": "devotees"' in rel_params["properties"]["schema_hint"]
 
-    def test_relationship_verification_uses_local_provenance_chunks(self, stub_graph):
+    def test_relationship_verification_uses_local_provenance_chunks(
+        self, stub_graph
+    ) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -568,7 +572,7 @@ class TestPassageSourceTitlePropagation:
         assert ok is True
         assert [chunk["position"] for chunk in captured["chunks"]] == [7]
 
-    def test_relationship_store_failure_returns_false(self, stub_graph):
+    def test_relationship_store_failure_returns_false(self, stub_graph) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -651,7 +655,9 @@ class TestPassageSourceTitlePropagation:
         assert kg["metadata"]["relationship_store_failures"] == 1
         assert kg["metadata"]["stored_relationships"] == 0
 
-    def test_large_graph_tolerates_single_relationship_store_failure(self, stub_graph):
+    def test_large_graph_tolerates_single_relationship_store_failure(
+        self, stub_graph
+    ) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -742,8 +748,8 @@ class TestPassageSourceTitlePropagation:
 
 class TestCrossWindowRelationRecovery:
     def test_extract_relationships_for_segment_windows_uses_three_chunk_window(
-        self, monkeypatch
-    ):
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         creator = _make_creator()
         monkeypatch.setattr(builder_mod.time, "sleep", lambda _: None)
 
@@ -848,7 +854,7 @@ class TestGraphEnrichmentBuilder:
             "metadata": {"kg_name": "bio_test"},
         }
 
-    def test_soft_entity_linking_merges_lexical_variants(self):
+    def test_soft_entity_linking_merges_lexical_variants(self) -> None:
         creator = _make_creator()
         creator.enable_soft_entity_linking = True
 
@@ -891,7 +897,7 @@ class TestGraphEnrichmentBuilder:
         assert merged_map["TBK1 kinase"]["uuid"] == merged["uuid"]
         assert merged_map["TBK1 protein"]["uuid"] == merged["uuid"]
 
-    def test_claim_only_mode_does_not_emit_component_summaries(self):
+    def test_claim_only_mode_does_not_emit_component_summaries(self) -> None:
         creator = _make_creator()
         creator.enable_claim_extraction = True
 
@@ -901,7 +907,7 @@ class TestGraphEnrichmentBuilder:
         assert enrichment["graph_summary"] is None
         assert len(enrichment["claims"]) == 2
 
-    def test_graph_enrichment_builds_summaries_claims_and_bridges(self):
+    def test_graph_enrichment_builds_summaries_claims_and_bridges(self) -> None:
         creator = _make_creator()
         creator.enable_graph_summaries = True
         creator.enable_claim_extraction = True
@@ -921,7 +927,7 @@ class TestGraphEnrichmentBuilder:
         }
         assert bridge["reason"] == "alias_overlap"
 
-    def test_graph_enrichment_accepts_verbal_confidence_labels(self):
+    def test_graph_enrichment_accepts_verbal_confidence_labels(self) -> None:
         creator = _make_creator()
         creator.enable_graph_summaries = True
         creator.enable_claim_extraction = True
@@ -938,7 +944,7 @@ class TestGraphEnrichmentBuilder:
         )
         assert claim_confidences == [0.6, 0.95]
 
-    def test_store_graph_enrichment_persists_all_record_types(self, stub_graph):
+    def test_store_graph_enrichment_persists_all_record_types(self, stub_graph) -> None:
         creator = _make_creator()
         creator.enable_graph_summaries = True
         creator.enable_claim_extraction = True
@@ -972,7 +978,9 @@ class TestGraphEnrichmentBuilder:
 
 
 class TestSectionAwareChunking:
-    def test_section_chunking_preserves_boundaries_and_offsets(self, monkeypatch):
+    def test_section_chunking_preserves_boundaries_and_offsets(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         creator = _make_creator()
 
         def _fake_chunk_text_fn(*, text, chunk_size, chunk_overlap, embedding_fn):
@@ -1004,7 +1012,7 @@ class TestSectionAwareChunking:
         assert chunks[1]["start_pos"] == med_start
         assert chunks[1]["text"].startswith("Medications")
 
-    def test_cross_section_recovery_uses_section_segments(self):
+    def test_cross_section_recovery_uses_section_segments(self) -> None:
         creator = _make_creator()
 
         text = "Introduction\nalpha finding\n\nResults\nbeta outcome"
@@ -1081,12 +1089,12 @@ class TestSectionAwareChunking:
             == "hotpotqa/q1/p0"
         )
 
-    def test_postprocess_skips_reflection_when_disabled(self):
+    def test_postprocess_skips_reflection_when_disabled(self) -> None:
         creator = _make_creator()
         creator.enable_self_reflection = False
 
         class FailIfCalledLLM:
-            def generate(self, *args, **kwargs):
+            def generate(self, *args, **kwargs) -> None:
                 raise AssertionError("self-reflection should be skipped when disabled")
 
         result = creator._postprocess_extraction_result(
@@ -1113,7 +1121,7 @@ class TestSectionAwareChunking:
 
 
 class TestHeuristicCoreference:
-    def test_prepare_chunk_text_rewrites_typed_demonstrative(self):
+    def test_prepare_chunk_text_rewrites_typed_demonstrative(self) -> None:
         creator = _make_creator()
 
         rewritten = creator._prepare_chunk_text_for_extraction(
@@ -1129,7 +1137,7 @@ class TestHeuristicCoreference:
 
 
 class TestSelfConsistencyVoting:
-    def test_majority_vote_keeps_supported_entity(self):
+    def test_majority_vote_keeps_supported_entity(self) -> None:
         creator = _make_creator()
         creator.self_consistency_n = 3
 
@@ -1176,14 +1184,14 @@ class TestVerifyTripleConfidence:
     def _chunks(self, *texts):
         return [{"text": t} for t in texts]
 
-    def test_same_sentence_returns_1_0(self):
+    def test_same_sentence_returns_1_0(self) -> None:
         chunks = self._chunks("Metformin treats type 2 diabetes in patients.")
         score = self.creator._verify_triple_confidence(
             "Metformin", "type 2 diabetes", "TREATS", chunks
         )
         assert score == 1.0
 
-    def test_same_chunk_different_sentence_returns_0_7(self):
+    def test_same_chunk_different_sentence_returns_0_7(self) -> None:
         # Two sentences in one chunk — not the same sentence
         text = "Metformin is a biguanide drug. Type 2 diabetes affects millions."
         chunks = self._chunks(text)
@@ -1192,7 +1200,7 @@ class TestVerifyTripleConfidence:
         )
         assert score == 0.7
 
-    def test_cross_chunk_both_found_returns_0_4(self):
+    def test_cross_chunk_both_found_returns_0_4(self) -> None:
         chunks = self._chunks(
             "Metformin is a biguanide.", "Type 2 diabetes affects millions."
         )
@@ -1201,34 +1209,34 @@ class TestVerifyTripleConfidence:
         )
         assert score == 0.4
 
-    def test_only_source_found_returns_0_3(self):
+    def test_only_source_found_returns_0_3(self) -> None:
         chunks = self._chunks("Metformin is a biguanide drug.")
         score = self.creator._verify_triple_confidence(
             "Metformin", "type 2 diabetes", "TREATS", chunks
         )
         assert score == 0.3
 
-    def test_neither_found_returns_0_1(self):
+    def test_neither_found_returns_0_1(self) -> None:
         chunks = self._chunks("Paracetamol reduces inflammation.")
         score = self.creator._verify_triple_confidence(
             "Metformin", "type 2 diabetes", "TREATS", chunks
         )
         assert score == 0.1
 
-    def test_empty_chunks_returns_neutral(self):
+    def test_empty_chunks_returns_neutral(self) -> None:
         score = self.creator._verify_triple_confidence(
             "Metformin", "type 2 diabetes", "TREATS", []
         )
         assert score == 0.5
 
-    def test_score_in_unit_interval(self):
+    def test_score_in_unit_interval(self) -> None:
         chunks = self._chunks("Some irrelevant text about nothing.")
         score = self.creator._verify_triple_confidence("A", "B", "REL", chunks)
         assert 0.0 <= score <= 1.0
 
 
 class TestEvidenceScopeCategorization:
-    def test_cross_section_is_distinguished_from_cross_chunk(self):
+    def test_cross_section_is_distinguished_from_cross_chunk(self) -> None:
         creator = _make_creator()
 
         cross_section = creator._relationship_evidence_scope(
@@ -1261,7 +1269,9 @@ class TestEvidenceScopeCategorization:
 
 
 class TestAnchorGroundingAndRestoration:
-    def test_ground_chunk_extraction_adds_exact_spans_and_full_restoration(self):
+    def test_ground_chunk_extraction_adds_exact_spans_and_full_restoration(
+        self,
+    ) -> None:
         creator = _make_creator()
         chunk = {
             "text": "Metformin inhibits AMPK in diabetic patients.",
@@ -1303,7 +1313,9 @@ class TestAnchorGroundingAndRestoration:
         assert rel_props["restoration_verified"] is True
         assert rel_props["relation_anchor_spans"][0]["text"].lower() == "inhibits"
 
-    def test_restoration_verifier_marks_partial_when_relation_phrase_is_missing(self):
+    def test_restoration_verifier_marks_partial_when_relation_phrase_is_missing(
+        self,
+    ) -> None:
         creator = _make_creator()
         rel = {
             "type": "INHIBITS",
@@ -1332,11 +1344,11 @@ class TestAnchorGroundingAndRestoration:
         assert restoration["status"] == "partial"
         assert set(restoration["grounded_components"]) == {"source", "target"}
 
-    def test_anchor_constrained_extraction_uses_discovered_anchors(self):
+    def test_anchor_constrained_extraction_uses_discovered_anchors(self) -> None:
         creator = _make_creator()
 
         class SequentialLLM:
-            def __init__(self, responses):
+            def __init__(self, responses) -> None:
                 self._responses = list(responses)
 
             def generate(self, prompt, system_message, model_name):
@@ -1406,7 +1418,7 @@ class TestAnchorGroundingAndRestoration:
 class TestVerifyTripleConfidenceAliases:
     creator = _make_creator()
 
-    def test_alias_used_for_same_sentence_match(self):
+    def test_alias_used_for_same_sentence_match(self) -> None:
         chunks = [{"text": "MET lowers blood glucose in diabetic patients."}]
         score = self.creator._verify_triple_confidence(
             "Metformin",
@@ -1417,7 +1429,7 @@ class TestVerifyTripleConfidenceAliases:
         )
         assert score == 1.0
 
-    def test_canonical_name_used_when_alias_absent(self):
+    def test_canonical_name_used_when_alias_absent(self) -> None:
         chunks = [{"text": "Metformin lowers blood glucose."}]
         score = self.creator._verify_triple_confidence(
             "Metformin",
@@ -1428,7 +1440,7 @@ class TestVerifyTripleConfidenceAliases:
         )
         assert score == 1.0
 
-    def test_target_alias_triggers_same_chunk(self):
+    def test_target_alias_triggers_same_chunk(self) -> None:
         # Source in chunk 1, target alias in chunk 2 → cross-chunk (0.4)
         chunks = [
             {"text": "Metformin is prescribed widely."},
@@ -1447,7 +1459,7 @@ class TestVerifyTripleConfidenceAliases:
 class TestEntityAppearsInText:
     creator = _make_creator()
 
-    def test_alias_match_works_with_cross_chunk_candidate_filter(self):
+    def test_alias_match_works_with_cross_chunk_candidate_filter(self) -> None:
         entity = {
             "id": "type_2_diabetes",
             "properties": {
@@ -1500,30 +1512,30 @@ class TestHarmonizeEntities:
         )
         return entity
 
-    def test_identical_names_deduplicated(self):
+    def test_identical_names_deduplicated(self) -> None:
         entities = [self._ent("Aspirin"), self._ent("Aspirin")]
         result = self.creator._harmonize_entities(entities)
         ids = [e["id"] for e in result]
         assert ids.count(ids[0]) == 1
 
-    def test_case_insensitive_dedup(self):
+    def test_case_insensitive_dedup(self) -> None:
         entities = [self._ent("Aspirin"), self._ent("aspirin"), self._ent("ASPIRIN")]
         result = self.creator._harmonize_entities(entities)
         assert len(result) == 1
 
-    def test_different_names_kept_separate(self):
+    def test_different_names_kept_separate(self) -> None:
         entities = [self._ent("Aspirin"), self._ent("Metformin")]
         result = self.creator._harmonize_entities(entities)
         assert len(result) == 2
 
-    def test_more_specific_type_wins(self):
+    def test_more_specific_type_wins(self) -> None:
         # "Disease" beats generic "Entity"
         entities = [self._ent("Flu", "Entity"), self._ent("Flu", "Disease")]
         result = self.creator._harmonize_entities(entities)
         assert len(result) == 1
         assert result[0]["type"] in ("Disease", "disease")
 
-    def test_same_surface_different_specific_types_kept_separate(self):
+    def test_same_surface_different_specific_types_kept_separate(self) -> None:
         # "depression" as a Disease and as a GeologicalFeature must not collapse.
         entities = [
             self._ent("depression", "Disease"),
@@ -1535,7 +1547,7 @@ class TestHarmonizeEntities:
         assert "Disease" in types
         assert "GeologicalFeature" in types
 
-    def test_generic_type_drift_still_merges(self):
+    def test_generic_type_drift_still_merges(self) -> None:
         # Same entity tagged Disease in one chunk, generic Concept in another
         # (LLM drift) — must collapse into one Disease node, not split.
         entities = [
@@ -1546,7 +1558,7 @@ class TestHarmonizeEntities:
         assert len(result) == 1
         assert result[0]["type"] in ("Disease", "disease")
 
-    def test_generic_assigned_to_dominant_bucket_on_split(self):
+    def test_generic_assigned_to_dominant_bucket_on_split(self) -> None:
         # Three occurrences: Disease x2, GeologicalFeature x1, Concept x1 (generic).
         # Generics should go to Disease (largest bucket); result: Disease node + GeologicalFeature node.
         entities = [
@@ -1561,7 +1573,7 @@ class TestHarmonizeEntities:
         assert "Disease" in types
         assert "GeologicalFeature" in types
 
-    def test_split_entities_have_distinct_uuids(self):
+    def test_split_entities_have_distinct_uuids(self) -> None:
         # End-to-end UUID check: same surface form, different specific types must
         # survive ID generation as two nodes with different UUIDs — not collapse at write.
         entities = [
@@ -1576,7 +1588,7 @@ class TestHarmonizeEntities:
             "if equal, _generate_entity_id is not including type in the seed"
         )
 
-    def test_merged_entity_stable_uuid(self):
+    def test_merged_entity_stable_uuid(self) -> None:
         # LLM type-drift case: Disease + Concept for the same surface form must merge
         # into one node AND produce the same UUID regardless of input order.
         fwd = self.creator._harmonize_entities(
@@ -1597,7 +1609,7 @@ class TestHarmonizeEntities:
             "Merged entity UUID must be stable regardless of input order"
         )
 
-    def test_relationship_resolves_to_dominant_type(self):
+    def test_relationship_resolves_to_dominant_type(self) -> None:
         # Disease x2, GeologicalFeature x1 → Disease is dominant.
         # The relationship target "depression" must resolve to the Disease UUID,
         # not GeologicalFeature, regardless of extraction order.
@@ -1635,7 +1647,7 @@ class TestHarmonizeEntities:
             f"GeologicalFeature uuid={geo_uuid}"
         )
 
-    def test_relationship_resolution_stable_across_order(self):
+    def test_relationship_resolution_stable_across_order(self) -> None:
         # Same as above but with extraction order reversed — resolution must be identical.
         entities_fwd = [
             self._ent("fluoxetine", "Drug"),
@@ -1669,7 +1681,7 @@ class TestHarmonizeEntities:
             "Relationship target UUID must be the same regardless of entity extraction order"
         )
 
-    def test_resolve_relationship_endpoint_handles_short_form(self):
+    def test_resolve_relationship_endpoint_handles_short_form(self) -> None:
         entity = self._ent("TBK1 kinase", "Protein")
         entity["properties"]["all_names"] = ["TBK1", "TANK-binding kinase 1"]
 
@@ -1677,7 +1689,7 @@ class TestHarmonizeEntities:
 
         assert resolved == "TBK1 kinase"
 
-    def test_relationship_dedup_keeps_qualifier_variants(self):
+    def test_relationship_dedup_keeps_qualifier_variants(self) -> None:
         entities = [
             self._ent("Aspirin", "Drug"),
             self._ent("Fever", "Disease"),
@@ -1706,7 +1718,7 @@ class TestHarmonizeEntities:
             "Condition-specific variants must not collapse before storage"
         )
 
-    def test_bundle_title_entities_split_by_passage_scope(self):
+    def test_bundle_title_entities_split_by_passage_scope(self) -> None:
         entities = [
             self._bundle_ent(
                 "American Beauty",
@@ -1732,7 +1744,7 @@ class TestHarmonizeEntities:
             "hotpotqa/q1/p1",
         }
 
-    def test_relationship_prefers_local_bundle_title_scope(self):
+    def test_relationship_prefers_local_bundle_title_scope(self) -> None:
         entities = [
             self._bundle_ent(
                 "American Beauty",
@@ -1811,10 +1823,10 @@ class TestRelationMergeKey:
     the query with null-valued MERGE properties.
     """
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.creator = _make_creator()
 
-    def test_merge_key_includes_negated(self):
+    def test_merge_key_includes_negated(self) -> None:
         q = self.creator._build_relationship_merge_query(
             "TREATS",
             include_condition=False,
@@ -1822,7 +1834,7 @@ class TestRelationMergeKey:
         )
         assert "negated: $negated" in q, "MERGE key must include 'negated'"
 
-    def test_merge_key_omits_absent_condition(self):
+    def test_merge_key_omits_absent_condition(self) -> None:
         q = self.creator._build_relationship_merge_query(
             "TREATS",
             include_condition=False,
@@ -1832,7 +1844,7 @@ class TestRelationMergeKey:
             "MERGE key must omit absent 'condition' to avoid null MERGE errors"
         )
 
-    def test_merge_key_includes_present_condition(self):
+    def test_merge_key_includes_present_condition(self) -> None:
         q = self.creator._build_relationship_merge_query(
             "TREATS",
             include_condition=True,
@@ -1842,7 +1854,7 @@ class TestRelationMergeKey:
             "MERGE key must include 'condition' when a qualifier is present"
         )
 
-    def test_merge_key_omits_absent_quantitative(self):
+    def test_merge_key_omits_absent_quantitative(self) -> None:
         q = self.creator._build_relationship_merge_query(
             "TREATS",
             include_condition=False,
@@ -1852,7 +1864,7 @@ class TestRelationMergeKey:
             "MERGE key must omit absent 'quantitative' to avoid null MERGE errors"
         )
 
-    def test_merge_key_includes_present_quantitative(self):
+    def test_merge_key_includes_present_quantitative(self) -> None:
         q = self.creator._build_relationship_merge_query(
             "TREATS",
             include_condition=False,
@@ -1862,7 +1874,7 @@ class TestRelationMergeKey:
             "MERGE key must include 'quantitative' when a qualifier is present"
         )
 
-    def test_merge_query_persists_edge_provenance(self):
+    def test_merge_query_persists_edge_provenance(self) -> None:
         q = self.creator._build_relationship_merge_query(
             "TREATS",
             include_condition=False,
@@ -1874,7 +1886,7 @@ class TestRelationMergeKey:
 
 
 class TestRelationshipLocalProvenance:
-    def test_relationship_local_provenance_resolves_question_and_passage(self):
+    def test_relationship_local_provenance_resolves_question_and_passage(self) -> None:
         creator = _make_creator()
         rel = {"provenance_positions": [7, 8]}
         chunks = [
@@ -1897,15 +1909,15 @@ class TestRelationshipLocalProvenance:
 
 class TestStrictOntologyLoading:
     def test_constructor_raises_when_requested_ontology_fails_to_load(
-        self, monkeypatch, tmp_path
-    ):
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         ontology_path = tmp_path / "broken.json"
         ontology_path.write_text("{}", encoding="utf-8")
 
         emb = type("Emb", (), {"embed_query": lambda self, t: [0.0] * 3})()
         monkeypatch.setattr(builder_mod, "load_embedding_model", lambda model: (emb, 3))
 
-        def _boom(self, path):
+        def _boom(self, path) -> None:
             raise ValueError("bad ontology")
 
         monkeypatch.setattr(
@@ -1919,15 +1931,15 @@ class TestStrictOntologyLoading:
             )
 
     def test_constructor_can_fall_back_when_strict_ontology_disabled(
-        self, monkeypatch, tmp_path
-    ):
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         ontology_path = tmp_path / "broken.json"
         ontology_path.write_text("{}", encoding="utf-8")
 
         emb = type("Emb", (), {"embed_query": lambda self, t: [0.0] * 3})()
         monkeypatch.setattr(builder_mod, "load_embedding_model", lambda model: (emb, 3))
 
-        def _boom(self, path):
+        def _boom(self, path) -> None:
             raise ValueError("bad ontology")
 
         monkeypatch.setattr(
@@ -1966,7 +1978,7 @@ class TestOntologySchemaEnforcement:
         ]
         return creator
 
-    def test_entity_types_are_coerced_back_onto_schema(self):
+    def test_entity_types_are_coerced_back_onto_schema(self) -> None:
         creator = self._schema_creator()
 
         assert (
@@ -1979,7 +1991,7 @@ class TestOntologySchemaEnforcement:
             is None
         )
 
-    def test_schema_enforcement_records_drop_counts(self):
+    def test_schema_enforcement_records_drop_counts(self) -> None:
         creator = self._schema_creator()
 
         entities, relationships = creator._coerce_harmonized_entities_to_schema(
@@ -2000,7 +2012,9 @@ class TestOntologySchemaEnforcement:
         assert creator._last_schema_enforcement_stats["dropped_entities"] == 1
         assert creator._last_schema_enforcement_stats["dropped_relationships"] == 1
 
-    def test_off_schema_relationship_types_are_dropped_without_generic_fallback(self):
+    def test_off_schema_relationship_types_are_dropped_without_generic_fallback(
+        self,
+    ) -> None:
         creator = self._schema_creator()
 
         assert (
@@ -2012,7 +2026,7 @@ class TestOntologySchemaEnforcement:
             is None
         )
 
-    def test_storage_skips_schema_mismatch_relationships(self, stub_graph):
+    def test_storage_skips_schema_mismatch_relationships(self, stub_graph) -> None:
         creator = self._schema_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -2085,7 +2099,7 @@ class TestOntologySchemaEnforcement:
         assert kg["metadata"]["relationships_skipped_schema_mismatch"] == 1
         assert kg["metadata"]["stored_relationships"] == 0
 
-    def test_prompt_builder_surfaces_relevant_late_relationship_type(self):
+    def test_prompt_builder_surfaces_relevant_late_relationship_type(self) -> None:
         creator = self._schema_creator()
         creator._ontology_schema = OntologySchema(
             entity_types=[
@@ -2110,7 +2124,7 @@ class TestOntologySchemaEnforcement:
 
         assert "INHIBITS_SPECIAL_PATHWAY" in section
 
-    def test_semantic_relationship_matching_maps_synonym_label(self):
+    def test_semantic_relationship_matching_maps_synonym_label(self) -> None:
         creator = self._schema_creator()
         creator.embedding_function = type(
             "Emb",
@@ -2205,7 +2219,7 @@ class TestConfidenceThresholdAndReverification:
             },
         }
 
-    def test_storage_uses_configurable_confidence_threshold(self, stub_graph):
+    def test_storage_uses_configurable_confidence_threshold(self, stub_graph) -> None:
         creator = _make_creator()
         creator.min_triple_confidence = 0.5
         creator._create_neo4j_connection = lambda: stub_graph
@@ -2219,7 +2233,7 @@ class TestConfidenceThresholdAndReverification:
         assert kg["metadata"]["stored_relationships"] == 0
         assert kg["metadata"]["relationships_skipped_low_confidence"] == 1
 
-    def test_low_confidence_reverification_can_keep_relation(self, stub_graph):
+    def test_low_confidence_reverification_can_keep_relation(self, stub_graph) -> None:
         creator = _make_creator()
         creator.min_triple_confidence = 0.5
         creator.enable_low_confidence_triple_reverification = True
@@ -2250,7 +2264,7 @@ class TestConfidenceThresholdAndReverification:
         )
         assert rel_params["properties"]["llm_verified"] is True
 
-    def test_storage_writes_evidence_scope(self, stub_graph):
+    def test_storage_writes_evidence_scope(self, stub_graph) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -2269,7 +2283,7 @@ class TestConfidenceThresholdAndReverification:
 
     def test_storage_preserves_anchor_metadata_on_nodes_and_relationships(
         self, stub_graph
-    ):
+    ) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -2313,7 +2327,7 @@ class TestConfidenceThresholdAndReverification:
 
 
 class TestOptionalUMLSLinking:
-    def test_entities_with_same_cui_merge_when_enabled(self):
+    def test_entities_with_same_cui_merge_when_enabled(self) -> None:
         creator = _make_creator()
         creator.enable_umls_linking = True
         creator._ensure_umls_linker = lambda: object()
@@ -2364,7 +2378,7 @@ class TestOptionalUMLSLinking:
 
 
 class TestContradictionDetection:
-    def test_marks_opposite_polarity_edges_as_contradictions(self):
+    def test_marks_opposite_polarity_edges_as_contradictions(self) -> None:
         creator = _make_creator()
 
         rels = creator._mark_relationship_contradictions(
@@ -2394,7 +2408,9 @@ class TestContradictionDetection:
             creator._last_relationship_contradiction_stats["contradiction_edges"] == 2
         )
 
-    def test_harmonization_merges_anchor_grounding_for_duplicate_relations(self):
+    def test_harmonization_merges_anchor_grounding_for_duplicate_relations(
+        self,
+    ) -> None:
         creator = _make_creator()
         source = {"id": "Metformin", "uuid": "u1", "type": "Drug", "properties": {}}
         target = {"id": "AMPK", "uuid": "u2", "type": "Protein", "properties": {}}
@@ -2448,7 +2464,7 @@ class TestContradictionDetection:
 
 
 class TestNodeSpecificityScoping:
-    def test_chunk_storage_writes_kg_name(self, stub_graph):
+    def test_chunk_storage_writes_kg_name(self, stub_graph) -> None:
         creator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
         creator._create_vector_indexes = lambda graph: None
@@ -2465,7 +2481,9 @@ class TestNodeSpecificityScoping:
         )
         assert params["kg_name"] == "musique"
 
-    def test_node_specificity_query_scopes_via_document_kg_name(self, stub_graph):
+    def test_node_specificity_query_scopes_via_document_kg_name(
+        self, stub_graph
+    ) -> None:
         creator = _make_creator()
 
         creator._compute_node_specificity_weights(stub_graph, "musique")
@@ -2477,13 +2495,13 @@ class TestNodeSpecificityScoping:
 
 
 class TestSynonymGuard:
-    def test_names_pass_synonym_guard_allows_surface_variants(self):
+    def test_names_pass_synonym_guard_allows_surface_variants(self) -> None:
         creator = _make_creator()
 
         assert creator._names_pass_synonym_guard("TBK1", "TBK1 kinase")
         assert creator._names_pass_synonym_guard("tumor necrosis factor", "TNF")
 
-    def test_names_pass_synonym_guard_blocks_embedding_only_near_misses(self):
+    def test_names_pass_synonym_guard_blocks_embedding_only_near_misses(self) -> None:
         creator = _make_creator()
 
         assert not creator._names_pass_synonym_guard("alpha", "beta")
@@ -2515,14 +2533,14 @@ class TestSynonymMergeTypeProperty:
         m = re.search(r"fetch_q\s*=\s*f?\"\"\"(.*?)\"\"\"", src, re.DOTALL)
         return m.group(1) if m else ""
 
-    def test_fetch_reads_type_not_entity_type(self):
+    def test_fetch_reads_type_not_entity_type(self) -> None:
         q = self._get_fetch_query()
         assert "e.entity_type" not in q, (
             "fetch query must not use e.entity_type (never written); "
             "use e.type or e.ontology_class"
         )
 
-    def test_fetch_reads_type_or_ontology_class(self):
+    def test_fetch_reads_type_or_ontology_class(self) -> None:
         q = self._get_fetch_query()
         assert "e.type" in q or "e.ontology_class" in q, (
             "fetch query must read e.type or e.ontology_class"
@@ -2530,11 +2548,11 @@ class TestSynonymMergeTypeProperty:
 
 
 class TestSynonymMergeExecution:
-    def test_synonym_merge_uses_human_names_and_element_ids(self):
+    def test_synonym_merge_uses_human_names_and_element_ids(self) -> None:
         creator = _make_creator()
 
         class FakeGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.queries = []
 
             def query(self, query, params=None):
@@ -2689,7 +2707,7 @@ class TestEvaluateKnowledgeGraph:
             },
         }
 
-    def test_summary_counts_match_kg(self):
+    def test_summary_counts_match_kg(self) -> None:
         kg = self._minimal_kg()
         report = _make_creator().evaluate_knowledge_graph(kg, print_report=False)
         assert report["summary"]["entities"] == 3
@@ -2697,7 +2715,7 @@ class TestEvaluateKnowledgeGraph:
         assert report["summary"]["chunks"] == 3
         assert report["summary"]["kg_name"] == "test_kg"
 
-    def test_entity_metrics_anchor_and_umls(self):
+    def test_entity_metrics_anchor_and_umls(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2706,7 +2724,7 @@ class TestEvaluateKnowledgeGraph:
         assert em["umls_linked"] == 1
         assert em["with_synonyms"] == 1
 
-    def test_entity_metrics_isolated_and_degree(self):
+    def test_entity_metrics_isolated_and_degree(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2718,7 +2736,7 @@ class TestEvaluateKnowledgeGraph:
         assert em["degree_distribution"]["2-4"] == 2
         assert em["hub_entities_topk"][0]["name"] == "Metformin"
 
-    def test_entity_type_distribution(self):
+    def test_entity_type_distribution(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2726,7 +2744,7 @@ class TestEvaluateKnowledgeGraph:
         assert td["Disease"] == 2
         assert td["Drug"] == 1
 
-    def test_relationship_metrics_negated_and_contradiction(self):
+    def test_relationship_metrics_negated_and_contradiction(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2736,7 +2754,7 @@ class TestEvaluateKnowledgeGraph:
         assert rm["contradiction_groups"] == 1
         assert rm["contradiction_rate_pct"] == round(100 / 3, 1)
 
-    def test_relationship_metrics_conditioned_and_quantified(self):
+    def test_relationship_metrics_conditioned_and_quantified(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2744,7 +2762,7 @@ class TestEvaluateKnowledgeGraph:
         assert rm["conditioned"] == 1
         assert rm["quantified"] == 1
 
-    def test_evidence_scope_distribution(self):
+    def test_evidence_scope_distribution(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2753,7 +2771,7 @@ class TestEvaluateKnowledgeGraph:
         assert scopes.get("chunk") == 1
         assert scopes.get("partial_grounding") == 1
 
-    def test_confidence_stats(self):
+    def test_confidence_stats(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2762,7 +2780,7 @@ class TestEvaluateKnowledgeGraph:
         assert rm["high_confidence_pct"] == round(100 * 2 / 3, 1)
         assert rm["low_confidence_pct"] == round(100 * 1 / 3, 1)
 
-    def test_restoration_counts(self):
+    def test_restoration_counts(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2771,7 +2789,7 @@ class TestEvaluateKnowledgeGraph:
         assert rm["restoration_partial"] == 0
         assert rm["restoration_failed"] == 0
 
-    def test_anchor_relation_phrase_pct(self):
+    def test_anchor_relation_phrase_pct(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2780,7 +2798,7 @@ class TestEvaluateKnowledgeGraph:
             100 / 3, 1
         )
 
-    def test_grounding_metrics_section_tags(self):
+    def test_grounding_metrics_section_tags(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2789,7 +2807,7 @@ class TestEvaluateKnowledgeGraph:
         assert "Results" in report["summary"]["sections_detected"]
         assert "Discussion" in report["summary"]["sections_detected"]
 
-    def test_pipeline_metrics(self):
+    def test_pipeline_metrics(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
@@ -2803,7 +2821,7 @@ class TestEvaluateKnowledgeGraph:
         assert pm["relationships_skipped_low_confidence"] == 3
         assert pm["relationship_store_ratio"] == 0.6667
 
-    def test_precision_recall_perfect(self):
+    def test_precision_recall_perfect(self) -> None:
         kg = self._minimal_kg()
         gold = [
             {"source": "u1", "type": "TREATS", "target": "u2"},
@@ -2823,7 +2841,7 @@ class TestEvaluateKnowledgeGraph:
         assert pr["gold_triples"] == 2
         assert "precision_recall" in report
 
-    def test_reference_kg_reports_entity_and_relationship_pr(self):
+    def test_reference_kg_reports_entity_and_relationship_pr(self) -> None:
         kg = self._minimal_kg()
         reference = {
             "nodes": [
@@ -2871,7 +2889,7 @@ class TestEvaluateKnowledgeGraph:
         assert rpr["recall"] == round(2 / 3, 4)
         assert "qualified_relationship_precision_recall" in report
 
-    def test_precision_recall_no_overlap(self):
+    def test_precision_recall_no_overlap(self) -> None:
         kg = self._minimal_kg()
         gold = [{"source": "X", "type": "INHIBITS", "target": "Y"}]
         report = _make_creator().evaluate_knowledge_graph(
@@ -2883,13 +2901,13 @@ class TestEvaluateKnowledgeGraph:
         assert pr["recall"] == 0.0
         assert pr["f1"] == 0.0
 
-    def test_no_precision_recall_when_no_gold(self):
+    def test_no_precision_recall_when_no_gold(self) -> None:
         report = _make_creator().evaluate_knowledge_graph(
             self._minimal_kg(), print_report=False
         )
         assert "precision_recall" not in report
 
-    def test_empty_kg_does_not_crash(self):
+    def test_empty_kg_does_not_crash(self) -> None:
         empty_kg = {"nodes": [], "relationships": [], "chunks": [], "metadata": {}}
         report = _make_creator().evaluate_knowledge_graph(empty_kg, print_report=False)
         assert report["summary"]["entities"] == 0
@@ -2897,7 +2915,9 @@ class TestEvaluateKnowledgeGraph:
         assert report["entity_metrics"]["isolated_no_edges"] == 0
         assert report["relationship_metrics"]["mean_confidence"] is None
 
-    def test_print_report_runs_without_error(self, capsys):
+    def test_print_report_runs_without_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         _make_creator().evaluate_knowledge_graph(self._minimal_kg(), print_report=True)
         captured = capsys.readouterr()
         assert "KG EVALUATION REPORT" in captured.out

@@ -23,7 +23,7 @@ from experiments.rejudge_independent import judge_one, get_client, JUDGE_MODEL
 from experiments.trust_analysis import rows_for, REPO, MANIFEST, KEY, STRICT_RUNS
 from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 
-TARGETS = [
+TARGETS: list[tuple[str, str]] = [
     ("hotpotqa", "kg"),
     ("hotpotqa_fullwiki", "kg"),
     ("2wikimultihopqa", "kg"),
@@ -87,7 +87,7 @@ def metric_aurocs(slug, policy, labels_by_qid):
     return out
 
 
-def main():
+def main() -> None:
     client = get_client()
     results = {"judge_model": JUDGE_MODEL}
     for slug, policy in TARGETS:

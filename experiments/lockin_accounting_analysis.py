@@ -28,7 +28,7 @@ MANIFEST = json.load(
     open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
 )
 
-KEY = {
+KEY: dict[str, str] = {
     "pubmedqa": "Pubmedqa",
     "realmedqa": "Realmedqa",
     "hotpotqa": "Hotpotqa",
@@ -36,7 +36,7 @@ KEY = {
     "2wikimultihopqa": "2Wikimultihopqa",
     "musique": "Musique",
 }
-LABEL = {
+LABEL: dict[str, str] = {
     "pubmedqa": "PubMedQA",
     "realmedqa": "RealMedQA",
     "hotpotqa": "HotpotQA",
@@ -44,7 +44,7 @@ LABEL = {
     "2wikimultihopqa": "2WikiMHQA",
     "musique": "MuSiQue",
 }
-STRICT_RUNS = {
+STRICT_RUNS: dict[str, str] = {
     "realmedqa": "results/latest_kg_design_final_metrics/runs/"
     "20260528-174538-realmedqa-n230-full-metrics-evaluation-subset/"
     "mirage_realmedqa_results.json",
@@ -53,7 +53,7 @@ STRICT_RUNS = {
     "mirage_2wikimultihopqa_results.json",
 }
 
-SD_FLOOR = 1e-9
+SD_FLOOR: float = 1e-9
 
 
 def finite(value: Any) -> bool:

@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.trust_analysis import rows_for, gps_scores, REPO, KEY
 
 RNG = np.random.default_rng(42)
-B = 200
+B: int = 200
 
 
 def load_all():
@@ -48,7 +48,7 @@ def certificate_mask(rows, sd_thresh):
     )
 
 
-def main():
+def main() -> None:
     data = load_all()
     out = {}
 

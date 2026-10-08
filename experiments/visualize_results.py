@@ -32,7 +32,7 @@ except ImportError:
     print("Warning: wandb not installed. Will skip wandb logging.")
 
 
-UNCERTAINTY_METRIC_SPECS = [
+UNCERTAINTY_METRIC_SPECS: list[tuple[str, str, str, bool]] = [
     ("semantic_entropy", "Semantic Entropy", "SE", True),
     ("discrete_semantic_entropy", "Discrete Sem. Entropy", "DSE", True),
     ("sre_uq", "SRE-UQ", "SRE-UQ", True),
@@ -261,7 +261,7 @@ def aggregate_overall(results: dict) -> dict:
     }
 
 
-def print_per_dataset_summary(results: dict):
+def print_per_dataset_summary(results: dict) -> None:
     """Print summary per dataset for multi-dataset results."""
     if "per_dataset_results" not in results:
         return
@@ -652,7 +652,7 @@ def plot_auroc_aurec_heatmaps(
         else:
             xtick_labels.append(lbl)
 
-    def _draw_heatmap(ax, mat, title, cmap, vmin, vmax, fmt_fn, cbar_label):
+    def _draw_heatmap(ax, mat, title, cmap, vmin, vmax, fmt_fn, cbar_label) -> None:
         masked = np.ma.array(mat, mask=np.isnan(mat))
         cmap_obj = plt.get_cmap(cmap).copy()
         cmap_obj.set_bad(color="#cccccc")
@@ -1490,7 +1490,7 @@ def log_to_wandb(
     overall: dict,
     metric_names: list,
     project_name: str = "kg-rag-evaluation",
-):
+) -> None:
     """Log results to Weights & Biases."""
     if not HAS_WANDB:
         print("Skipping wandb logging (wandb not installed)")
@@ -1559,7 +1559,7 @@ def log_to_wandb(
     print(f"Logged to wandb project: {project_name}")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Visualize RAG experiment results")
     parser.add_argument(
         "--results", type=str, required=True, help="Path to results JSON file"
@@ -1638,7 +1638,7 @@ def main():
 
 # ── Per-system AUROC comparison chart ─────────────────────────────────────────
 
-_ALL_METRIC_LABELS = {
+_ALL_METRIC_LABELS: dict[str, str] = {
     "semantic_entropy": "SE",
     "discrete_semantic_entropy": "DSE",
     "sre_uq": "SRE-UQ",
@@ -1656,7 +1656,7 @@ _ALL_METRIC_LABELS = {
     "evidence_conflict_uncertainty": "ECU",
 }
 
-_METRIC_FAMILY = {
+_METRIC_FAMILY: dict[str, str] = {
     "semantic_entropy": "output",
     "discrete_semantic_entropy": "output",
     "sre_uq": "output",
@@ -1674,7 +1674,11 @@ _METRIC_FAMILY = {
     "evidence_conflict_uncertainty": "grounding",
 }
 
-_FAMILY_COLOR = {"output": "#3A7DC9", "structural": "#E07B39", "grounding": "#4BAE8A"}
+_FAMILY_COLOR: dict[str, str] = {
+    "output": "#3A7DC9",
+    "structural": "#E07B39",
+    "grounding": "#4BAE8A",
+}
 
 
 def _display_eval_metric_value(

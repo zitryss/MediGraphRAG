@@ -51,25 +51,25 @@ METRICS: list[tuple[str, str, str, bool]] = [
     ("evidence_conflict_uncertainty", "ECU", "grounding", False),
 ]
 
-FAMILY_COLORS = {
+FAMILY_COLORS: dict[str, str] = {
     "output": "#3A7DC9",
     "structural": "#E07B39",
     "grounding": "#4BAE8A",
 }
 
-FAMILY_LABELS = {
+FAMILY_LABELS: dict[str, str] = {
     "output": "Output",
     "structural": "Structural",
     "grounding": "Grounding",
 }
 
-SYSTEM = "kg_rag"  # primary system for the analysis
-SYSTEM_PREFIX = "kg"
+SYSTEM: str = "kg_rag"  # primary system for the analysis
+SYSTEM_PREFIX: str = "kg"
 
 # Biomedical datasets have no hop metadata → treat as "single-hop proxy"
-SINGLE_HOP_DATASETS = {"BioASQ", "RealMedQA", "PubMedQA"}
+SINGLE_HOP_DATASETS: set[str] = {"BioASQ", "RealMedQA", "PubMedQA"}
 # HotpotQA is 2-hop by design even though hop_count metadata is absent
-HOTPOTQA_DEFAULT_HOP = 2
+HOTPOTQA_DEFAULT_HOP: int = 2
 PREFERRED_CONFIG_NAME = os.environ.get("MIRAGE_CONFIG_NAME")
 
 

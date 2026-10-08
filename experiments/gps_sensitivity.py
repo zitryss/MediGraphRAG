@@ -32,12 +32,12 @@ from experiments.gps_v3_depth_matched import (
 
 OUT_PATH = os.path.join(REPO, "results", "analyses", "gps_sensitivity.json")
 
-TAUS = [0.50, 0.55, 0.60, 0.65, 0.70]
-GAMMAS = [0.2, 0.4, 0.6, 0.8, 1.0]
+TAUS: list[float] = [0.50, 0.55, 0.60, 0.65, 0.70]
+GAMMAS: list[float] = [0.2, 0.4, 0.6, 0.8, 1.0]
 CAL_TAU, CAL_GAMMA = 0.60, 0.40
 
 # (label, slug, strict); PubMedQA omitted -- yes/no answers expose no entities.
-RUNS = [
+RUNS: list[tuple[str, str, bool]] = [
     ("RealMedQA adaptive", "realmedqa", False),
     ("RealMedQA strict", "realmedqa", True),
     ("HotpotQA", "hotpotqa", False),
@@ -70,7 +70,7 @@ def auroc_at(slug, strict, tau, gamma):
     return float(roc_auc_score(wrong, scores)), len(scores)
 
 
-def main():
+def main() -> None:
     out = {
         "method": "GPS tau/gamma sensitivity sweep, offline replay from saved "
         "GPS stores (no generation/retrieval/linking/KG rerun)",

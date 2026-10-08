@@ -20,7 +20,7 @@ from .constants import (
     START_FROM_LAST_PROCESSED_POSITION,
 )
 
-__all__ = [
+__all__: list[str] = [
     "BUCKET_FAILED_FILE",
     "BUCKET_UPLOAD",
     "DELETE_ENTITIES_AND_START_FROM_BEGINNING",

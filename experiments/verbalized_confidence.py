@@ -26,12 +26,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.trust_analysis import REPO, MANIFEST, KEY
 from experiments.rejudge_independent import get_client
 
-MODEL = "openai/gpt-4o-mini"
-SYSTEM = (
+MODEL: str = "openai/gpt-4o-mini"
+SYSTEM: str = (
     "You estimate the probability that a proposed answer to a question "
     "is correct. Respond with ONLY a number between 0 and 1."
 )
-USER_TMPL = (
+USER_TMPL: str = (
     "Question: {question}\n"
     "Proposed answer: {response}\n\n"
     "Probability that the proposed answer is correct (0 to 1):"
@@ -87,7 +87,7 @@ def load_details(slug, policy):
     ]
 
 
-def main():
+def main() -> None:
     client = get_client()
     out = {"model": MODEL}
     for policy in ("kg", "vanilla"):

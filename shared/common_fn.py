@@ -34,7 +34,7 @@ def wrap_llm_with_model_name(llm):
     return llm
 
 
-def _add_graph_documents_with_merge(graph, graph_document_list):
+def _add_graph_documents_with_merge(graph, graph_document_list) -> None:
     """
     Custom implementation of add_graph_documents using MERGE instead of CREATE
     to handle duplicate IDs gracefully

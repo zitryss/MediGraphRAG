@@ -459,7 +459,7 @@ class MIRAGEEvaluationPipeline:
         allow_gold_evidence_contexts: bool = False,
         retrieval_study: str | None = None,
         kg_builder_profile: str = "auto",
-    ):
+    ) -> None:
         if evaluation_mode not in self.EVALUATION_MODES:
             raise ValueError(
                 f"Unsupported evaluation_mode='{evaluation_mode}'. "
@@ -1472,7 +1472,7 @@ class MIRAGEEvaluationPipeline:
         config_name: str,
         subset_tag: str,
         details: list[dict[str, Any]],
-    ):
+    ) -> None:
         """Log per-question table (question + responses + metrics) to W&B."""
         if not self.wandb_run:
             return
@@ -1654,7 +1654,7 @@ class MIRAGEEvaluationPipeline:
         self,
         dataset_name: str,
         config_results: list[dict[str, Any]],
-    ):
+    ) -> None:
         """Log per-config summary table and grouped bar charts to W&B."""
         if not self.wandb_run or not config_results:
             return
@@ -1790,7 +1790,7 @@ class MIRAGEEvaluationPipeline:
         self,
         all_results: list[dict[str, Any]],
         summary_path: str,
-    ):
+    ) -> None:
         """Log final cross-dataset summary to W&B as table + artifact."""
         if not self.wandb_run:
             return
@@ -2222,7 +2222,7 @@ class MIRAGEEvaluationPipeline:
             self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password)
         )
 
-    def _clear_neo4j(self):
+    def _clear_neo4j(self) -> None:
         """Clear all data from Neo4j"""
         logging.info("Clearing Neo4j database...")
         driver = self._get_neo4j_driver()
@@ -2459,7 +2459,7 @@ class MIRAGEEvaluationPipeline:
 
         return True
 
-    def _delete_dataset_kg(self, dataset_name: str):
+    def _delete_dataset_kg(self, dataset_name: str) -> None:
         """Delete KG for a specific dataset from Neo4j"""
         logging.info(f"Deleting KG for dataset: {dataset_name}")
         driver = self._get_neo4j_driver()
@@ -5199,7 +5199,7 @@ class MIRAGEEvaluationPipeline:
         return summary
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run MIRAGE dataset evaluation pipeline (Experiment Mode)"
     )

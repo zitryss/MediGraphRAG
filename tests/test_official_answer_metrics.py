@@ -4,7 +4,7 @@ from experiments.official_answer_metrics import (
 )
 
 
-def test_wrapped_answer_gets_partial_f1_but_not_exact_match():
+def test_wrapped_answer_gets_partial_f1_but_not_exact_match() -> None:
     em, f1 = compute_answer_em_f1(
         "The answer is Sam Bankman-Fried.",
         "Sam Bankman-Fried",
@@ -13,7 +13,7 @@ def test_wrapped_answer_gets_partial_f1_but_not_exact_match():
     assert 0.0 < f1 < 1.0
 
 
-def test_alias_can_rescue_em_and_f1():
+def test_alias_can_rescue_em_and_f1() -> None:
     em, f1 = compute_answer_em_f1(
         "acetylsalicylic acid",
         "aspirin",
@@ -23,7 +23,7 @@ def test_alias_can_rescue_em_and_f1():
     assert f1 == 1.0
 
 
-def test_partial_overlap_scores_fractional_f1():
+def test_partial_overlap_scores_fractional_f1() -> None:
     em, f1 = compute_answer_em_f1(
         "sam bankman",
         "sam bankman fried",
@@ -32,7 +32,7 @@ def test_partial_overlap_scores_fractional_f1():
     assert 0.0 < f1 < 1.0
 
 
-def test_supports_official_answer_metrics_only_for_selected_datasets():
+def test_supports_official_answer_metrics_only_for_selected_datasets() -> None:
     assert supports_official_answer_metrics("hotpotqa") is True
     assert supports_official_answer_metrics("2wikimultihopqa") is True
     assert supports_official_answer_metrics("musique") is True

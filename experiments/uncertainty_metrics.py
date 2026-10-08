@@ -2221,7 +2221,7 @@ def compute_subgraph_perturbation_stability_detailed(
 
 # Metrics where HIGHER value = MORE uncertain (standard "uncertainty score").
 # For AUROC we predict correctness as -uncertainty, so we negate these.
-_HIGHER_IS_MORE_UNCERTAIN = {
+_HIGHER_IS_MORE_UNCERTAIN: set[str] = {
     "semantic_entropy",
     "discrete_semantic_entropy",
     "sre_uq",
@@ -2239,8 +2239,8 @@ _HIGHER_IS_MORE_UNCERTAIN = {
 }
 # Metrics where HIGHER value = MORE certain (confidence score).
 # For AUROC we use the value directly; for AUREC we sort descending on -score.
-_HIGHER_IS_MORE_CERTAIN = {"p_true"}
-_GPS_NULL_REASON_ORDER = (
+_HIGHER_IS_MORE_CERTAIN: set[str] = {"p_true"}
+_GPS_NULL_REASON_ORDER: tuple[str, str, str, str, str, str] = (
     "no_q_entities",
     "no_a_entities",
     "trivial_overlap",

@@ -1,7 +1,7 @@
 """Shared retrieval configuration constants."""
 
 # Configurable parameters for different question types
-RAG_CONFIG = {
+RAG_CONFIG: dict[str, dict[str, float | int]] = {
     "statistical": {
         "default_max_chunks": 100,  # More chunks for statistical analysis
         "threshold_floor": 0.05,

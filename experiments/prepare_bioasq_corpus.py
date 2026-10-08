@@ -26,7 +26,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-NCBI_EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+NCBI_EUTILS_BASE: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 DEFAULT_BIOASQ_PATH = Path(
     "MIRAGE/rawdata/bioasq/Task10BGoldenEnriched/10B1_golden.json"
 )

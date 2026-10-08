@@ -1,3 +1,4 @@
+import pytest
 import os
 import sys
 from types import SimpleNamespace
@@ -7,14 +8,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ontographrag.rag import reranking as rerank_mod
 
 
-def test_resolve_reranker_model_name_uses_accuracy_profile_default(monkeypatch):
+def test_resolve_reranker_model_name_uses_accuracy_profile_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("ONTOGRAPHRAG_RERANKER_MODEL", raising=False)
     monkeypatch.setenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "accuracy")
 
     assert rerank_mod.resolve_reranker_model_name() == "BAAI/bge-reranker-base"
 
 
-def test_rerank_chunks_for_query_sorts_by_model_score(monkeypatch):
+def test_rerank_chunks_for_query_sorts_by_model_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeModel:
         def predict(self, pairs, show_progress_bar=False):
             return [0.1, 0.9]
@@ -38,7 +43,9 @@ def test_rerank_chunks_for_query_sorts_by_model_score(monkeypatch):
     assert meta["model"] == "fake-reranker"
 
 
-def test_rerank_chunks_for_query_fails_soft_when_model_unavailable(monkeypatch):
+def test_rerank_chunks_for_query_fails_soft_when_model_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER_MODEL", "fake-reranker")
     monkeypatch.setattr(rerank_mod, "_load_cross_encoder", lambda model_name: None)
@@ -55,7 +62,9 @@ def test_rerank_chunks_for_query_fails_soft_when_model_unavailable(monkeypatch):
     assert meta["reason"] == "model_unavailable"
 
 
-def test_resolve_late_interaction_model_name_uses_accuracy_profile_default(monkeypatch):
+def test_resolve_late_interaction_model_name_uses_accuracy_profile_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", raising=False)
     monkeypatch.delenv("HUGGINGFACE_EMBEDDING_MODEL", raising=False)
     monkeypatch.setenv("ONTOGRAPHRAG_RETRIEVAL_PROFILE", "accuracy")
@@ -63,7 +72,9 @@ def test_resolve_late_interaction_model_name_uses_accuracy_profile_default(monke
     assert rerank_mod.resolve_late_interaction_model_name() == "BAAI/bge-base-en-v1.5"
 
 
-def test_late_interaction_rescore_chunks_for_query_sorts_by_model_score(monkeypatch):
+def test_late_interaction_rescore_chunks_for_query_sorts_by_model_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
     monkeypatch.setattr(
@@ -88,7 +99,9 @@ def test_late_interaction_rescore_chunks_for_query_sorts_by_model_score(monkeypa
     assert meta["model"] == "fake-late-interaction"
 
 
-def test_late_interaction_rescore_chunks_can_replace_score(monkeypatch):
+def test_late_interaction_rescore_chunks_can_replace_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
     monkeypatch.setattr(
@@ -115,8 +128,8 @@ def test_late_interaction_rescore_chunks_can_replace_score(monkeypatch):
 
 
 def test_late_interaction_rescore_chunks_for_query_fails_soft_when_model_unavailable(
-    monkeypatch,
-):
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
     monkeypatch.setattr(
@@ -137,7 +150,9 @@ def test_late_interaction_rescore_chunks_for_query_fails_soft_when_model_unavail
     assert meta["reason"] == "model_unavailable"
 
 
-def test_late_interaction_rescore_chunks_for_query_uses_indexed_backend(monkeypatch):
+def test_late_interaction_rescore_chunks_for_query_uses_indexed_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
     monkeypatch.setattr(
@@ -177,7 +192,9 @@ def test_late_interaction_rescore_chunks_for_query_uses_indexed_backend(monkeypa
     assert meta["prefiltered"] is True
 
 
-def test_build_late_interaction_index_reuses_cached_doc_embeddings(monkeypatch):
+def test_build_late_interaction_index_reuses_cached_doc_embeddings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import torch
 
     class FakeTokenizer:
@@ -208,7 +225,7 @@ def test_build_late_interaction_index_reuses_cached_doc_embeddings(monkeypatch):
             }
 
     class FakeModel:
-        def __init__(self):
+        def __init__(self) -> None:
             self.calls = 0
             self.config = SimpleNamespace(hidden_size=2)
 
@@ -252,7 +269,9 @@ def test_build_late_interaction_index_reuses_cached_doc_embeddings(monkeypatch):
     assert index_two["count"] == 2
 
 
-def test_late_interaction_scores_indexed_prefilters_large_corpus(monkeypatch):
+def test_late_interaction_scores_indexed_prefilters_large_corpus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import torch
 
     doc_tokens = [

@@ -8,7 +8,7 @@ experiment_mod: Any = None
 
 
 @pytest.fixture(autouse=True)
-def _isolated_pipeline(experiment_module, monkeypatch):
+def _isolated_pipeline(experiment_module, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(
         globals(),
         "MIRAGEEvaluationPipeline",
@@ -25,7 +25,7 @@ def _make_benchmark():
     return benchmark
 
 
-def test_validate_retrieval_scope_rejects_cross_question_chunks():
+def test_validate_retrieval_scope_rejects_cross_question_chunks() -> None:
     benchmark = _make_benchmark()
     rag_result = {
         "context": {
@@ -51,7 +51,7 @@ def test_validate_retrieval_scope_rejects_cross_question_chunks():
     )
 
 
-def test_validate_retrieval_scope_allows_matching_question_scope():
+def test_validate_retrieval_scope_allows_matching_question_scope() -> None:
     benchmark = _make_benchmark()
     rag_result = {
         "context": {
@@ -83,7 +83,7 @@ def test_validate_retrieval_scope_allows_matching_question_scope():
     )
 
 
-def test_collect_sample_responses_preserves_question_scope_and_sampling_pool():
+def test_collect_sample_responses_preserves_question_scope_and_sampling_pool() -> None:
     benchmark = _make_benchmark()
     benchmark.entropy_samples = 2
     benchmark.llm = object()
@@ -121,7 +121,7 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool():
     assert [call["retrieval_sample_id"] for call in calls] == [0, 1]
 
 
-def test_retrieval_study_configs_do_not_override_embedding_profile():
+def test_retrieval_study_configs_do_not_override_embedding_profile() -> None:
     configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
         profile="small",
         similarity_thresholds=[0.1],
@@ -135,7 +135,7 @@ def test_retrieval_study_configs_do_not_override_embedding_profile():
         assert "retrieval_profile" not in config["retrieval_stack"]
 
 
-def test_final_pair_configs_do_not_override_embedding_profile():
+def test_final_pair_configs_do_not_override_embedding_profile() -> None:
     configs = MIRAGEEvaluationPipeline.build_retrieval_study_eval_configs(
         profile="final_pair",
         similarity_thresholds=[0.1],
@@ -155,7 +155,9 @@ def test_final_pair_configs_do_not_override_embedding_profile():
         assert "retrieval_profile" not in config["retrieval_stack"]
 
 
-def test_full_kg_builder_profile_enables_stronger_extraction(monkeypatch):
+def test_full_kg_builder_profile_enables_stronger_extraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     benchmark = MIRAGEEvaluationPipeline.__new__(MIRAGEEvaluationPipeline)
     benchmark.DATASET_KG_SCOPE_EVALUATION_SUBSET = "evaluation_subset"
     benchmark.dataset_kg_scope = "evaluation_subset"
@@ -187,7 +189,7 @@ def test_full_kg_builder_profile_enables_stronger_extraction(monkeypatch):
     seen = {}
 
     class FakeBuilder:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs) -> None:
             seen["kwargs"] = kwargs
 
         def generate_knowledge_graph_from_passages(self, **kwargs):
@@ -222,7 +224,7 @@ def test_full_kg_builder_profile_enables_stronger_extraction(monkeypatch):
     assert seen["kwargs"]["enable_claim_extraction"] is True
 
 
-def test_kg_routing_distribution_counts_entity_first_and_dense_fallback():
+def test_kg_routing_distribution_counts_entity_first_and_dense_fallback() -> None:
     details = [
         {"kg_retrieval_route": "entity_first", "kg_route_reason": "success"},
         {"kg_retrieval_route": "semantic_only", "kg_route_reason": "no_graph_signal"},
@@ -245,7 +247,9 @@ def test_kg_routing_distribution_counts_entity_first_and_dense_fallback():
     assert dist["graph_route_rate"] == pytest.approx(2 / 3)
 
 
-def test_question_scoped_multihop_kg_build_uses_lightweight_profile(monkeypatch):
+def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     benchmark = _make_benchmark()
     benchmark.dataset_kg_scope = "evaluation_subset"
     benchmark.neo4j_uri = "bolt://localhost:7687"
@@ -273,7 +277,7 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(monkeypatch)
     seen = {}
 
     class FakeBuilder:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs) -> None:
             seen["kwargs"] = kwargs
 
         def generate_knowledge_graph_from_passages(self, **kwargs):

@@ -1,3 +1,4 @@
+import pytest
 import sys
 import types
 
@@ -9,7 +10,7 @@ from experiments import uncertainty_metrics as um
 class _FakeSentenceTransformer:
     init_calls = []
 
-    def __init__(self, model_name):
+    def __init__(self, model_name) -> None:
         self.model_name = model_name
         self.__class__.init_calls.append(model_name)
 
@@ -23,7 +24,9 @@ class _FakeSentenceTransformer:
         return vecs
 
 
-def test_sentence_transformer_helper_reuses_normalized_cache(monkeypatch):
+def test_sentence_transformer_helper_reuses_normalized_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake_module = types.SimpleNamespace(SentenceTransformer=_FakeSentenceTransformer)
     monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
     monkeypatch.setattr(um, "_SENTENCE_TRANSFORMER_CACHE", {})
@@ -38,7 +41,9 @@ def test_sentence_transformer_helper_reuses_normalized_cache(monkeypatch):
     assert _FakeSentenceTransformer.init_calls == ["all-MiniLM-L6-v2"]
 
 
-def test_evidence_vn_entropy_query_checks_tail_reachability(monkeypatch):
+def test_evidence_vn_entropy_query_checks_tail_reachability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured_queries = []
 
     class FakeSession:
@@ -58,7 +63,7 @@ def test_evidence_vn_entropy_query_checks_tail_reachability(monkeypatch):
         def session(self, database=None):
             return FakeSession()
 
-        def close(self):
+        def close(self) -> None:
             return None
 
     class FakeGraphDatabase:
@@ -89,7 +94,9 @@ def test_evidence_vn_entropy_query_checks_tail_reachability(monkeypatch):
     assert "MATCH path = (q_e:__Entity__)-[*1..4]-(t)" in triple_query
 
 
-def test_graph_path_support_query_applies_question_local_scope(monkeypatch):
+def test_graph_path_support_query_applies_question_local_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured_queries = []
 
     class FakeSession:
@@ -124,7 +131,7 @@ def test_graph_path_support_query_applies_question_local_scope(monkeypatch):
         def session(self, database=None):
             return FakeSession()
 
-        def close(self):
+        def close(self) -> None:
             return None
 
     class FakeGraphDatabase:
@@ -154,7 +161,9 @@ def test_graph_path_support_query_applies_question_local_scope(monkeypatch):
     )
 
 
-def test_graph_path_support_matches_aliases_without_abstaining(monkeypatch):
+def test_graph_path_support_matches_aliases_without_abstaining(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeSession:
         def __enter__(self):
             return self
@@ -186,7 +195,7 @@ def test_graph_path_support_matches_aliases_without_abstaining(monkeypatch):
         def session(self, database=None):
             return FakeSession()
 
-        def close(self):
+        def close(self) -> None:
             return None
 
     class FakeGraphDatabase:
@@ -210,7 +219,9 @@ def test_graph_path_support_matches_aliases_without_abstaining(monkeypatch):
     assert detail["score"] == 0.0
 
 
-def test_graph_path_support_uses_non_self_question_entities_for_overlap(monkeypatch):
+def test_graph_path_support_uses_non_self_question_entities_for_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeSession:
         def __enter__(self):
             return self
@@ -244,7 +255,7 @@ def test_graph_path_support_uses_non_self_question_entities_for_overlap(monkeypa
         def session(self, database=None):
             return FakeSession()
 
-        def close(self):
+        def close(self) -> None:
             return None
 
     class FakeGraphDatabase:
@@ -268,7 +279,9 @@ def test_graph_path_support_uses_non_self_question_entities_for_overlap(monkeypa
     assert detail["score"] == 0.0
 
 
-def test_sps_uses_non_self_question_entities_for_overlap(monkeypatch):
+def test_sps_uses_non_self_question_entities_for_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeSession:
         def __enter__(self):
             return self
@@ -302,7 +315,7 @@ def test_sps_uses_non_self_question_entities_for_overlap(monkeypatch):
         def session(self, database=None):
             return FakeSession()
 
-        def close(self):
+        def close(self) -> None:
             return None
 
     class FakeGraphDatabase:
@@ -327,11 +340,13 @@ def test_sps_uses_non_self_question_entities_for_overlap(monkeypatch):
     assert 0.0 <= detail["score"] <= 1.0
 
 
-def test_competing_answer_alternatives_counts_reverse_edges(monkeypatch):
+def test_competing_answer_alternatives_counts_reverse_edges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured_queries = []
 
     class FakeSingleResult:
-        def __init__(self, row):
+        def __init__(self, row) -> None:
             self._row = row
 
         def single(self):
@@ -362,7 +377,7 @@ def test_competing_answer_alternatives_counts_reverse_edges(monkeypatch):
         def session(self, database=None):
             return FakeSession()
 
-        def close(self):
+        def close(self) -> None:
             return None
 
     class FakeGraphDatabase:
@@ -388,7 +403,7 @@ def test_competing_answer_alternatives_counts_reverse_edges(monkeypatch):
     )
 
 
-def test_compute_auroc_aurec_excludes_generation_failures_by_default():
+def test_compute_auroc_aurec_excludes_generation_failures_by_default() -> None:
     details = [
         {
             "vanilla_correct": True,
@@ -441,7 +456,7 @@ def test_compute_auroc_aurec_excludes_generation_failures_by_default():
     )
 
 
-def test_compute_auroc_aurec_default_metric_list_includes_grounding_metrics():
+def test_compute_auroc_aurec_default_metric_list_includes_grounding_metrics() -> None:
     details = [
         {
             "vanilla_correct": True,
@@ -471,7 +486,7 @@ def test_compute_auroc_aurec_default_metric_list_includes_grounding_metrics():
     assert "evidence_conflict_uncertainty_auroc" in metrics["kg_rag"]
 
 
-def test_compute_auroc_aurec_reports_all_observed_gps_null_reasons():
+def test_compute_auroc_aurec_reports_all_observed_gps_null_reasons() -> None:
     details = [
         {
             "vanilla_correct": True,

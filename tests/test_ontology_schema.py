@@ -84,7 +84,7 @@ def _load_builder_methods():
     )
 
 
-def test_compatible_relationships_ranks_full_then_partial_then_unconstrained():
+def test_compatible_relationships_ranks_full_then_partial_then_unconstrained() -> None:
     schema = OntologySchema(
         entity_types=[
             EntityType(id="Drug", label="Drug"),
@@ -105,7 +105,7 @@ def test_compatible_relationships_ranks_full_then_partial_then_unconstrained():
     assert rel_ids == ["treats", "treats_any", "generic"]
 
 
-def test_prop_type_preserves_datetime_decimal_and_double():
+def test_prop_type_preserves_datetime_decimal_and_double() -> None:
     prop_type, _, _ = _load_builder_methods()
 
     assert prop_type("datetime") == PropertyType.DATETIME
@@ -113,7 +113,9 @@ def test_prop_type_preserves_datetime_decimal_and_double():
     assert prop_type("double") == PropertyType.DOUBLE
 
 
-def test_load_ontology_owl_parses_datatype_properties_and_rel_attributes(tmp_path):
+def test_load_ontology_owl_parses_datatype_properties_and_rel_attributes(
+    tmp_path: Path,
+) -> None:
     owl = """<?xml version="1.0" encoding="UTF-8"?>
 <rdf:RDF
     xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -177,7 +179,7 @@ def test_load_ontology_owl_parses_datatype_properties_and_rel_attributes(tmp_pat
     assert any(a.name == "note" for a in rel.attributes)
 
 
-def test_build_schema_card_hash_changes_when_property_signature_changes():
+def test_build_schema_card_hash_changes_when_property_signature_changes() -> None:
     _, _, build_schema_card = _load_builder_methods()
 
     base_entity_types = [
@@ -256,7 +258,7 @@ def test_build_schema_card_hash_changes_when_property_signature_changes():
     assert card_a["schemaHash"] != card_b["schemaHash"]
 
 
-def test_validate_ontology_schema_rejects_missing_identifier_property():
+def test_validate_ontology_schema_rejects_missing_identifier_property() -> None:
     validate_ontology_schema = _load_validate_ontology_schema()
     ontology = {
         "classes": [
@@ -277,7 +279,7 @@ def test_validate_ontology_schema_rejects_missing_identifier_property():
     assert any("missing identifier property" in err for err in errors)
 
 
-def test_validate_ontology_schema_rejects_invalid_cardinality():
+def test_validate_ontology_schema_rejects_invalid_cardinality() -> None:
     validate_ontology_schema = _load_validate_ontology_schema()
     ontology = {
         "classes": [

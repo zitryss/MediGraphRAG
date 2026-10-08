@@ -80,7 +80,7 @@ class VanillaRAGSystem:
         neo4j_password: str = None,
         neo4j_database: str = "neo4j",
         embedding_model: str = None,  # Use environment variable if not provided
-    ):
+    ) -> None:
         # Load Neo4j credentials from environment variables if not provided
         self.neo4j_uri = neo4j_uri if neo4j_uri is not None else os.getenv("NEO4J_URI")
         self.neo4j_user = (

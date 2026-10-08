@@ -3,14 +3,16 @@
 import re
 from collections.abc import Callable, Iterable
 
-SHORT_ANSWER_DATASETS = {
+SHORT_ANSWER_DATASETS: set[str] = {
     "hotpotqa",
     "2wikimultihopqa",
     "musique",
     "multihoprag",
 }
 
-_BINARY_QUESTION_PREFIXES = (
+_BINARY_QUESTION_PREFIXES: tuple[
+    str, str, str, str, str, str, str, str, str, str, str
+] = (
     "is ",
     "are ",
     "does ",
@@ -24,7 +26,7 @@ _BINARY_QUESTION_PREFIXES = (
     "did ",
 )
 
-_MONTH_PATTERN = (
+_MONTH_PATTERN: str = (
     r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
     r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
 )
@@ -36,7 +38,7 @@ _DATE_PATTERNS = (
     r"\b\d{4}\b",
 )
 
-_NUMERIC_PATTERNS = (
+_NUMERIC_PATTERNS: tuple[str, str] = (
     r"\b\d+(?:\.\d+)?(?:\s*%|\s*(?:mg|g|kg|ml|l|cm|mm|m|km|years?|months?|days?))?(?=\W|$)",
     r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b",
 )

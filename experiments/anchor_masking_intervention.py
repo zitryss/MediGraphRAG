@@ -303,7 +303,7 @@ def run_intervention(args, candidates: list[dict[str, Any]]) -> dict[str, Any]:
     return {"results": results}
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="2wikimultihopqa")
     parser.add_argument("--policy", choices=["kg", "strict"], default="strict")

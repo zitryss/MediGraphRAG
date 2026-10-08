@@ -11,13 +11,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from experiments.kg_reuse import assess_dataset_kg_compatibility
 
-
-DATASET_KG_SCOPE_EVALUATION_SUBSET = "evaluation_subset"
-DATASET_KG_SCOPE_FULL_DATASET = "full_dataset"
+DATASET_KG_SCOPE_EVALUATION_SUBSET: str = "evaluation_subset"
+DATASET_KG_SCOPE_FULL_DATASET: str = "full_dataset"
 
 
 class TestDatasetKGCompatibility:
-    def test_shared_corpus_ignores_selection_key_mismatch(self):
+    def test_shared_corpus_ignores_selection_key_mismatch(self) -> None:
         existing_meta = {
             "uses_global_corpus": True,
             "dataset_kg_scope": DATASET_KG_SCOPE_EVALUATION_SUBSET,
@@ -39,7 +38,7 @@ class TestDatasetKGCompatibility:
         assert compatible is True
         assert reasons == []
 
-    def test_subset_scoped_selection_key_mismatch_forces_rebuild(self):
+    def test_subset_scoped_selection_key_mismatch_forces_rebuild(self) -> None:
         existing_meta = {
             "uses_global_corpus": False,
             "dataset_kg_scope": DATASET_KG_SCOPE_EVALUATION_SUBSET,
@@ -59,7 +58,7 @@ class TestDatasetKGCompatibility:
         assert compatible is False
         assert any("selectionKey mismatch" in reason for reason in reasons)
 
-    def test_content_hash_mismatch_forces_rebuild(self):
+    def test_content_hash_mismatch_forces_rebuild(self) -> None:
         existing_meta = {
             "uses_global_corpus": False,
             "dataset_kg_scope": DATASET_KG_SCOPE_FULL_DATASET,
@@ -79,7 +78,7 @@ class TestDatasetKGCompatibility:
         assert compatible is False
         assert any("contentHash mismatch" in reason for reason in reasons)
 
-    def test_missing_metadata_does_not_force_rebuild(self):
+    def test_missing_metadata_does_not_force_rebuild(self) -> None:
         existing_meta = {
             "uses_global_corpus": False,
             "dataset_kg_scope": DATASET_KG_SCOPE_EVALUATION_SUBSET,
