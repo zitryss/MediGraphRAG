@@ -184,13 +184,13 @@ def adapt_pubmedqa(
     )
 
 
-def _stable_record_id(prefix: str, *parts: Any) -> str:
+def _stable_record_id(prefix: str, *parts: object) -> str:
     payload = "||".join(str(part or "").strip() for part in parts)
     digest = hashlib.md5(payload.encode("utf-8")).hexdigest()[:12]
     return f"{prefix}_{digest}"
 
 
-def _normalize_realmedqa_verdict(value: Any) -> str:
+def _normalize_realmedqa_verdict(value: object) -> str:
     text = re.sub(r"\s+", " ", str(value or "").strip().lower())
     return text
 

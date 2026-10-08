@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ontographrag.rag.retrieval_sampling import select_ranked_subset
+
 if TYPE_CHECKING:
     from langchain_community.graphs.graph_document import GraphDocument
     from langchain_neo4j import Neo4jGraph
@@ -29,3 +31,22 @@ def graph_merge_contracts(
 
 def chunking_host_contract(host: OntologyGuidedKGCreator) -> ChunkingHost:
     return host
+
+
+def sampled_score_rows(rows: list[dict[str, float]]) -> list[dict[str, float]]:
+    return select_ranked_subset(
+        rows,
+        max_items=1,
+        retrieval_temperature=1.0,
+        shortlist_factor=2,
+    )
+
+
+def sampled_numbers(rows: list[int]) -> list[int]:
+    return select_ranked_subset(
+        rows,
+        max_items=1,
+        retrieval_temperature=1.0,
+        shortlist_factor=2,
+        score_getter=float,
+    )
