@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 
 from ontographrag.kg.builders import ontology_guided_kg_creator as module
+from ontographrag.kg.builders._storage import Neo4jStoredValue, StorageMixin
 from ontographrag.schemas.models import PropertyType
 from tests.known_defects import UndefinedProviderDefect
 
@@ -432,3 +433,42 @@ def test_schema_free_classification_retains_domain_priority(
 ) -> None:
     # Explicit precedence: disease terms outrank location terms in ambiguous labels.
     assert creator._classify_entity_with_ontology(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (True, True),
+        (3, 3),
+        (1.5, 1.5),
+        ("text", "text"),
+        ([], []),
+        ([1, "text", False], [1, "text", False]),
+        ((1, 2), [1, 2]),
+        ({7}, [7]),
+        ([[1]], "[[1]]"),
+        ({"nested": [2]}, '{"nested": [2]}'),
+        ([float("nan")], "[NaN]"),
+        (float("inf"), "inf"),
+        (Path("relative"), "relative"),
+    ],
+)
+def test_neo4j_property_coercion_contract(
+    value: object, expected: Neo4jStoredValue | None
+) -> None:
+    assert StorageMixin._coerce_neo4j_property_value(value) == expected
+
+
+def test_neo4j_property_sanitization_drops_null_and_nonfinite() -> None:
+    values: dict[str, object] = {
+        "null": None,
+        "nan": float("nan"),
+        "infinity": float("inf"),
+        "kept": [1, "text"],
+        "nested": {"value": True},
+    }
+    assert StorageMixin._sanitize_neo4j_properties(values) == {
+        "kept": [1, "text"],
+        "nested": '{"value": true}',
+    }

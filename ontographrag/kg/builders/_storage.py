@@ -1,7 +1,8 @@
 import json
 import re
 import hashlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeGuard
+from collections.abc import Mapping
 from langchain_neo4j import Neo4jGraph
 import os
 import logging
@@ -11,6 +12,16 @@ import math
 if TYPE_CHECKING:
     from langchain_core.embeddings import Embeddings
     from ontographrag.providers.model_providers import ModelProvider
+
+
+Neo4jPrimitive: TypeAlias = str | int | float | bool
+Neo4jStoredValue: TypeAlias = Neo4jPrimitive | list[Neo4jPrimitive]
+
+
+class QueryGraph(Protocol):
+    def query(
+        self, query: str, params: dict[str, object] = ...
+    ) -> list[dict[str, object]]: ...
 
 
 class StorageMixin:
@@ -32,10 +43,10 @@ class StorageMixin:
         neo4j_uri: str
         neo4j_user: str
 
-    def _create_neo4j_connection(self):
+    def _create_neo4j_connection(self) -> Neo4jGraph:
         """Create Neo4j graph connection"""
         # Ensure password is not None - use environment variable as fallback
-        password = self.neo4j_password
+        password: str = self.neo4j_password
         if password is None or password == "":
             password = os.getenv("NEO4J_PASSWORD", "password")
 
@@ -55,7 +66,7 @@ class StorageMixin:
         )
 
     @staticmethod
-    def _is_neo4j_primitive(value: Any) -> bool:
+    def _is_neo4j_primitive(value: object) -> TypeGuard[Neo4jPrimitive]:
         """Return True for Neo4j-safe primitive property values."""
         if isinstance(value, bool):
             return True
@@ -66,7 +77,13 @@ class StorageMixin:
         return False
 
     @classmethod
-    def _coerce_neo4j_property_value(cls, value: Any) -> Any:
+    def _all_neo4j_primitives(
+        cls, values: list[object]
+    ) -> TypeGuard[list[Neo4jPrimitive]]:
+        return all(cls._is_neo4j_primitive(item) for item in values)
+
+    @classmethod
+    def _coerce_neo4j_property_value(cls, value: object) -> Neo4jStoredValue | None:
         """
         Convert arbitrary Python values into Neo4j-safe property values.
 
@@ -79,8 +96,8 @@ class StorageMixin:
         if cls._is_neo4j_primitive(value):
             return value
         if isinstance(value, (list, tuple, set)):
-            sequence = list(value)
-            if all(cls._is_neo4j_primitive(item) for item in sequence):
+            sequence: list[object] = list(value)
+            if cls._all_neo4j_primitives(sequence):
                 return list(sequence)
             return json.dumps(sequence, ensure_ascii=False, default=str)
         if isinstance(value, dict):
@@ -89,19 +106,19 @@ class StorageMixin:
 
     @classmethod
     def _sanitize_neo4j_properties(
-        cls, properties: dict[str, Any] | None
-    ) -> dict[str, Any]:
+        cls, properties: Mapping[str, object] | None
+    ) -> dict[str, Neo4jStoredValue]:
         """Drop null/NaN values and coerce the rest to Neo4j-safe property values."""
         if not isinstance(properties, dict):
             return {}
 
-        safe_properties: dict[str, Any] = {}
+        safe_properties: dict[str, Neo4jStoredValue] = {}
         for key, value in properties.items():
             if value is None:
                 continue
             if isinstance(value, float) and not math.isfinite(value):
                 continue
-            coerced = cls._coerce_neo4j_property_value(value)
+            coerced: Neo4jStoredValue | None = cls._coerce_neo4j_property_value(value)
             if coerced is None:
                 continue
             safe_properties[str(key)] = coerced
@@ -109,7 +126,7 @@ class StorageMixin:
 
     def _store_graph_enrichment(
         self,
-        graph,
+        graph: QueryGraph,
         *,
         kg_name: str,
         file_name: str,
@@ -1281,7 +1298,7 @@ class StorageMixin:
             logging.error(f"Error storing knowledge graph: {e}")
             return False
 
-    def _create_vector_indexes(self, graph) -> None:
+    def _create_vector_indexes(self, graph: QueryGraph) -> None:
         """
         Create vector indexes and unique constraints for RAG functionality
         """
