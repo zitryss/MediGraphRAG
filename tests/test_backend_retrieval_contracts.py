@@ -2,21 +2,72 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, TypedDict, Unpack, cast
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
+from langchain_core.prompt_values import PromptValue
 
 from ontographrag.rag.systems import _vector_search as vector
 from ontographrag.rag.systems import enhanced_rag_system as enhanced
 from ontographrag.rag.systems import vanilla_rag_system as vanilla
+from ontographrag.rag.systems._records import RetrievedChunk, TraversalProjection
+
+if TYPE_CHECKING:
+    from ontographrag.rag.systems._records import (
+        CompleteRetrievedChunk,
+        CountedGraphRetrievalContext,
+        GraphExpansion,
+        GraphRetrievalContext,
+        ProducedGraphRetrievalContext,
+        RetrievedEntity,
+        ScoredCompleteRetrievalContext,
+        ScoredRetrievedChunk,
+    )
+    from ontographrag.rag.systems._response_records import GenerationResponse
+
+
+class EntityExtras(TypedDict, total=False):
+    ann_score: float
+    weighted_score: float
+
+
+class EntityFixture(EntityExtras):
+    id: str
+    name: str
+    type: str
+    element_id: str
+    exact_in_query: int
+    token_overlap: int
+
+
+class RelationshipFixture(TypedDict):
+    source: str
+    target: str
+    source_element_id: str
+    target_element_id: str
+    relationship_type: str
+    relationship_element_id: str
+    confidence: float
+
+
+class AppliedMetadata(TypedDict):
+    applied: bool
+
+
+class CorpusOptions(TypedDict):
+    kg_name: str
+    document_names: list[str]
+    question_id: str
+    include_entities: bool
 
 
 @pytest.fixture
 def system(monkeypatch: pytest.MonkeyPatch) -> enhanced.EnhancedRAGSystem:
-    model = Mock(spec=["embed_query"])
+    model: Mock = Mock(spec=["embed_query"])
     model.embed_query.return_value = [1.0, 0.0, 0.0]
     monkeypatch.setattr(enhanced, "load_embedding_model", Mock(return_value=(model, 3)))
     return enhanced.EnhancedRAGSystem(
@@ -27,8 +78,8 @@ def system(monkeypatch: pytest.MonkeyPatch) -> enhanced.EnhancedRAGSystem:
 def test_real_constructor_cache_and_connection_lifecycle(
     system: enhanced.EnhancedRAGSystem, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    graph = Mock()
-    factory = Mock(return_value=graph)
+    graph: Mock = Mock()
+    factory: Mock = Mock(return_value=graph)
     monkeypatch.setattr(enhanced, "Neo4jGraph", factory)
     assert system._create_neo4j_connection() is graph
     assert system._create_neo4j_connection() is graph
@@ -47,7 +98,7 @@ def test_embedding_encode_interface_and_fifo_eviction(
     system: enhanced.EnhancedRAGSystem,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    encoder = Mock(return_value=np.array([0.5, 0.5]))
+    encoder: Mock = Mock(return_value=np.array([0.5, 0.5]))
     monkeypatch.setattr(system, "embedding_model", SimpleNamespace(encode=encoder))
     system._embedding_cache = {str(i): [0] for i in range(2048)}
     assert system._generate_query_embedding("new") == [0.5, 0.5]
@@ -62,13 +113,13 @@ def test_embedding_encode_interface_and_fifo_eviction(
 def test_vector_index_probe_and_cache(
     system: enhanced.EnhancedRAGSystem, available: bool
 ) -> None:
-    graph = Mock()
+    graph: Mock = Mock()
     graph.query.side_effect = (
         [[{"name": "retrieval_vector", "state": "ONLINE"}], []] if available else [[]]
     )
     system._graph = graph
     assert system.check_vector_index() is available
-    count = graph.query.call_count
+    count: int = graph.query.call_count
     assert system.check_vector_index() is available
     assert graph.query.call_count == count
     if available:
@@ -80,15 +131,17 @@ def test_vector_index_probe_and_cache(
 def test_late_interaction_corpus_cache_scope_and_fallback(
     system: enhanced.EnhancedRAGSystem, entities: bool
 ) -> None:
-    graph = Mock()
+    graph: Mock = Mock()
     graph.query.side_effect = [[], [{"text": "passage", "chunk_id": "c"}]]
-    opts: dict[str, Any] = {
+    opts: CorpusOptions = {
         "kg_name": "unit",
         "document_names": ["b", "a"],
         "question_id": "q",
         "include_entities": entities,
     }
-    rows = system._late_interaction_corpus_rows(graph, **opts)
+    rows: list[CompleteRetrievedChunk] = system._late_interaction_corpus_rows(
+        graph, **opts
+    )
     assert rows == [{"text": "passage", "chunk_id": "c"}]
     rows[0]["text"] = "mutated"
     assert system._late_interaction_corpus_rows(graph, **opts)[0]["text"] == "passage"
@@ -104,7 +157,7 @@ def test_vector_search_maps_scoped_result(
 ) -> None:
     system._vector_index_available = True
     system._active_vector_index_name = index
-    row = {
+    row: RetrievedChunk = {
         "text": "evidence",
         "chunk_id": "c",
         "chunk_element_id": "ce",
@@ -114,9 +167,9 @@ def test_vector_search_maps_scoped_result(
         "question_id": "q",
         "entities": [],
     }
-    graph = Mock()
+    graph: Mock = Mock()
     graph.query.return_value = [row]
-    result = system._vector_similarity_search(
+    result: GraphRetrievalContext = system._vector_similarity_search(
         graph,
         "query",
         document_names=["doc"],
@@ -134,7 +187,7 @@ def test_vector_search_maps_scoped_result(
 
 
 def test_text_search_maps_result_and_error(system: enhanced.EnhancedRAGSystem) -> None:
-    graph = Mock()
+    graph: Mock = Mock()
     graph.query.return_value = [
         {
             "text": "evidence",
@@ -145,7 +198,7 @@ def test_text_search_maps_result_and_error(system: enhanced.EnhancedRAGSystem) -
             "entities": [],
         }
     ]
-    result = system._text_similarity_search(
+    result: GraphRetrievalContext = system._text_similarity_search(
         graph, "a b", kg_name="unit", question_id="q", document_names=["doc"]
     )
     assert result["chunks"][0]["text"] == "evidence"
@@ -172,23 +225,29 @@ def test_late_interaction_score_signal(
     score: float,
     method: str,
 ) -> None:
-    row = {
+    row: RetrievedChunk = {
         "text": "passage",
         "chunk_id": "c",
         "chunk_element_id": "ce",
         "document": "doc",
         "entities": [],
     }
-    graph = Mock()
+    graph: Mock = Mock()
     graph.query.return_value = [row]
 
     def rescore(
-        query: str, rows: list[dict], **kwargs: object
-    ) -> tuple[list[dict], dict]:
-        return [{**r, "score": score} for r in rows], {"applied": applied}
+        query: str, rows: list[RetrievedChunk], **kwargs: object
+    ) -> tuple[list[RetrievedChunk], AppliedMetadata]:
+        # Each copied row retains its input shape; only the declared float score changes.
+        scored: list[RetrievedChunk] = [
+            cast(RetrievedChunk, {**r, "score": score}) for r in rows
+        ]
+        return scored, {"applied": applied}
 
     monkeypatch.setattr(vector, "late_interaction_rescore_chunks_for_query", rescore)
-    result = system._late_interaction_search(graph, "q", kg_name="unit")
+    result: GraphRetrievalContext = system._late_interaction_search(
+        graph, "q", kg_name="unit"
+    )
     assert result["search_method"] == method
     if applied and score:
         assert result["total_score"] == score
@@ -201,7 +260,7 @@ def test_ppr_conserves_mass_and_prefers_weighted_neighbors(
     system: enhanced.EnhancedRAGSystem,
 ) -> None:
     assert system._ppr_entity_scores([], [], []) == {}
-    result = system._ppr_entity_scores(
+    result: dict[str, float] = system._ppr_entity_scores(
         ["a"],
         ["a", "b", "c", "d"],
         [("a", "b", 1.0), ("a", "c", 0.4), ("a", "a", 1.0), ("missing", "b", 1.0)],
@@ -212,7 +271,7 @@ def test_ppr_conserves_mass_and_prefers_weighted_neighbors(
 
 
 def test_subgraph_edges_scope_and_error(system: enhanced.EnhancedRAGSystem) -> None:
-    graph = Mock()
+    graph: Mock = Mock()
     graph.query.return_value = [
         {"src": "a", "tgt": "b", "conf": 0.8},
         {"src": None, "tgt": "b", "conf": 1},
@@ -230,9 +289,9 @@ def test_subgraph_edges_scope_and_error(system: enhanced.EnhancedRAGSystem) -> N
 def test_vanilla_real_constructor_and_invalid_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    model = Mock()
+    model: Mock = Mock()
     monkeypatch.setattr(vanilla, "load_embedding_model", Mock(return_value=(model, 3)))
-    system = vanilla.VanillaRAGSystem(
+    system: vanilla.VanillaRAGSystem = vanilla.VanillaRAGSystem(
         neo4j_uri="bolt://unit.invalid",
         neo4j_user="unit",
         neo4j_password="dummy",
@@ -244,7 +303,7 @@ def test_vanilla_real_constructor_and_invalid_credentials(
         vanilla.VanillaRAGSystem(neo4j_uri="", neo4j_user="", neo4j_password="")
 
 
-def _entity(identifier: str, **extra: Any) -> dict[str, Any]:
+def _entity(identifier: str, **extra: Unpack[EntityExtras]) -> EntityFixture:
     return {
         "id": identifier,
         "name": identifier,
@@ -256,7 +315,8 @@ def _entity(identifier: str, **extra: Any) -> dict[str, Any]:
     }
 
 
-def _passage(identifier: str, entity: str) -> dict[str, Any]:
+def _passage(identifier: str, entity: str) -> ScoredRetrievedChunk:
+    entities: list[RetrievedEntity] = [{"id": entity}]
     return {
         "chunk_id": identifier,
         "chunk_element_id": f"ce-{identifier}",
@@ -269,11 +329,11 @@ def _passage(identifier: str, entity: str) -> dict[str, Any]:
         "linked_entity_ids": [entity],
         "linked_entity_count": 1,
         "score": 0.8,
-        "entities": [{"id": entity}],
+        "entities": entities,
     }
 
 
-def _neighbor() -> dict[str, Any]:
+def _neighbor() -> TraversalProjection:
     return {
         "id": "illness",
         "name": "illness",
@@ -299,7 +359,7 @@ def _neighbor() -> dict[str, Any]:
     }
 
 
-def _relation() -> dict[str, Any]:
+def _relation() -> RelationshipFixture:
     return {
         "source": "aspirin",
         "target": "illness",
@@ -318,11 +378,11 @@ def test_entity_first_real_traversal_assembles_scoped_evidence(
     system.use_ppr_scoring = ppr
     system.use_rog_path_planning = True
     monkeypatch.setattr(system, "_TRAVERSAL_CHUNK_MIN_SIM", 0.1)
-    calls: list[tuple[str, dict[str, Any]]] = []
+    calls: list[tuple[str, dict[str, object]]] = []
 
     def query(
-        statement: str, params: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
+        statement: str, params: dict[str, object] | None = None
+    ) -> list[Mapping[str, object]]:
         params = params or {}
         calls.append((statement, params))
         if "SHOW INDEXES" in statement:
@@ -343,8 +403,8 @@ def test_entity_first_real_traversal_assembles_scoped_evidence(
             return [{"src": "aspirin", "tgt": "illness", "conf": 1.0}]
         return [_entity("aspirin")]
 
-    graph = Mock(query=Mock(side_effect=query))
-    context = system._entity_first_search(
+    graph: Mock = Mock(query=Mock(side_effect=query))
+    context: ProducedGraphRetrievalContext | None = system._entity_first_search(
         graph, "aspirin", kg_name="unit", question_id="q", document_names=["doc"]
     )
     assert context is not None
@@ -353,7 +413,9 @@ def test_entity_first_real_traversal_assembles_scoped_evidence(
     assert context["entities"]["illness"]["source"] == "graph_traversal"
     assert context["relationships"][0]["type"] == "TREATS"
     assert context["traversal_paths"][0]["question_ids"] == ["q"]
-    chunk_params = next(p for _, p in calls if "candidate_chunk_limit" in p)
+    chunk_params: dict[str, object] = next(
+        p for _, p in calls if "candidate_chunk_limit" in p
+    )
     assert chunk_params["question_id"] == "q"
     assert chunk_params["document_names"] == ["doc"]
     assert context["total_score"] == pytest.approx(
@@ -366,8 +428,8 @@ def test_entity_first_declines_unsupported_context(
     system: enhanced.EnhancedRAGSystem, failure: str
 ) -> None:
     def query(
-        statement: str, params: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
+        statement: str, params: dict[str, object] | None = None
+    ) -> list[Mapping[str, object]]:
         if failure == "database":
             raise RuntimeError("database unavailable")
         if "SHOW INDEXES" in statement:
@@ -378,8 +440,8 @@ def test_entity_first_declines_unsupported_context(
             return [_passage("c1", "aspirin")]
         return []
 
-    graph = Mock(query=Mock(side_effect=query))
-    result = system._entity_first_search(
+    graph: Mock = Mock(query=Mock(side_effect=query))
+    result: ProducedGraphRetrievalContext | None = system._entity_first_search(
         graph,
         "aspirin",
         anchor_mask_entity_ids=["aspirin"] if failure == "masked" else [],
@@ -390,10 +452,10 @@ def test_entity_first_declines_unsupported_context(
 def test_graph_expansion_filters_seeds_and_preserves_path_provenance(
     system: enhanced.EnhancedRAGSystem,
 ) -> None:
-    row = _neighbor()
+    row: TraversalProjection = _neighbor()
     row["sample_paths"] *= 2
-    graph = Mock(query=Mock(return_value=[row, {"id": None}]))
-    result = system._expand_entities_via_graph(
+    graph: Mock = Mock(query=Mock(return_value=[row, {"id": None}]))
+    result: GraphExpansion = system._expand_entities_via_graph(
         graph,
         ["aspirin", "blocked"],
         kg_name="unit",
@@ -405,7 +467,7 @@ def test_graph_expansion_filters_seeds_and_preserves_path_provenance(
     assert len(result["paths"]) == 1
     assert result["paths"][0]["provenance_positions"] == [1]
     assert result["paths"][0]["node_ids"] == ["aspirin", "illness"]
-    params = graph.query.call_args.args[1]
+    params: dict[str, object] = graph.query.call_args.args[1]
     assert params["seed_ids"] == ["aspirin"]
     assert params["rog_allowed_rel_types"] == ["TREATS"]
     graph.query.side_effect = RuntimeError("traversal unavailable")
@@ -421,16 +483,20 @@ def test_graph_expansion_filters_seeds_and_preserves_path_provenance(
 def test_relation_planning_uses_cosine_and_skips_unusable_labels(
     system: enhanced.EnhancedRAGSystem, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    embeddings: dict[str, Any] = {
+    embeddings: dict[str, list[float]] = {
         "query": [1, 0],
         "treats": [1, 0],
         "unrelated": [0, 1],
         "zero": [0, 0],
     }
+
+    def fake_generate_query_embedding(text: str) -> list[float]:
+        return embeddings[text]
+
     monkeypatch.setattr(
-        system, "_generate_query_embedding", lambda text: embeddings[text]
+        system, "_generate_query_embedding", fake_generate_query_embedding
     )
-    graph = Mock(
+    graph: Mock = Mock(
         query=Mock(
             return_value=[
                 {"rel_type": key} for key in ["TREATS", "UNRELATED", "ZERO", "MISSING"]
@@ -453,20 +519,21 @@ def test_rfge_merges_seed_and_neighbor_passages_with_actual_ppr(
     monkeypatch: pytest.MonkeyPatch,
     with_edges: bool,
 ) -> None:
-    seed = _passage("c1", "aspirin")
-    seed["entities"] += [
+    seed: RetrievedChunk = _passage("c1", "aspirin")
+    extra_entities: list[RetrievedEntity] = [
         {"id": "xx"},
         {"id": "masked"},
         {"id": "named", "name": "Masked Name"},
         {},
     ]
+    seed["entities"] += extra_entities
     monkeypatch.setattr(
         system, "_semantic_similarity_search", Mock(return_value={"chunks": [seed]})
     )
 
     def query(
-        statement: str, params: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
+        statement: str, params: dict[str, object] | None = None
+    ) -> list[Mapping[str, object]]:
         if "sample_paths" in statement:
             return [_neighbor()]
         if "a.id AS src" in statement:
@@ -484,15 +551,17 @@ def test_rfge_merges_seed_and_neighbor_passages_with_actual_ppr(
             return [_relation()]
         return []
 
-    graph = Mock(query=Mock(side_effect=query))
-    context = system._retriever_first_graph_expansion(
-        graph,
-        "aspirin",
-        kg_name="unit",
-        question_id="q",
-        document_names=["doc"],
-        anchor_mask_entity_ids=["masked"],
-        anchor_mask_entity_names=["Masked Name"],
+    graph: Mock = Mock(query=Mock(side_effect=query))
+    context: ProducedGraphRetrievalContext | None = (
+        system._retriever_first_graph_expansion(
+            graph,
+            "aspirin",
+            kg_name="unit",
+            question_id="q",
+            document_names=["doc"],
+            anchor_mask_entity_ids=["masked"],
+            anchor_mask_entity_names=["Masked Name"],
+        )
     )
     assert context is not None
     assert context["seed_entity_count"] == 1
@@ -506,7 +575,7 @@ def test_rfge_merges_seed_and_neighbor_passages_with_actual_ppr(
 def test_rfge_declines_empty_unanchored_or_failed_retrieval(
     system: enhanced.EnhancedRAGSystem, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fetch = Mock(
+    fetch: Mock = Mock(
         side_effect=[
             None,
             {"chunks": [{"chunk_id": "c", "entities": []}]},
@@ -518,7 +587,7 @@ def test_rfge_declines_empty_unanchored_or_failed_retrieval(
         assert system._retriever_first_graph_expansion(Mock(), "query") is None
 
 
-def _context(route: str = "entity_first") -> dict[str, Any]:
+def _context(route: str = "entity_first") -> CountedGraphRetrievalContext:
     return {
         "query": "aspirin",
         "chunks": [_passage("c1", "aspirin")],
@@ -549,7 +618,7 @@ def _context(route: str = "entity_first") -> dict[str, Any]:
 def test_context_orchestrator_selects_fallback_without_crossing_scope(
     system: enhanced.EnhancedRAGSystem, monkeypatch: pytest.MonkeyPatch, route: str
 ) -> None:
-    graph = Mock(
+    graph: Mock = Mock(
         query=Mock(return_value=[{"chunk_count": 0 if route == "empty" else 2}])
     )
     system._graph = graph
@@ -559,10 +628,10 @@ def test_context_orchestrator_selects_fallback_without_crossing_scope(
     system.use_rfge = True
     system.retrieval_mode = "entity_first" if route == "strict" else "hybrid_auto"
     system.allow_vector_fallback = route != "strict"
-    entity = Mock(return_value=_context() if route == "entity" else None)
-    rfge = Mock(return_value=_context("rfge") if route == "rfge" else None)
-    vector_fetch = Mock(return_value=_context("vector"))
-    text_fetch = Mock(return_value=_context("text"))
+    entity: Mock = Mock(return_value=_context() if route == "entity" else None)
+    rfge: Mock = Mock(return_value=_context("rfge") if route == "rfge" else None)
+    vector_fetch: Mock = Mock(return_value=_context("vector"))
+    text_fetch: Mock = Mock(return_value=_context("text"))
     for name, value in [
         ("_entity_first_search", entity),
         ("_retriever_first_graph_expansion", rfge),
@@ -572,7 +641,7 @@ def test_context_orchestrator_selects_fallback_without_crossing_scope(
         ("_first_stage_late_interaction_enabled", Mock(return_value=False)),
     ]:
         monkeypatch.setattr(system, name, value)
-    result = system.get_rag_context(
+    result: ProducedGraphRetrievalContext = system.get_rag_context(
         "aspirin", kg_name="unit", question_id="q", document_names=["doc"], max_chunks=2
     )
     if route in {"empty", "error"}:
@@ -584,7 +653,7 @@ def test_context_orchestrator_selects_fallback_without_crossing_scope(
         rfge.assert_not_called()
     else:
         assert result["chunks"][0]["chunk_id"] == "c1"
-        selected = {
+        selected: Mock = {
             "entity": entity,
             "rfge": rfge,
             "vector": vector_fetch,
@@ -606,22 +675,22 @@ def test_generate_response_runs_actual_prompt_and_guardrail_orchestration(
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER", "0")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "0")
     system._graph = Mock(query=Mock(return_value=[]))
-    ctx = _context()
+    ctx: CountedGraphRetrievalContext = _context()
     if mode == "empty":
         ctx["chunks"] = []
-    fetch = Mock(return_value=ctx)
+    fetch: Mock = Mock(return_value=ctx)
     monkeypatch.setattr(system, "get_rag_context", fetch)
     monkeypatch.setattr(system, "_should_run_query_fusion", Mock(return_value=False))
-    retry = Mock(return_value=_context("vector"))
+    retry: Mock = Mock(return_value=_context("vector"))
     monkeypatch.setattr(system, "_vector_similarity_search", retry)
     prompts: list[str] = []
-    responses = iter(
+    responses: Iterator[str] = iter(
         ["Insufficient information", "Aspirin treats illness."]
         if mode == "insufficient_retry"
         else ["Aspirin treats illness."]
     )
 
-    def answer(prompt: Any) -> str:
+    def answer(prompt: PromptValue) -> str:
         prompts.append(prompt.to_string())
         if mode == "llm_error":
             raise RuntimeError("provider unavailable")
@@ -633,7 +702,7 @@ def test_generate_response_runs_actual_prompt_and_guardrail_orchestration(
             "evaluate_runtime_answer_guardrail",
             Mock(return_value={"decision": "abstain"}),
         )
-    result = system.generate_response(
+    result: GenerationResponse = system.generate_response(
         "Does aspirin treat illness?",
         RunnableLambda(answer),
         kg_name="unit",
@@ -671,7 +740,7 @@ def test_vanilla_full_context_contract(
         "load_embedding_model",
         Mock(return_value=(Mock(embed_query=Mock(return_value=[1, 0, 0])), 3)),
     )
-    retriever = vanilla.VanillaRAGSystem()
+    retriever: vanilla.VanillaRAGSystem = vanilla.VanillaRAGSystem()
     monkeypatch.setattr(
         retriever, "_first_stage_late_interaction_enabled", Mock(return_value=False)
     )
@@ -682,8 +751,8 @@ def test_vanilla_full_context_contract(
     )
 
     def query(
-        statement: str, params: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
+        statement: str, params: dict[str, object] | None = None
+    ) -> list[Mapping[str, object]]:
         if index == "error":
             raise RuntimeError("database gone")
         if "chunk_count" in statement:
@@ -692,9 +761,9 @@ def test_vanilla_full_context_contract(
             return [_passage("c1", "aspirin"), _passage("c2", "illness")]
         return []
 
-    graph = Mock(query=Mock(side_effect=query))
+    graph: Mock = Mock(query=Mock(side_effect=query))
     monkeypatch.setattr(vanilla, "Neo4jGraph", Mock(return_value=graph))
-    result = retriever.get_vanilla_rag_context(
+    result: ScoredCompleteRetrievalContext = retriever.get_vanilla_rag_context(
         "aspirin", document_names=["doc"], kg_name="unit", question_id="q", max_chunks=2
     )
     if index in {"missing", "empty", "error"}:
@@ -720,13 +789,13 @@ def test_vanilla_answer_chain_and_query_fusion(
     monkeypatch.setattr(vanilla, "load_embedding_model", Mock(return_value=(Mock(), 3)))
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER", "0")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "0")
-    retriever = vanilla.VanillaRAGSystem()
-    context = _context("vector")
+    retriever: vanilla.VanillaRAGSystem = vanilla.VanillaRAGSystem()
+    context: CountedGraphRetrievalContext = _context("vector")
     if outcome == "empty":
         context["chunks"] = []
-    fetch = Mock(return_value=context)
+    fetch: Mock = Mock(return_value=context)
     if outcome == "fusion":
-        alternate = _context("vector")
+        alternate: CountedGraphRetrievalContext = _context("vector")
         alternate["chunks"] = [_passage("c2", "illness")]
         fetch.side_effect = [context, RuntimeError("variant unavailable"), alternate]
     monkeypatch.setattr(retriever, "get_vanilla_rag_context", fetch)
@@ -740,13 +809,13 @@ def test_vanilla_answer_chain_and_query_fusion(
     )
     prompts: list[str] = []
 
-    def answer(prompt: Any) -> str:
+    def answer(prompt: PromptValue) -> str:
         prompts.append(prompt.to_string())
         if outcome == "error":
             raise RuntimeError("generation failed")
         return "Aspirin treats illness."
 
-    result = retriever.generate_response(
+    result: GenerationResponse = retriever.generate_response(
         "aspirin",
         RunnableLambda(answer),
         kg_name="unit",
@@ -768,9 +837,9 @@ def test_vanilla_answer_chain_and_query_fusion(
 def test_entity_browser_and_statistics_handle_results_and_errors(
     system: enhanced.EnhancedRAGSystem,
 ) -> None:
-    graph = Mock()
+    graph: Mock = Mock()
     system._graph = graph
-    row = {
+    row: dict[str, str | list[str]] = {
         "id": "aspirin",
         "type": "Drug",
         "description": "medicine",
@@ -823,16 +892,16 @@ def test_entity_primary_hybrid_keeps_graph_evidence_when_vector_boundary_fails(
     monkeypatch.setattr(system, "_entity_first_search", Mock(return_value=_context()))
     monkeypatch.setattr(system, "check_vector_index", Mock(return_value=True))
     monkeypatch.setattr(system, "_graph_context_is_meaningful", Mock(return_value=True))
-    vector_ctx = _context("vector")
+    vector_ctx: CountedGraphRetrievalContext = _context("vector")
     vector_ctx["chunks"] = [_passage("c2", "illness")]
-    vector_fetch = Mock(
+    vector_fetch: Mock = Mock(
         return_value=vector_ctx,
         side_effect=RuntimeError("vector unavailable")
         if augmentation == "failure"
         else None,
     )
     monkeypatch.setattr(system, "_semantic_similarity_search", vector_fetch)
-    result = system.get_rag_context(
+    result: ProducedGraphRetrievalContext = system.get_rag_context(
         "aspirin", kg_name="unit", question_id="q", max_chunks=3
     )
     assert {c["chunk_id"] for c in result["chunks"]} == (
@@ -850,9 +919,9 @@ def test_enhanced_query_fusion_survives_failed_variant(
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER", "0")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "0")
     system._graph = Mock(query=Mock(return_value=[]))
-    variant = _context("vector")
+    variant: CountedGraphRetrievalContext = _context("vector")
     variant["chunks"] = [_passage("c2", "illness")]
-    fetch = Mock(side_effect=[_context(), RuntimeError("bad variant"), variant])
+    fetch: Mock = Mock(side_effect=[_context(), RuntimeError("bad variant"), variant])
     monkeypatch.setattr(system, "get_rag_context", fetch)
     monkeypatch.setattr(system, "_should_run_query_fusion", Mock(return_value=True))
     monkeypatch.setattr(
@@ -860,9 +929,13 @@ def test_enhanced_query_fusion_survives_failed_variant(
         "_generate_query_variants",
         Mock(return_value=["bad variant", "useful variant"]),
     )
-    result = system.generate_response(
+
+    def fake_response(prompt: object) -> str:
+        return "Aspirin treats illness."
+
+    result: GenerationResponse = system.generate_response(
         "aspirin",
-        RunnableLambda(lambda prompt: "Aspirin treats illness."),
+        RunnableLambda(fake_response),
         max_hops=1,
         runtime_guardrail=False,
         question_id="q",

@@ -4,16 +4,43 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, TypedDict, cast
 from unittest.mock import Mock
 
 import pytest
 
 from ontographrag.kg.builders import ontology_guided_kg_creator as module
+from ontographrag.kg.builders._creator_shared import (
+    AnchorInventory,
+    AttributeAnchor,
+    DecodedJSONObject,
+    EntityAnchor,
+    RelationAnchor,
+)
 from ontographrag.kg.builders._storage import Neo4jStoredValue, StorageMixin
+from ontographrag.kg.builders.ontology_guided_kg_creator import (
+    CreatorRagContext,
+    ExtractionResult,
+    GraphChunkInput,
+)
 from ontographrag.schemas.models import PropertyType
 from tests.known_defects import UndefinedProviderDefect
+
+if TYPE_CHECKING:
+    from ontographrag.kg.builders._ontology import SchemaCard
+    from ontographrag.kg.builders.ontology_guided_kg_creator import KnowledgeGraph
+    from ontographrag.schemas.models import EntityType, OntologySchema
+
+
+class ReverificationOptions(TypedDict):
+    source_name: str
+    target_name: str
+    relationship_type: str
+    verification_chunks: list[GraphChunkInput]
+    llm: Mock
+    model_name: str
 
 
 @pytest.fixture
@@ -77,12 +104,12 @@ def test_json_schema_load_and_hash_card(
 ) -> None:
     creator.ontology_path = str(schema_file)
     creator._load_ontology(str(schema_file))
-    schema = creator._ontology_schema
+    schema: OntologySchema | None = creator._ontology_schema
     assert schema is not None
     assert [e.id for e in schema.entity_types] == ["Drug", "Disease"]
     assert schema.entity_types[0].properties[0].type == PropertyType.ID
     assert schema.relationship_types[0].attributes[0].unit == "mg"
-    card = creator._build_schema_card()
+    card: SchemaCard = creator._build_schema_card()
     assert (
         card["ontologyFileHash"] == hashlib.sha256(schema_file.read_bytes()).hexdigest()
     )
@@ -93,7 +120,7 @@ def test_json_schema_load_and_hash_card(
     assert creator._coerce_entity_type_with_ontology("Drug") == "Drug"
     assert creator._coerce_entity_type_with_ontology("off_schema") is None
     assert "TREATS" in creator._build_ontology_few_shot_examples()
-    prompt = creator._build_ontology_prompt_section(
+    prompt: str = creator._build_ontology_prompt_section(
         "Aspirin is a Drug treating Disease"
     )
     assert "Drug" in prompt and "dose" in prompt
@@ -113,9 +140,9 @@ def test_owl_typed_properties_and_relationship_attributes(
     <owl:ObjectProperty rdf:about="urn:test#TREATS"><rdfs:domain rdf:resource="urn:test#Drug"/><rdfs:range rdf:resource="urn:test#Disease"/><app:cardinality>many-to-many</app:cardinality></owl:ObjectProperty><owl:ObjectProperty/>
     </rdf:RDF>""")
     creator._load_ontology(str(path))
-    schema = creator._ontology_schema
+    schema: OntologySchema | None = creator._ontology_schema
     assert schema is not None
-    drug = schema.entity_types[0]
+    drug: EntityType = schema.entity_types[0]
     assert drug.description == "Medicine"
     assert [(p.name, p.type) for p in drug.properties] == [
         ("code", PropertyType.ID),
@@ -140,14 +167,16 @@ def test_owl_typed_properties_and_relationship_attributes(
     ],
 )
 def test_reverification_caches_only_explicit_decisions(
-    creator: module.OntologyGuidedKGCreator, response: Any, expected: bool | None
+    creator: module.OntologyGuidedKGCreator,
+    response: str | RuntimeError,
+    expected: bool | None,
 ) -> None:
     llm: Mock = Mock()
     if isinstance(response, Exception):
         llm.generate.side_effect = response
     else:
         llm.generate.return_value = response
-    options: dict[str, Any] = {
+    options: ReverificationOptions = {
         "source_name": "aspirin",
         "target_name": "pain",
         "relationship_type": "TREATS",
@@ -159,12 +188,8 @@ def test_reverification_caches_only_explicit_decisions(
     assert creator._reverify_low_confidence_triple(**options) is expected
     assert llm.generate.call_count == (1 if expected is not None else 2)
     assert "Aspirin treats pain." in llm.generate.call_args.args[0]
-    assert (
-        creator._reverify_low_confidence_triple(
-            **{**options, "verification_chunks": []}
-        )
-        is None
-    )
+    empty_options: ReverificationOptions = {**options, "verification_chunks": []}
+    assert creator._reverify_low_confidence_triple(**empty_options) is None
 
 
 @pytest.mark.parametrize(
@@ -177,7 +202,7 @@ def test_reverification_caches_only_explicit_decisions(
     ],
 )
 def test_coreference_plausibility_gate(
-    creator: module.OntologyGuidedKGCreator, response: Any
+    creator: module.OntologyGuidedKGCreator, response: str | RuntimeError
 ) -> None:
     original: str = "These cells survived during treatment."
     llm: Mock = Mock()
@@ -185,7 +210,7 @@ def test_coreference_plausibility_gate(
         llm.generate.side_effect = response
     else:
         llm.generate.return_value = response
-    result = creator._resolve_coreferences_llm(
+    result: str = creator._resolve_coreferences_llm(
         original, "Treated cells received aspirin.", llm, "unit"
     )
     assert result == (
@@ -193,7 +218,7 @@ def test_coreference_plausibility_gate(
         if isinstance(response, str) and 20 <= len(response) <= len(original) * 3
         else original
     )
-    count = llm.generate.call_count
+    count: int = llm.generate.call_count
     assert creator._resolve_coreferences_llm(original, " ", llm, "unit") == original
     assert llm.generate.call_count == count
 
@@ -205,7 +230,7 @@ def test_real_llm_extraction_and_grounded_postprocessing(
     if schema:
         creator._load_ontology(str(schema_file))
     creator.enable_anchor_constrained_extraction = False
-    payload = {
+    payload: dict[str, list[dict[str, str | dict[str, str]]]] = {
         "entities": [
             {"id": "Aspirin", "type": "Drug", "properties": {"name": "Aspirin"}},
             {"id": "Pain", "type": "Disease", "properties": {"name": "Pain"}},
@@ -220,7 +245,7 @@ def test_real_llm_extraction_and_grounded_postprocessing(
         ],
     }
     llm: Mock = Mock(generate=Mock(return_value=json.dumps(payload)))
-    result = creator._extract_entities_and_relationships_with_llm(
+    result: ExtractionResult = creator._extract_entities_and_relationships_with_llm(
         "Aspirin treats Pain.",
         llm,
         model_name="unit",
@@ -229,7 +254,7 @@ def test_real_llm_extraction_and_grounded_postprocessing(
     )
     assert {e["id"] for e in result["entities"]} == {"Aspirin", "Pain"}
     assert result["relationships"][0]["type"] == "TREATS"
-    prompt = llm.generate.call_args_list[0].args[0]
+    prompt: str = llm.generate.call_args_list[0].args[0]
     assert "Results" in prompt and "Treated cells" in prompt
     llm.generate.side_effect = TimeoutError("read operation timed out")
     assert creator._extract_entities_and_relationships_with_llm(
@@ -248,7 +273,9 @@ def test_real_llm_extraction_and_grounded_postprocessing(
 def test_json_recovery_preserves_valid_content(
     creator: module.OntologyGuidedKGCreator, response: str
 ) -> None:
-    result = creator._parse_llm_json_response(response, allow_partial_extraction=True)
+    result: DecodedJSONObject = creator._parse_llm_json_response(
+        response, allow_partial_extraction=True
+    )
     assert result.get("value") is not None or result.get("entities") == [
         {"id": "Aspirin"}
     ]
@@ -262,14 +289,15 @@ def test_json_recovery_preserves_valid_content(
 def test_real_preview_build_completes_without_persistence(
     creator: module.OntologyGuidedKGCreator, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    def fake_embedding_function(texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0, 0.0] for _ in texts]
+
     monkeypatch.setattr(
         creator,
         "embedding_function",
         Mock(
             embed_query=Mock(return_value=[1.0, 0.0, 0.0]),
-            embed_documents=Mock(
-                side_effect=lambda texts: [[1.0, 0.0, 0.0] for _ in texts]
-            ),
+            embed_documents=Mock(side_effect=fake_embedding_function),
         ),
     )
     creator.enable_anchor_constrained_extraction = False
@@ -289,7 +317,7 @@ def test_real_preview_build_completes_without_persistence(
         )
     )
     try:
-        result = creator.generate_knowledge_graph(
+        result: KnowledgeGraph = creator.generate_knowledge_graph(
             "Aspirin treats Pain.", llm, kg_name="unit", max_chunks=1
         )
     except NameError as exc:
@@ -332,7 +360,7 @@ def test_anchor_inventory_only_retains_exact_grounded_spans(
 ) -> None:
     creator._load_ontology(str(schema_file))
     text: str = "Aspirin treats Pain at 5 mg."
-    inventory = creator._normalize_anchor_inventory(
+    inventory: AnchorInventory = creator._normalize_anchor_inventory(
         {
             "entity_anchors": [
                 {"text": "Aspirin", "type": "Drug"},
@@ -360,7 +388,11 @@ def test_anchor_inventory_only_retains_exact_grounded_spans(
     assert (
         len(inventory["relation_anchors"]) == len(inventory["attribute_anchors"]) == 1
     )
-    for group in inventory.values():
+    # TypedDict.values erases the finite union declared by AnchorInventory.
+    for group in cast(
+        Iterable[Sequence[EntityAnchor | RelationAnchor | AttributeAnchor]],
+        inventory.values(),
+    ):
         for anchor in group:
             for span in anchor["anchor_spans"]:
                 assert text[span["start"] : span["end"]] == span["text"]
@@ -382,9 +414,11 @@ def test_storage_connection_and_vector_index_contract(
     assert creator._create_neo4j_connection() is graph
     assert factory.call_args.kwargs["password"] == "before"
     creator._create_vector_indexes(graph)
-    statements = [call.args[0] for call in graph.query.call_args_list]
+    statements: list[str] = [call.args[0] for call in graph.query.call_args_list]
     assert any("unique_document_filename_kgname" in query for query in statements)
-    vectors = [query for query in statements if "CREATE VECTOR INDEX" in query]
+    vectors: list[str] = [
+        query for query in statements if "CREATE VECTOR INDEX" in query
+    ]
     assert len(vectors) == 3 and all(
         "`vector.dimensions`: 3" in query for query in vectors
     )
@@ -412,7 +446,7 @@ def test_creator_retrieval_maps_unique_entities_and_errors(
     monkeypatch.setattr(
         creator, "embedding_function", Mock(embed_query=Mock(return_value=[1, 0, 0]))
     )
-    result = creator.get_rag_context("aspirin", top_k=2)
+    result: CreatorRagContext = creator.get_rag_context("aspirin", top_k=2)
     assert result["entities"] == ["Aspirin"] and result["documents"] == ["doc"]
     assert graph.query.call_args.args[1] == {"top_k": 2, "query_vector": [1, 0, 0]}
     graph.query.side_effect = RuntimeError("read failure")

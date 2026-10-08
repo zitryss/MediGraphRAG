@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Never, TypedDict
 from unittest.mock import Mock
 
 import pytest
 from neo4j.exceptions import TransientError
 
 from ontographrag.kg.loaders import graph_db_access
-from ontographrag.kg.loaders.graph_db_access import graphDBdataAccess
+from ontographrag.kg.loaders.graph_db_access import (
+    NodeRelationshipCounts,
+    RawGraphRow,
+    graphDBdataAccess,
+)
 from ontographrag.kg.utils.source_node import sourceNode
 from ontographrag.rag.graph_state import (
     dominant_anchor_id,
@@ -26,6 +31,22 @@ from ontographrag.rag.retrieval_sampling import (
     select_ranked_subset,
     stable_sample_seed,
 )
+
+if TYPE_CHECKING:
+    from ontographrag.kg.loaders.graph_db_access import ConnectionInfo
+    from ontographrag.rag.graph_state import (
+        EmptyGraphStateDiversity,
+        GraphStateDiversity,
+        GraphStateSummary,
+    )
+
+
+class SamplingOptions(TypedDict):
+    max_items: int
+    retrieval_temperature: float
+    shortlist_factor: int
+    seed_parts: list[str]
+    sample_id: int
 
 
 @pytest.mark.parametrize(
@@ -45,15 +66,17 @@ def test_candidate_limits(
 
 
 def test_ranked_sampling_is_stable_bounded_and_order_preserving() -> None:
-    items = [{"id": i, "score": float("nan") if i == 1 else 1.0} for i in range(20)]
-    opts: dict[str, Any] = {
+    items: list[dict[str, int | float]] = [
+        {"id": i, "score": float("nan") if i == 1 else 1.0} for i in range(20)
+    ]
+    opts: SamplingOptions = {
         "max_items": 3,
         "retrieval_temperature": 2,
         "shortlist_factor": 2,
         "seed_parts": ["kg", "question"],
         "sample_id": 1,
     }
-    selected = select_ranked_subset(items, **opts)
+    selected: list[dict[str, int | float]] = select_ranked_subset(items, **opts)
     assert selected == select_ranked_subset(items, **opts)
     assert len(selected) == 3
     assert [i["id"] for i in selected] == sorted(i["id"] for i in selected)
@@ -99,22 +122,26 @@ def test_entropy_known_distributions(
     assert normalized_entropy(labels) == pytest.approx(normalized)
 
 
-@pytest.mark.parametrize(
-    "sets,expected",
-    [
+def _jaccard_cases() -> list[tuple[list[list[str]], float]]:
+    return [
         ([], 0),
         ([[]], 1),
         ([[], []], 1),
         ([["a"], ["b"]], 0),
         ([["a", "b"], ["b", "c"]], 1 / 3),
-    ],
+    ]
+
+
+@pytest.mark.parametrize(
+    "sets,expected",
+    _jaccard_cases(),
 )
 def test_jaccard_boundaries(sets: list[list[str]], expected: float) -> None:
     assert mean_pairwise_jaccard(sets) == pytest.approx(expected)
 
 
 def test_symbolic_state_normalizes_deduplicates_and_measures_diversity() -> None:
-    state = summarize_context_graph_state(
+    state: GraphStateSummary = summarize_context_graph_state(
         {
             "retrieval_route": " graph ",
             "diagnostics": {
@@ -144,23 +171,25 @@ def test_symbolic_state_normalizes_deduplicates_and_measures_diversity() -> None
     assert state["path_ids"] == ["a->b", "fallback"]
     assert state["relationship_count"] == 3
     assert state["chunk_ids"] == ["c", "fallback"]
-    result = graph_state_diversity([state, state])
+    result: EmptyGraphStateDiversity | GraphStateDiversity = graph_state_diversity(
+        [state, state]
+    )
     assert result["chunk_entropy"] == 0
     assert result["subgraph_jaccard"] == 1
     assert result["dominant_seed_entity_fraction"] == 1
     assert dominant_anchor_id([state]) == "a"
     assert dominant_anchor_id([]) == ""
     assert graph_state_diversity([])["sample_count"] == 0
-    malformed_states: list[Any] = [None]
+    malformed_states: list[None] = [None]
     assert graph_state_diversity(malformed_states)["empty_state_count"] == 1
 
 
 def test_source_create_update_parameters_and_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    graph = Mock(_database="unit")
-    access = graphDBdataAccess(graph)
-    source = sourceNode()
+    graph: Mock = Mock(_database="unit")
+    access: graphDBdataAccess = graphDBdataAccess(graph)
+    source: sourceNode = sourceNode()
     source.file_name = "a.pdf"
     access.create_source_node(source, "kg1")
     assert graph.query.call_args.args[1]["kg_name"] == "kg1"
@@ -171,7 +200,7 @@ def test_source_create_update_parameters_and_status(
     source.node_count = 0
     source.is_cancelled = False
     access.update_source_node(source)
-    props = graph.query.call_args.args[1]["props"]
+    props: dict[str, str | float | int | bool] = graph.query.call_args.args[1]["props"]
     assert props == {
         "fileName": "a.pdf",
         "status": "Complete",
@@ -198,20 +227,20 @@ def test_source_create_update_parameters_and_status(
 def test_scoped_graph_reads_parameterize_untrusted_names(
     method: str, args: tuple[object, ...], params: dict[str, object]
 ) -> None:
-    graph = Mock(_database="unit")
+    graph: Mock = Mock(_database="unit")
     graph.query.return_value = []
-    access = graphDBdataAccess(graph)
+    access: graphDBdataAccess = graphDBdataAccess(graph)
     assert getattr(access, method)(*args) in (None, [])
     assert graph.query.call_args.args[1] == params
     assert "a'quoted" not in graph.query.call_args.args[0]
 
 
 def test_graph_metadata_coercion_and_empty_delete() -> None:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    graph = Mock(_database="unit")
+    now: datetime = datetime(2026, 1, 1, tzinfo=UTC)
+    graph: Mock = Mock(_database="unit")
     graph.query.return_value = [{"kg": {"created": now, "nested": ({1: now},)}}]
-    access = graphDBdataAccess(graph)
-    result = access.create_kg("kg", "description", "csv")
+    access: graphDBdataAccess = graphDBdataAccess(graph)
+    result: RawGraphRow | None = access.create_kg("kg", "description", "csv")
     assert result == {"created": now.isoformat(), "nested": [{"1": now.isoformat()}]}
     assert graph.query.call_args.args[1] == {
         "kg_name": "kg",
@@ -225,10 +254,10 @@ def test_graph_metadata_coercion_and_empty_delete() -> None:
 
 
 def test_graph_deadlock_retry_and_other_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    graph = Mock(_database="unit")
-    access = graphDBdataAccess(graph)
-    sleep = Mock()
-    monkeypatch.setattr(graph_db_access.time, "sleep", sleep)
+    graph: Mock = Mock(_database="unit")
+    access: graphDBdataAccess = graphDBdataAccess(graph)
+    sleep: Mock = Mock()
+    monkeypatch.setattr(time, "sleep", sleep)
     graph.query.side_effect = [TransientError("DeadlockDetected"), [{"n": 1}]]
     assert access.execute_query("RETURN $n", {"n": 1}, delay=2) == [{"n": 1}]
     sleep.assert_called_once_with(2)
@@ -246,9 +275,9 @@ def test_graph_deadlock_retry_and_other_error(monkeypatch: pytest.MonkeyPatch) -
     ],
 )
 def test_gds_detection(rows: list[dict[str, int]], expected: bool) -> None:
-    graph = Mock(_database="unit")
+    graph: Mock = Mock(_database="unit")
     graph.query.return_value = rows
-    access = graphDBdataAccess(graph)
+    access: graphDBdataAccess = graphDBdataAccess(graph)
     assert access.check_gds_version() is expected
     graph.query.side_effect = RuntimeError("offline")
     assert not access.check_gds_version()
@@ -261,13 +290,15 @@ def test_connection_reports_index_and_chunk_readiness(
     monkeypatch.setattr(
         graph_db_access, "load_embedding_model", Mock(return_value=(Mock(), 3))
     )
-    index = [{"vector_dimensions": 3}] if state == "indexed" else []
-    chunks = (
+    index: list[dict[str, int]] = (
+        [{"vector_dimensions": 3}] if state == "indexed" else []
+    )
+    chunks: list[dict[str, int]] = (
         []
         if state == "empty"
         else [{"hasEmbedding": 0 if state == "unembedded" else 2, "chunks": 2}]
     )
-    graph = Mock(
+    graph: Mock = Mock(
         _database="unit",
         query=Mock(
             side_effect=[
@@ -278,7 +309,9 @@ def test_connection_reports_index_and_chunk_readiness(
             ]
         ),
     )
-    result = graphDBdataAccess(graph).connection_check_and_get_vector_dimensions("unit")
+    result: ConnectionInfo | None = graphDBdataAccess(
+        graph
+    ).connection_check_and_get_vector_dimensions("unit")
     assert result is not None
     assert result["message"] == "Connection Successful"
     assert result["gds_status"] and result["write_access"]
@@ -299,8 +332,8 @@ def test_knn_and_index_rebuild_pass_configured_dimensions(
     monkeypatch.setattr(
         graph_db_access, "load_embedding_model", Mock(return_value=(Mock(), 3))
     )
-    graph = Mock(_database="unit", query=Mock(return_value=[{"name": "vector"}]))
-    db = graphDBdataAccess(graph)
+    graph: Mock = Mock(_database="unit", query=Mock(return_value=[{"name": "vector"}]))
+    db: graphDBdataAccess = graphDBdataAccess(graph)
     db.update_KNN_graph()
     assert graph.query.call_args.args[1] == {"score": 0.82}
     db.drop_create_vector_index("true")
@@ -316,12 +349,12 @@ def test_knn_and_index_rebuild_pass_configured_dimensions(
 def test_document_deletion_preserves_shared_entity_filter(
     delete_entities: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    graph = Mock(_database="unit", query=Mock(return_value=[]))
-    db = graphDBdataAccess(graph)
+    graph: Mock = Mock(_database="unit", query=Mock(return_value=[]))
+    db: graphDBdataAccess = graphDBdataAccess(graph)
     monkeypatch.setenv("GCS_FILE_CACHE", "False")
     for name in ["a.pdf", "b.pdf"]:
         (tmp_path / name).write_text("test")
-    count = db.delete_file_from_graph(
+    count: int = db.delete_file_from_graph(
         '["a.pdf", "b.pdf"]',
         '["local", "local"]',
         delete_entities,
@@ -346,10 +379,10 @@ def test_orphan_and_duplicate_maintenance_records_explicit_ids(
 ) -> None:
     monkeypatch.setenv("DUPLICATE_SCORE_VALUE", "0.9")
     monkeypatch.setenv("DUPLICATE_TEXT_DISTANCE", "3")
-    graph = Mock(
+    graph: Mock = Mock(
         _database="unit", query=Mock(side_effect=[[{"id": "a"}], [{"total": 1}]])
     )
-    db = graphDBdataAccess(graph)
+    db: graphDBdataAccess = graphDBdataAccess(graph)
     assert db.list_unconnected_nodes() == ([{"id": "a"}], {"total": 1})
     graph.query.side_effect = [[{"id": "a"}], [{"total": 1}]]
     assert db.get_duplicate_nodes_list()[1] == {"total": 1}
@@ -371,7 +404,7 @@ def test_orphan_and_duplicate_maintenance_records_explicit_ids(
 
 @pytest.mark.parametrize("community", [False, True])
 def test_count_update_sums_real_record_components(community: bool) -> None:
-    graph = Mock(
+    graph: Mock = Mock(
         _database="unit",
         query=Mock(
             side_effect=[
@@ -391,9 +424,9 @@ def test_count_update_sums_real_record_components(community: bool) -> None:
             ]
         ),
     )
-    result = graphDBdataAccess(graph).update_node_relationship_count(
-        None if community else "doc"
-    )
+    result: dict[str | None, NodeRelationshipCounts] | list[Never] = graphDBdataAccess(
+        graph
+    ).update_node_relationship_count(None if community else "doc")
     assert isinstance(result, dict)
     assert result["doc"]["nodeCount"] == (10 if community else 5)
     assert result["doc"]["relationshipCount"] == (11 if community else 5)

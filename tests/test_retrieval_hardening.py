@@ -20,17 +20,17 @@ from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
 
 
 class TestEnhancedGroundingHelpers:
-    system = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
+    system: EnhancedRAGSystem = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
 
     def test_content_query_tokens_drop_common_question_words(self) -> None:
-        tokens = self.system._content_query_tokens(
+        tokens: list[str] = self.system._content_query_tokens(
             "What company owns the manufacturer of Learjet 60?"
         )
         assert tokens == ["owns", "manufacturer", "learjet"]
 
     def test_matched_query_tokens_do_not_inflate_with_many_entities(self) -> None:
         query: str = "What company owns the manufacturer of Learjet 60?"
-        matched = self.system._count_matched_query_tokens(
+        matched: int = self.system._count_matched_query_tokens(
             query,
             [
                 "Learjet 60",
@@ -40,25 +40,25 @@ class TestEnhancedGroundingHelpers:
                 "Learjet 60",
             ],
         )
-        grounding = self.system._grounding_quality(query, matched)
+        grounding: float = self.system._grounding_quality(query, matched)
 
         assert matched == 1
         assert grounding == pytest.approx(1 / 3)
 
     def test_grounding_quality_caps_at_one(self) -> None:
         query: str = "Which province borders the province containing Lago District?"
-        matched = self.system._count_matched_query_tokens(
+        matched: int = self.system._count_matched_query_tokens(
             query,
             ["Lago District", "Province", "Border Province", "Containing Province"],
         )
-        grounding = self.system._grounding_quality(query, matched)
+        grounding: float = self.system._grounding_quality(query, matched)
 
         assert 0.0 <= grounding <= 1.0
 
     def test_symbolic_entity_lookup_query_splits_alias_use_across_with_clauses(
         self,
     ) -> None:
-        query = self.system._build_symbolic_entity_lookup_query("")
+        query: str = self.system._build_symbolic_entity_lookup_query("")
 
         assert "toLower(coalesce(e.name, '')) AS entity_name" in query
         assert "entity_name," in query

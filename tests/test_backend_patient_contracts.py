@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
@@ -16,13 +17,19 @@ from ontographrag.kg.builders.enhanced_kg_creator import (
     UnifiedOntologyGuidedKGCreator,
 )
 
+if TYPE_CHECKING:
+    from ontographrag.kg.builders.enhanced_kg_creator import BulkProcessingResult
+    from ontographrag.kg.builders.ontology_guided_kg_creator import KnowledgeGraph
+
 
 @pytest.fixture
 def creator(monkeypatch: pytest.MonkeyPatch) -> UnifiedOntologyGuidedKGCreator:
     embedding: Mock = Mock()
-    embedding.embed_documents.side_effect = lambda texts: [
-        [1.0, 0.0, 0.0] for _ in texts
-    ]
+
+    def fake_side_effect(texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0, 0.0] for _ in texts]
+
+    embedding.embed_documents.side_effect = fake_side_effect
     monkeypatch.setattr(base, "load_embedding_model", Mock(return_value=(embedding, 3)))
     return UnifiedOntologyGuidedKGCreator(
         strict_ontology=False, enable_soft_entity_linking=False
@@ -121,7 +128,7 @@ def test_social_history_states(
 def test_patient_graph_generation_chunk_limit(
     creator: UnifiedOntologyGuidedKGCreator,
 ) -> None:
-    result = creator.generate_patient_knowledge_graph(
+    result: KnowledgeGraph = creator.generate_patient_knowledge_graph(
         "Name: Synthetic Person\nChief Complaint: prolonged headache",
         file_name="synthetic.txt",
         max_chunks=1,
@@ -147,7 +154,7 @@ def test_bulk_documents_partial_failure_and_batch_accounting(
         ]
     )
     monkeypatch.setattr(creator, "generate_knowledge_graph", generate)
-    result = creator.bulk_process_documents(
+    result: BulkProcessingResult = creator.bulk_process_documents(
         str(path), "text", id_column="id", batch_size=2, kg_name="unit"
     )
     assert result["metadata"]["total_documents_processed"] == 3

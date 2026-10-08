@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, TypedDict
 from unittest.mock import Mock
 
 import pytest
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from neo4j import GraphDatabase
 
 from ontographrag.kg.csv_processor import (
     DocumentCSVProcessor,
@@ -20,6 +23,51 @@ from ontographrag.kg.utils import graph_query
 from shared import common_fn
 from tests.known_defects import MissingCSVTextDefect
 
+if TYPE_CHECKING:
+    from unittest.mock import _Call
+
+    from ontographrag.kg.csv_processor import (
+        CSVDocument,
+        DocumentBatch,
+        MedicalReport,
+        MedicalReportBatch,
+    )
+    from ontographrag.kg.loaders.kg_loader import (
+        FileSaveSuccess,
+        GraphSaveSuccess,
+        ImportedGraph,
+        LoaderFailure,
+        LoaderOntology,
+        PDFLoadSuccess,
+    )
+
+
+@dataclass
+class MergeNodeFixture:
+    id: str
+    type: str
+    properties: dict[str, str | float]
+
+
+@dataclass
+class MergeRelationshipFixture:
+    source: MergeNodeFixture
+    target: MergeNodeFixture
+    type: str
+    properties: dict[str, str | float]
+
+
+@dataclass
+class MergeDocumentFixture:
+    nodes: list[MergeNodeFixture]
+    relationships: list[MergeRelationshipFixture]
+
+
+class Neo4jLoadOptions(TypedDict, total=False):
+    kg_label: str
+    query: str
+    limit: int
+
 
 @pytest.mark.parametrize("id_column", [None, "id"])
 def test_document_batch_preserves_absolute_rows(
@@ -27,13 +75,15 @@ def test_document_batch_preserves_absolute_rows(
 ) -> None:
     path: Path = tmp_path / "rows.csv"
     path.write_text("id,text,kind\na,alpha,A\nb,beta,B\nc,gamma,C\n")
-    processor = (
+    processor: DocumentCSVProcessor = (
         DocumentCSVProcessor("text", id_column)
         if id_column
         else DocumentCSVProcessor("text")
     )
     assert processor.validate_csv_format(str(path))["is_valid"]
-    result = processor.load_documents_bulk(str(path), start_row=1, max_rows=1)
+    result: DocumentBatch = processor.load_documents_bulk(
+        str(path), start_row=1, max_rows=1
+    )
     assert result["documents"] == [
         {
             "text": "beta",
@@ -48,7 +98,7 @@ def test_document_batch_preserves_absolute_rows(
 def test_document_validation_and_blank_rows(tmp_path: Path) -> None:
     path: Path = tmp_path / "rows.csv"
     path.write_text('other,text\na,"   "\nb,valid\n')
-    processor = DocumentCSVProcessor("missing", "id")
+    processor: DocumentCSVProcessor = DocumentCSVProcessor("missing", "id")
     assert len(processor.validate_csv_format(str(path))["validation_errors"]) == 2
     with pytest.raises(FileNotFoundError):
         processor.validate_csv_format(str(tmp_path / "missing"))
@@ -71,8 +121,10 @@ def test_document_validation_and_blank_rows(tmp_path: Path) -> None:
 def test_missing_csv_text_is_not_a_document(tmp_path: Path) -> None:
     path: Path = tmp_path / "rows.csv"
     path.write_text("id,text\na,\nb,valid\n")
-    documents = DocumentCSVProcessor("text").load_documents_bulk(str(path))["documents"]
-    texts = [document["text"] for document in documents]
+    documents: list[CSVDocument] = DocumentCSVProcessor("text").load_documents_bulk(
+        str(path)
+    )["documents"]
+    texts: list[str] = [document["text"] for document in documents]
     if texts == ["nan", "valid"]:
         raise MissingCSVTextDefect("Only the blank row was retained as literal nan")
     assert texts == ["valid"]
@@ -82,7 +134,9 @@ def test_medical_template_roundtrip_and_section_filter(tmp_path: Path) -> None:
     processor: MedicalReportCSVProcessor = MedicalReportCSVProcessor()
     path: Path = tmp_path / "reports.csv"
     processor.create_csv_template(str(path), num_sample_rows=6)
-    result = processor.load_reports_bulk(str(path), start_row=1, max_rows=2)
+    result: MedicalReportBatch = processor.load_reports_bulk(
+        str(path), start_row=1, max_rows=2
+    )
     assert result["metadata"]["total_reports"] == 2
     assert result["reports"][0]["metadata"]["patient_id"] == "PAT002"
     assert result["reports"][0]["row_index"] == 1
@@ -90,7 +144,7 @@ def test_medical_template_roundtrip_and_section_filter(tmp_path: Path) -> None:
     path.write_text(
         "patient_id|chief_complaint|discharge_diagnosis\nP1|short|   Long enough diagnosis  \n"
     )
-    report = processor.load_reports_bulk(str(path))["reports"][0]
+    report: MedicalReport = processor.load_reports_bulk(str(path))["reports"][0]
     assert report["sections"] == {"discharge_diagnosis": "Long enough diagnosis"}
     assert "chief_complaint" in report["field_names"]
 
@@ -124,7 +178,7 @@ def test_loader_ontology_and_graph(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     loader: KGLoader = KGLoader()
-    ontology = {
+    ontology: LoaderOntology = {
         "categories": [{"name": "Disease"}],
         "mappings": [{"category": "Disease", "terms": ["fever"]}],
     }
@@ -159,8 +213,11 @@ def test_loader_file_roundtrip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    data = {"nodes": [{"id": "a"}], "relationships": []}
-    result = KGLoader().save_to_file(data, filename)
+    data: dict[str, list[dict[str, str]]] = {
+        "nodes": [{"id": "a"}],
+        "relationships": [],
+    }
+    result: FileSaveSuccess | LoaderFailure = KGLoader().save_to_file(data, filename)
     assert result["status"] == "success"
     assert json.loads(Path(result["file_path"]).read_text()) == data
     assert (
@@ -176,7 +233,7 @@ def test_loader_pdf_success_and_failures(
         pages=[SimpleNamespace(extract_text=lambda: "fever pain")]
     )
     monkeypatch.setattr(kg_loader, "PdfReader", Mock(return_value=reader))
-    result = KGLoader().load_from_pdf(
+    result: PDFLoadSuccess | LoaderFailure = KGLoader().load_from_pdf(
         str(tmp_path / "doc.pdf"), str(tmp_path / "missing.json")
     )
     assert result["status"] == "success"
@@ -206,7 +263,7 @@ def test_graph_driver_environment_and_connectivity(
     driver.session.return_value.__enter__ = Mock(return_value=session)
     driver.session.return_value.__exit__ = Mock(return_value=False)
     factory: Mock = Mock(return_value=driver)
-    monkeypatch.setattr(graph_query.GraphDatabase, "driver", factory)
+    monkeypatch.setattr(GraphDatabase, "driver", factory)
     assert graph_query.get_graphDB_driver(None, None, None, "") is driver
     session.run.assert_called_once_with("RETURN 1")
     assert (factory.call_args.kwargs["auth"] is not None) == authenticated
@@ -246,17 +303,17 @@ def test_shared_embedding_delegation(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_shared_merge_maps_identity_and_relationship_properties() -> None:
     graph: Mock = Mock()
-    a: SimpleNamespace = SimpleNamespace(
+    a: MergeNodeFixture = MergeNodeFixture(
         id="a", type="Disease", properties={"id": "wrong", "name": "A"}
     )
-    b: SimpleNamespace = SimpleNamespace(id="b", type="Drug", properties={})
-    rel: SimpleNamespace = SimpleNamespace(
+    b: MergeNodeFixture = MergeNodeFixture(id="b", type="Drug", properties={})
+    rel: MergeRelationshipFixture = MergeRelationshipFixture(
         source=b, target=a, type="may-treat condition", properties={"confidence": 0.8}
     )
     common_fn._add_graph_documents_with_merge(
-        graph, [SimpleNamespace(nodes=[a, b], relationships=[rel])]
+        graph, [MergeDocumentFixture(nodes=[a, b], relationships=[rel])]
     )
-    calls = graph.query.call_args_list
+    calls: list[_Call] = graph.query.call_args_list
     assert calls[0].args[1]["properties"] == {"id": "a", "name": "A"}
     assert "MAY_TREAT_CONDITION" in calls[2].args[0]
     assert calls[2].args[1] == {
@@ -307,15 +364,19 @@ def test_loader_database_read_serializes_graph_and_closes(
     ]
     driver: Mock = Mock()
     driver.session.return_value = session
-    monkeypatch.setattr(kg_loader.GraphDatabase, "driver", Mock(return_value=driver))
+    monkeypatch.setattr(GraphDatabase, "driver", Mock(return_value=driver))
     # The loader hardcodes a package-local storage directory; redirect that boundary.
     monkeypatch.setattr(kg_loader, "__file__", str(tmp_path / "kg_loader.py"))
-    options: dict[str, Any] = {
-        key: value
-        for key, value in {"kg_label": kg_label, "query": query, "limit": limit}.items()
-        if value is not None
-    }
-    result = KGLoader().load_from_neo4j("bolt://unit.invalid", "u", "p", **options)
+    options: Neo4jLoadOptions = {}
+    if kg_label is not None:
+        options["kg_label"] = kg_label
+    if query is not None:
+        options["query"] = query
+    if limit is not None:
+        options["limit"] = limit
+    result: ImportedGraph | LoaderFailure = KGLoader().load_from_neo4j(
+        "bolt://unit.invalid", "u", "p", **options
+    )
     assert result["status"] == "success"
     assert result["loaded_nodes"] == 2
     assert result["loaded_relationships"] == 1
@@ -333,9 +394,11 @@ def test_loader_database_failure_still_closes(
 ) -> None:
     driver: Mock = Mock()
     driver.verify_connectivity.side_effect = RuntimeError("offline")
-    monkeypatch.setattr(kg_loader.GraphDatabase, "driver", Mock(return_value=driver))
+    monkeypatch.setattr(GraphDatabase, "driver", Mock(return_value=driver))
     monkeypatch.setattr(kg_loader, "__file__", str(tmp_path / "kg_loader.py"))
-    result = KGLoader().load_from_neo4j("bolt://unit.invalid", "u", "p")
+    result: ImportedGraph | LoaderFailure = KGLoader().load_from_neo4j(
+        "bolt://unit.invalid", "u", "p"
+    )
     assert result["details"]["error_type"] == "RuntimeError"
     driver.close.assert_called_once()
 
@@ -356,7 +419,9 @@ def test_loader_sample_filters_dangling_relationships(
             ]
         ),
     ]
-    result = KGLoader()._load_neo4j_sample(session, label or "", 2000, 4000)
+    result: ImportedGraph | LoaderFailure = KGLoader()._load_neo4j_sample(
+        session, label or "", 2000, 4000
+    )
     assert result["loaded_nodes"] == 1
     assert result["loaded_relationships"] == 1
     assert result["sample_strategy"] == "high_degree_nodes"
@@ -374,10 +439,10 @@ def test_loader_save_merge_keys_relationships_and_explicit_clear(
 ) -> None:
     from unittest.mock import MagicMock
 
-    driver = MagicMock()
-    session = driver.session.return_value.__enter__.return_value
+    driver: MagicMock = MagicMock()
+    session: Mock = driver.session.return_value.__enter__.return_value
     session.run.return_value.single.return_value = {"node_id": "stored"}
-    monkeypatch.setattr(kg_loader.GraphDatabase, "driver", Mock(return_value=driver))
+    monkeypatch.setattr(GraphDatabase, "driver", Mock(return_value=driver))
     data: StorableGraph = {
         "nodes": [
             {"id": "a", "label": "Drug Name", "properties": {"id": "external"}},
@@ -390,13 +455,13 @@ def test_loader_save_merge_keys_relationships_and_explicit_clear(
             {"from": "missing", "to": "c", "type": "REL"},
         ],
     }
-    result = KGLoader().save_to_neo4j(
+    result: GraphSaveSuccess | LoaderFailure = KGLoader().save_to_neo4j(
         "bolt://unit.invalid", "u", "p", data, clear_database=clear
     )
     assert result["status"] == "success"
-    calls = session.run.call_args_list
+    calls: list[_Call] = session.run.call_args_list
     assert any("DETACH DELETE" in c.args[0] for c in calls) is clear
-    merges = [c for c in calls if "MERGE (n:" in c.args[0]]
+    merges: list[_Call] = [c for c in calls if "MERGE (n:" in c.args[0]]
     assert [c.kwargs["unique_value"] for c in merges[:2]] == ["external", "B"]
     assert "Drug_Name" in merges[0].args[0]
     assert "unique_hash" in merges[2].kwargs["properties"]
@@ -414,21 +479,25 @@ def test_legacy_chunking_page_metadata_and_cap(monkeypatch: pytest.MonkeyPatch) 
     from ontographrag.kg.utils import create_chunks
 
     splitter: Mock = Mock()
-    splitter.split_documents.side_effect = lambda docs: [
-        Document(page_content=d.page_content) for d in docs
-    ]
+
+    def fake_side_effect(docs: list[Document]) -> list[Document]:
+        return [Document(page_content=d.page_content) for d in docs]
+
+    splitter.split_documents.side_effect = fake_side_effect
     monkeypatch.setattr(
-        create_chunks.RecursiveCharacterTextSplitter,
+        RecursiveCharacterTextSplitter,
         "from_tiktoken_encoder",
         Mock(return_value=splitter),
     )
-    pages = [Document(page_content=f"page {i}", metadata={"page": i}) for i in range(4)]
-    result = create_chunks.CreateChunksofDocument(pages, Mock()).split_file_into_chunks(
-        4000, 0
-    )
+    pages: list[Document] = [
+        Document(page_content=f"page {i}", metadata={"page": i}) for i in range(4)
+    ]
+    result: list[Document] = create_chunks.CreateChunksofDocument(
+        pages, Mock()
+    ).split_file_into_chunks(4000, 0)
     assert [d.page_content for d in result] == ["page 0", "page 1"]
     assert [d.metadata["page_number"] for d in result] == [1, 2]
-    docs = [Document(page_content="plain")]
+    docs: list[Document] = [Document(page_content="plain")]
     result = create_chunks.CreateChunksofDocument(docs, Mock()).split_file_into_chunks(
         100, 0
     )

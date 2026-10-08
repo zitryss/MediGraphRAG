@@ -14,9 +14,9 @@ Contracts locked down:
   - Returns None when all hops find no chunks
 """
 
-import sys
-import os
 import hashlib
+import os
+import sys
 
 import pytest
 
@@ -30,16 +30,79 @@ pytest.importorskip(
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from collections.abc import Callable, Iterator, Sequence
+from typing import TYPE_CHECKING, Protocol
+
 from langchain_core.runnables import RunnableLambda
+
+from ontographrag.rag.systems._records import (
+    GraphRetrievalContext,
+    ProducedGraphRetrievalContext,
+    RetrievalContext,
+    RetrievedChunk,
+    RetrievedEntity,
+    RetrievedRelationship,
+    TraversalPath,
+)
 from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
+
+if TYPE_CHECKING:
+    from langchain_core.prompt_values import PromptValue
+    from langchain_core.runnables import Runnable
+
+    from shared.common_fn import GraphQuery
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
+class EntityFirstSearch(Protocol):
+    def __call__(
+        self,
+        graph: "GraphQuery",
+        query: str,
+        max_chunks: int = 20,
+        kg_name: str | None = None,
+        max_hops: int = 2,
+        question_id: str | None = None,
+        llm: "Runnable[PromptValue, object] | None" = None,
+        document_names: list[str] | None = None,
+        anchor_mask_entity_ids: list[str] | None = None,
+        anchor_mask_entity_names: list[str] | None = None,
+    ) -> ProducedGraphRetrievalContext | None: ...
+
+
+class VectorSearch(Protocol):
+    def __call__(
+        self,
+        graph: "GraphQuery",
+        query: str,
+        document_names: list[str] | None = None,
+        similarity_threshold: float = 0.08,
+        max_chunks: int = 20,
+        kg_name: str | None = None,
+        max_hops: int = 2,
+        question_id: str | None = None,
+    ) -> GraphRetrievalContext: ...
+
+
+class TextSearch(Protocol):
+    def __call__(
+        self,
+        graph: "GraphQuery",
+        query: str,
+        document_names: list[str] | None = None,
+        max_chunks: int = 20,
+        kg_name: str | None = None,
+        max_hops: int = 2,
+        question_id: str | None = None,
+    ) -> GraphRetrievalContext: ...
+
+
 def _make_system() -> EnhancedRAGSystem:
-    s = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
+    s: EnhancedRAGSystem = EnhancedRAGSystem.__new__(EnhancedRAGSystem)
     return s
 
 
@@ -48,8 +111,11 @@ def _cid(text: str) -> str:
 
 
 def _chunk(
-    text: str, score: float = 1.0, doc: str = "doc.txt", linked_entity_ids=None
-) -> dict:
+    text: str,
+    score: float = 1.0,
+    doc: str = "doc.txt",
+    linked_entity_ids: list[str] | None = None,
+) -> RetrievedChunk:
     return {
         "text": text,
         "chunk_id": _cid(text),
@@ -61,14 +127,14 @@ def _chunk(
 
 
 def _hop_ctx(
-    chunks,
-    entities=None,
-    relationships=None,
-    traversal_paths=None,
-    grounding_quality=None,
-    seed_entity_count=None,
-) -> dict:
-    ctx = {
+    chunks: list[RetrievedChunk],
+    entities: dict[str, RetrievedEntity] | None = None,
+    relationships: list[RetrievedRelationship] | None = None,
+    traversal_paths: list[TraversalPath] | None = None,
+    grounding_quality: float | None = None,
+    seed_entity_count: int | None = None,
+) -> RetrievalContext:
+    ctx: RetrievalContext = {
         "chunks": chunks,
         "entities": entities or {},
         "relationships": relationships or [],
@@ -82,17 +148,23 @@ def _hop_ctx(
     return ctx
 
 
-def _stub_llm(response: str):
+def _stub_llm(response: str) -> "RunnableLambda[object, str]":
     """LangChain Runnable returning a fixed string."""
-    return RunnableLambda(lambda _: response)
+
+    def fake_response(_: "object") -> "str":
+        return response
+
+    return RunnableLambda(fake_response)
 
 
 # StubGraph that returns pre-configured ctx per call
 class _StubGraph:
-    def __init__(self, hop_ctxs) -> None:
-        self._ctxs = list(hop_ctxs)
+    def __init__(self, hop_ctxs: list[RetrievalContext | None]) -> None:
+        self._ctxs: list[RetrievalContext | None] = list(hop_ctxs)
 
-    def query(self, q, params=None):
+    def query(
+        self, q: str, params: dict[str, object] | None = None
+    ) -> list[dict[str, object]]:
         return []
 
 
@@ -103,50 +175,55 @@ class _StubGraph:
 
 
 def _run_iterative(
-    system,
-    hop_contexts,
-    sub_questions,
-    max_chunks=10,
-    kg_name="test_kg",
-    max_hops=2,
-    bridge_response="Paris",
-    question="Original question?",
-    vector_hop_contexts=None,
-):
+    system: EnhancedRAGSystem,
+    hop_contexts: Sequence[RetrievalContext | None],
+    sub_questions: list[str],
+    max_chunks: int = 10,
+    kg_name: str = "test_kg",
+    max_hops: int = 2,
+    bridge_response: str = "Paris",
+    question: str = "Original question?",
+    vector_hop_contexts: Sequence[RetrievalContext | None] | None = None,
+) -> ProducedGraphRetrievalContext | None:
     """
     Monkey-patch entity-first search to return items from hop_contexts sequentially,
     then run _iterative_hop_retrieval.
     """
-    iter_ = iter(hop_contexts)
-    vec_iter = iter(vector_hop_contexts or [])
+    iter_: Iterator[RetrievalContext | None] = iter(hop_contexts)
+    vec_iter: Iterator[RetrievalContext | None] = iter(vector_hop_contexts or [])
 
     def _fake_entity_first(
-        graph, query, max_chunks=10, kg_name=None, max_hops=1, **kwargs
-    ):
+        graph: object,
+        query: str,
+        max_chunks: int = 10,
+        kg_name: str | None = None,
+        max_hops: int = 1,
+        **kwargs: object,
+    ) -> RetrievalContext | None:
         try:
             return next(iter_)
         except StopIteration:
             return None
 
-    original = system._entity_first_search
+    original: EntityFirstSearch = system._entity_first_search
     system._entity_first_search = _fake_entity_first
 
     # Disable fallback search paths — keep tests clean
-    def _fake_vec(*a, **kw):
+    def _fake_vec(*a: object, **kw: object) -> RetrievalContext | None:
         try:
             return next(vec_iter)
         except StopIteration:
             return None
 
-    def _no_vec(*a, **kw) -> None:
+    def _no_vec(*a: object, **kw: object) -> None:
         return None
 
-    def _no_text(*a, **kw) -> None:
+    def _no_text(*a: object, **kw: object) -> None:
         return None
 
-    orig_vec = getattr(system, "_vector_similarity_search", None)
-    orig_text = getattr(system, "_text_similarity_search", None)
-    orig_check = getattr(system, "check_vector_index", None)
+    orig_vec: VectorSearch | None = getattr(system, "_vector_similarity_search", None)
+    orig_text: TextSearch | None = getattr(system, "_text_similarity_search", None)
+    orig_check: Callable[[], bool] | None = getattr(system, "check_vector_index", None)
 
     system._vector_similarity_search = (
         _fake_vec if vector_hop_contexts is not None else _no_vec
@@ -154,11 +231,11 @@ def _run_iterative(
     system._text_similarity_search = _no_text
     system.check_vector_index = lambda: vector_hop_contexts is not None
 
-    graph = _StubGraph([])
-    llm = _stub_llm(bridge_response)
+    graph: _StubGraph = _StubGraph([])
+    llm: RunnableLambda[object, str] = _stub_llm(bridge_response)
 
     try:
-        result = system._iterative_hop_retrieval(
+        result: ProducedGraphRetrievalContext | None = system._iterative_hop_retrieval(
             graph=graph,
             question=question,
             sub_questions=sub_questions,
@@ -187,18 +264,18 @@ def _run_iterative(
 
 
 class TestReturnsNoneOnEmptyHops:
-    sys_ = _make_system()
+    sys_: EnhancedRAGSystem = _make_system()
 
     def test_none_when_no_chunks(self) -> None:
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_, hop_contexts=[None, None], sub_questions=["Q1?", "Q2?"]
         )
         assert result is None
 
     def test_none_when_empty_chunk_lists(self) -> None:
-        hop1 = _hop_ctx(chunks=[])
-        hop2 = _hop_ctx(chunks=[])
-        result = _run_iterative(
+        hop1: RetrievalContext = _hop_ctx(chunks=[])
+        hop2: RetrievalContext = _hop_ctx(chunks=[])
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_, hop_contexts=[hop1, hop2], sub_questions=["Q1?", "Q2?"]
         )
         assert result is None
@@ -210,12 +287,14 @@ class TestReturnsNoneOnEmptyHops:
 
 
 class TestBridgeAnswerRejection:
-    sys_ = _make_system()
+    sys_: EnhancedRAGSystem = _make_system()
 
-    def _run(self, bridge_response, sub_questions=None):
-        c1 = _chunk("Aspirin reduces fever.", score=0.9)
-        c2 = _chunk("Fever is a common symptom.", score=0.8)
-        hops = [_hop_ctx([c1]), _hop_ctx([c2])]
+    def _run(
+        self, bridge_response: str, sub_questions: list[str] | None = None
+    ) -> RetrievalContext | None:
+        c1: RetrievedChunk = _chunk("Aspirin reduces fever.", score=0.9)
+        c2: RetrievedChunk = _chunk("Fever is a common symptom.", score=0.8)
+        hops: list[RetrievalContext] = [_hop_ctx([c1]), _hop_ctx([c2])]
         if sub_questions is None:
             sub_questions = ["What treats fever?", "Where is [BRIDGE] used?"]
         return _run_iterative(
@@ -226,27 +305,27 @@ class TestBridgeAnswerRejection:
         )
 
     def test_valid_bridge_returns_result(self) -> None:
-        result = self._run("Aspirin")
+        result: RetrievalContext | None = self._run("Aspirin")
         assert result is not None
 
     def test_bad_phrase_i_dont_know_still_returns_result(self) -> None:
         # Bridge is rejected but retrieval completes with both hops
-        result = self._run("I don't know")
+        result: RetrievalContext | None = self._run("I don't know")
         assert result is not None
         assert len(result["chunks"]) >= 1
 
     def test_bad_phrase_unknown_still_returns_result(self) -> None:
-        result = self._run("unknown")
+        result: RetrievalContext | None = self._run("unknown")
         assert result is not None
 
     def test_empty_bridge_still_returns_result(self) -> None:
-        result = self._run("")
+        result: RetrievalContext | None = self._run("")
         assert result is not None
 
     def test_bridge_exceeding_200_chars_rejected(self) -> None:
         # Overly long "answer" is rejected — retrieval still succeeds
-        long_bridge = "X" * 201
-        result = self._run(long_bridge)
+        long_bridge: str = "X" * 201
+        result: RetrievalContext | None = self._run(long_bridge)
         assert result is not None
 
 
@@ -256,7 +335,7 @@ class TestBridgeAnswerRejection:
 
 
 class TestCrossHopDedup:
-    sys_ = _make_system()
+    sys_: EnhancedRAGSystem = _make_system()
 
     def test_shared_chunk_activates_both_hops(self) -> None:
         # Hop 0 retrieves chunk A (linked to entity e1).
@@ -265,17 +344,21 @@ class TestCrossHopDedup:
         # After truncation, both chunk A and chunk B are in the final set.
         # Hop 1's entity e2 must appear in the output because hop 1's all_chunk_ids
         # includes chunk A's ID, which is in retained_cids.
-        c_a = _chunk("Aspirin reduces fever.", score=0.9, linked_entity_ids=["e1"])
-        c_b = _chunk("Fever is a symptom.", score=0.8, linked_entity_ids=["e2"])
+        c_a: RetrievedChunk = _chunk(
+            "Aspirin reduces fever.", score=0.9, linked_entity_ids=["e1"]
+        )
+        c_b: RetrievedChunk = _chunk(
+            "Fever is a symptom.", score=0.8, linked_entity_ids=["e2"]
+        )
 
-        hop0_ctx = _hop_ctx(
+        hop0_ctx: RetrievalContext = _hop_ctx(
             chunks=[c_a],
             entities={
                 "e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"}
             },
         )
         # Hop 1 returns the same chunk A and fresh chunk B
-        hop1_ctx = _hop_ctx(
+        hop1_ctx: RetrievalContext = _hop_ctx(
             chunks=[c_a, c_b],  # c_a will be deduped; c_b is new
             entities={
                 "e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"},
@@ -291,7 +374,7 @@ class TestCrossHopDedup:
             ],
         )
 
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[hop0_ctx, hop1_ctx],
             sub_questions=["Q1?", "Q2?"],
@@ -299,7 +382,7 @@ class TestCrossHopDedup:
         )
 
         assert result is not None
-        chunk_ids_out = {c["chunk_id"] for c in result["chunks"]}
+        chunk_ids_out: set[str | None] = {c["chunk_id"] for c in result["chunks"]}
         # Both chunks in the final set
         assert _cid("Aspirin reduces fever.") in chunk_ids_out
         assert _cid("Fever is a symptom.") in chunk_ids_out
@@ -313,17 +396,21 @@ class TestCrossHopDedup:
 
 
 class TestGroundingAnchoredToHop0:
-    sys_ = _make_system()
+    sys_: EnhancedRAGSystem = _make_system()
 
     def test_grounding_from_hop0_not_later_hops(self) -> None:
         # Hop 0: grounding_quality=0.3, seed_entity_count=1
         # Hop 1: grounding_quality=0.9, seed_entity_count=10 (should be ignored)
-        c1 = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
-        c2 = _chunk("Fever is a symptom.", linked_entity_ids=["e2"])
-        hop0 = _hop_ctx([c1], grounding_quality=0.3, seed_entity_count=1)
-        hop1 = _hop_ctx([c2], grounding_quality=0.9, seed_entity_count=10)
+        c1: RetrievedChunk = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
+        c2: RetrievedChunk = _chunk("Fever is a symptom.", linked_entity_ids=["e2"])
+        hop0: RetrievalContext = _hop_ctx(
+            [c1], grounding_quality=0.3, seed_entity_count=1
+        )
+        hop1: RetrievalContext = _hop_ctx(
+            [c2], grounding_quality=0.9, seed_entity_count=10
+        )
 
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[hop0, hop1],
             sub_questions=["Q1?", "Q2?"],
@@ -334,11 +421,13 @@ class TestGroundingAnchoredToHop0:
         assert result["seed_entity_count"] == 1
 
     def test_grounding_not_overwritten_by_empty_hop(self) -> None:
-        c1 = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
-        hop0 = _hop_ctx([c1], grounding_quality=0.5, seed_entity_count=2)
-        hop1 = _hop_ctx([])  # empty hop
+        c1: RetrievedChunk = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
+        hop0: RetrievalContext = _hop_ctx(
+            [c1], grounding_quality=0.5, seed_entity_count=2
+        )
+        hop1: RetrievalContext = _hop_ctx([])  # empty hop
 
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[hop0, hop1],
             sub_questions=["Q1?", "Q2?"],
@@ -353,7 +442,7 @@ class TestGroundingAnchoredToHop0:
 
 
 class TestDatasetSpecificSubquestionHopCaps:
-    sys_ = _make_system()
+    sys_: EnhancedRAGSystem = _make_system()
 
     def test_2wiki_is_capped_to_one_hop_per_subquestion(self) -> None:
         assert (
@@ -370,10 +459,10 @@ class TestDatasetSpecificSubquestionHopCaps:
 
 
 class TestIterativeRetrievalQueryAnchoring:
-    sys_ = _make_system()
+    sys_: EnhancedRAGSystem = _make_system()
 
     def test_musique_later_hops_keep_original_question_anchor(self) -> None:
-        query = self.sys_._iterative_retrieval_query(
+        query: str = self.sys_._iterative_retrieval_query(
             "Where is the headquarters of the Radio Television of the country whose co-official language is the same as the one Politika is written in?",
             "Which country has [BRIDGE] as a co-official language?",
             "musique",
@@ -386,7 +475,7 @@ class TestIterativeRetrievalQueryAnchoring:
         assert "Radio Television" in query
 
     def test_2wiki_later_hops_remain_local(self) -> None:
-        query = self.sys_._iterative_retrieval_query(
+        query: str = self.sys_._iterative_retrieval_query(
             "Who is the father-in-law of Helena Palaiologina, Despotess of Serbia?",
             "Who is [BRIDGE]'s father?",
             "2wikimultihopqa",
@@ -407,23 +496,23 @@ class TestIterativeRetrievalQueryAnchoring:
 
 
 class TestHybridRetrievalRouting:
-    sys_ = _make_system()
+    sys_: EnhancedRAGSystem = _make_system()
 
     def test_comparison_query_with_single_branch_graph_context_prefers_vector(
         self,
     ) -> None:
-        graph_chunk = _chunk(
+        graph_chunk: RetrievedChunk = _chunk(
             "Riding the California Trail is a 1947 American Western film directed by William Nigh.",
             score=1.0,
             linked_entity_ids=["e_cal"],
         )
-        vector_chunk = _chunk(
+        vector_chunk: RetrievedChunk = _chunk(
             "Lost and Delirious is directed by Lea Pool, born in 1950.",
             score=0.42,
             linked_entity_ids=["e_lost"],
         )
 
-        graph_ctx = _hop_ctx(
+        graph_ctx: RetrievalContext = _hop_ctx(
             [graph_chunk],
             entities={
                 "e_cal": {
@@ -437,7 +526,7 @@ class TestHybridRetrievalRouting:
             grounding_quality=0.9,
             seed_entity_count=2,
         )
-        vector_ctx = _hop_ctx(
+        vector_ctx: RetrievalContext = _hop_ctx(
             [vector_chunk],
             entities={
                 "e_lost": {
@@ -447,7 +536,7 @@ class TestHybridRetrievalRouting:
             },
         )
 
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[graph_ctx],
             vector_hop_contexts=[vector_ctx],
@@ -459,13 +548,13 @@ class TestHybridRetrievalRouting:
         )
 
         assert result is not None
-        texts = [chunk["text"] for chunk in result["chunks"]]
+        texts: list[str] = [chunk["text"] for chunk in result["chunks"]]
         assert any("Lost and Delirious" in text for text in texts)
 
     def test_graph_context_meaningfulness_requires_both_comparison_branches(
         self,
     ) -> None:
-        graph_ctx = _hop_ctx(
+        graph_ctx: RetrievalContext = _hop_ctx(
             [
                 _chunk(
                     "Riding the California Trail is directed by William Nigh.",
@@ -490,7 +579,7 @@ class TestHybridRetrievalRouting:
         )
 
     def test_comparison_chunk_rerank_prioritizes_explicit_branches(self) -> None:
-        chunks = [
+        chunks: list[RetrievedChunk] = [
             _chunk(
                 "Fred F. Sears was an American film director.",
                 score=1.0,
@@ -507,11 +596,11 @@ class TestHybridRetrievalRouting:
                 doc="2wikimultihopqa",
             ),
         ]
-        sorted_chunks = self.sys_._sort_chunks_for_query(
+        sorted_chunks: list[RetrievedChunk] = self.sys_._sort_chunks_for_query(
             "Which film has the director born later, Riding The California Trail or Lost And Delirious?",
             chunks,
         )
-        top_texts = [chunk["text"] for chunk in sorted_chunks[:2]]
+        top_texts: list[str] = [chunk["text"] for chunk in sorted_chunks[:2]]
         assert any("Lost and Delirious" in text for text in top_texts)
         assert any("Riding the California Trail" in text for text in top_texts)
 
@@ -522,18 +611,18 @@ class TestHybridRetrievalRouting:
 
 
 class TestEntityAndPathPruning:
-    sys_ = _make_system()
+    sys_: EnhancedRAGSystem = _make_system()
 
     def test_entity_not_linked_to_retained_chunk_is_dropped(self) -> None:
         # We set max_chunks=1, so only the higher-score chunk survives.
-        c_high = _chunk(
+        c_high: RetrievedChunk = _chunk(
             "Aspirin reduces fever.", score=1.0, linked_entity_ids=["e_keep"]
         )
-        c_low = _chunk(
+        c_low: RetrievedChunk = _chunk(
             "Metformin treats diabetes.", score=0.1, linked_entity_ids=["e_drop"]
         )
 
-        hop_ctx = _hop_ctx(
+        hop_ctx: RetrievalContext = _hop_ctx(
             chunks=[c_high, c_low],
             entities={
                 "e_keep": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"},
@@ -545,7 +634,7 @@ class TestEntityAndPathPruning:
             },
         )
 
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[hop_ctx],
             sub_questions=["Q1?"],
@@ -557,12 +646,14 @@ class TestEntityAndPathPruning:
         assert "e_drop" not in result["entities"]
 
     def test_relationship_dropped_when_either_endpoint_pruned(self) -> None:
-        c_high = _chunk("Aspirin reduces fever.", score=1.0, linked_entity_ids=["e1"])
-        c_low = _chunk(
+        c_high: RetrievedChunk = _chunk(
+            "Aspirin reduces fever.", score=1.0, linked_entity_ids=["e1"]
+        )
+        c_low: RetrievedChunk = _chunk(
             "Metformin treats diabetes.", score=0.1, linked_entity_ids=["e2"]
         )
 
-        hop_ctx = _hop_ctx(
+        hop_ctx: RetrievalContext = _hop_ctx(
             chunks=[c_high, c_low],
             entities={
                 "e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"},
@@ -578,7 +669,7 @@ class TestEntityAndPathPruning:
             ],
         )
 
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[hop_ctx],
             sub_questions=["Q1?"],
@@ -591,12 +682,12 @@ class TestEntityAndPathPruning:
 
     def test_path_without_node_ids_is_kept(self) -> None:
         # Paths without node_ids are legacy; they must not be dropped
-        c = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1"])
-        hop_ctx = _hop_ctx(
+        c: RetrievedChunk = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1"])
+        hop_ctx: RetrievalContext = _hop_ctx(
             chunks=[c],
             traversal_paths=[{"path": "A -> B -> C", "hops": 2}],  # no node_ids
         )
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[hop_ctx],
             sub_questions=["Q1?"],
@@ -605,8 +696,8 @@ class TestEntityAndPathPruning:
         assert any("A -> B" in p["path"] for p in result["traversal_paths"])
 
     def test_path_with_unknown_node_id_is_dropped(self) -> None:
-        c = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1"])
-        hop_ctx = _hop_ctx(
+        c: RetrievedChunk = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1"])
+        hop_ctx: RetrievalContext = _hop_ctx(
             chunks=[c],
             traversal_paths=[
                 {
@@ -616,7 +707,7 @@ class TestEntityAndPathPruning:
                 }
             ],
         )
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[hop_ctx],
             sub_questions=["Q1?"],
@@ -628,8 +719,10 @@ class TestEntityAndPathPruning:
         )
 
     def test_path_with_all_retained_node_ids_kept(self) -> None:
-        c = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1", "e2"])
-        hop_ctx = _hop_ctx(
+        c: RetrievedChunk = _chunk(
+            "Aspirin reduces fever.", linked_entity_ids=["e1", "e2"]
+        )
+        hop_ctx: RetrievalContext = _hop_ctx(
             chunks=[c],
             traversal_paths=[
                 {
@@ -639,7 +732,7 @@ class TestEntityAndPathPruning:
                 }
             ],
         )
-        result = _run_iterative(
+        result: ProducedGraphRetrievalContext | None = _run_iterative(
             self.sys_,
             hop_contexts=[hop_ctx],
             sub_questions=["Q1?"],

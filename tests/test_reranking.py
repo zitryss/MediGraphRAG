@@ -1,11 +1,35 @@
-import pytest
 import os
 import sys
+from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, TypedDict
+
+import pytest
+
+from ontographrag.rag.systems._records import RetrievedChunk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ontographrag.rag import reranking as rerank_mod
+from ontographrag.rag.reranking import (
+    EncodedQuery,
+    IndexedScoringMetadata,
+    LateInteractionIndex,
+)
+
+if TYPE_CHECKING:
+    from torch import Tensor
+
+    from ontographrag.rag.reranking import LateInteractionBundle, TensorBackend
+
+
+@dataclass
+class TensorOutput:
+    last_hidden_state: "Tensor"
+
+
+class TensorOnlyBundle(TypedDict):
+    torch: "TensorBackend"
 
 
 def test_resolve_reranker_model_name_uses_accuracy_profile_default(
@@ -21,16 +45,20 @@ def test_rerank_chunks_for_query_sorts_by_model_score(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakeModel:
-        def predict(self, pairs, show_progress_bar=False):
+        def predict(
+            self, pairs: list[tuple[str, str]], show_progress_bar: bool = False
+        ) -> list[float]:
             return [0.1, 0.9]
 
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER_MODEL", "fake-reranker")
-    monkeypatch.setattr(
-        rerank_mod, "_load_cross_encoder", lambda model_name: FakeModel()
-    )
 
-    chunks = [
+    def fake_load_cross_encoder(model_name: "object") -> "FakeModel":
+        return FakeModel()
+
+    monkeypatch.setattr(rerank_mod, "_load_cross_encoder", fake_load_cross_encoder)
+
+    chunks: list[RetrievedChunk] = [
         {"text": "Generic background.", "chunk_id": "c1", "score": 0.9},
         {"text": "Direct answer evidence.", "chunk_id": "c2", "score": 0.5},
     ]
@@ -48,9 +76,13 @@ def test_rerank_chunks_for_query_fails_soft_when_model_unavailable(
 ) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER_MODEL", "fake-reranker")
-    monkeypatch.setattr(rerank_mod, "_load_cross_encoder", lambda model_name: None)
 
-    chunks = [
+    def fake_load_cross_encoder(model_name: "object") -> "None":
+        return None
+
+    monkeypatch.setattr(rerank_mod, "_load_cross_encoder", fake_load_cross_encoder)
+
+    chunks: list[RetrievedChunk] = [
         {"text": "First.", "chunk_id": "c1", "score": 0.9},
         {"text": "Second.", "chunk_id": "c2", "score": 0.8},
     ]
@@ -77,14 +109,24 @@ def test_late_interaction_rescore_chunks_for_query_sorts_by_model_score(
 ) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
+
+    def fake_load_late_interaction_model(model_name: "object") -> "dict[str, bool]":
+        return {"fake": True}
+
     monkeypatch.setattr(
-        rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True}
-    )
-    monkeypatch.setattr(
-        rerank_mod, "_late_interaction_scores", lambda bundle, query, chunks: [0.2, 0.8]
+        rerank_mod, "_load_late_interaction_model", fake_load_late_interaction_model
     )
 
-    chunks = [
+    def fake_late_interaction_scores(
+        bundle: "object", query: "object", chunks: "object"
+    ) -> "list[float]":
+        return [0.2, 0.8]
+
+    monkeypatch.setattr(
+        rerank_mod, "_late_interaction_scores", fake_late_interaction_scores
+    )
+
+    chunks: list[RetrievedChunk] = [
         {"text": "Generic background.", "chunk_id": "c1", "score": 0.9},
         {"text": "Direct answer evidence.", "chunk_id": "c2", "score": 0.5},
     ]
@@ -104,14 +146,24 @@ def test_late_interaction_rescore_chunks_can_replace_score(
 ) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
+
+    def fake_load_late_interaction_model(model_name: "object") -> "dict[str, bool]":
+        return {"fake": True}
+
     monkeypatch.setattr(
-        rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True}
-    )
-    monkeypatch.setattr(
-        rerank_mod, "_late_interaction_scores", lambda bundle, query, chunks: [0.2, 0.8]
+        rerank_mod, "_load_late_interaction_model", fake_load_late_interaction_model
     )
 
-    chunks = [
+    def fake_late_interaction_scores(
+        bundle: "object", query: "object", chunks: "object"
+    ) -> "list[float]":
+        return [0.2, 0.8]
+
+    monkeypatch.setattr(
+        rerank_mod, "_late_interaction_scores", fake_late_interaction_scores
+    )
+
+    chunks: list[RetrievedChunk] = [
         {"text": "Generic background.", "chunk_id": "c1", "score": 0.9},
         {"text": "Direct answer evidence.", "chunk_id": "c2", "score": 0.5},
     ]
@@ -132,11 +184,15 @@ def test_late_interaction_rescore_chunks_for_query_fails_soft_when_model_unavail
 ) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
+
+    def fake_load_late_interaction_model(model_name: "object") -> "None":
+        return None
+
     monkeypatch.setattr(
-        rerank_mod, "_load_late_interaction_model", lambda model_name: None
+        rerank_mod, "_load_late_interaction_model", fake_load_late_interaction_model
     )
 
-    chunks = [
+    chunks: list[RetrievedChunk] = [
         {"text": "First.", "chunk_id": "c1", "score": 0.9},
         {"text": "Second.", "chunk_id": "c2", "score": 0.8},
     ]
@@ -155,13 +211,23 @@ def test_late_interaction_rescore_chunks_for_query_uses_indexed_backend(
 ) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_LATE_INTERACTION_MODEL", "fake-late-interaction")
+
+    def fake_load_late_interaction_model(model_name: "object") -> "dict[str, bool]":
+        return {"fake": True}
+
     monkeypatch.setattr(
-        rerank_mod, "_load_late_interaction_model", lambda model_name: {"fake": True}
+        rerank_mod, "_load_late_interaction_model", fake_load_late_interaction_model
     )
-    monkeypatch.setattr(
-        rerank_mod,
-        "_late_interaction_scores_indexed",
-        lambda bundle, query, chunks, max_chunks=None, index_key=None, shortlist_size=None: (
+
+    def fake_late_interaction_scores_indexed(
+        bundle: "object",
+        query: "object",
+        chunks: "object",
+        max_chunks: "object" = None,
+        index_key: "object" = None,
+        shortlist_size: "object" = None,
+    ) -> "tuple[list[tuple[int, float]], IndexedScoringMetadata]":
+        return (
             [(1, 0.8), (0, 0.2)],
             {
                 "index_cached": True,
@@ -169,10 +235,15 @@ def test_late_interaction_rescore_chunks_for_query_uses_indexed_backend(
                 "shortlist_size": 2,
                 "corpus_size": 12,
             },
-        ),
+        )
+
+    monkeypatch.setattr(
+        rerank_mod,
+        "_late_interaction_scores_indexed",
+        fake_late_interaction_scores_indexed,
     )
 
-    chunks = [
+    chunks: list[RetrievedChunk] = [
         {"text": "Generic background.", "chunk_id": "c1", "score": 0.9},
         {"text": "Direct answer evidence.", "chunk_id": "c2", "score": 0.5},
     ]
@@ -200,21 +271,21 @@ def test_build_late_interaction_index_reuses_cached_doc_embeddings(
     class FakeTokenizer:
         def __call__(
             self,
-            texts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=256,
-            return_special_tokens_mask=True,
-        ):
-            items = [texts] if isinstance(texts, str) else list(texts)
-            encoded = []
+            texts: str | list[str],
+            return_tensors: str = "pt",
+            padding: bool = True,
+            truncation: bool = True,
+            max_length: int = 256,
+            return_special_tokens_mask: bool = True,
+        ) -> dict[str, torch.Tensor]:
+            items: list[str] = [texts] if isinstance(texts, str) else list(texts)
+            encoded: list[list[int]] = []
             for idx, text in enumerate(items, 1):
-                token_count = max(2, min(4, len(str(text).split()) + 1))
+                token_count: int = max(2, min(4, len(str(text).split()) + 1))
                 encoded.append([idx + offset for offset in range(token_count)])
-            width = max(len(row) for row in encoded)
-            input_ids = torch.zeros((len(encoded), width), dtype=torch.long)
-            attention_mask = torch.zeros_like(input_ids)
+            width: int = max(len(row) for row in encoded)
+            input_ids: Tensor = torch.zeros((len(encoded), width), dtype=torch.long)
+            attention_mask: Tensor = torch.zeros_like(input_ids)
             for row_idx, row in enumerate(encoded):
                 input_ids[row_idx, : len(row)] = torch.tensor(row, dtype=torch.long)
                 attention_mask[row_idx, : len(row)] = 1
@@ -226,17 +297,19 @@ def test_build_late_interaction_index_reuses_cached_doc_embeddings(
 
     class FakeModel:
         def __init__(self) -> None:
-            self.calls = 0
-            self.config = SimpleNamespace(hidden_size=2)
+            self.calls: int = 0
+            self.config: SimpleNamespace = SimpleNamespace(hidden_size=2)
 
-        def __call__(self, input_ids, attention_mask):
+        def __call__(
+            self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+        ) -> TensorOutput:
             self.calls += 1
-            base = input_ids.unsqueeze(-1).float()
-            hidden = torch.cat([base, base + 1.0], dim=-1)
-            return SimpleNamespace(last_hidden_state=hidden)
+            base: Tensor = input_ids.unsqueeze(-1).float()
+            hidden: Tensor = torch.cat([base, base + 1.0], dim=-1)
+            return TensorOutput(last_hidden_state=hidden)
 
-    fake_model = FakeModel()
-    bundle = {
+    fake_model: FakeModel = FakeModel()
+    bundle: LateInteractionBundle = {
         "tokenizer": FakeTokenizer(),
         "model": fake_model,
         "model_name": "fake-late-interaction",
@@ -245,7 +318,7 @@ def test_build_late_interaction_index_reuses_cached_doc_embeddings(
         "doc_max_length": 16,
         "torch": torch,
     }
-    chunks = [
+    chunks: list[RetrievedChunk] = [
         {"chunk_id": "c1", "document": "doc", "text": "first evidence"},
         {"chunk_id": "c2", "document": "doc", "text": "second evidence"},
     ]
@@ -274,35 +347,43 @@ def test_late_interaction_scores_indexed_prefilters_large_corpus(
 ) -> None:
     import torch
 
-    doc_tokens = [
+    doc_tokens: list[Tensor] = [
         torch.tensor([[0.1, 0.0]], dtype=torch.float32),
         torch.tensor([[0.9, 0.0]], dtype=torch.float32),
         torch.tensor([[0.8, 0.0]], dtype=torch.float32),
     ]
-    doc_pooled = torch.stack(
+    doc_pooled: Tensor = torch.stack(
         [
             torch.tensor([0.1, 0.0], dtype=torch.float32),
             torch.tensor([0.9, 0.0], dtype=torch.float32),
             torch.tensor([0.8, 0.0], dtype=torch.float32),
         ]
     )
-    bundle = {"torch": torch}
+    bundle: TensorOnlyBundle = {"torch": torch}
+
+    def fake_encode_late_interaction_query(
+        bundle: "object", query: "object"
+    ) -> "EncodedQuery":
+        return {
+            "tokens": torch.tensor([[1.0, 0.0]], dtype=torch.float32),
+            "pooled": torch.tensor([1.0, 0.0], dtype=torch.float32),
+        }
 
     monkeypatch.setattr(
         rerank_mod,
         "_encode_late_interaction_query",
-        lambda bundle, query: {
-            "tokens": torch.tensor([[1.0, 0.0]], dtype=torch.float32),
-            "pooled": torch.tensor([1.0, 0.0], dtype=torch.float32),
-        },
+        fake_encode_late_interaction_query,
     )
+
+    def fake_build_late_interaction_index(
+        bundle: "object", chunks: "object", index_key: "object" = None
+    ) -> "tuple[LateInteractionIndex, bool]":
+        return ({"doc_tokens": doc_tokens, "doc_pooled": doc_pooled, "count": 3}, False)
+
     monkeypatch.setattr(
         rerank_mod,
         "_build_late_interaction_index",
-        lambda bundle, chunks, index_key=None: (
-            {"doc_tokens": doc_tokens, "doc_pooled": doc_pooled, "count": 3},
-            False,
-        ),
+        fake_build_late_interaction_index,
     )
     monkeypatch.setattr(rerank_mod, "_late_interaction_prefilter_min_docs", lambda: 1)
     monkeypatch.setattr(rerank_mod, "_late_interaction_shortlist_cap", lambda: 2)

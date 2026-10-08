@@ -1,6 +1,7 @@
-import pytest
 import sys
 import types
+
+import pytest
 
 from ontographrag.kg.chunking import TextChunk, chunk_text
 
@@ -20,9 +21,10 @@ def test_chunk_text_falls_back_when_tiktoken_splitter_is_unavailable(
         def split_text(self, text: str) -> list[str]:
             return [text[:5], text[5:]]
 
-    fake_module: types.SimpleNamespace = types.SimpleNamespace(
-        RecursiveCharacterTextSplitter=FakeSplitter
-    )
+    class FakeModule(types.ModuleType):
+        RecursiveCharacterTextSplitter: type[FakeSplitter] = FakeSplitter
+
+    fake_module: FakeModule = FakeModule("langchain_text_splitters")
     monkeypatch.setitem(sys.modules, "langchain_text_splitters", fake_module)
 
     chunks: list[TextChunk] = chunk_text(

@@ -1,10 +1,14 @@
 import ast
 import json
 import logging
-from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from collections.abc import Callable
+from pathlib import Path
+from typing import NotRequired, Protocol, TypeAlias, TypedDict, cast
 
+from ontographrag.api.runtime_helpers import JSONValue
+from ontographrag.kg.builders._ontology import SchemaCard
 from ontographrag.schemas.models import (
     DataBinding,
     EntityType,
@@ -15,49 +19,94 @@ from ontographrag.schemas.models import (
 )
 
 
-def _load_validate_ontology_schema():
+class SchemaPropertyFixture(TypedDict):
+    name: str
+    type: str
+    identifier: NotRequired[bool]
+
+
+class SchemaClassFixture(TypedDict):
+    id: str
+    properties: list[SchemaPropertyFixture]
+
+
+SchemaRelationshipFixture = TypedDict(
+    "SchemaRelationshipFixture",
+    {"id": str, "from": str, "to": str, "cardinality": str},
+)
+
+
+class SchemaFixture(TypedDict):
+    classes: list[SchemaClassFixture]
+    relationships: list[SchemaRelationshipFixture]
+
+
+class _OwlHost(Protocol):
+    _prop_type: Callable[[str], PropertyType]
+
+
+class _SchemaHost(Protocol):
+    ontology_path: str | None
+    ontology_classes: list[dict[str, str]]
+    ontology_relationships: list[dict[str, str]]
+    _ontology_schema: OntologySchema | None
+
+
+_ValidateSchema: TypeAlias = Callable[[bytes, str], list[str]]
+_PropType: TypeAlias = Callable[[str], PropertyType]
+_LoadOwl: TypeAlias = Callable[[_OwlHost, str], OntologySchema]
+_BuildCard: TypeAlias = Callable[[_SchemaHost], SchemaCard]
+
+
+def _load_validate_ontology_schema() -> _ValidateSchema:
     """Load validate_ontology_schema from app.py without importing the whole app."""
-    app_path = Path(__file__).resolve().parents[1] / "ontographrag" / "api" / "app.py"
-    source = app_path.read_text(encoding="utf-8")
-    module = ast.parse(source, filename=str(app_path))
-    fn_node = next(
+    app_path: Path = (
+        Path(__file__).resolve().parents[1] / "ontographrag" / "api" / "app.py"
+    )
+    source: str = app_path.read_text(encoding="utf-8")
+    module: ast.Module = ast.parse(source, filename=str(app_path))
+    fn_node: ast.FunctionDef = next(
         node
         for node in module.body
         if isinstance(node, ast.FunctionDef) and node.name == "validate_ontology_schema"
     )
-    fn_source = ast.get_source_segment(source, fn_node)
-    namespace = {
+    # Source positions come from this exact parsed text.
+    fn_source: str = cast(str, ast.get_source_segment(source, fn_node))
+    namespace: dict[str, object] = {
         "json": json,
+        "cast": cast,
+        "JSONValue": JSONValue,
         "os": __import__("os"),
         "logger": logging.getLogger("test"),
     }
     exec(fn_source, namespace)
-    return namespace["validate_ontology_schema"]
+    # The selected AST node is the maintained validator; the alias mirrors its signature.
+    return cast(_ValidateSchema, namespace["validate_ontology_schema"])
 
 
-def _load_builder_methods():
+def _load_builder_methods() -> tuple[_PropType, _LoadOwl, _BuildCard]:
     """Load selected OntologyGuidedKGCreator methods without importing langchain."""
-    builder_path = (
+    builder_path: Path = (
         Path(__file__).resolve().parents[1]
         / "ontographrag"
         / "kg"
         / "builders"
         / "_ontology.py"
     )
-    source = builder_path.read_text(encoding="utf-8")
-    module = ast.parse(source, filename=str(builder_path))
-    class_node = next(
+    source: str = builder_path.read_text(encoding="utf-8")
+    module: ast.Module = ast.parse(source, filename=str(builder_path))
+    class_node: ast.ClassDef = next(
         node
         for node in module.body
         if isinstance(node, ast.ClassDef) and node.name == "OntologySchemaMixin"
     )
-    wanted = {
-        node.name: ast.get_source_segment(source, node)
+    wanted: dict[str, str] = {
+        node.name: cast(str, ast.get_source_segment(source, node))
         for node in class_node.body
         if isinstance(node, ast.FunctionDef)
         and node.name in {"_prop_type", "_load_ontology_owl", "_build_schema_card"}
     }
-    namespace = {
+    namespace: dict[str, object] = {
         "ET": ET,
         "hashlib": __import__("hashlib"),
         "json": json,
@@ -70,6 +119,7 @@ def _load_builder_methods():
         "DataBinding": DataBinding,
         "RelationshipAttribute": RelationshipAttribute,
         "PropertyType": PropertyType,
+        "SchemaCard": SchemaCard,
         "Optional": __import__("typing").Optional,
         "List": __import__("typing").List,
         "Dict": __import__("typing").Dict,
@@ -78,14 +128,14 @@ def _load_builder_methods():
     exec(wanted["_load_ontology_owl"], namespace)
     exec(wanted["_build_schema_card"], namespace)
     return (
-        namespace["_prop_type"],
-        namespace["_load_ontology_owl"],
-        namespace["_build_schema_card"],
+        cast(_PropType, namespace["_prop_type"]),
+        cast(_LoadOwl, namespace["_load_ontology_owl"]),
+        cast(_BuildCard, namespace["_build_schema_card"]),
     )
 
 
 def test_compatible_relationships_ranks_full_then_partial_then_unconstrained() -> None:
-    schema = OntologySchema(
+    schema: OntologySchema = OntologySchema(
         entity_types=[
             EntityType(id="Drug", label="Drug"),
             EntityType(id="Disease", label="Disease"),
@@ -100,7 +150,9 @@ def test_compatible_relationships_ranks_full_then_partial_then_unconstrained() -
         ],
     )
 
-    rel_ids = [r.id for r in schema.compatible_relationships("Drug", "Disease")]
+    rel_ids: list[str] = [
+        r.id for r in schema.compatible_relationships("Drug", "Disease")
+    ]
 
     assert rel_ids == ["treats", "treats_any", "generic"]
 
@@ -155,21 +207,26 @@ def test_load_ontology_owl_parses_datatype_properties_and_rel_attributes(
   </owl:DatatypeProperty>
 </rdf:RDF>
 """
-    owl_path = tmp_path / "test.owl"
+    owl_path: Path = tmp_path / "test.owl"
     owl_path.write_text(owl, encoding="utf-8")
 
     prop_type, load_ontology_owl, _ = _load_builder_methods()
 
     class _StubCreator:
-        pass
+        def __init__(self) -> None:
+            self._prop_type: _PropType
 
-    creator = _StubCreator()
+    creator: _StubCreator = _StubCreator()
     creator._prop_type = prop_type
-    schema = load_ontology_owl(creator, str(owl_path))
+    schema: OntologySchema = load_ontology_owl(creator, str(owl_path))
 
-    patient = next(et for et in schema.entity_types if et.id == "Patient")
-    encounter = next(et for et in schema.entity_types if et.id == "Encounter")
-    rel = next(rt for rt in schema.relationship_types if rt.id == "hasEncounter")
+    patient: EntityType = next(et for et in schema.entity_types if et.id == "Patient")
+    encounter: EntityType = next(
+        et for et in schema.entity_types if et.id == "Encounter"
+    )
+    rel: RelationshipType = next(
+        rt for rt in schema.relationship_types if rt.id == "hasEncounter"
+    )
 
     assert any(p.name == "patientId" and p.identifier for p in patient.properties)
     assert any(
@@ -182,7 +239,7 @@ def test_load_ontology_owl_parses_datatype_properties_and_rel_attributes(
 def test_build_schema_card_hash_changes_when_property_signature_changes() -> None:
     _, _, build_schema_card = _load_builder_methods()
 
-    base_entity_types = [
+    base_entity_types: list[EntityType] = [
         EntityType(
             id="Patient",
             label="Patient",
@@ -196,7 +253,7 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
         ),
         EntityType(id="Encounter", label="Encounter"),
     ]
-    rel_types = [
+    rel_types: list[RelationshipType] = [
         RelationshipType(
             id="hasEncounter",
             label="hasEncounter",
@@ -205,13 +262,13 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
         )
     ]
 
-    schema_a = OntologySchema(
+    schema_a: OntologySchema = OntologySchema(
         entity_types=base_entity_types,
         relationship_types=rel_types,
         source_format="json",
         source_path="ontology.json",
     )
-    schema_b = OntologySchema(
+    schema_b: OntologySchema = OntologySchema(
         entity_types=[
             EntityType(
                 id="Patient",
@@ -232,9 +289,12 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
     )
 
     class _StubCreator:
-        pass
+        ontology_path: str | None
+        ontology_classes: list[dict[str, str]]
+        ontology_relationships: list[dict[str, str]]
+        _ontology_schema: OntologySchema | None
 
-    creator = _StubCreator()
+    creator: _StubCreator = _StubCreator()
     creator.ontology_path = None
     creator.ontology_classes = [
         {"id": "Patient", "label": "Patient"},
@@ -250,17 +310,17 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
     ]
 
     creator._ontology_schema = schema_a
-    card_a = build_schema_card(creator)
+    card_a: SchemaCard = build_schema_card(creator)
 
     creator._ontology_schema = schema_b
-    card_b = build_schema_card(creator)
+    card_b: SchemaCard = build_schema_card(creator)
 
     assert card_a["schemaHash"] != card_b["schemaHash"]
 
 
 def test_validate_ontology_schema_rejects_missing_identifier_property() -> None:
-    validate_ontology_schema = _load_validate_ontology_schema()
-    ontology = {
+    validate_ontology_schema: _ValidateSchema = _load_validate_ontology_schema()
+    ontology: SchemaFixture = {
         "classes": [
             {
                 "id": "Patient",
@@ -272,7 +332,7 @@ def test_validate_ontology_schema_rejects_missing_identifier_property() -> None:
         "relationships": [],
     }
 
-    errors = validate_ontology_schema(
+    errors: list[str] = validate_ontology_schema(
         json.dumps(ontology).encode("utf-8"), "ontology.json"
     )
 
@@ -280,8 +340,8 @@ def test_validate_ontology_schema_rejects_missing_identifier_property() -> None:
 
 
 def test_validate_ontology_schema_rejects_invalid_cardinality() -> None:
-    validate_ontology_schema = _load_validate_ontology_schema()
-    ontology = {
+    validate_ontology_schema: _ValidateSchema = _load_validate_ontology_schema()
+    ontology: SchemaFixture = {
         "classes": [
             {
                 "id": "Patient",
@@ -306,7 +366,7 @@ def test_validate_ontology_schema_rejects_invalid_cardinality() -> None:
         ],
     }
 
-    errors = validate_ontology_schema(
+    errors: list[str] = validate_ontology_schema(
         json.dumps(ontology).encode("utf-8"), "ontology.json"
     )
 
