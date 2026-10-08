@@ -232,10 +232,11 @@ def test_shared_model_name(attrs: dict[str, object], expected: str) -> None:
 def test_shared_embedding_delegation(monkeypatch: pytest.MonkeyPatch) -> None:
     from ontographrag.kg.utils import common_functions
 
-    factory = Mock(return_value=("embedding", 3))
+    embedding: Mock = Mock()
+    factory: Mock = Mock(return_value=(embedding, 3))
     monkeypatch.setattr(common_functions, "load_embedding_model", factory)
     monkeypatch.setenv("EMBEDDING_PROVIDER", "local")
-    assert common_fn.load_embedding_model() == ("embedding", 3)
+    assert common_fn.load_embedding_model() == (embedding, 3)
     factory.assert_called_with("local")
     common_fn.load_embedding_model("explicit")
     factory.assert_called_with("explicit")

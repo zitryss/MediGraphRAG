@@ -1,3 +1,4 @@
+from ontographrag.kg.chunking import TextChunk
 import re
 import hashlib
 import difflib
@@ -3171,7 +3172,7 @@ class OntologyGuidedKGCreator(
         has_ontology = bool(self.ontology_classes) or bool(self.ontology_relationships)
         extraction_method = "ontology_guided_llm" if has_ontology else "natural_llm"
 
-        all_chunks: list[dict] = []
+        all_chunks: list[TextChunk] = []
         all_entities: list[dict] = []
         all_relationships: list[dict] = []
         passage_entities: dict[int, list[dict[str, Any]]] = {}

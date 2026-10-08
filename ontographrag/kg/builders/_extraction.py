@@ -2,7 +2,11 @@ import json
 import re
 import hashlib
 from typing import TYPE_CHECKING, Any
-from ontographrag.kg.chunking import TextChunk, chunk_text as _chunk_text_fn
+from ontographrag.kg.chunking import (
+    ChunkGroundingInput,
+    TextChunk,
+    chunk_text as _chunk_text_fn,
+)
 from collections import defaultdict, Counter
 import logging
 import time
@@ -149,7 +153,7 @@ class ExtractionMixin:
     def _ground_chunk_extraction(
         self,
         chunk_kg: dict[str, Any],
-        chunk: dict[str, Any],
+        chunk: TextChunk | ChunkGroundingInput,
     ) -> dict[str, Any]:
         """Attach exact-span anchors and restoration metadata to one chunk extraction."""
         if not isinstance(chunk_kg, dict):

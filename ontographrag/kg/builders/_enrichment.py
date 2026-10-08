@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+from ontographrag.kg.chunking import ChunkGroundingInput, TextChunk
 import hashlib
 import json
 import logging
@@ -369,7 +371,7 @@ Return ONLY the JSON object.
         self,
         *,
         text: str,
-        chunks: list[dict[str, Any]],
+        chunks: Sequence[TextChunk | ChunkGroundingInput],
         entities_per_chunk: dict[int, list[dict[str, Any]]],
         section_headers: list[tuple[int, str]],
         llm,

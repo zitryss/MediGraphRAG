@@ -17,7 +17,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from langchain_core.embeddings import Embeddings
@@ -32,6 +32,28 @@ class TextChunk(TypedDict):
     end_pos: int
     total_chunks: int
     embedding: list[float] | None
+    section_name: NotRequired[str]
+    source: NotRequired[str]
+    dataset: NotRequired[str]
+    question_id: NotRequired[str]
+    passage_index: NotRequired[int]
+    chunk_local_index: NotRequired[int]
+    source_title: NotRequired[str]
+    source_scope_key: NotRequired[str]
+
+
+class ChunkGroundingInput(TypedDict, total=False):
+    """Partial legacy inputs consumed by the grounding and recovery helpers."""
+
+    text: str
+    start_pos: int
+    position: int
+    dataset: str
+    question_id: str
+    passage_index: int
+    source: str
+    source_title: str
+    source_scope_key: str
 
 
 class ChunkingHost(Protocol):
