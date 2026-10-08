@@ -28,6 +28,74 @@ class AccuracyBreakdown(TypedDict):
     kg_accuracy_shared_clean: float
 
 
+class HopAccuracySummary(TypedDict):
+    n: int
+    vanilla_accuracy: float
+    kg_accuracy: float
+    vanilla_accuracy_clean: float
+    kg_accuracy_clean: float
+    vanilla_accuracy_shared_clean: float
+    kg_accuracy_shared_clean: float
+    vanilla_answer_em: float
+    kg_answer_em: float
+    vanilla_answer_f1: float
+    kg_answer_f1: float
+    metrics_by_approach: dict[str, dict[str, float]]
+
+
+class TrackAccumulator(TypedDict):
+    vanilla_acc: list[float]
+    kg_acc: list[float]
+    datasets: list[str]
+
+
+class TrackAccuracySummary(TypedDict):
+    config_name: str
+    num_datasets: int
+    datasets: list[str]
+    vanilla_macro_accuracy: float | None
+    kg_macro_accuracy: float | None
+
+
+class ConfigurationMetrics(TypedDict):
+    config_name: str
+    accuracy: float
+    answer_f1: float
+    answer_em: float
+    answered_questions: int
+    accuracy_raw: float
+
+
+class MacroAccumulator(TypedDict):
+    datasets: list[str]
+    accuracy: list[float]
+    answer_f1: list[float]
+    answer_em: list[float]
+    answered_questions: list[int]
+    accuracy_raw: list[float]
+
+
+class MacroConfigurationMetrics(TypedDict):
+    config_name: str
+    num_datasets: int
+    datasets: list[str]
+    macro_accuracy: float
+    macro_answer_f1: float
+    macro_answer_em: float
+    macro_answered_questions: float
+    macro_accuracy_raw: float
+
+
+class OverallConfigurationSelection(TypedDict):
+    best_config: MacroConfigurationMetrics
+    all_configs: list[MacroConfigurationMetrics]
+
+
+class RetrievalConfigurationSelection(TypedDict):
+    per_dataset: dict[str, dict[str, ConfigurationMetrics]]
+    overall: dict[str, OverallConfigurationSelection]
+
+
 def compute_accuracy_breakdown(
     details: Sequence[Mapping[str, object]],
 ) -> AccuracyBreakdown:
@@ -121,7 +189,7 @@ def compute_hop_accuracy_breakdown(
     details: list[dict[str, Any]],
     *,
     metric_names: list[str] | None = None,
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, HopAccuracySummary]:
     """
     Compute hop-stratified summary metrics from per-question rows.
 
@@ -168,7 +236,7 @@ def compute_hop_accuracy_breakdown(
             continue
         by_bucket.setdefault(_bucket_label(hop), []).append(row)
 
-    output: dict[str, dict[str, Any]] = {}
+    output: dict[str, HopAccuracySummary] = {}
     for bucket in sorted(
         by_bucket.keys(),
         key=lambda b: 999 if b == "5+-hop" else int(b.split("-", 1)[0]),
@@ -204,7 +272,7 @@ def compute_hop_accuracy_breakdown(
 
 def accumulate_track_accuracy(
     dataset_blocks: list[dict[str, Any]],
-) -> dict[str, list[dict[str, Any]]]:
+) -> dict[str, list[TrackAccuracySummary]]:
     """
     Compute per-track macro accuracy from a list of dataset result blocks.
 
@@ -224,7 +292,7 @@ def accumulate_track_accuracy(
     One entry per (track, config_name) so multi-config sweeps produce separate
     rows rather than silently collapsing to the first config per dataset.
     """
-    track_accumulators: dict[tuple[str, str], dict] = {}
+    track_accumulators: dict[tuple[str, str], TrackAccumulator] = {}
 
     for block in dataset_blocks:
         dataset_name = block.get("dataset", "")
@@ -242,7 +310,7 @@ def accumulate_track_accuracy(
                 if cfg_res.get("kg_accuracy") is not None:
                     ta["kg_acc"].append(float(cfg_res["kg_accuracy"]))
 
-    result: dict[str, list[dict[str, Any]]] = {}
+    result: dict[str, list[TrackAccuracySummary]] = {}
     for (track, cfg_name), ta in track_accumulators.items():
         n = len(ta["datasets"])
         result.setdefault(track, []).append(
@@ -280,7 +348,7 @@ def _candidate_rank_tuple(
 
 def select_best_retrieval_configs(
     dataset_blocks: list[dict[str, Any]],
-) -> dict[str, Any]:
+) -> RetrievalConfigurationSelection:
     """
     Pick the strongest config per dataset and overall for vanilla and KG-RAG.
 
@@ -291,8 +359,8 @@ def select_best_retrieval_configs(
       4. answered-question count
       5. raw accuracy
     """
-    per_dataset: dict[str, dict[str, Any]] = {}
-    macro_rows: dict[str, dict[str, dict[str, list[float]]]] = {
+    per_dataset: dict[str, dict[str, ConfigurationMetrics]] = {}
+    macro_rows: dict[str, dict[str, MacroAccumulator]] = {
         "vanilla_rag": {},
         "kg_rag": {},
     }
@@ -356,9 +424,9 @@ def select_best_retrieval_configs(
                     float(cfg_res.get(f"{prefix}_accuracy_raw", 0.0) or 0.0)
                 )
 
-    overall: dict[str, Any] = {}
+    overall: dict[str, OverallConfigurationSelection] = {}
     for system_name, cfg_map in macro_rows.items():
-        candidates: list[dict[str, Any]] = []
+        candidates: list[MacroConfigurationMetrics] = []
         for cfg_name, row in cfg_map.items():
             n = max(1, len(row["datasets"]))
             candidates.append(
