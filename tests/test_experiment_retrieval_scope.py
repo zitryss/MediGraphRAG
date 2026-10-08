@@ -1,15 +1,20 @@
-import pytest
 from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+MIRAGEEvaluationPipeline: Any = None
+experiment_mod: Any = None
 
 
-MIRAGEEvaluationPipeline = pytest.importorskip(
-    "experiments.experiment",
-    reason="experiment module dependencies not installed in this test environment",
-).MIRAGEEvaluationPipeline
-experiment_mod = pytest.importorskip(
-    "experiments.experiment",
-    reason="experiment module dependencies not installed in this test environment",
-)
+@pytest.fixture(autouse=True)
+def _isolated_pipeline(experiment_module, monkeypatch):
+    monkeypatch.setitem(
+        globals(),
+        "MIRAGEEvaluationPipeline",
+        experiment_module.MIRAGEEvaluationPipeline,
+    )
+    monkeypatch.setitem(globals(), "experiment_mod", experiment_module)
 
 
 def _make_benchmark():

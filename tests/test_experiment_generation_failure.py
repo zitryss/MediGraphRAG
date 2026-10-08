@@ -1,11 +1,18 @@
-import pytest
 import os
+from typing import Any
+
+import pytest
+
+MIRAGEEvaluationPipeline: Any = None
 
 
-MIRAGEEvaluationPipeline = pytest.importorskip(
-    "experiments.experiment",
-    reason="experiment module dependencies not installed in this test environment",
-).MIRAGEEvaluationPipeline
+@pytest.fixture(autouse=True)
+def _isolated_pipeline(experiment_module, monkeypatch):
+    monkeypatch.setitem(
+        globals(),
+        "MIRAGEEvaluationPipeline",
+        experiment_module.MIRAGEEvaluationPipeline,
+    )
 
 
 def _make_pipeline():

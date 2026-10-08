@@ -7,10 +7,8 @@ records Cypher calls without executing them.
 """
 
 import hashlib
-import re
-import pytest
-from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Minimal chunk / entity / relationship factories
@@ -50,8 +48,8 @@ def make_relationship(
     tgt: str,
     rel_type: str = "TREATS",
     negated: bool = False,
-    condition: str = None,
-    quantitative: str = None,
+    condition: str | None = None,
+    quantitative: str | None = None,
 ) -> dict:
     key = f"{src}-{rel_type}-{tgt}"
     return {
@@ -81,7 +79,7 @@ class StubGraph:
         self._results = list(query_results or [])
         self.queries = []  # recorded (query_str, params) pairs
 
-    def query(self, query: str, params: dict = None):
+    def query(self, query: str, params: dict | None = None):
         self.queries.append((query, params or {}))
         if self._results:
             return self._results.pop(0)
@@ -133,3 +131,6 @@ class _Chain:
 @pytest.fixture
 def stub_llm():
     return StubLLM()
+
+
+pytest_plugins = ["tests.offline_support"]
