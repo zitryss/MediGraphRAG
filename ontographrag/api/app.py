@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 import httpx
 
 if TYPE_CHECKING:
-    from fitz import Document, Pixmap
+    from fitz import Document
     from google.generativeai.types import Model
     from langchain_core.embeddings import Embeddings
     from neo4j import Driver, Record, Result
@@ -105,7 +105,17 @@ from experiments.answer_formatting import (
     normalize_answer_to_contract,
 )
 from ontographrag.api.runtime_helpers import (
-    EndpointLimitFactory,
+    NodeWithProperties,
+    NodeWithId,
+    CountRow,
+    OptionalCountRow,
+    SharedEntityCountRow,
+    GeminiProbeAPI,
+    PillowFromBytes,
+    EndpointLimiter,
+    PDFPage,
+    PDFPixmap,
+    PDFVersionInfo,
     JSONValue,
     DoctorCheck,
     DoctorSummary,
@@ -274,11 +284,12 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
         None,
         "",
     }
-    class_ids: set[str] = set()
-    rel_ids: set[str] = set()
+    class_ids: set[str | int | float] = set()
+    rel_ids: set[str | int | float] = set()
     prop_types: dict[str, str] = {}  # property name → first-seen type
 
     # ---- validate entity types ----
+    cls: JSONValue
     for i, cls in enumerate(raw_classes):
         if not isinstance(cls, dict):
             errors.append(f"classes[{i}]: expected object, got {type(cls).__name__}")
@@ -292,6 +303,7 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
         class_ids.add(eid)
 
         has_identifier: bool = False
+        p: JSONValue
         for j, p in enumerate(cls.get("properties") or []):
             pname: JSONValue = (
                 (p.get("name") or p.get("id") or "") if isinstance(p, dict) else ""
@@ -299,6 +311,8 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
             if not pname:
                 errors.append(f"classes[{i}].properties[{j}]: missing 'name'")
                 continue
+            # A nonempty pname is possible only in the isinstance(p, dict) branch.
+            p = cast(dict[str, JSONValue], p)
             ptype: str = (p.get("type") or "string").lower()
 
             # Conflicting property types across reuse
@@ -326,6 +340,7 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
             )
 
     # ---- validate relationship types ----
+    rel: JSONValue
     for i, rel in enumerate(raw_rels):
         if not isinstance(rel, dict):
             errors.append(
@@ -411,7 +426,7 @@ def _extract_text_from_bytes(data: bytes, filename: str) -> tuple[str, str]:
     # --- Tier 1: PyMuPDF ---
     try:
         doc: Document = fitz.open(stream=io.BytesIO(data), filetype="pdf")
-        pages_text: list[str] = [page.get_text() for page in doc]
+        pages_text: list[str] = [cast(PDFPage, page).get_text() for page in doc]
         doc.close()
         text_pymupdf: str = "\n".join(pages_text)
         page_count: int = max(len(pages_text), 1)
@@ -441,8 +456,8 @@ def _extract_text_from_bytes(data: bytes, filename: str) -> tuple[str, str]:
         pdf_doc: Document = fitz.open(stream=io.BytesIO(data), filetype="pdf")
         images: list[PillowImage] = []
         for page in pdf_doc:
-            pix: Pixmap = page.get_pixmap(dpi=200)
-            img: PillowImage = Image.frombytes(
+            pix: PDFPixmap = cast(PDFPage, page).get_pixmap(dpi=200)
+            img: PillowImage = cast(PillowFromBytes, Image.frombytes)(
                 "RGB", [pix.width, pix.height], pix.samples
             )
             images.append(img)
@@ -882,7 +897,7 @@ def neo4j_health() -> Neo4jHealthReport:
         )
         with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
             record: Record | None = session.run("RETURN count(*) AS c").single()
-        return {"status": "ok", "nodeCount": record["c"]}
+        return {"status": "ok", "nodeCount": cast(CountRow, record)["c"]}
     except Exception as e:
         from fastapi import HTTPException, status
 
@@ -1031,8 +1046,8 @@ async def load_kg_from_file(
                     {
                         "id": rel.element_id,
                         "type": rel.type,
-                        "start": rel.start_node.element_id,
-                        "end": rel.end_node.element_id,
+                        "start": cast("Node", rel.start_node).element_id,
+                        "end": cast("Node", rel.end_node).element_id,
                         "properties": props,
                     }
                 )
@@ -1131,7 +1146,7 @@ async def extract_graph(
 
 
 @app.post("/create_ontology_guided_kg")
-@cast(EndpointLimitFactory, limiter.limit)("5/minute")
+@cast(EndpointLimiter, limiter).limit("5/minute")
 async def create_ontology_guided_kg(
     request: Request,
     file: UploadFile = File(...),
@@ -1465,7 +1480,7 @@ async def create_ontology_guided_kg(
 # FastAPI evaluates this request annotation. Keep its permissive, unparameterized
 # dictionary schema; extracted values remain opaque until existing checks narrow them.
 @app.post("/chat")
-@cast(EndpointLimitFactory, limiter.limit)("30/minute")
+@cast(EndpointLimiter, limiter).limit("30/minute")
 async def chat(
     request: Request, body: dict = Body(..., max_length=65536)
 ) -> JSONResponse:
@@ -1546,7 +1561,7 @@ async def chat(
                     {"kg_name": kg_name},
                 ).single()
             _driver.close()
-            if (_exists or {}).get("c", 0) == 0:
+            if cast(OptionalCountRow, _exists or {}).get("c", 0) == 0:
                 raise HTTPException(
                     status_code=404, detail=f"Knowledge graph '{kg_name}' not found"
                 )
@@ -1954,9 +1969,11 @@ async def save_kg_to_neo4j(
 
                 # Add id if it exists
                 if node.get("properties", {}).get("id"):
-                    properties["id"] = node["properties"]["id"]
+                    properties["id"] = cast(NodeWithProperties, node)["properties"][
+                        "id"
+                    ]
                 elif node.get("id"):
-                    properties["id"] = str(node["id"])
+                    properties["id"] = str(cast(NodeWithId, node)["id"])
 
                 # Build parameterized MERGE query
                 prop_str: str = ", ".join(f"`{k}`: ${k}" for k, v in properties.items())
@@ -2051,12 +2068,14 @@ async def load_kg_from_neo4j(
             os.getenv("NEO4J_DATABASE"),
         )
         with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
-            total_nodes: int = session.run("MATCH (n) RETURN count(n) AS c").single()[
-                "c"
-            ]
-            total_rels: int = session.run(
-                "MATCH ()-[r]->() RETURN count(r) AS c"
-            ).single()["c"]
+            # An aggregate COUNT without grouping emits exactly one integer row,
+            # including the empty-match case. Driver creation can still return None.
+            total_nodes: int = cast(
+                CountRow, session.run("MATCH (n) RETURN count(n) AS c").single()
+            )["c"]
+            total_rels: int = cast(
+                CountRow, session.run("MATCH ()-[r]->() RETURN count(r) AS c").single()
+            )["c"]
 
             def _serialize_props(raw_props: dict[str, object]) -> dict[str, object]:
                 props: dict[str, object] = {}
@@ -2107,10 +2126,13 @@ async def load_kg_from_neo4j(
             # If kg_label is provided, check if it matches a KG name (Document.kgName)
             kg_name_match: int = 0
             if kg_label:
-                kg_name_match = session.run(
-                    "MATCH (d:Document {kgName: $kg_name}) RETURN count(d) AS c",
-                    {"kg_name": kg_label},
-                ).single()["c"]
+                kg_name_match = cast(
+                    CountRow,
+                    session.run(
+                        "MATCH (d:Document {kgName: $kg_name}) RETURN count(d) AS c",
+                        {"kg_name": kg_label},
+                    ).single(),
+                )["c"]
 
             if kg_label and kg_name_match:
                 # Load by KG name — only __Entity__ + Document nodes, entity-to-entity edges.
@@ -2155,7 +2177,9 @@ async def load_kg_from_neo4j(
                         "RETURN count(DISTINCT e) AS shared_count",
                         {"eids": entity_ids, "kg_name": kg_label},
                     ).single()
-                    shared_count: int = (shared_check or {}).get("shared_count", 0)
+                    shared_count: int = cast(
+                        SharedEntityCountRow, shared_check or {}
+                    ).get("shared_count", 0)
                     if shared_count:
                         logging.warning(
                             "%d entities in KG '%s' are also referenced by other KGs — visualization may include shared entities",
@@ -2525,8 +2549,11 @@ def _probe_gemini_models() -> str:
     api_key: str | None = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
-    genai.configure(api_key=api_key)
-    model: Model | None = next(iter(genai.list_models()), None)
+    # These exact public reexports are defined in the installed package's
+    # __init__.py; its list_models generator yields model_types.Model instances.
+    model_api: GeminiProbeAPI = cast(GeminiProbeAPI, genai)
+    model_api.configure(api_key=api_key)
+    model: Model | None = next(iter(model_api.list_models()), None)
     if model is None:
         return "reachable (no public models returned)"
     model_name: str = getattr(model, "name", "unknown-model")
@@ -2619,7 +2646,7 @@ async def run_doctor_checks(
     try:
         import fitz
 
-        _add("pymupdf", "ok", f"fitz version {fitz.version[0]}")
+        _add("pymupdf", "ok", f"fitz version {cast(PDFVersionInfo, fitz).version[0]}")
     except ImportError:
         _add("pymupdf", "fail", "PyMuPDF not installed — PDF ingestion will fail")
 

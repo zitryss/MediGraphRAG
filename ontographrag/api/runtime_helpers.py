@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import NotRequired, ParamSpec, Protocol, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, NotRequired, ParamSpec, Protocol, TypeAlias, TypeVar
 
 from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    from google.generativeai.types import Model
+    from PIL.Image import Image as PillowImage
 
 _EndpointParameters = ParamSpec("_EndpointParameters")
 _EndpointResult = TypeVar("_EndpointResult")
@@ -20,8 +24,30 @@ class EndpointLimitDecorator(Protocol):
     ) -> Callable[_EndpointParameters, _EndpointResult]: ...
 
 
-class EndpointLimitFactory(Protocol):
-    def __call__(self, limit_value: str) -> EndpointLimitDecorator: ...
+class EndpointLimiter(Protocol):
+    def limit(self, limit_value: str) -> EndpointLimitDecorator: ...
+
+
+class PDFPixmap(Protocol):
+    @property
+    def width(self) -> int: ...
+
+    @property
+    def height(self) -> int: ...
+
+    @property
+    def samples(self) -> bytes: ...
+
+
+class PDFPage(Protocol):
+    def get_text(self) -> str: ...
+
+    def get_pixmap(self, *, dpi: int) -> PDFPixmap: ...
+
+
+class PDFVersionInfo(Protocol):
+    @property
+    def version(self) -> tuple[str, str, str]: ...
 
 
 class WeakSupportSignal(TypedDict):
@@ -77,6 +103,18 @@ class DoctorReport(TypedDict):
     probe_models: bool
     summary: DoctorSummary
     checks: list[DoctorCheck]
+
+
+class CountRow(TypedDict):
+    c: int
+
+
+class OptionalCountRow(TypedDict, total=False):
+    c: int
+
+
+class SharedEntityCountRow(TypedDict, total=False):
+    shared_count: int
 
 
 class GraphViewNode(TypedDict):
@@ -141,6 +179,21 @@ JSONValue: TypeAlias = (
 )
 
 
+class PillowFromBytes(Protocol):
+    def __call__(
+        self,
+        mode: str,
+        size: list[int] | tuple[int, int],
+        data: bytes,
+    ) -> PillowImage: ...
+
+
+class GeminiProbeAPI(Protocol):
+    def configure(self, *, api_key: str) -> None: ...
+
+    def list_models(self) -> Iterator[Model]: ...
+
+
 class OCRTextLine(Protocol):
     @property
     def text(self) -> str: ...
@@ -149,6 +202,14 @@ class OCRTextLine(Protocol):
 class OCRPageResult(Protocol):
     @property
     def text_lines(self) -> Iterable[OCRTextLine]: ...
+
+
+class NodeWithProperties(TypedDict):
+    properties: dict[str, object]
+
+
+class NodeWithId(TypedDict):
+    id: str | int
 
 
 class SavedGraphNode(TypedDict, total=False):
