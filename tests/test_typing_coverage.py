@@ -259,3 +259,17 @@ def test_annotation_value_strings_are_not_forward_type_references() -> None:
     )
     bindings: list[Binding] = inspect_source(source, "fixture.py")
     assert not any(binding.category == "dynamic" for binding in bindings)
+
+
+def test_functional_typed_dict_is_a_definition_and_checks_forward_field_types() -> None:
+    source: str = (
+        "from typing import Any, TypedDict as Record\n"
+        'Edge = Record("Edge", {"from": str, "to": "Any"})\n'
+    )
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert any(
+        binding.symbol == "Edge" and binding.kind == "type-definition"
+        for binding in bindings
+    )
+    assert sum(binding.kind == "dynamic-type" for binding in bindings) == 1
+    assert not any(binding.category == "missing" for binding in bindings)

@@ -280,10 +280,12 @@ class Coverage(ast.NodeVisitor):
             "typing.ParamSpec",
             "typing.TypeVarTuple",
             "typing.NewType",
+            "typing.TypedDict",
             "typing_extensions.TypeVar",
             "typing_extensions.ParamSpec",
             "typing_extensions.TypeVarTuple",
             "typing_extensions.NewType",
+            "typing_extensions.TypedDict",
         }:
             for target in node.targets:
                 if isinstance(target, ast.Name):
@@ -291,7 +293,20 @@ class Coverage(ast.NodeVisitor):
                     self.emit(
                         node, target.id, "type-definition", "inferred", constructor
                     )
-            self.visit(node.value)
+            if constructor in {
+                "typing.TypedDict",
+                "typing_extensions.TypedDict",
+            } and isinstance(node.value, ast.Call):
+                for index, argument in enumerate(node.value.args):
+                    if index == 1 and isinstance(argument, ast.Dict):
+                        for field_type in argument.values:
+                            self.annotation(field_type)
+                    else:
+                        self.visit(argument)
+                for keyword in node.value.keywords:
+                    self.visit(keyword.value)
+            else:
+                self.visit(node.value)
             return
         for target in node.targets:
             self.bind(target, "assignment", source=node)
