@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, NotRequired
+from typing import NotRequired, ParamSpec, Protocol, TypeAlias, TypeVar
 
 from typing_extensions import TypedDict
+
+_EndpointParameters = ParamSpec("_EndpointParameters")
+_EndpointResult = TypeVar("_EndpointResult")
+
+
+class EndpointLimitDecorator(Protocol):
+    def __call__(
+        self,
+        endpoint: Callable[_EndpointParameters, _EndpointResult],
+    ) -> Callable[_EndpointParameters, _EndpointResult]: ...
+
+
+class EndpointLimitFactory(Protocol):
+    def __call__(self, limit_value: str) -> EndpointLimitDecorator: ...
 
 
 class WeakSupportSignal(TypedDict):
@@ -45,8 +59,126 @@ class ReadinessReport(TypedDict):
     checks: list[ReadinessCheck]
 
 
+class DoctorCheck(TypedDict):
+    check: str
+    status: str
+    detail: str
+
+
+class DoctorSummary(TypedDict):
+    ok: int
+    warn: int
+    fail: int
+
+
+class DoctorReport(TypedDict):
+    status: str
+    timestamp: str
+    probe_models: bool
+    summary: DoctorSummary
+    checks: list[DoctorCheck]
+
+
+class GraphViewNode(TypedDict):
+    id: str | int
+    labels: list[str]
+    properties: dict[str, object]
+
+
+class GraphViewRelationship(TypedDict):
+    id: str | int
+    type: str
+    start: str | int
+    end: str | int
+    properties: dict[str, object]
+
+
+class GraphView(TypedDict):
+    nodes: list[GraphViewNode]
+    relationships: list[GraphViewRelationship]
+
+
+class GraphImportStats(TypedDict):
+    total_nodes_in_db: int
+    total_relationships_in_db: int
+    loaded_nodes: int
+    loaded_relationships: int
+    sample_mode: bool
+    complete_import: bool
+
+
+class GraphSettings(TypedDict):
+    provider: str | None
+    model: str | None
+    embeddingModel: str | None
+    maxChunks: int | None
+
+
+class NamedGraphSummary(TypedDict):
+    name: str
+    kg_name: str
+    document_count: int
+    last_updated: str | None
+
+
+class HealthReport(TypedDict):
+    status: str
+    service: str
+
+
+class Neo4jHealthReport(TypedDict):
+    status: str
+    nodeCount: int
+
+
+class ModelList(TypedDict):
+    models: list[str | None]
+    warning: NotRequired[str]
+
+
+JSONValue: TypeAlias = (
+    "None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]"
+)
+
+
+class OCRTextLine(Protocol):
+    @property
+    def text(self) -> str: ...
+
+
+class OCRPageResult(Protocol):
+    @property
+    def text_lines(self) -> Iterable[OCRTextLine]: ...
+
+
+class SavedGraphNode(TypedDict, total=False):
+    id: str | int
+    labels: list[str]
+    properties: dict[str, object]
+
+
+SavedGraphRelationship = TypedDict(
+    "SavedGraphRelationship",
+    {
+        "id": str | int,
+        "type": str,
+        "start": str | int,
+        "end": str | int,
+        "from": str | int,
+        "to": str | int,
+        "properties": dict[str, object],
+    },
+    total=False,
+)
+
+
+class SavedGraph(TypedDict, total=False):
+    nodes: list[SavedGraphNode]
+    relationships: list[SavedGraphRelationship]
+
+
 def parse_request_timeout_seconds(
-    raw_value: Any,
+    raw_value: object,
     *,
     default: int = 120,
     minimum: int = 15,
@@ -91,9 +223,9 @@ def build_support_guardrail_verdict(
     *,
     enabled: bool,
     mode: str,
-    structural_support: Any,
-    grounding_support: Any,
-    confidence: Any,
+    structural_support: object,
+    grounding_support: object,
+    confidence: object,
     structural_threshold: float = 0.40,
     grounding_threshold: float = 0.50,
     confidence_threshold: float = 0.40,
@@ -101,7 +233,7 @@ def build_support_guardrail_verdict(
 ) -> SupportGuardrailVerdict:
     """Build a deterministic support-based guardrail decision from already-computed metrics."""
 
-    def _metric_value(value: Any) -> float | None:
+    def _metric_value(value: object) -> float | None:
         try:
             numeric: float = float(value)
         except (TypeError, ValueError):

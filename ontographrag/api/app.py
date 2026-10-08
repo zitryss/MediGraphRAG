@@ -17,7 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from typing import Optional
+from typing import TYPE_CHECKING, NotRequired, Optional, cast
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response
+
 import asyncio
 import hashlib
 import logging
@@ -29,19 +33,40 @@ from pathlib import Path
 from dotenv import load_dotenv
 import httpx
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from fitz import Document, Pixmap
+    from google.generativeai.types import Model
+    from langchain_core.embeddings import Embeddings
+    from neo4j import Driver, Record, Result
+    from neo4j.graph import Node, Relationship
+    from ollama import ListResponse
+    from PIL.Image import Image as PillowImage
+
+    from experiments.uncertainty_metrics import GraphPathSupportDetail
+    from ontographrag.kg.builders.enhanced_kg_creator import (
+        BulkProcessingMetadata,
+        BulkProcessingResult,
+    )
+    from ontographrag.kg.builders.ontology_guided_kg_creator import KnowledgeGraph
+    from ontographrag.kg.csv_processor import CSVValidationFailure, MedicalCSVValidation
+    from ontographrag.kg.loaders.graph_db_access import RawGraphRow
+    from ontographrag.kg.loaders.kg_loader import ImportedGraph, LoaderFailure
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-_API_DIR = Path(__file__).resolve().parent
-_PROJECT_ROOT = _API_DIR.parent.parent
-_STATIC_DIR = _API_DIR / "static"
-_SOURCE_UI_DIST_DIR = _PROJECT_ROOT / "frontend" / "dist"
-_DEFAULT_WRITE_PROBE_DIR = _PROJECT_ROOT / "results"
-_READY_WRITE_PROBE_DIR = Path(
+_API_DIR: Path = Path(__file__).resolve().parent
+_PROJECT_ROOT: Path = _API_DIR.parent.parent
+_STATIC_DIR: Path = _API_DIR / "static"
+_SOURCE_UI_DIST_DIR: Path = _PROJECT_ROOT / "frontend" / "dist"
+_DEFAULT_WRITE_PROBE_DIR: Path = _PROJECT_ROOT / "results"
+_READY_WRITE_PROBE_DIR: Path = Path(
     os.getenv("ONTOGRAPHRAG_WRITE_PROBE_DIR", str(_DEFAULT_WRITE_PROBE_DIR))
 )
-_DEBUG_ERRORS = str(os.getenv("ONTOGRAPHRAG_DEBUG_ERRORS", "0")).strip().lower() in {
+_DEBUG_ERRORS: bool = str(
+    os.getenv("ONTOGRAPHRAG_DEBUG_ERRORS", "0")
+).strip().lower() in {
     "1",
     "true",
     "yes",
@@ -51,8 +76,8 @@ _DEBUG_ERRORS = str(os.getenv("ONTOGRAPHRAG_DEBUG_ERRORS", "0")).strip().lower()
 
 def _resolve_ui_dist_dir() -> Path:
     """Find packaged UI assets first, then source-checkout build assets."""
-    env_dir = os.getenv("ONTOGRAPHRAG_UI_DIST_DIR")
-    candidates = []
+    env_dir: str | None = os.getenv("ONTOGRAPHRAG_UI_DIST_DIR")
+    candidates: list[Path] = []
     if env_dir:
         candidates.append(Path(env_dir).expanduser())
     candidates.extend(
@@ -68,7 +93,7 @@ def _resolve_ui_dist_dir() -> Path:
     return candidates[0] if candidates else _STATIC_DIR
 
 
-_UI_DIST_DIR = _resolve_ui_dist_dir()
+_UI_DIST_DIR: Path = _resolve_ui_dist_dir()
 
 from ontographrag.providers.model_providers import (
     get_provider as get_llm_provider,
@@ -80,6 +105,23 @@ from experiments.answer_formatting import (
     normalize_answer_to_contract,
 )
 from ontographrag.api.runtime_helpers import (
+    EndpointLimitFactory,
+    JSONValue,
+    DoctorCheck,
+    DoctorSummary,
+    DoctorReport,
+    SavedGraph,
+    OCRPageResult,
+    GraphViewNode,
+    GraphViewRelationship,
+    GraphImportStats,
+    GraphSettings,
+    NamedGraphSummary,
+    HealthReport,
+    Neo4jHealthReport,
+    ModelList,
+    ReadinessReport,
+    SupportGuardrailVerdict,
     build_support_guardrail_verdict,
     build_readiness_report,
     configured_provider_names_from_env,
@@ -90,14 +132,25 @@ from ontographrag.api.runtime_helpers import (
 from ontographrag.kg.builders.enhanced_kg_creator import UnifiedOntologyGuidedKGCreator
 from ontographrag.rag.answer_guardrails import RUNTIME_GUARDRAIL_ABSTENTION
 from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
+from ontographrag.rag.systems._response_records import (
+    GenerationResponseFields,
+    GuardrailMetadata,
+)
 
-_REQUEST_TIMEOUT_SECONDS = parse_request_timeout_seconds(
+
+class ChatGenerationResponse(GenerationResponseFields):
+    guardrail: NotRequired[GuardrailMetadata | SupportGuardrailVerdict]
+    response_raw: NotRequired[str]
+    response_candidate: NotRequired[str | None]
+
+
+_REQUEST_TIMEOUT_SECONDS: int = parse_request_timeout_seconds(
     os.getenv("ONTOGRAPHRAG_REQUEST_TIMEOUT_SECONDS", "120")
 )
 
 # Module-level singleton with lock to prevent race conditions at startup
-_rag_system: EnhancedRAGSystem = None
-_rag_system_lock = threading.Lock()
+_rag_system: EnhancedRAGSystem | None = None
+_rag_system_lock: threading.Lock = threading.Lock()
 _rag_system_embedding: str | None = None
 
 _DEFAULT_TASK_TYPE_BY_DATASET: dict[str, str] = {
@@ -111,10 +164,10 @@ _DEFAULT_TASK_TYPE_BY_DATASET: dict[str, str] = {
 
 
 def _normalize_dataset_and_task(
-    dataset_name: Optional[str], task_type: Optional[str]
+    dataset_name: object, task_type: object
 ) -> tuple[str, str]:
-    dataset = str(dataset_name or "").strip().lower()
-    task = str(task_type or "").strip().lower()
+    dataset: str = str(dataset_name or "").strip().lower()
+    task: str = str(task_type or "").strip().lower()
     if dataset and not task:
         task = _DEFAULT_TASK_TYPE_BY_DATASET.get(dataset, "")
     return dataset, task
@@ -122,7 +175,7 @@ def _normalize_dataset_and_task(
 
 def get_rag_system(embedding_model: str | None = None) -> EnhancedRAGSystem:
     global _rag_system, _rag_system_embedding
-    resolved = (embedding_model or "").lower() or None
+    resolved: str | None = (embedding_model or "").lower() or None
     with _rag_system_lock:
         if _rag_system is None or (resolved and resolved != _rag_system_embedding):
             _rag_system = EnhancedRAGSystem(embedding_model=resolved)
@@ -135,7 +188,9 @@ def invalidate_rag_system(reason: str = "") -> None:
     global _rag_system, _rag_system_embedding
     with _rag_system_lock:
         if _rag_system is not None:
-            clear_fn = getattr(_rag_system, "clear_retrieval_caches", None)
+            clear_fn: Callable[[], None] | None = getattr(
+                _rag_system, "clear_retrieval_caches", None
+            )
             if callable(clear_fn):
                 try:
                     clear_fn()
@@ -153,7 +208,7 @@ from ontographrag.kg.csv_processor import MedicalReportCSVProcessor
 
 # Configuration constants for input validation
 MAX_FILE_SIZE_MB: int = 50
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
 ALLOWED_FILE_EXTENSIONS: set[str] = {".pdf", ".txt", ".csv", ".json", ".xml"}
 ALLOWED_ONTOLOGY_EXTENSIONS: set[str] = {".owl", ".rdf", ".ttl", ".xml", ".json"}
 
@@ -161,7 +216,7 @@ ALLOWED_ONTOLOGY_EXTENSIONS: set[str] = {".owl", ".rdf", ".ttl", ".xml", ".json"
 def validate_file_upload(
     file: UploadFile,
     max_size_bytes: int = MAX_FILE_SIZE_BYTES,
-    allowed_extensions: set = None,
+    allowed_extensions: set[str] | None = None,
 ) -> None:
     """
     Validate file upload for size and extension.
@@ -169,11 +224,11 @@ def validate_file_upload(
     """
     import logging
 
-    logger = logging.getLogger(__name__)
+    logger: logging.Logger = logging.getLogger(__name__)
 
     # Check file extension
     if allowed_extensions:
-        file_ext = os.path.splitext(file.filename)[1].lower()
+        file_ext: str = os.path.splitext(file.filename)[1].lower()
         if file_ext not in allowed_extensions:
             logger.warning(f"Invalid file extension: {file_ext}")
             raise HTTPException(
@@ -195,21 +250,23 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
     beyond format-detection is left to the XML parser).
     """
     errors: list[str] = []
-    ext = os.path.splitext(filename)[1].lower()
+    ext: str = os.path.splitext(filename)[1].lower()
 
     # Only deep-validate JSON; OWL validation is handled by ElementTree at load time
     if ext != ".json":
         return errors
 
     try:
-        raw = json.loads(ontology_bytes.decode("utf-8"))
+        raw: JSONValue = json.loads(ontology_bytes.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         return [f"Invalid JSON: {e}"]
 
-    raw_classes = raw.get("classes") or raw.get("entity_types") or []
-    raw_rels = raw.get("relationships") or raw.get("relationship_types") or []
+    raw_classes: JSONValue = raw.get("classes") or raw.get("entity_types") or []
+    raw_rels: JSONValue = (
+        raw.get("relationships") or raw.get("relationship_types") or []
+    )
 
-    valid_cardinalities = {
+    valid_cardinalities: set[str | None] = {
         "one_to_one",
         "one_to_many",
         "many_to_one",
@@ -226,7 +283,7 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
         if not isinstance(cls, dict):
             errors.append(f"classes[{i}]: expected object, got {type(cls).__name__}")
             continue
-        eid = cls.get("id") or cls.get("name") or ""
+        eid: JSONValue = cls.get("id") or cls.get("name") or ""
         if not eid:
             errors.append(f"classes[{i}]: missing 'id'")
             continue
@@ -236,14 +293,16 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
 
         has_identifier: bool = False
         for j, p in enumerate(cls.get("properties") or []):
-            pname = (p.get("name") or p.get("id") or "") if isinstance(p, dict) else ""
+            pname: JSONValue = (
+                (p.get("name") or p.get("id") or "") if isinstance(p, dict) else ""
+            )
             if not pname:
                 errors.append(f"classes[{i}].properties[{j}]: missing 'name'")
                 continue
-            ptype = (p.get("type") or "string").lower()
+            ptype: str = (p.get("type") or "string").lower()
 
             # Conflicting property types across reuse
-            key = f"{eid}.{pname}"
+            key: str = f"{eid}.{pname}"
             if key in prop_types and prop_types[key] != ptype:
                 errors.append(
                     f"classes[{i}].properties '{pname}': type conflict "
@@ -273,7 +332,7 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
                 f"relationships[{i}]: expected object, got {type(rel).__name__}"
             )
             continue
-        rid = rel.get("id") or rel.get("name") or rel.get("type") or ""
+        rid: JSONValue = rel.get("id") or rel.get("name") or rel.get("type") or ""
         if not rid:
             errors.append(f"relationships[{i}]: missing 'id'")
             continue
@@ -282,8 +341,8 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
         rel_ids.add(rid)
 
         # Dangling domain / range
-        domain = rel.get("from") or rel.get("domain") or ""
-        range_ = rel.get("to") or rel.get("range") or ""
+        domain: JSONValue = rel.get("from") or rel.get("domain") or ""
+        range_: JSONValue = rel.get("to") or rel.get("range") or ""
         if domain and class_ids and domain not in class_ids:
             errors.append(
                 f"relationships[{i}] '{rid}': domain '{domain}' not in entity types"
@@ -300,7 +359,7 @@ def validate_ontology_schema(ontology_bytes: bytes, filename: str) -> list[str]:
             )
 
         # Cardinality
-        card = rel.get("cardinality") or ""
+        card: JSONValue = rel.get("cardinality") or ""
         if card and card not in valid_cardinalities:
             errors.append(
                 f"relationships[{i}] '{rid}': invalid cardinality '{card}' "
@@ -341,7 +400,7 @@ def _extract_text_from_bytes(data: bytes, filename: str) -> tuple[str, str]:
     """
     import fitz  # PyMuPDF — always available (in requirements.txt)
 
-    ext = os.path.splitext(filename)[1].lower()
+    ext: str = os.path.splitext(filename)[1].lower()
 
     if ext != ".pdf":
         try:
@@ -351,12 +410,12 @@ def _extract_text_from_bytes(data: bytes, filename: str) -> tuple[str, str]:
 
     # --- Tier 1: PyMuPDF ---
     try:
-        doc = fitz.open(stream=io.BytesIO(data), filetype="pdf")
-        pages_text = [page.get_text() for page in doc]
+        doc: Document = fitz.open(stream=io.BytesIO(data), filetype="pdf")
+        pages_text: list[str] = [page.get_text() for page in doc]
         doc.close()
-        text_pymupdf = "\n".join(pages_text)
-        page_count = max(len(pages_text), 1)
-        avg_chars = len(text_pymupdf.strip()) / page_count
+        text_pymupdf: str = "\n".join(pages_text)
+        page_count: int = max(len(pages_text), 1)
+        avg_chars: float = len(text_pymupdf.strip()) / page_count
 
         if avg_chars >= _MIN_CHARS_PER_PAGE:
             return text_pymupdf, "pymupdf"
@@ -375,30 +434,36 @@ def _extract_text_from_bytes(data: bytes, filename: str) -> tuple[str, str]:
         from surya.model.detection.model import load_model as load_det_model  # type: ignore
         from surya.model.recognition.model import load_model as load_rec_model  # type: ignore
         from surya.model.recognition.processor import load_processor  # type: ignore
-        from PIL import Image  # type: ignore
+        from PIL import Image
 
         logger.info("Surya OCR available — running OCR on scanned PDF")
         surya_pages: list[str] = []
-        pdf_doc = fitz.open(stream=io.BytesIO(data), filetype="pdf")
-        images = []
+        pdf_doc: Document = fitz.open(stream=io.BytesIO(data), filetype="pdf")
+        images: list[PillowImage] = []
         for page in pdf_doc:
-            pix = page.get_pixmap(dpi=200)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            pix: Pixmap = page.get_pixmap(dpi=200)
+            img: PillowImage = Image.frombytes(
+                "RGB", [pix.width, pix.height], pix.samples
+            )
             images.append(img)
         pdf_doc.close()
 
+        det_model: object
+        det_processor: object
+        rec_model: object
+        rec_processor: object
         det_model, det_processor = load_det_model(), load_processor()
         rec_model, rec_processor = load_rec_model(), load_processor()
 
-        det_results = batch_text_detection(images, det_model, det_processor)
-        rec_results = batch_recognition(
+        det_results: object = batch_text_detection(images, det_model, det_processor)
+        rec_results: Iterable[OCRPageResult] = batch_recognition(
             images, det_results, rec_model, rec_processor, langs=[["en"]] * len(images)
         )
 
         for page_result in rec_results:
             surya_pages.append(" ".join(line.text for line in page_result.text_lines))
 
-        text_surya = "\n".join(surya_pages)
+        text_surya: str = "\n".join(surya_pages)
         if text_surya.strip():
             logger.info(
                 "Surya OCR produced %d chars across %d pages",
@@ -424,10 +489,10 @@ def _extract_text_from_bytes(data: bytes, filename: str) -> tuple[str, str]:
 
 
 # Rate limiter (keyed on client IP)
-limiter = Limiter(key_func=get_remote_address)
+limiter: Limiter = Limiter(key_func=get_remote_address)
 
 # Configure FastAPI
-app = FastAPI(
+app: FastAPI = FastAPI(
     title="OntographRAG",
     description=(
         "Turn unstructured documents into schema-consistent knowledge graphs. "
@@ -438,7 +503,9 @@ app = FastAPI(
 )
 
 # CORS — tighten ALLOWED_ORIGINS via env var in production
-_cors_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
+_cors_origins: list[str] = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -448,7 +515,12 @@ app.add_middleware(
 )
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Starlette dispatches this callback only after matching the registered exception
+# class; its general callback annotation cannot express that key/type correlation.
+app.add_exception_handler(
+    RateLimitExceeded,
+    cast(Callable[[Request, Exception], Response], _rate_limit_exceeded_handler),
+)
 app.mount(
     "/assets",
     StaticFiles(directory=str(_UI_DIST_DIR / "assets"), check_dir=False),
@@ -460,37 +532,41 @@ app.mount(
 
 # Optional API key authentication — only enforced when APP_API_KEY is set in the environment.
 # In development (no APP_API_KEY) all requests pass through.
-_APP_API_KEY = os.getenv("APP_API_KEY")
+_APP_API_KEY: str | None = os.getenv("APP_API_KEY")
 _OPEN_AUTH_PATHS: set[str] = {"/", "/health", "/ready"}
-_OPEN_AUTH_PREFIXES: tuple[str] = ("/static",)
+_OPEN_AUTH_PREFIXES: tuple[str, ...] = ("/static",)
 
 
 def require_api_key(request: Request) -> None:
     if _APP_API_KEY:
-        key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+        key: str | None = request.headers.get("X-API-Key") or request.query_params.get(
+            "api_key"
+        )
         if key != _APP_API_KEY:
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 @app.middleware("http")
-async def api_key_auth_middleware(request: Request, call_next):
+async def api_key_auth_middleware(
+    request: Request, call_next: RequestResponseEndpoint
+) -> Response:
     """
     Enforce API-key auth for server endpoints when APP_API_KEY is configured.
 
     The GUI shell ("/") and static assets remain public so the browser can load.
     Actual API calls must supply X-API-Key or ?api_key=...
     """
-    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    request_id: str = request.headers.get("X-Request-ID") or uuid.uuid4().hex
     request.state.request_id = request_id
-    started_at = time.perf_counter()
-    path = request.url.path
+    started_at: float = time.perf_counter()
+    path: str = request.url.path
     if (
         _APP_API_KEY
         and path not in _OPEN_AUTH_PATHS
         and not path.startswith(_OPEN_AUTH_PREFIXES)
     ):
         require_api_key(request)
-    response = await call_next(request)
+    response: Response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Process-Time-Ms"] = str(
         int((time.perf_counter() - started_at) * 1000)
@@ -499,13 +575,13 @@ async def api_key_auth_middleware(request: Request, call_next):
 
 
 def _request_id_for(request: Request) -> str:
-    request_id = getattr(request.state, "request_id", None)
+    request_id: str | None = getattr(request.state, "request_id", None)
     return request_id or uuid.uuid4().hex
 
 
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    request_id = _request_id_for(request)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    request_id: str = _request_id_for(request)
     return JSONResponse(
         status_code=exc.status_code,
         headers={"X-Request-ID": request_id},
@@ -520,8 +596,8 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(
     request: Request, exc: RequestValidationError
-):
-    request_id = _request_id_for(request)
+) -> JSONResponse:
+    request_id: str = _request_id_for(request)
     return JSONResponse(
         status_code=422,
         headers={"X-Request-ID": request_id},
@@ -535,8 +611,8 @@ async def request_validation_exception_handler(
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    request_id = _request_id_for(request)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id: str = _request_id_for(request)
     logger.exception("Unhandled API exception [%s]: %s", request_id, exc)
     return JSONResponse(
         status_code=500,
@@ -550,10 +626,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # Global storage for current graph data
-current_graph_data = None
+current_graph_data: SavedGraph | None = None
 
 # KG build progress log (ring buffer of last 200 lines)
-_kg_progress: deque = deque(maxlen=200)
+_kg_progress: deque[str] = deque(maxlen=200)
 _kg_building: bool = False
 
 
@@ -563,15 +639,15 @@ def _log_progress(line: str) -> None:
 
 
 @app.get("/kg_progress_stream")
-async def kg_progress_stream(request: Request):
+async def kg_progress_stream(request: Request) -> StreamingResponse:
     """SSE endpoint — streams KG build progress to the browser."""
 
-    async def event_generator():
-        last_idx = 0
+    async def event_generator() -> AsyncIterator[str]:
+        last_idx: int = 0
         while True:
             if await request.is_disconnected():
                 break
-            lines = list(_kg_progress)
+            lines: list[str] = list(_kg_progress)
             if len(lines) > last_idx:
                 for line in lines[last_idx:]:
                     yield f"data: {json.dumps({'line': line})}\n\n"
@@ -599,10 +675,10 @@ def require_neo4j() -> None:
 
 
 @app.on_event("startup")
-def check_neo4j_connection():
+def check_neo4j_connection() -> None:
     global neo4j_ready
     try:
-        driver = get_graphDB_driver(
+        driver: Driver | None = get_graphDB_driver(
             os.getenv("NEO4J_URI"),
             os.getenv("NEO4J_USERNAME"),
             os.getenv("NEO4J_PASSWORD"),
@@ -628,7 +704,7 @@ async def create_kg(
     kg_name: str = Form(...),
     description: str = Form(None),
     data_source: str = Form(None),
-):
+) -> JSONResponse:
     """
     Create a new named Knowledge Graph.
     """
@@ -638,16 +714,16 @@ async def create_kg(
         from langchain_neo4j import Neo4jGraph
 
         # Create Neo4jGraph (langchain) instead of driver
-        graph = Neo4jGraph(
+        graph: Neo4jGraph = Neo4jGraph(
             url=os.getenv("NEO4J_URI"),
             username=os.getenv("NEO4J_USERNAME"),
             password=os.getenv("NEO4J_PASSWORD"),
             database=os.getenv("NEO4J_DATABASE"),
         )
 
-        db_access = graphDBdataAccess(graph)
+        db_access: graphDBdataAccess = graphDBdataAccess(graph)
 
-        result = db_access.create_kg(
+        result: RawGraphRow | None = db_access.create_kg(
             kg_name=kg_name, description=description, data_source=data_source
         )
 
@@ -657,7 +733,7 @@ async def create_kg(
 
 
 @app.get("/kg/list")
-async def list_kgs():
+async def list_kgs() -> JSONResponse:
     """
     List all named Knowledge Graphs by querying Document nodes with kgName property.
     """
@@ -665,7 +741,7 @@ async def list_kgs():
     try:
         from ontographrag.kg.utils.graph_query import get_graphDB_driver
 
-        driver = get_graphDB_driver(
+        driver: Driver | None = get_graphDB_driver(
             os.getenv("NEO4J_URI"),
             os.getenv("NEO4J_USERNAME"),
             os.getenv("NEO4J_PASSWORD"),
@@ -674,14 +750,14 @@ async def list_kgs():
 
         with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
             # Query for distinct kgName values from Document nodes
-            result = session.run("""
+            result: Result = session.run("""
                 MATCH (d:Document)
                 WHERE d.kgName IS NOT NULL AND d.kgName <> ''
                 RETURN DISTINCT d.kgName AS kgName, count(d) AS documentCount, max(d.updatedAt) AS lastUpdated
                 ORDER BY d.kgName
             """)
 
-            kgs = []
+            kgs: list[NamedGraphSummary] = []
             for record in result:
                 kgs.append(
                     {
@@ -700,7 +776,7 @@ async def list_kgs():
 
 
 @app.get("/kg/{kg_name}")
-async def get_kg(kg_name: str):
+async def get_kg(kg_name: str) -> JSONResponse:
     """
     Get details of a specific Knowledge Graph.
     """
@@ -708,21 +784,21 @@ async def get_kg(kg_name: str):
         from ontographrag.kg.loaders.graph_db_access import graphDBdataAccess
         from langchain_neo4j import Neo4jGraph
 
-        graph = Neo4jGraph(
+        graph: Neo4jGraph = Neo4jGraph(
             url=os.getenv("NEO4J_URI"),
             username=os.getenv("NEO4J_USERNAME"),
             password=os.getenv("NEO4J_PASSWORD"),
             database=os.getenv("NEO4J_DATABASE"),
         )
 
-        db_access = graphDBdataAccess(graph)
-        kg = db_access.get_kg(kg_name)
+        db_access: graphDBdataAccess = graphDBdataAccess(graph)
+        kg: RawGraphRow | None = db_access.get_kg(kg_name)
 
         if not kg:
             raise HTTPException(status_code=404, detail=f"KG '{kg_name}' not found")
 
         # Also get stats
-        stats = db_access.get_kg_stats(kg_name)
+        stats: list[RawGraphRow] = db_access.get_kg_stats(kg_name)
 
         return JSONResponse(
             content={"status": "success", "kg": kg, "stats": stats[0] if stats else {}}
@@ -734,7 +810,7 @@ async def get_kg(kg_name: str):
 
 
 @app.delete("/kg/{kg_name}")
-async def delete_kg(kg_name: str, delete_entities: bool = Query(True)):
+async def delete_kg(kg_name: str, delete_entities: bool = Query(True)) -> JSONResponse:
     """
     Delete a named Knowledge Graph.
     """
@@ -742,15 +818,15 @@ async def delete_kg(kg_name: str, delete_entities: bool = Query(True)):
         from ontographrag.kg.loaders.graph_db_access import graphDBdataAccess
         from langchain_neo4j import Neo4jGraph
 
-        graph = Neo4jGraph(
+        graph: Neo4jGraph = Neo4jGraph(
             url=os.getenv("NEO4J_URI"),
             username=os.getenv("NEO4J_USERNAME"),
             password=os.getenv("NEO4J_PASSWORD"),
             database=os.getenv("NEO4J_DATABASE"),
         )
 
-        db_access = graphDBdataAccess(graph)
-        deleted_count = db_access.delete_kg_by_name(kg_name, delete_entities)
+        db_access: graphDBdataAccess = graphDBdataAccess(graph)
+        deleted_count: int = db_access.delete_kg_by_name(kg_name, delete_entities)
         invalidate_rag_system(f"KG deleted: {kg_name}")
 
         return JSONResponse(
@@ -765,7 +841,7 @@ async def delete_kg(kg_name: str, delete_entities: bool = Query(True)):
 
 
 @app.get("/kg/{kg_name}/entities")
-async def get_kg_entities(kg_name: str, limit: int = 100):
+async def get_kg_entities(kg_name: str, limit: int = 100) -> JSONResponse:
     """
     Get entities from a specific Knowledge Graph.
     """
@@ -773,15 +849,15 @@ async def get_kg_entities(kg_name: str, limit: int = 100):
         from ontographrag.kg.loaders.graph_db_access import graphDBdataAccess
         from langchain_neo4j import Neo4jGraph
 
-        graph = Neo4jGraph(
+        graph: Neo4jGraph = Neo4jGraph(
             url=os.getenv("NEO4J_URI"),
             username=os.getenv("NEO4J_USERNAME"),
             password=os.getenv("NEO4J_PASSWORD"),
             database=os.getenv("NEO4J_DATABASE"),
         )
 
-        db_access = graphDBdataAccess(graph)
-        entities = db_access.get_kg_entities(kg_name, limit)
+        db_access: graphDBdataAccess = graphDBdataAccess(graph)
+        entities: list[RawGraphRow] = db_access.get_kg_entities(kg_name, limit)
 
         return JSONResponse(
             content={
@@ -795,17 +871,17 @@ async def get_kg_entities(kg_name: str, limit: int = 100):
         raise HTTPException(status_code=500, detail=f"Failed to get KG entities: {e!s}")
 
 
-@app.get("/health/neo4j")
-def neo4j_health():
+@app.get("/health/neo4j", response_model=None)
+def neo4j_health() -> Neo4jHealthReport:
     try:
-        driver = get_graphDB_driver(
+        driver: Driver | None = get_graphDB_driver(
             os.getenv("NEO4J_URI"),
             os.getenv("NEO4J_USERNAME"),
             os.getenv("NEO4J_PASSWORD"),
             os.getenv("NEO4J_DATABASE"),
         )
         with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
-            record = session.run("RETURN count(*) AS c").single()
+            record: Record | None = session.run("RETURN count(*) AS c").single()
         return {"status": "ok", "nodeCount": record["c"]}
     except Exception as e:
         from fastapi import HTTPException, status
@@ -816,17 +892,17 @@ def neo4j_health():
         )
 
 
-@app.get("/health")
-def health():
+@app.get("/health", response_model=None)
+def health() -> HealthReport:
     """Lightweight liveness probe for container/platform healthchecks."""
     return {"status": "ok", "service": "ontographrag"}
 
 
 @app.get("/ready")
-async def ready():
+async def ready() -> JSONResponse:
     """Fast readiness probe for orchestration and production health checks."""
     rag_runtime_ready: bool = False
-    rag_runtime_detail = ""
+    rag_runtime_detail: str = ""
     if neo4j_ready:
         try:
             await asyncio.to_thread(get_rag_system)
@@ -838,7 +914,7 @@ async def ready():
         rag_runtime_detail = "Neo4j unavailable at startup"
 
     write_ok, write_detail = filesystem_write_probe_ok(_READY_WRITE_PROBE_DIR)
-    report = build_readiness_report(
+    report: ReadinessReport = build_readiness_report(
         neo4j_ready=neo4j_ready,
         rag_runtime_ready=rag_runtime_ready,
         write_probe_ok=write_ok,
@@ -853,8 +929,8 @@ async def ready():
 
 
 @app.get("/")
-async def root():
-    index_path = _UI_DIST_DIR / "index.html"
+async def root() -> FileResponse:
+    index_path: Path = _UI_DIST_DIR / "index.html"
     if not index_path.exists():
         raise HTTPException(
             status_code=503,
@@ -876,30 +952,30 @@ async def load_kg_from_file(
     neo4j_user: str = Form(None),
     neo4j_password: str = Form(None),
     neo4j_database: str = Form(None),
-):
+) -> JSONResponse:
     """
     Build a KG from the uploaded file using OntologyGuidedKGCreator and return
     the resulting nodes and relationships from Neo4j.
     """
     require_neo4j()
     try:
-        data = await file.read()
+        data: bytes = await file.read()
         text_content, _ = _extract_text_from_bytes(data, file.filename)
         if not text_content.strip():
             raise HTTPException(
                 status_code=400, detail="File contains no readable text content"
             )
 
-        _neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        _neo4j_user = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")
-        _neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD", "password")
-        _neo4j_database = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
-        _kg_name = kg_name or f"kg_{uuid.uuid4()}"
+        _neo4j_uri: str = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        _neo4j_user: str = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")
+        _neo4j_password: str = neo4j_password or os.getenv("NEO4J_PASSWORD", "password")
+        _neo4j_database: str = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
+        _kg_name: str = kg_name or f"kg_{uuid.uuid4()}"
 
-        llm = TemperatureLockedProvider(
+        llm: TemperatureLockedProvider = TemperatureLockedProvider(
             get_llm_provider(provider, model), temperature=0.0
         )
-        kg_creator = UnifiedOntologyGuidedKGCreator(
+        kg_creator: UnifiedOntologyGuidedKGCreator = UnifiedOntologyGuidedKGCreator(
             neo4j_uri=_neo4j_uri,
             neo4j_user=_neo4j_user,
             neo4j_password=_neo4j_password,
@@ -919,17 +995,17 @@ async def load_kg_from_file(
         invalidate_rag_system(f"KG built: {_kg_name}")
 
         # Read back the nodes scoped to this KG from Neo4j
-        driver = get_graphDB_driver(
+        driver: Driver | None = get_graphDB_driver(
             _neo4j_uri, _neo4j_user, _neo4j_password, _neo4j_database
         )
-        nodes = []
+        nodes: list[GraphViewNode] = []
         with driver.session(database=_neo4j_database) as session:
             for record in session.run(
                 "MATCH (n:__Entity__ {kgName: $kg_name}) RETURN n",
                 {"kg_name": _kg_name},
             ):
-                node = record["n"]
-                props = {
+                node: Node = record["n"]
+                props: dict[str, object] = {
                     k: (v.isoformat() if hasattr(v, "isoformat") else v)
                     for k, v in dict(node).items()
                 }
@@ -940,13 +1016,13 @@ async def load_kg_from_file(
                         "properties": props,
                     }
                 )
-        relationships = []
+        relationships: list[GraphViewRelationship] = []
         with driver.session(database=_neo4j_database) as session:
             for record in session.run(
                 "MATCH (s:__Entity__ {kgName: $kg_name})-[r]->(t:__Entity__ {kgName: $kg_name}) RETURN r",
                 {"kg_name": _kg_name},
             ):
-                rel = record["r"]
+                rel: Relationship = record["r"]
                 props = {
                     k: (v.isoformat() if hasattr(v, "isoformat") else v)
                     for k, v in dict(rel).items()
@@ -986,7 +1062,7 @@ async def extract_graph(
     neo4j_user: str = Form(None),
     neo4j_password: str = Form(None),
     neo4j_database: str = Form(None),
-):
+) -> JSONResponse:
     """
     Extract a KG from the uploaded file using OntologyGuidedKGCreator and
     return the extraction result (nodes, relationships, metadata) without
@@ -996,23 +1072,23 @@ async def extract_graph(
     """
     require_neo4j()
     try:
-        data = await file.read()
+        data: bytes = await file.read()
         text_content, _ = _extract_text_from_bytes(data, file.filename)
         if not text_content.strip():
             raise HTTPException(
                 status_code=400, detail="File contains no readable text content"
             )
 
-        _neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        _neo4j_user = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")
-        _neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD", "password")
-        _neo4j_database = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
-        _kg_name = kg_name or f"kg_{uuid.uuid4()}"
+        _neo4j_uri: str = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        _neo4j_user: str = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")
+        _neo4j_password: str = neo4j_password or os.getenv("NEO4J_PASSWORD", "password")
+        _neo4j_database: str = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
+        _kg_name: str = kg_name or f"kg_{uuid.uuid4()}"
 
-        llm = TemperatureLockedProvider(
+        llm: TemperatureLockedProvider = TemperatureLockedProvider(
             get_llm_provider(provider, model), temperature=0.0
         )
-        kg_creator = UnifiedOntologyGuidedKGCreator(
+        kg_creator: UnifiedOntologyGuidedKGCreator = UnifiedOntologyGuidedKGCreator(
             neo4j_uri=_neo4j_uri,
             neo4j_user=_neo4j_user,
             neo4j_password=_neo4j_password,
@@ -1020,7 +1096,7 @@ async def extract_graph(
         )
         # Pass file_name=None so generate_knowledge_graph skips Neo4j persistence —
         # this is a preview/extraction endpoint, not a storage endpoint.
-        kg = await asyncio.to_thread(
+        kg: KnowledgeGraph = await asyncio.to_thread(
             kg_creator.generate_knowledge_graph,
             text_content,
             llm,
@@ -1055,7 +1131,7 @@ async def extract_graph(
 
 
 @app.post("/create_ontology_guided_kg")
-@limiter.limit("5/minute")
+@cast(EndpointLimitFactory, limiter.limit)("5/minute")
 async def create_ontology_guided_kg(
     request: Request,
     file: UploadFile = File(...),
@@ -1070,7 +1146,7 @@ async def create_ontology_guided_kg(
     neo4j_password: str = Form(None),
     neo4j_database: str = Form(None),
     enable_coreference_resolution: bool = Form(False),
-):
+) -> JSONResponse:
     """
     Create knowledge graph with optional ontology guidance.
     If ontology file is provided, uses it to ensure consistent entity types and relationships.
@@ -1082,35 +1158,43 @@ async def create_ontology_guided_kg(
             status_code=422, detail="max_chunks must be between 1 and 500"
         )
     require_neo4j()
-    ontology_path = None  # declared here so the finally block can always reference it
+    ontology_path: str | None = (
+        None  # declared here so the finally block can always reference it
+    )
     _kg_progress.clear()
     _kg_building = True
     try:
         # Read file content with proper encoding handling
         _log_progress(f"📄 Reading file: {file.filename}")
-        data = await file.read()
+        data: bytes = await file.read()
 
         # SHA-256 content deduplication — skip re-extraction for identical documents
-        doc_hash = hashlib.sha256(data).hexdigest()
+        doc_hash: str = hashlib.sha256(data).hexdigest()
         _log_progress("🔎 Checking for duplicate document…")
         try:
-            _neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
-            _neo4j_user = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")
-            _neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD", "password")
-            _neo4j_database = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
-            _dup_driver = get_graphDB_driver(
+            _neo4j_uri: str = neo4j_uri or os.getenv(
+                "NEO4J_URI", "bolt://localhost:7687"
+            )
+            _neo4j_user: str = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")
+            _neo4j_password: str = neo4j_password or os.getenv(
+                "NEO4J_PASSWORD", "password"
+            )
+            _neo4j_database: str = neo4j_database or os.getenv(
+                "NEO4J_DATABASE", "neo4j"
+            )
+            _dup_driver: Driver | None = get_graphDB_driver(
                 _neo4j_uri, _neo4j_user, _neo4j_password, _neo4j_database
             )
             try:
                 with _dup_driver.session() as _session:
-                    _dup_result = _session.run(
+                    _dup_result: Record | None = _session.run(
                         "MATCH (d:Document {contentHash: $hash, kgName: $kg_name}) RETURN d.kgName AS kgName, d.fileName AS fileName LIMIT 1",
                         {"hash": doc_hash, "kg_name": kg_name},
                     ).single()
             finally:
                 _dup_driver.close()
             if _dup_result:
-                _existing_kg_name = _dup_result["kgName"]
+                _existing_kg_name: str | None = _dup_result["kgName"]
                 _log_progress(
                     f"♻️  Duplicate detected — reusing existing KG '{_existing_kg_name}'"
                 )
@@ -1121,8 +1205,8 @@ async def create_ontology_guided_kg(
                 )
                 from ontographrag.kg.loaders.kg_loader import KGLoader
 
-                _dup_loader = KGLoader()
-                _dup_kg = (
+                _dup_loader: KGLoader = KGLoader()
+                _dup_kg: ImportedGraph | LoaderFailure | None = (
                     _dup_loader.load_from_neo4j(
                         uri=_neo4j_uri,
                         user=_neo4j_user,
@@ -1172,7 +1256,7 @@ async def create_ontology_guided_kg(
         # Get LLM provider (use defaults matching test if not specified)
         provider = provider or "openrouter"
         model = model or "openai/gpt-oss-120b:free"
-        llm = TemperatureLockedProvider(
+        llm: TemperatureLockedProvider = TemperatureLockedProvider(
             get_llm_provider(provider, model), temperature=0.0
         )
 
@@ -1184,8 +1268,8 @@ async def create_ontology_guided_kg(
                 ontology_file.filename,
                 getattr(ontology_file, "content_type", "unknown"),
             )
-            ontology_data = await ontology_file.read()
-            ontology_filename = f"ontology_{uuid.uuid4()}{os.path.splitext(os.path.basename(ontology_file.filename))[1]}"
+            ontology_data: bytes = await ontology_file.read()
+            ontology_filename: str = f"ontology_{uuid.uuid4()}{os.path.splitext(os.path.basename(ontology_file.filename))[1]}"
             ontology_path = os.path.join(tempfile.gettempdir(), ontology_filename)
             with open(ontology_path, "wb") as tmpf:
                 tmpf.write(ontology_data)
@@ -1194,7 +1278,7 @@ async def create_ontology_guided_kg(
             )
 
             # Schema validation — fail early with readable errors
-            ontology_errors = validate_ontology_schema(
+            ontology_errors: list[str] = validate_ontology_schema(
                 ontology_data, ontology_file.filename
             )
             if ontology_errors:
@@ -1223,7 +1307,7 @@ async def create_ontology_guided_kg(
         neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD", "password")
         neo4j_database = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
 
-        kg_creator = UnifiedOntologyGuidedKGCreator(
+        kg_creator: UnifiedOntologyGuidedKGCreator = UnifiedOntologyGuidedKGCreator(
             chunk_size=2000,  # Larger chunks for better patient report context
             chunk_overlap=300,
             ontology_path=ontology_path,
@@ -1246,7 +1330,7 @@ async def create_ontology_guided_kg(
         # Generate KG with ontology guidance (or without if no ontology provided)
         # Run in a thread so the blocking LLM/Neo4j calls don't block the event loop.
         _log_progress("🔍 Extracting entities and relationships…")
-        kg = await asyncio.to_thread(
+        kg: KnowledgeGraph = await asyncio.to_thread(
             kg_creator.generate_knowledge_graph,
             text_content,
             llm,
@@ -1261,12 +1345,12 @@ async def create_ontology_guided_kg(
         invalidate_rag_system(f"KG built: {kg_name}")
 
         # Log results like test script
-        entities = kg.get("metadata", {}).get("total_entities", 0)
-        relationships = kg.get("metadata", {}).get(
+        entities: int = kg.get("metadata", {}).get("total_entities", 0)
+        relationships: int = kg.get("metadata", {}).get(
             "stored_relationships",
             kg.get("metadata", {}).get("total_relationships", 0),
         )
-        stored = kg.get("metadata", {}).get("stored_in_neo4j", False)
+        stored: bool = kg.get("metadata", {}).get("stored_in_neo4j", False)
 
         logger.info(
             "KG results: %d entities, %d relationships, stored=%s",
@@ -1279,12 +1363,12 @@ async def create_ontology_guided_kg(
         )
 
         # Reload KG from Neo4j to ensure ontology labels are properly displayed
-        loaded_kg = None
+        loaded_kg: ImportedGraph | LoaderFailure | None = None
         if stored:
             logger.info("Reloading KG from Neo4j to apply ontology labels")
             from ontographrag.kg.loaders.kg_loader import KGLoader
 
-            kg_loader = KGLoader()
+            kg_loader: KGLoader = KGLoader()
             reload_success: bool = False
             if kg_name:
                 # Load by KG name (ontology label) - now includes Document nodes
@@ -1305,12 +1389,14 @@ async def create_ontology_guided_kg(
                     reload_success = True
 
             if reload_success:
-                loaded_entities = (
+                # This flag is set only after a nonempty loader success payload.
+                loaded_kg = cast("ImportedGraph", loaded_kg)
+                loaded_entities: int = (
                     loaded_kg.get("loaded_nodes", 0)
                     if "loaded_nodes" in loaded_kg
                     else len(loaded_kg.get("nodes", []))
                 )
-                loaded_relationships = (
+                loaded_relationships: int = (
                     loaded_kg.get("loaded_relationships", 0)
                     if "loaded_relationships" in loaded_kg
                     else len(loaded_kg.get("relationships", []))
@@ -1325,12 +1411,12 @@ async def create_ontology_guided_kg(
                 loaded_kg = None
 
         # Use reloaded KG data if available and valid, otherwise use initial KG
-        final_kg_data = (
+        final_kg_data: ImportedGraph | LoaderFailure | KnowledgeGraph = (
             loaded_kg if loaded_kg and loaded_kg.get("status") == "success" else kg
         )
 
-        method = "ontology_guided" if ontology_path else "basic_llm"
-        determinism_improvements = [
+        method: str = "ontology_guided" if ontology_path else "basic_llm"
+        determinism_improvements: list[str | None] = [
             "fixed_chunk_size",
             "temperature=0_for_all_LLMs",
             "node_label_fix",
@@ -1373,17 +1459,27 @@ async def create_ontology_guided_kg(
                 pass
 
 
+# SlowAPI's async branch awaits the endpoint and returns that same response;
+# its sync branch likewise returns the endpoint result unchanged. The callable
+# facade types that inspected behavior without adding a runtime wrapper.
+# FastAPI evaluates this request annotation. Keep its permissive, unparameterized
+# dictionary schema; extracted values remain opaque until existing checks narrow them.
 @app.post("/chat")
-@limiter.limit("30/minute")
-async def chat(request: Request, body: dict = Body(..., max_length=65536)):
+@cast(EndpointLimitFactory, limiter.limit)("30/minute")
+async def chat(
+    request: Request, body: dict = Body(..., max_length=65536)
+) -> JSONResponse:
     """
     Enhanced KG-focused RAG chat that ensures responses come from KG alone.
     Supports optional kg_name parameter to filter retrieval to a specific named KG.
     """
+    # FastAPI's dictionary contract proves only this opaque mapping view. It does
+    # not prove the types of provider names, document members, or other fields.
+    payload: Mapping[object, object] = cast(Mapping[object, object], body)
     require_neo4j()
     try:
-        request_id = _request_id_for(request)
-        question = body.get("question", "")
+        request_id: str = _request_id_for(request)
+        question: object = payload.get("question", "")
         if not question or not isinstance(question, str):
             raise HTTPException(status_code=422, detail="Missing question")
         if len(question) > 4096:
@@ -1391,29 +1487,29 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
                 status_code=422, detail="Question too long (max 4096 chars)"
             )
 
-        docs = body.get("document_names", [])
+        docs: object = payload.get("document_names", [])
         if docs is not None and not isinstance(docs, list):
             raise HTTPException(
                 status_code=422, detail="document_names must be a list of strings"
             )
-        session = body.get("session_id", "default_session")
-        mode = body.get("mode", "default")
-        provider = body.get("provider_rag", "openrouter")
-        model = body.get("model_rag", "openai/gpt-oss-120b:free")
-        kg_name = body.get("kg_name", None)
+        session: object = payload.get("session_id", "default_session")
+        mode: object = payload.get("mode", "default")
+        provider: object = payload.get("provider_rag", "openrouter")
+        model: object = payload.get("model_rag", "openai/gpt-oss-120b:free")
+        kg_name: object = payload.get("kg_name", None)
         dataset_name, task_type = _normalize_dataset_and_task(
-            body.get("dataset_name"),
-            body.get("task_type"),
+            payload.get("dataset_name"),
+            payload.get("task_type"),
         )
-        explicit_answer_instructions = str(
-            body.get("answer_instructions", "") or ""
+        explicit_answer_instructions: str = str(
+            payload.get("answer_instructions", "") or ""
         ).strip()
-        answer_instructions = explicit_answer_instructions or (
+        answer_instructions: str = explicit_answer_instructions or (
             build_answer_instructions(dataset_name, task_type)
             if dataset_name and task_type
             else ""
         )
-        _guardrail_default = str(
+        _guardrail_default: bool = str(
             os.getenv("ONTOGRAPHRAG_RUNTIME_ANSWER_GUARDRAIL", "1")
         ).strip().lower() in {
             "1",
@@ -1421,7 +1517,7 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
             "yes",
             "on",
         }
-        runtime_guardrail = body.get("runtime_guardrail", _guardrail_default)
+        runtime_guardrail: object = payload.get("runtime_guardrail", _guardrail_default)
         if isinstance(runtime_guardrail, str):
             runtime_guardrail = runtime_guardrail.strip().lower() in {
                 "1",
@@ -1429,7 +1525,7 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
                 "yes",
                 "on",
             }
-        runtime_guardrail_mode = body.get(
+        runtime_guardrail_mode: object = payload.get(
             "runtime_guardrail_mode",
             os.getenv(
                 "ONTOGRAPHRAG_RUNTIME_ANSWER_GUARDRAIL_MODE", "retry_then_abstain"
@@ -1438,14 +1534,14 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
 
         # Validate kg_name exists before querying (avoids confusing empty-result errors)
         if kg_name:
-            _driver = get_graphDB_driver(
+            _driver: Driver | None = get_graphDB_driver(
                 os.getenv("NEO4J_URI", "bolt://localhost:7687"),
                 os.getenv("NEO4J_USERNAME", "neo4j"),
                 os.getenv("NEO4J_PASSWORD", "password"),
                 os.getenv("NEO4J_DATABASE", "neo4j"),
             )
             with _driver.session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as _s:
-                _exists = _s.run(
+                _exists: Record | None = _s.run(
                     "MATCH (d:Document {kgName: $kg_name}) RETURN count(d) AS c",
                     {"kg_name": kg_name},
                 ).single()
@@ -1456,16 +1552,16 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
                 )
 
         # Read embedding model stored on the KG's Document node
-        embedding_model = None
+        embedding_model: str | None = None
         if kg_name:
-            _drv = get_graphDB_driver(
+            _drv: Driver | None = get_graphDB_driver(
                 os.getenv("NEO4J_URI", "bolt://localhost:7687"),
                 os.getenv("NEO4J_USERNAME", "neo4j"),
                 os.getenv("NEO4J_PASSWORD", "password"),
                 os.getenv("NEO4J_DATABASE", "neo4j"),
             )
             with _drv.session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as _s:
-                _doc = _s.run(
+                _doc: Record | None = _s.run(
                     "MATCH (d:Document {kgName: $kg_name}) RETURN d.embeddingModel AS emb LIMIT 1",
                     {"kg_name": kg_name},
                 ).single()
@@ -1473,27 +1569,34 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
             if _doc and _doc["emb"]:
                 embedding_model = _doc["emb"]
 
-        rag_system = get_rag_system(embedding_model=embedding_model)
+        rag_system: EnhancedRAGSystem = get_rag_system(embedding_model=embedding_model)
 
         # Get LLM provider
-        llm = LangChainRunnableAdapter(get_llm_provider(provider, model), model)
+        llm: LangChainRunnableAdapter = LangChainRunnableAdapter(
+            get_llm_provider(provider, model), model
+        )
 
         # Generate response; cap at 120 s to prevent thread pool exhaustion on hung LLMs.
         try:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    rag_system.generate_response,
-                    question,
-                    llm,
-                    docs,
-                    kg_name=kg_name,
-                    answer_instructions=answer_instructions,
-                    # Measure the raw candidate first; support-based abstention is
-                    # applied below so structural/grounding scores stay invariant.
-                    runtime_guardrail=False,
-                    runtime_guardrail_mode=runtime_guardrail_mode,
+            # The producer fields remain intact; this layer adds optional wire fields
+            # and replaces the guardrail verdict on the same dictionary.
+            result: ChatGenerationResponse = cast(
+                ChatGenerationResponse,
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        rag_system.generate_response,
+                        question,
+                        llm,
+                        cast(list[object] | None, docs),
+                        kg_name=kg_name,
+                        answer_instructions=answer_instructions,
+                        # Measure the raw candidate first; support-based abstention is
+                        # applied below so structural/grounding scores stay invariant.
+                        runtime_guardrail=False,
+                        runtime_guardrail_mode=runtime_guardrail_mode,
+                    ),
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
                 ),
-                timeout=_REQUEST_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
             raise HTTPException(
@@ -1505,7 +1608,7 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
             )
 
         if "response" in result and dataset_name and task_type:
-            normalized_response = normalize_answer_to_contract(
+            normalized_response: str = normalize_answer_to_contract(
                 dataset_name,
                 task_type,
                 result.get("response", ""),
@@ -1526,24 +1629,28 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
                     compute_graph_path_support_detailed,
                 )
 
-                _gps_detail = compute_graph_path_support_detailed(
-                    question=question,
-                    answer=result["response"],
-                    neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-                    neo4j_user=os.getenv("NEO4J_USERNAME", "neo4j"),
-                    neo4j_password=os.getenv("NEO4J_PASSWORD", "password"),
-                    neo4j_database=os.getenv("NEO4J_DATABASE", "neo4j"),
-                    kg_name=kg_name,
+                _gps_detail: GraphPathSupportDetail = (
+                    compute_graph_path_support_detailed(
+                        question=question,
+                        answer=result["response"],
+                        neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+                        neo4j_user=os.getenv("NEO4J_USERNAME", "neo4j"),
+                        neo4j_password=os.getenv("NEO4J_PASSWORD", "password"),
+                        neo4j_database=os.getenv("NEO4J_DATABASE", "neo4j"),
+                        kg_name=kg_name,
+                    )
                 )
                 kg_confidence_null_reason = _gps_detail.get("null_reason")
-                _gps = _gps_detail.get("score")
+                _gps: float | None = _gps_detail.get("score")
                 if not kg_confidence_null_reason and _gps is not None:
                     kg_confidence = round(1.0 - float(_gps), 3)
             except Exception as _conf_err:
                 logger.debug("GPS confidence computation skipped: %s", _conf_err)
 
-        grounding_support = result.get("context", {}).get("grounding_quality")
-        support_guardrail = build_support_guardrail_verdict(
+        grounding_support: float | None = result.get("context", {}).get(
+            "grounding_quality"
+        )
+        support_guardrail: SupportGuardrailVerdict = build_support_guardrail_verdict(
             enabled=bool(runtime_guardrail),
             mode=str(runtime_guardrail_mode or ""),
             structural_support=kg_confidence,
@@ -1647,12 +1754,12 @@ async def chat(request: Request, body: dict = Body(..., max_length=65536)):
         raise HTTPException(status_code=500, detail=f"KG-RAG Error: {e!s}")
 
 
-@app.get("/models/{provider}")
-def list_models(provider: str):
+@app.get("/models/{provider}", response_model=None)
+def list_models(provider: str) -> ModelList:
     """
     Return available models for provider.
     """
-    model_map = {
+    model_map: dict[str, list[str | None]] = {
         "openai": [
             "gpt-4o",
             "gpt-4o-mini",
@@ -1677,7 +1784,7 @@ def list_models(provider: str):
         try:
             import ollama
 
-            tags = ollama.list()
+            tags: ListResponse = ollama.list()
             model_map["ollama"] = [m.model for m in tags.models]
         except Exception:
             pass
@@ -1686,7 +1793,7 @@ def list_models(provider: str):
 
 
 @app.post("/clear_kg")
-async def clear_kg(kg_name: str = Form(None)):
+async def clear_kg(kg_name: str = Form(None)) -> JSONResponse:
     """
     Delete a knowledge graph from Neo4j.
 
@@ -1697,7 +1804,7 @@ async def clear_kg(kg_name: str = Form(None)):
     """
     require_neo4j()
     try:
-        driver = get_graphDB_driver(
+        driver: Driver | None = get_graphDB_driver(
             os.getenv("NEO4J_URI"),
             os.getenv("NEO4J_USERNAME"),
             os.getenv("NEO4J_PASSWORD"),
@@ -1709,12 +1816,12 @@ async def clear_kg(kg_name: str = Form(None)):
                 # Scoped delete: only nodes belonging to this KG
                 logger.info("Deleting KG '%s' from Neo4j", kg_name)
 
-                result = session.run(
+                result: Result = session.run(
                     "MATCH (n {kgName: $kg_name}) DETACH DELETE n RETURN count(n) AS deleted_count",
                     {"kg_name": kg_name},
                 )
-                record = result.single()
-                deleted_count = record["deleted_count"] if record else 0
+                record: Record | None = result.single()
+                deleted_count: int = record["deleted_count"] if record else 0
                 logger.info("Deleted %d nodes for KG '%s'", deleted_count, kg_name)
                 invalidate_rag_system(f"KG cleared: {kg_name}")
 
@@ -1732,11 +1839,11 @@ async def clear_kg(kg_name: str = Form(None)):
 
             # Drop constraints
             try:
-                constraints = [
+                constraints: list[str] = [
                     record["name"] for record in session.run("SHOW CONSTRAINTS")
                 ]
                 for name in constraints:
-                    safe = name.replace("`", "")
+                    safe: str = name.replace("`", "")
                     try:
                         session.run(f"DROP CONSTRAINT `{safe}`")
                         logger.debug("Dropped constraint: %s", safe)
@@ -1747,7 +1854,7 @@ async def clear_kg(kg_name: str = Form(None)):
 
             # Drop indexes
             try:
-                indexes = [
+                indexes: list[str] = [
                     record["name"]
                     for record in session.run("SHOW INDEXES")
                     if record["type"] != "LOOKUP"
@@ -1800,7 +1907,7 @@ async def save_kg_to_neo4j(
     uri: str = Form(...),
     user: str = Form(...),
     password: str = Form(...),
-):
+) -> JSONResponse:
     """
     Save knowledge graph data to Neo4j database.
     """
@@ -1815,10 +1922,12 @@ async def save_kg_to_neo4j(
                 detail="No graph data available to save. Load a KG first.",
             )
 
-        driver = get_graphDB_driver(uri, user, password, os.getenv("NEO4J_DATABASE"))
+        driver: Driver | None = get_graphDB_driver(
+            uri, user, password, os.getenv("NEO4J_DATABASE")
+        )
 
-        nodes_saved = 0
-        relationships_saved = 0
+        nodes_saved: int = 0
+        relationships_saved: int = 0
 
         with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
             # Clear existing data first (optional - you might want to keep this or make it configurable)
@@ -1830,13 +1939,13 @@ async def save_kg_to_neo4j(
 
             # Save nodes
             for node in current_graph_data.get("nodes", []):
-                labels = node.get("labels", [])
+                labels: list[str] = node.get("labels", [])
                 if not labels:
                     labels = ["Entity"]  # Default label
 
                 # Build Cypher MERGE query
-                label_str = ":".join(f"`{label}`" for label in labels)
-                properties = {}
+                label_str: str = ":".join(f"`{label}`" for label in labels)
+                properties: dict[str, object] = {}
 
                 # Copy node properties, excluding internal ones
                 for k, v in node.get("properties", {}).items():
@@ -1850,18 +1959,20 @@ async def save_kg_to_neo4j(
                     properties["id"] = str(node["id"])
 
                 # Build parameterized MERGE query
-                prop_str = ", ".join(f"`{k}`: ${k}" for k, v in properties.items())
+                prop_str: str = ", ".join(f"`{k}`: ${k}" for k, v in properties.items())
                 if prop_str:
-                    merge_query = f"MERGE (n:{label_str} {{ {prop_str} }})"
+                    merge_query: str = f"MERGE (n:{label_str} {{ {prop_str} }})"
                 else:
                     # Fallback for nodes with no properties - use id if available
-                    node_id = properties.get(
+                    node_id: object = properties.get(
                         "id", str(node.get("id", str(uuid.uuid4())))
                     )
                     merge_query = f"MERGE (n:{label_str} {{ id: '{node_id}' }})"
 
                 try:
-                    param_dict = {k: v for k, v in properties.items()}
+                    param_dict: dict[str, object] = {
+                        k: v for k, v in properties.items()
+                    }
                     session.run(merge_query, param_dict)
                     nodes_saved += 1
                 except Exception as e:
@@ -1870,9 +1981,9 @@ async def save_kg_to_neo4j(
 
             # Save relationships
             for rel in current_graph_data.get("relationships", []):
-                start_id = rel.get("start") or rel.get("from")
-                end_id = rel.get("end") or rel.get("to")
-                rel_type = rel.get("type", "RELATED_TO")
+                start_id: str | int | None = rel.get("start") or rel.get("from")
+                end_id: str | int | None = rel.get("end") or rel.get("to")
+                rel_type: str = rel.get("type", "RELATED_TO")
 
                 if not start_id or not end_id:
                     continue
@@ -1884,9 +1995,9 @@ async def save_kg_to_neo4j(
                         properties[k] = v
 
                 prop_str = ", ".join(f"`{k}`: ${k}" for k, v in properties.items())
-                rel_prop = f" {{{prop_str}}}" if prop_str else ""
+                rel_prop: str = f" {{{prop_str}}}" if prop_str else ""
 
-                match_query = f"""
+                match_query: str = f"""
                 MATCH (a), (b)
                 WHERE id(a) = $start_id AND id(b) = $end_id
                 MERGE (a)-[r:`{rel_type}`{rel_prop}]->(b)
@@ -1927,26 +2038,28 @@ async def load_kg_from_neo4j(
     sample_mode: bool = Form(False),
     load_complete: bool = Form(False),
     kg_label: str = Form(None),
-):
+) -> JSONResponse:
     """
     Load the entire KG from Neo4j with optional sampling and filtering.
     """
     require_neo4j()
     try:
-        driver = get_graphDB_driver(
+        driver: Driver | None = get_graphDB_driver(
             os.getenv("NEO4J_URI"),
             os.getenv("NEO4J_USERNAME"),
             os.getenv("NEO4J_PASSWORD"),
             os.getenv("NEO4J_DATABASE"),
         )
         with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
-            total_nodes = session.run("MATCH (n) RETURN count(n) AS c").single()["c"]
-            total_rels = session.run("MATCH ()-[r]->() RETURN count(r) AS c").single()[
+            total_nodes: int = session.run("MATCH (n) RETURN count(n) AS c").single()[
                 "c"
             ]
+            total_rels: int = session.run(
+                "MATCH ()-[r]->() RETURN count(r) AS c"
+            ).single()["c"]
 
-            def _serialize_props(raw_props: dict) -> dict:
-                props = {}
+            def _serialize_props(raw_props: dict[str, object]) -> dict[str, object]:
+                props: dict[str, object] = {}
                 for k, v in raw_props.items():
                     if hasattr(v, "isoformat"):
                         props[k] = v.isoformat()
@@ -1954,12 +2067,14 @@ async def load_kg_from_neo4j(
                         props[k] = v
                 return props
 
-            _seen_node_ids: set = set()
+            _seen_node_ids: set[int] = set()
 
-            def _append_node(nodes_list: list, node_obj) -> None:
+            def _append_node(
+                nodes_list: list[GraphViewNode], node_obj: "Node | None"
+            ) -> None:
                 if node_obj is None:
                     return
-                nid = node_obj.id
+                nid: int = node_obj.id
                 if nid in _seen_node_ids:
                     return
                 _seen_node_ids.add(nid)
@@ -1972,7 +2087,10 @@ async def load_kg_from_neo4j(
                 )
 
             def _append_relationship(
-                rels_list: list, rel_obj, start_node, end_node
+                rels_list: list[GraphViewRelationship],
+                rel_obj: "Relationship | None",
+                start_node: "Node | None",
+                end_node: "Node | None",
             ) -> None:
                 if rel_obj is None or start_node is None or end_node is None:
                     return
@@ -1987,7 +2105,7 @@ async def load_kg_from_neo4j(
                 )
 
             # If kg_label is provided, check if it matches a KG name (Document.kgName)
-            kg_name_match = 0
+            kg_name_match: int = 0
             if kg_label:
                 kg_name_match = session.run(
                     "MATCH (d:Document {kgName: $kg_name}) RETURN count(d) AS c",
@@ -1998,11 +2116,11 @@ async def load_kg_from_neo4j(
                 # Load by KG name — only __Entity__ + Document nodes, entity-to-entity edges.
                 # Chunk and Mention infrastructure nodes are intentionally excluded from the
                 # visualization so the graph matches what the creation flow renders.
-                nodes = []
-                relationships = []
+                nodes: list[GraphViewNode] = []
+                relationships: list[GraphViewRelationship] = []
 
                 # Document node for this KG
-                doc_records = session.run(
+                doc_records: Result = session.run(
                     "MATCH (d:Document {kgName: $kg_name}) RETURN d",
                     {"kg_name": kg_label},
                 )
@@ -2012,17 +2130,17 @@ async def load_kg_from_neo4j(
                 # Load entity nodes scoped to this KG using the kgName property on each entity.
                 # Previously used a Document←Chunk→Entity path, which silently excluded any
                 # entity that wasn't linked to a chunk (mention-linking miss) → wrong counts.
-                entity_nodes = []
-                entity_ids = []
-                order_clause = "ORDER BY rand()" if sample_mode else ""
-                entity_limit = f"LIMIT {limit}" if not load_complete else ""
-                entity_records = session.run(
+                entity_nodes: list[Node] = []
+                entity_ids: list[int] = []
+                order_clause: str = "ORDER BY rand()" if sample_mode else ""
+                entity_limit: str = f"LIMIT {limit}" if not load_complete else ""
+                entity_records: Result = session.run(
                     f"MATCH (e:__Entity__ {{kgName: $kg_name}})"
                     f" RETURN DISTINCT e {order_clause} {entity_limit}",
                     {"kg_name": kg_label},
                 )
                 for record in entity_records:
-                    entity = record.get("e")
+                    entity: Node | None = record.get("e")
                     if entity is None:
                         continue
                     entity_nodes.append(entity)
@@ -2031,13 +2149,13 @@ async def load_kg_from_neo4j(
 
                 # Warn if any loaded entity has a kgName that differs from the requested KG
                 if entity_ids:
-                    shared_check = session.run(
+                    shared_check: Record | None = session.run(
                         "MATCH (e:__Entity__) "
                         "WHERE id(e) IN $eids AND e.kgName <> $kg_name "
                         "RETURN count(DISTINCT e) AS shared_count",
                         {"eids": entity_ids, "kg_name": kg_label},
                     ).single()
-                    shared_count = (shared_check or {}).get("shared_count", 0)
+                    shared_count: int = (shared_check or {}).get("shared_count", 0)
                     if shared_count:
                         logging.warning(
                             "%d entities in KG '%s' are also referenced by other KGs — visualization may include shared entities",
@@ -2047,7 +2165,7 @@ async def load_kg_from_neo4j(
 
                 # Entity-to-entity relationships only
                 if entity_ids:
-                    entity_rel_records = session.run(
+                    entity_rel_records: Result = session.run(
                         "MATCH (a:__Entity__)-[r]->(b:__Entity__) "
                         "WHERE id(a) IN $entity_ids AND id(b) IN $entity_ids "
                         "RETURN r, a AS start, b AS end",
@@ -2067,8 +2185,8 @@ async def load_kg_from_neo4j(
                         )
 
                 # Read KG creation settings from Document node
-                kg_settings = None
-                doc_record = session.run(
+                kg_settings: GraphSettings | None = None
+                doc_record: Record | None = session.run(
                     "MATCH (d:Document {kgName: $kg_name}) "
                     "RETURN d.provider AS provider, d.model AS model, "
                     "d.embeddingModel AS embeddingModel, d.maxChunks AS maxChunks LIMIT 1",
@@ -2082,7 +2200,7 @@ async def load_kg_from_neo4j(
                         "maxChunks": doc_record["maxChunks"],
                     }
 
-                stats = {
+                stats: GraphImportStats = {
                     "total_nodes_in_db": total_nodes,
                     "total_relationships_in_db": total_rels,
                     "loaded_nodes": len(nodes),
@@ -2103,20 +2221,22 @@ async def load_kg_from_neo4j(
             # Fallback: no kg_label match — load all __Entity__ nodes and their
             # entity-to-entity relationships only (exclude Document/Chunk/Mention).
             order_clause = "ORDER BY rand()" if sample_mode else ""
-            limit_clause = f"LIMIT {limit}" if not load_complete else ""
-            node_query = f"MATCH (n:__Entity__) RETURN n {order_clause} {limit_clause}"
+            limit_clause: str = f"LIMIT {limit}" if not load_complete else ""
+            node_query: str = (
+                f"MATCH (n:__Entity__) RETURN n {order_clause} {limit_clause}"
+            )
 
             nodes = []
             for record in session.run(node_query):
                 _append_node(nodes, record["n"])
 
-            loaded_node_ids = [
+            loaded_node_ids: list[str | int] = [
                 node["id"] for node in nodes
             ]  # application-level id strings, not Neo4j internal IDs
 
             relationships = []
             query: str = "MATCH (n:__Entity__)-[r]->(m:__Entity__) WHERE n.id IN $node_ids AND m.id IN $node_ids RETURN r, n AS start, m AS end"
-            rel_params = {"node_ids": loaded_node_ids}
+            rel_params: dict[str, list[str | int]] = {"node_ids": loaded_node_ids}
 
             for record in session.run(query, rel_params):
                 _append_relationship(
@@ -2147,28 +2267,28 @@ async def load_kg_from_neo4j(
 
 
 @app.post("/validate_csv")
-async def validate_csv(csv_file: UploadFile = File(...)):
+async def validate_csv(csv_file: UploadFile = File(...)) -> JSONResponse:
     """
     Validate CSV file format and structure for medical reports.
     """
-    csv_path = None
+    csv_path: str | None = None
     try:
         logger.info("Validating CSV file: %s", csv_file.filename)
 
         # Save uploaded file temporarily
-        data = await csv_file.read()
-        tmp_dir = tempfile.gettempdir()
+        data: bytes = await csv_file.read()
+        tmp_dir: str = tempfile.gettempdir()
         csv_path = os.path.join(tmp_dir, f"validate_{uuid.uuid4()}.csv")
 
         await asyncio.to_thread(lambda: open(csv_path, "wb").write(data))
 
         # Initialize CSV processor
-        processor = MedicalReportCSVProcessor(delimiter="|")
+        processor: MedicalReportCSVProcessor = MedicalReportCSVProcessor(delimiter="|")
 
         # Validate format (blocking I/O — run in thread)
-        validation_result = await asyncio.to_thread(
-            processor.validate_csv_format, csv_path
-        )
+        validation_result: (
+            MedicalCSVValidation | CSVValidationFailure
+        ) = await asyncio.to_thread(processor.validate_csv_format, csv_path)
 
         return JSONResponse(
             content={
@@ -2216,7 +2336,7 @@ async def bulk_process_csv(
     max_chunks: int = Form(
         20, description="Maximum number of chunks to process per document (for testing)"
     ),
-):
+) -> JSONResponse:
     """
     Process documents from any CSV in bulk batches, guided by the loaded ontology.
 
@@ -2224,7 +2344,7 @@ async def bulk_process_csv(
     Only `text_column` needs to match a column in your CSV.
     """
     require_neo4j()
-    csv_path = None
+    csv_path: str | None = None
     try:
         logger.info(
             "Starting bulk CSV processing: %s (batch=%d, start=%d)",
@@ -2234,25 +2354,25 @@ async def bulk_process_csv(
         )
 
         # Save uploaded file temporarily
-        data = await csv_file.read()
-        tmp_dir = tempfile.gettempdir()
+        data: bytes = await csv_file.read()
+        tmp_dir: str = tempfile.gettempdir()
         csv_path = os.path.join(tmp_dir, f"bulk_{uuid.uuid4()}.csv")
 
         await asyncio.to_thread(lambda: open(csv_path, "wb").write(data))
 
         # Initialize enhanced KG creator for bulk processing
-        neo4j_password = os.getenv("NEO4J_PASSWORD")
+        neo4j_password: str | None = os.getenv("NEO4J_PASSWORD")
         if not neo4j_password:
             raise HTTPException(
                 status_code=500, detail="NEO4J_PASSWORD environment variable is not set"
             )
 
-        llm = TemperatureLockedProvider(
+        llm: TemperatureLockedProvider = TemperatureLockedProvider(
             get_llm_provider("openrouter", "openai/gpt-oss-120b:free"),
             temperature=0.0,
         )
 
-        kg_creator = UnifiedOntologyGuidedKGCreator(
+        kg_creator: UnifiedOntologyGuidedKGCreator = UnifiedOntologyGuidedKGCreator(
             chunk_size=2000,
             chunk_overlap=300,
             neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
@@ -2265,8 +2385,8 @@ async def bulk_process_csv(
 
         # Process CSV in bulk.
         # Run in a thread so the blocking LLM/Neo4j calls don't block the event loop.
-        resolved_kg_name = kg_name or f"bulk_{str(uuid.uuid4())[:8]}"
-        bulk_result = await asyncio.to_thread(
+        resolved_kg_name: str = kg_name or f"bulk_{str(uuid.uuid4())[:8]}"
+        bulk_result: BulkProcessingResult = await asyncio.to_thread(
             kg_creator.bulk_process_documents,
             csv_path=csv_path,
             text_column=text_column,
@@ -2278,8 +2398,8 @@ async def bulk_process_csv(
         )
         invalidate_rag_system(f"KG bulk build: {resolved_kg_name}")
 
-        metadata = bulk_result.get("metadata", {})
-        kg_id = str(uuid.uuid4())
+        metadata: BulkProcessingMetadata = bulk_result.get("metadata", {})
+        kg_id: str = str(uuid.uuid4())
 
         return JSONResponse(
             content={
@@ -2313,17 +2433,17 @@ async def bulk_process_csv(
 
 
 @app.get("/static/medical_reports_template.csv")
-async def serve_csv_template():
+async def serve_csv_template() -> StreamingResponse:
     """
     Serve the medical reports CSV template for download.
     """
     from starlette.responses import StreamingResponse
 
-    template_path = None
+    template_path: str | None = None
     try:
-        processor = MedicalReportCSVProcessor()
+        processor: MedicalReportCSVProcessor = MedicalReportCSVProcessor()
 
-        tmp_dir = tempfile.gettempdir()
+        tmp_dir: str = tempfile.gettempdir()
         template_path = os.path.join(tmp_dir, f"template_{uuid.uuid4()}.csv")
 
         await asyncio.to_thread(
@@ -2331,9 +2451,11 @@ async def serve_csv_template():
         )
 
         # Read content into memory, then delete the temp file immediately — no threading.Timer needed.
-        content = await asyncio.to_thread(lambda: open(template_path, "rb").read())
+        content: bytes = await asyncio.to_thread(
+            lambda: open(template_path, "rb").read()
+        )
 
-        headers = {
+        headers: dict[str, str] = {
             "Content-Disposition": 'attachment; filename="medical_reports_template.csv"',
             "Content-Type": "text/csv",
         }
@@ -2356,66 +2478,66 @@ async def serve_csv_template():
 
 
 def _probe_openai_models() -> str:
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key: str | None = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
-    response = httpx.get(
+    response: httpx.Response = httpx.get(
         "https://api.openai.com/v1/models",
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=8.0,
     )
     response.raise_for_status()
-    data = response.json().get("data", [])
+    data: list[object] = response.json().get("data", [])
     return f"reachable ({len(data)} models visible)"
 
 
 def _probe_openrouter_models() -> str:
-    api_key = os.getenv("OPENROUTER_API_KEY")
+    api_key: str | None = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY not set")
-    response = httpx.get(
+    response: httpx.Response = httpx.get(
         "https://openrouter.ai/api/v1/models",
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=8.0,
     )
     response.raise_for_status()
-    data = response.json().get("data", [])
+    data: list[object] = response.json().get("data", [])
     return f"reachable ({len(data)} models visible)"
 
 
 def _probe_deepseek_models() -> str:
-    api_key = os.getenv("DEEPSEEK_API_KEY")
+    api_key: str | None = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY not set")
-    response = httpx.get(
+    response: httpx.Response = httpx.get(
         "https://api.deepseek.com/models",
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=8.0,
     )
     response.raise_for_status()
-    data = response.json().get("data", [])
+    data: list[object] = response.json().get("data", [])
     return f"reachable ({len(data)} models visible)"
 
 
 def _probe_gemini_models() -> str:
     import google.generativeai as genai
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key: str | None = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
     genai.configure(api_key=api_key)
-    model = next(iter(genai.list_models()), None)
+    model: Model | None = next(iter(genai.list_models()), None)
     if model is None:
         return "reachable (no public models returned)"
-    model_name = getattr(model, "name", "unknown-model")
+    model_name: str = getattr(model, "name", "unknown-model")
     return f"reachable (sample model: {model_name})"
 
 
 def _probe_ollama_models() -> str:
     import ollama
 
-    tags = ollama.list()
-    models = [m.model for m in getattr(tags, "models", [])]
+    tags: ListResponse = ollama.list()
+    models: list[str | None] = [m.model for m in getattr(tags, "models", [])]
     if not models:
         return "reachable (no local models pulled yet)"
     return f"reachable ({len(models)} local models, sample: {models[0]})"
@@ -2424,12 +2546,12 @@ def _probe_ollama_models() -> str:
 async def run_doctor_checks(
     probe_models: bool = False,
     write_probe_dir: Optional[str] = None,
-) -> dict:
+) -> DoctorReport:
     import importlib
     from datetime import datetime, timezone
 
-    checks: list[dict] = []
-    overall = "ok"
+    checks: list[DoctorCheck] = []
+    overall: str = "ok"
 
     def _add(name: str, status: str, detail: str = "") -> None:
         nonlocal overall
@@ -2451,14 +2573,16 @@ async def run_doctor_checks(
 
     # 2. Neo4j connectivity
     try:
-        _neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        _neo4j_user = os.getenv("NEO4J_USERNAME", "neo4j")
-        _neo4j_pw = os.getenv("NEO4J_PASSWORD", "")
-        _neo4j_db = os.getenv("NEO4J_DATABASE", "neo4j")
-        driver = get_graphDB_driver(_neo4j_uri, _neo4j_user, _neo4j_pw, _neo4j_db)
+        _neo4j_uri: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        _neo4j_user: str = os.getenv("NEO4J_USERNAME", "neo4j")
+        _neo4j_pw: str = os.getenv("NEO4J_PASSWORD", "")
+        _neo4j_db: str = os.getenv("NEO4J_DATABASE", "neo4j")
+        driver: Driver | None = get_graphDB_driver(
+            _neo4j_uri, _neo4j_user, _neo4j_pw, _neo4j_db
+        )
         with driver.session(database=_neo4j_db) as session:
-            rec = session.run("MATCH (n) RETURN count(n) AS c").single()
-            node_count = rec["c"] if rec else 0
+            rec: Record | None = session.run("MATCH (n) RETURN count(n) AS c").single()
+            node_count: int = rec["c"] if rec else 0
         driver.close()
         _add(
             "neo4j",
@@ -2472,11 +2596,15 @@ async def run_doctor_checks(
     try:
         from ontographrag.kg.utils.common_functions import load_embedding_model
 
-        embedding_provider = os.getenv("EMBEDDING_PROVIDER", "sentence_transformers")
+        embedding_provider: str = os.getenv(
+            "EMBEDDING_PROVIDER", "sentence_transformers"
+        )
+        emb_fn: Embeddings
+        emb_dim: int
         emb_fn, emb_dim = await asyncio.to_thread(
             load_embedding_model, embedding_provider
         )
-        test_vec = await asyncio.to_thread(
+        test_vec: list[float] = await asyncio.to_thread(
             emb_fn.embed_query, "ontographrag readiness probe"
         )
         _add(
@@ -2505,7 +2633,7 @@ async def run_doctor_checks(
     try:
         import owlready2  # noqa: F401
 
-        probe_ontology = {
+        probe_ontology: JSONValue = {
             "entity_types": [
                 {
                     "id": "Document",
@@ -2524,7 +2652,7 @@ async def run_doctor_checks(
                 }
             ],
         }
-        errors = validate_ontology_schema(
+        errors: list[str] = validate_ontology_schema(
             json.dumps(probe_ontology).encode("utf-8"),
             "doctor_probe.json",
         )
@@ -2547,11 +2675,11 @@ async def run_doctor_checks(
 
     # 6. Filesystem write permissions
     try:
-        probe_root = (
+        probe_root: Path = (
             Path(write_probe_dir) if write_probe_dir else _DEFAULT_WRITE_PROBE_DIR
         )
         probe_root.mkdir(parents=True, exist_ok=True)
-        probe_file = probe_root / f".ontographrag_write_probe_{os.getpid()}"
+        probe_file: Path = probe_root / f".ontographrag_write_probe_{os.getpid()}"
         probe_file.write_text("ok", encoding="utf-8")
         probe_file.unlink(missing_ok=True)
         _add("write_permissions", "ok", f"Can write to {probe_root}")
@@ -2559,13 +2687,13 @@ async def run_doctor_checks(
         _add("write_permissions", "fail", str(e))
 
     # 7. Provider configuration + optional connectivity probes
-    provider_envs = [
+    provider_envs: list[tuple[str, str]] = [
         ("openai", "OPENAI_API_KEY"),
         ("openrouter", "OPENROUTER_API_KEY"),
         ("gemini", "GEMINI_API_KEY"),
         ("deepseek", "DEEPSEEK_API_KEY"),
     ]
-    configured_providers = [
+    configured_providers: list[str] = [
         name for name, env_var in provider_envs if os.getenv(env_var)
     ]
     for name, env_var in provider_envs:
@@ -2577,7 +2705,7 @@ async def run_doctor_checks(
     try:
         import ollama
 
-        host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         await asyncio.to_thread(ollama.list)
         configured_providers.append("ollama")
         _add("ollama_config", "ok", f"Ollama reachable at {host}")
@@ -2597,7 +2725,7 @@ async def run_doctor_checks(
             "Quick doctor mode — provider presence checked, active model probe skipped",
         )
     else:
-        model_probe_map = {
+        model_probe_map: dict[str, Callable[[], str]] = {
             "openai": _probe_openai_models,
             "openrouter": _probe_openrouter_models,
             "gemini": _probe_gemini_models,
@@ -2605,12 +2733,12 @@ async def run_doctor_checks(
             "ollama": _probe_ollama_models,
         }
         for provider_name in configured_providers:
-            probe_fn = model_probe_map.get(provider_name)
+            probe_fn: Callable[[], str] | None = model_probe_map.get(provider_name)
             if not probe_fn:
                 _add(f"{provider_name}_connectivity", "warn", "No probe available")
                 continue
             try:
-                detail = await asyncio.to_thread(probe_fn)
+                detail: str = await asyncio.to_thread(probe_fn)
                 _add(f"{provider_name}_connectivity", "ok", detail)
             except Exception as e:
                 _add(f"{provider_name}_connectivity", "warn", str(e))
@@ -2625,13 +2753,13 @@ async def run_doctor_checks(
             "APP_API_KEY not set — API is open in current environment",
         )
 
-    origins = os.getenv("ALLOWED_ORIGINS", "*")
+    origins: str = os.getenv("ALLOWED_ORIGINS", "*")
     if origins == "*":
         _add("cors", "warn", "ALLOWED_ORIGINS=* — wide-open CORS (fine for local dev)")
     else:
         _add("cors", "ok", f"ALLOWED_ORIGINS restricted to: {origins}")
 
-    summary = {
+    summary: DoctorSummary = {
         "ok": sum(1 for c in checks if c["status"] == "ok"),
         "warn": sum(1 for c in checks if c["status"] == "warn"),
         "fail": sum(1 for c in checks if c["status"] == "fail"),
@@ -2658,7 +2786,7 @@ async def doctor(
     write_probe_dir: Optional[str] = Query(
         None, description="Directory used for the write-permission probe"
     ),
-):
+) -> JSONResponse:
     return JSONResponse(
         content=await run_doctor_checks(
             probe_models=probe_models, write_probe_dir=write_probe_dir
