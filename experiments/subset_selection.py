@@ -15,12 +15,35 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing_extensions import TypedDict
+
+
+class SubsetIdentity(TypedDict):
+    selection_key: str
+    subset_hash: str
+    subset_tag: str
+    subset_id: str
+
+
+class SubsetPayload(TypedDict, total=False):
+    version: int
+    dataset: str
+    created_at: str
+    selection_strategy: str
+    subset_seed: int
+    requested_num_samples: int | None
+    available_question_count: int
+    selection_count: int
+    question_ids: list[str]
+    selection_key: str
+    subset_hash: str
+    subset_tag: str
+    subset_id: str
 
 
 def sanitize_selection_token(value: str) -> str:
     """Create a filesystem-safe token."""
-    token = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(value or "").strip())
+    token: str = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(value or "").strip())
     return token.strip("_") or "default"
 
 
@@ -42,8 +65,8 @@ def selection_file_path(
     subset_seed: int,
 ) -> Path:
     """Return the persisted selection path for one dataset/seed/sample-count subset."""
-    safe_dataset = sanitize_selection_token(dataset_name)
-    safe_key = sanitize_selection_token(
+    safe_dataset: str = sanitize_selection_token(dataset_name)
+    safe_key: str = sanitize_selection_token(
         selection_key(num_samples=num_samples, subset_seed=subset_seed)
     )
     return base_dir / f"{safe_dataset}__{safe_key}.json"
@@ -51,7 +74,7 @@ def selection_file_path(
 
 def _subset_hash(question_ids: Sequence[str]) -> str:
     """Short stable hash of the selected question IDs."""
-    joined = "\n".join(str(question_id) for question_id in question_ids).encode()
+    joined: bytes = "\n".join(str(question_id) for question_id in question_ids).encode()
     return hashlib.sha1(joined).hexdigest()[:12]
 
 
@@ -61,11 +84,11 @@ def subset_identity(
     question_ids: Sequence[str],
     num_samples: int | None,
     subset_seed: int,
-) -> dict[str, str]:
+) -> SubsetIdentity:
     """Return stable identifiers for a selected dataset subset."""
-    key = selection_key(num_samples=num_samples, subset_seed=subset_seed)
-    subset_hash = _subset_hash(question_ids)
-    tag = f"{key}_h{subset_hash}"
+    key: str = selection_key(num_samples=num_samples, subset_seed=subset_seed)
+    subset_hash: str = _subset_hash(question_ids)
+    tag: str = f"{key}_h{subset_hash}"
     return {
         "selection_key": key,
         "subset_hash": subset_hash,
@@ -86,7 +109,9 @@ def deterministic_subset_ids(
     the original ordered list. This keeps the chosen subset random while making
     evaluation order stable and easy to compare across runs.
     """
-    ordered_ids = [str(record_id) for record_id in ordered_record_ids if str(record_id)]
+    ordered_ids: list[str] = [
+        str(record_id) for record_id in ordered_record_ids if str(record_id)
+    ]
     if not ordered_ids:
         return []
 
@@ -96,8 +121,8 @@ def deterministic_subset_ids(
     if num_samples <= 0:
         return []
 
-    rng = random.Random(int(subset_seed))
-    sampled_ids = set(rng.sample(ordered_ids, int(num_samples)))
+    rng: random.Random = random.Random(int(subset_seed))
+    sampled_ids: set[str] = set(rng.sample(ordered_ids, int(num_samples)))
     return [record_id for record_id in ordered_ids if record_id in sampled_ids]
 
 
@@ -106,7 +131,7 @@ class QuestionSubsetResolution:
     """Result of resolving a dataset question subset."""
 
     question_ids: list[str]
-    payload: dict[str, Any]
+    payload: SubsetPayload
     created: bool
     warnings: list[str]
 
@@ -117,16 +142,16 @@ def _enrich_payload_identity(
     question_ids: Sequence[str],
     requested_num_samples: int | None,
     subset_seed: int,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
+    payload: SubsetPayload,
+) -> SubsetPayload:
     """Backfill stable subset identity fields into the persisted payload."""
-    identity = subset_identity(
+    identity: SubsetIdentity = subset_identity(
         dataset_name=dataset_name,
         question_ids=question_ids,
         num_samples=requested_num_samples,
         subset_seed=subset_seed,
     )
-    payload = dict(payload)
+    payload = payload.copy()
     payload.setdefault("selection_key", identity["selection_key"])
     payload.setdefault("subset_hash", identity["subset_hash"])
     payload.setdefault("subset_tag", identity["subset_tag"])
@@ -145,15 +170,17 @@ def resolve_question_subset(
     force_resample: bool = False,
 ) -> QuestionSubsetResolution:
     """Load or create a persisted deterministic question subset."""
-    ordered_ids = [
+    ordered_ids: list[str] = [
         str(question_id) for question_id in available_question_ids if str(question_id)
     ]
-    available_id_set = set(ordered_ids)
-    requested_num_samples = None if num_samples is None else int(num_samples)
+    available_id_set: set[str] = set(ordered_ids)
+    requested_num_samples: int | None = (
+        None if num_samples is None else int(num_samples)
+    )
 
     if selection_path.exists() and not force_resample:
-        payload = json.loads(selection_path.read_text())
-        saved_ids = [
+        payload: SubsetPayload = json.loads(selection_path.read_text())
+        saved_ids: list[str] = [
             str(question_id)
             for question_id in payload.get("question_ids", [])
             if str(question_id)
@@ -163,21 +190,21 @@ def resolve_question_subset(
                 f"Persisted selection at {selection_path} is missing question_ids."
             )
 
-        missing_ids = [
+        missing_ids: list[str] = [
             question_id
             for question_id in saved_ids
             if question_id not in available_id_set
         ]
         if missing_ids:
-            preview = ", ".join(missing_ids[:5])
+            preview: str = ", ".join(missing_ids[:5])
             raise ValueError(
                 f"Persisted selection at {selection_path} contains IDs not present in "
                 f"the current dataset '{dataset_name}': {preview}"
             )
 
         warnings: list[str] = []
-        saved_seed = payload.get("subset_seed")
-        saved_requested = payload.get("requested_num_samples")
+        saved_seed: int | None = payload.get("subset_seed")
+        saved_requested: int | None = payload.get("requested_num_samples")
         if saved_seed is not None and int(saved_seed) != int(subset_seed):
             warnings.append(
                 f"Persisted question subset for {dataset_name} uses subset_seed={saved_seed}; "
@@ -211,7 +238,7 @@ def resolve_question_subset(
             f"Rebuild the KG to create one."
         )
 
-    selected_ids = deterministic_subset_ids(
+    selected_ids: list[str] = deterministic_subset_ids(
         ordered_record_ids=ordered_ids,
         num_samples=num_samples,
         subset_seed=subset_seed,
