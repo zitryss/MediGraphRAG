@@ -17,14 +17,57 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Literal, NotRequired, TypeAlias, TypedDict
+
+if TYPE_CHECKING:
+    from openai import OpenAI
+    from openai.types.chat import ChatCompletion
 
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.trust_analysis import REPO, MANIFEST, KEY
+from experiments.trust_analysis import REPO, MANIFEST, KEY, NamedConfig
 from experiments.rejudge_independent import get_client
+
+ConfidenceRow: TypeAlias = tuple[str, str, str, bool]
+
+
+class ConfidenceDetail(TypedDict):
+    question_id: str | int
+    question: str
+    kg_response: NotRequired[str]
+    vanilla_response: NotRequired[str]
+    kg_correct: NotRequired[bool]
+    vanilla_correct: NotRequired[bool]
+    kg_generation_failed: NotRequired[bool]
+    vanilla_generation_failed: NotRequired[bool]
+
+
+class ConfidenceConfig(TypedDict):
+    config: NamedConfig
+    details: list[ConfidenceDetail]
+
+
+class ConfidenceDocument(TypedDict):
+    config_results: list[ConfidenceConfig]
+
+
+class ConfidenceSummary(TypedDict):
+    n: int
+    auroc: float | None
+    n_failed: NotRequired[int]
+    mean_conf_correct: NotRequired[float | None]
+    mean_conf_wrong: NotRequired[float | None]
+
+
+class ConfidenceReport(TypedDict):
+    model: str
+    kg: NotRequired[dict[str, ConfidenceSummary]]
+    vanilla: NotRequired[dict[str, ConfidenceSummary]]
+
 
 MODEL: str = "openai/gpt-4o-mini"
 SYSTEM: str = (
@@ -38,10 +81,12 @@ USER_TMPL: str = (
 )
 
 
-def ask_conf(client, question, response, retries=3):
+def ask_conf(
+    client: "OpenAI", question: str, response: str, retries: int = 3
+) -> float | None:
     for attempt in range(retries):
         try:
-            r = client.chat.completions.create(
+            r: "ChatCompletion" = client.chat.completions.create(
                 model=MODEL,
                 temperature=0.0,
                 max_tokens=8,
@@ -55,9 +100,10 @@ def ask_conf(client, question, response, retries=3):
                     },
                 ],
             )
-            txt = (r.choices[0].message.content or "").strip()
-            m = re.search(r"\d*\.?\d+", txt)
+            txt: str = (r.choices[0].message.content or "").strip()
+            m: re.Match[str] | None = re.search(r"\d*\.?\d+", txt)
             if m:
+                p: float | None
                 p = float(m.group(0))
                 if p > 1:
                     p = p / 100.0 if p <= 100 else None
@@ -68,43 +114,58 @@ def ask_conf(client, question, response, retries=3):
     return None
 
 
-def load_details(slug, policy):
-    doc = json.load(open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])))
-    cfg_prefix = "kg_entity_first" if policy == "kg" else "dense_floor"
-    details = next(
+def load_details(slug: str, policy: str) -> list[ConfidenceRow]:
+    doc: ConfidenceDocument = json.load(
+        open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"]))
+    )
+    cfg_prefix: str = "kg_entity_first" if policy == "kg" else "dense_floor"
+    details: list[ConfidenceDetail] = next(
         c for c in doc["config_results"] if c["config"]["name"].startswith(cfg_prefix)
     )["details"]
-    prefix = "kg" if policy == "kg" else "vanilla"
+    prefix: Literal["kg", "vanilla"] = "kg" if policy == "kg" else "vanilla"
     return [
         (
             str(r["question_id"]),
             r["question"],
-            r[f"{prefix}_response"],
-            bool(r[f"{prefix}_correct"]),
+            r["kg_response"] if prefix == "kg" else r["vanilla_response"],
+            bool(r["kg_correct"] if prefix == "kg" else r["vanilla_correct"]),
         )
         for r in details
-        if not r.get(f"{prefix}_generation_failed")
+        if not (
+            r.get("kg_generation_failed")
+            if prefix == "kg"
+            else r.get("vanilla_generation_failed")
+        )
     ]
 
 
 def main() -> None:
-    client = get_client()
-    out = {"model": MODEL}
-    for policy in ("kg", "vanilla"):
-        out[policy] = {}
+    client: "OpenAI" = get_client()
+    out: ConfidenceReport = {"model": MODEL}
+    policies: tuple[Literal["kg"], Literal["vanilla"]] = ("kg", "vanilla")
+    for policy in policies:
+        policy_result: dict[str, ConfidenceSummary] = {}
+        out[policy] = policy_result
+        pooled_u: list[float]
+        pooled_w: list[int]
         pooled_u, pooled_w = [], []
         for slug in KEY:
-            rows = load_details(slug, policy)
+            rows: list[ConfidenceRow] = load_details(slug, policy)
             print(f"[{slug}/{policy}] querying {len(rows)} confidences ...", flush=True)
             with ThreadPoolExecutor(max_workers=8) as ex:
-                ps = list(ex.map(lambda t: ask_conf(client, t[1], t[2]), rows))
-            ok = [(r, p) for r, p in zip(rows, ps) if p is not None]
-            u = [1.0 - p for _, p in ok]
-            w = [int(not r[3]) for r, _ in ok]
-            auc = (
+                scorer: Callable[[ConfidenceRow], float | None] = lambda t: ask_conf(
+                    client, t[1], t[2]
+                )
+                ps: list[float | None] = list(ex.map(scorer, rows))
+            ok: list[tuple[ConfidenceRow, float]] = [
+                (r, p) for r, p in zip(rows, ps) if p is not None
+            ]
+            u: list[float] = [1.0 - p for _, p in ok]
+            w: list[int] = [int(not r[3]) for r, _ in ok]
+            auc: float | None = (
                 float(roc_auc_score(w, u)) if len(set(w)) > 1 and len(w) > 10 else None
             )
-            out[policy][slug] = {
+            policy_result[slug] = {
                 "n": len(ok),
                 "n_failed": len(rows) - len(ok),
                 "auroc": auc,
@@ -122,7 +183,7 @@ def main() -> None:
                 f"(n={len(ok)})",
                 flush=True,
             )
-        out[policy]["pooled"] = {
+        policy_result["pooled"] = {
             "n": len(pooled_w),
             "auroc": (
                 float(roc_auc_score(pooled_w, pooled_u))
@@ -130,7 +191,7 @@ def main() -> None:
                 else None
             ),
         }
-    dest = os.path.join(REPO, "results", "analyses", "verbalized_confidence.json")
+    dest: str = os.path.join(REPO, "results", "analyses", "verbalized_confidence.json")
     json.dump(out, open(dest, "w"), indent=1, default=float)
     print("wrote", dest)
 

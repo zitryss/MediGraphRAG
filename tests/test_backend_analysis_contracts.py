@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
+
+if TYPE_CHECKING:
+    from experiments.verbalized_confidence import ConfidenceDocument
 
 
 @pytest.mark.parametrize("name", ["gps_v2_paper_numbers", "gps_v3_depth_matched"])
@@ -555,3 +559,63 @@ def test_migration_figure_artifacts(
     assert (tmp_path / "lockin_migration.pdf").read_bytes().startswith(b"%PDF")
     assert (tmp_path / "lockin_migration.png").read_bytes().startswith(b"\x89PNG")
     module.plt.close("all")
+
+
+@pytest.mark.parametrize(
+    "policy,expected",
+    [
+        ("kg", [("kept", "question", "kg answer", True)]),
+        ("vanilla", [("kept", "question", "dense answer", False)]),
+    ],
+)
+def test_verbal_confidence_load_details_selects_policy_and_excludes_failures(
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    policy: str,
+    expected: list[tuple[str, str, str, bool]],
+) -> None:
+    module: ModuleType = analysis_import("verbalized_confidence")
+    payload: ConfidenceDocument = {
+        "config_results": [
+            {
+                "config": {"name": "kg_entity_first_unit"},
+                "details": [
+                    {
+                        "question_id": "kept",
+                        "question": "question",
+                        "kg_response": "kg answer",
+                        "kg_correct": True,
+                        "vanilla_generation_failed": True,
+                    },
+                    {
+                        "question_id": "failed",
+                        "question": "question",
+                        "kg_generation_failed": True,
+                    },
+                ],
+            },
+            {
+                "config": {"name": "dense_floor_unit"},
+                "details": [
+                    {
+                        "question_id": "kept",
+                        "question": "question",
+                        "vanilla_response": "dense answer",
+                        "vanilla_correct": False,
+                        "kg_generation_failed": True,
+                    },
+                    {
+                        "question_id": "failed",
+                        "question": "question",
+                        "vanilla_generation_failed": True,
+                    },
+                ],
+            },
+        ],
+    }
+    (tmp_path / "result.json").write_text(json.dumps(payload))
+    monkeypatch.setattr(module, "REPO", str(tmp_path))
+    monkeypatch.setattr(module, "KEY", {"unit": "Unit"})
+    monkeypatch.setattr(module, "MANIFEST", {"Unit": {"result_path": "result.json"}})
+    assert module.load_details("unit", policy) == expected
