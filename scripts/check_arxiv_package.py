@@ -15,13 +15,19 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, NoReturn
 
-REPO = Path(__file__).resolve().parents[1]
-PACKAGE = REPO / "reproducibility" / "arxiv_v1"
-MANIFEST = PACKAGE / "MANIFEST.json"
-PAPER = REPO / "paper"
+from typing_extensions import TypedDict
 
-BANNED_SOURCE_PATTERNS = {
+if TYPE_CHECKING:
+    from _hashlib import HASH
+
+REPO: Path = Path(__file__).resolve().parents[1]
+PACKAGE: Path = REPO / "reproducibility" / "arxiv_v1"
+MANIFEST: Path = PACKAGE / "MANIFEST.json"
+PAPER: Path = REPO / "paper"
+
+BANNED_SOURCE_PATTERNS: dict[str, re.Pattern[str]] = {
     "future-tense availability": re.compile(r"\bwill be released\b", re.IGNORECASE),
     "unqualified clinical certificate": re.compile(
         r"\bclinical certificate\b", re.IGNORECASE
@@ -33,56 +39,71 @@ BANNED_SOURCE_PATTERNS = {
 }
 
 
-def fail(message: str) -> None:
+class ManifestFile(TypedDict, total=False):
+    path: str
+    role: str
+    sha256: str
+    size: int
+    source_path: str
+
+
+class Manifest(TypedDict, total=False):
+    files: list[ManifestFile] | None
+    created_at_utc: str
+    description: str
+
+
+def fail(message: str) -> NoReturn:
     print(f"ERROR: {message}", file=sys.stderr)
     raise SystemExit(1)
 
 
 def sha256(path: Path) -> str:
-    h = hashlib.sha256()
+    h: HASH = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
 
 
-def load_manifest() -> dict:
+def load_manifest() -> Manifest:
     if not MANIFEST.exists():
         fail(f"missing manifest: {MANIFEST.relative_to(REPO)}")
     try:
-        return json.loads(MANIFEST.read_text(encoding="utf-8"))
+        manifest: Manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        return manifest
     except json.JSONDecodeError as exc:
         fail(f"manifest is not valid JSON: {exc}")
 
 
-def check_manifest_files(doc: dict) -> None:
-    files = doc.get("files")
+def check_manifest_files(doc: Manifest) -> None:
+    files: list[ManifestFile] | None = doc.get("files")
     if not isinstance(files, list) or not files:
         fail("manifest must contain a non-empty 'files' list")
 
-    required_roles = {
+    required_roles: set[str] = {
         "selection_ids",
         "headline_results",
         "analysis_output",
         "gps_replay",
     }
-    roles = {item.get("role") for item in files}
-    missing_roles = sorted(required_roles - roles)
+    roles: set[str | None] = {item.get("role") for item in files}
+    missing_roles: list[str] = sorted(required_roles - roles)
     if missing_roles:
         fail(f"manifest missing required roles: {missing_roles}")
 
     for item in files:
-        rel = item.get("path")
-        expected_hash = item.get("sha256")
-        expected_size = item.get("size")
+        rel: str | None = item.get("path")
+        expected_hash: str | None = item.get("sha256")
+        expected_size: int | None = item.get("size")
         if not rel or not expected_hash or expected_size is None:
             fail(f"manifest entry missing path/sha256/size: {item}")
-        path = REPO / rel
+        path: Path = REPO / rel
         if not path.exists():
             fail(f"manifest file missing: {rel}")
         if path.stat().st_size != expected_size:
             fail(f"size mismatch for {rel}: {path.stat().st_size} != {expected_size}")
-        actual_hash = sha256(path)
+        actual_hash: str = sha256(path)
         if actual_hash != expected_hash:
             fail(f"sha256 mismatch for {rel}: {actual_hash} != {expected_hash}")
 
@@ -95,19 +116,19 @@ def check_manuscript_wording() -> None:
     for path in paper_sources():
         if not path.exists():
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text: str = path.read_text(encoding="utf-8", errors="replace")
         for label, pattern in BANNED_SOURCE_PATTERNS.items():
-            match = pattern.search(text)
+            match: re.Match[str] | None = pattern.search(text)
             if match:
-                line = text.count("\n", 0, match.start()) + 1
+                line: int = text.count("\n", 0, match.start()) + 1
                 fail(f"{label} found in {path.relative_to(REPO)}:{line}")
 
 
 def strip_latex_comments(text: str) -> str:
-    lines = []
+    lines: list[str] = []
     for line in text.splitlines():
-        out = []
-        escaped = False
+        out: list[str] = []
+        escaped: bool = False
         for char in line:
             if char == "%" and not escaped:
                 break
@@ -120,14 +141,14 @@ def strip_latex_comments(text: str) -> str:
 
 
 def check_figure_inputs() -> None:
-    text = "\n".join(
+    text: str = "\n".join(
         strip_latex_comments(path.read_text(encoding="utf-8", errors="replace"))
         for path in PAPER.glob("*.tex")
     )
 
-    input_refs = re.findall(r"\\input\{figures/([^}]+)\}", text)
+    input_refs: list[str] = re.findall(r"\\input\{figures/([^}]+)\}", text)
     for ref in sorted(set(input_refs)):
-        candidate = PAPER / "figures" / ref
+        candidate: Path = PAPER / "figures" / ref
         if candidate.suffix:
             if not candidate.exists():
                 fail(f"missing figure/table input: {candidate.relative_to(REPO)}")
@@ -136,7 +157,7 @@ def check_figure_inputs() -> None:
                 f"missing figure/table input: {candidate.with_suffix('.tex').relative_to(REPO)}"
             )
 
-    graphic_refs = re.findall(
+    graphic_refs: list[str] = re.findall(
         r"\\includegraphics(?:\[[^\]]*\])?\{figures/([^}]+)\}", text
     )
     for ref in sorted(set(graphic_refs)):
@@ -145,7 +166,7 @@ def check_figure_inputs() -> None:
             if not candidate.exists():
                 fail(f"missing graphic: {candidate.relative_to(REPO)}")
         else:
-            found = any(
+            found: bool = any(
                 candidate.with_suffix(ext).exists()
                 for ext in (".pdf", ".png", ".jpg", ".jpeg")
             )
@@ -154,8 +175,8 @@ def check_figure_inputs() -> None:
 
 
 def run_tectonic() -> None:
-    cmd = ["tectonic", "main_arxiv.tex"]
-    proc = subprocess.run(
+    cmd: list[str] = ["tectonic", "main_arxiv.tex"]
+    proc: subprocess.CompletedProcess[str] = subprocess.run(
         cmd, cwd=PAPER, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
     if proc.returncode != 0:
@@ -164,7 +185,7 @@ def run_tectonic() -> None:
 
 
 def main() -> None:
-    doc = load_manifest()
+    doc: Manifest = load_manifest()
     check_manifest_files(doc)
 
     if not PAPER.is_dir():

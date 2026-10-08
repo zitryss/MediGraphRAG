@@ -21,13 +21,15 @@ from scripts import check_arxiv_package as package
         (None, []),
     ],
 )
-def test_supporting_fact_shapes(support: object, expected: list) -> None:
+def test_supporting_fact_shapes(
+    support: object, expected: list[tuple[str, int]]
+) -> None:
     assert audit._get_supporting_facts({"supporting_facts": support}) == expected
 
 
 def test_graph_presence_adapter_preserves_scope() -> None:
-    driver = MagicMock()
-    session = driver.session.return_value.__enter__.return_value
+    driver: MagicMock = MagicMock()
+    session: MagicMock = driver.session.return_value.__enter__.return_value
     session.run.side_effect = [
         [{"chunk_count": 2, "has_embedding": True}],
         [{"entity_count": 3}],
@@ -45,8 +47,8 @@ def test_graph_presence_adapter_preserves_scope() -> None:
 
 
 def test_vector_retrievability_and_failed_query() -> None:
-    driver = MagicMock()
-    session = driver.session.return_value.__enter__.return_value
+    driver: MagicMock = MagicMock()
+    session: MagicMock = driver.session.return_value.__enter__.return_value
     session.run.side_effect = [
         [{"eid": "target"}],
         [{"eid": "other", "score": 0.9}, {"eid": "target", "score": 0.8}],
@@ -84,11 +86,11 @@ def test_package_manifest_hashes_and_corruption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(package, "REPO", tmp_path)
-    payload = tmp_path / "artifact.txt"
+    payload: Path = tmp_path / "artifact.txt"
     payload.write_text("synthetic artifact")
-    digest = hashlib.sha256(payload.read_bytes()).hexdigest()
+    digest: str = hashlib.sha256(payload.read_bytes()).hexdigest()
     assert package.sha256(payload) == digest
-    entries = [
+    entries: list[package.ManifestFile] = [
         {
             "role": role,
             "path": "artifact.txt",
@@ -118,7 +120,7 @@ def test_package_manifest_hashes_and_corruption(
 def test_package_manifest_loading(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    manifest = tmp_path / "MANIFEST.json"
+    manifest: Path = tmp_path / "MANIFEST.json"
     monkeypatch.setattr(package, "REPO", tmp_path)
     monkeypatch.setattr(package, "MANIFEST", manifest)
     with pytest.raises(SystemExit):
