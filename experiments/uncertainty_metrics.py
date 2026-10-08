@@ -1041,16 +1041,27 @@ def compute_sre_uq(
 # =============================================================================
 
 
+class UncertaintyMetrics(TypedDict, total=False):
+    semantic_entropy: float
+    discrete_semantic_entropy: float
+    p_true: float
+    selfcheckgpt: float
+    sre_uq: float
+    vn_entropy: float
+    sd_uq: float
+    compute_times: dict[str, float]
+
+
 def compute_all_uncertainty_metrics(
     responses: list[str],
     prompt: str,
     context: str | None = None,
-    log_likelihoods: np.ndarray | None = None,
-    hidden_states: list[np.ndarray] | None = None,
+    log_likelihoods: NDArray[np.float64] | None = None,
+    hidden_states: list[NDArray[np.float32] | NDArray[np.float64]] | None = None,
     cluster_ids: list[int] | None = None,
-    train_embeddings: list[np.ndarray] | None = None,
+    train_embeddings: list[NDArray[np.float32] | NDArray[np.float64]] | None = None,
     train_labels: list[int] | None = None,
-) -> dict[str, float]:
+) -> UncertaintyMetrics:
     """
     Compute all 7 uncertainty metrics organized by family.
 
@@ -1062,25 +1073,25 @@ def compute_all_uncertainty_metrics(
         - perturbation_family: sre_uq
         - geometric_family: vn_entropy, sd_uq
     """
-    results = {}
+    results: UncertaintyMetrics = {}
 
     # Cluster responses using NLI-based bidirectional entailment (Farquhar et al.)
     # condition_on_question: prepend the question to each response before NLI
     # (matches paper's condition_on_question flag — anchors ambiguous short answers).
     # Falls back to lexical Jaccard clustering when transformers unavailable.
-    effective_cluster_ids = cluster_ids
+    effective_cluster_ids: list[int] | None = cluster_ids
     if not effective_cluster_ids and responses and len(responses) >= 2:
         effective_cluster_ids = _cluster_responses_by_nli(responses, question=prompt)
 
     # Build a pseudo log-likelihood vector from response frequency as fallback.
     # Used by sre_uq to weight kernel amplitudes when true log-probs are unavailable.
-    effective_log_likelihoods = log_likelihoods
+    effective_log_likelihoods: NDArray[np.float64] | None = log_likelihoods
     if effective_log_likelihoods is None and responses:
-        counts = {}
+        counts: dict[str, int] = {}
         for r in responses:
-            key = str(r or "").strip().lower()
+            key: str = str(r or "").strip().lower()
             counts[key] = counts.get(key, 0) + 1
-        pseudo_probs = np.array(
+        pseudo_probs: NDArray[np.float64] = np.array(
             [counts.get(str(r or "").strip().lower(), 1) for r in responses],
             dtype=float,
         )
@@ -1094,7 +1105,7 @@ def compute_all_uncertainty_metrics(
     compute_times: dict[str, float] = {}
 
     # ENTROPY FAMILY
-    _t0 = time.perf_counter()
+    _t0: float = time.perf_counter()
     results["semantic_entropy"] = (
         compute_semantic_entropy(
             responses, effective_cluster_ids, effective_log_likelihoods
