@@ -152,8 +152,20 @@ class GoldRecord:
 # =============================================================================
 
 
+class TextContext(TypedDict, total=False):
+    text: str
+
+
+class PubMedQARecord(TypedDict, total=False):
+    PMID: str | int
+    QUESTION: str
+    CONTEXTS: list[str | TextContext]
+    final_decision: str
+    LONG_ANSWER: str
+
+
 def adapt_pubmedqa(
-    raw_data: dict[str, Any], q_id: str | None = None
+    raw_data: PubMedQARecord, q_id: str | int | None = None
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt PubMedQA format.
@@ -166,17 +178,17 @@ def adapt_pubmedqa(
     # Use explicitly passed q_id (dict key), fallback to PMID field
     if q_id is None:
         q_id = raw_data.get("PMID", "")
-    question = raw_data.get("QUESTION", "")
+    question: str = raw_data.get("QUESTION", "")
 
     # Extract contexts (list of strings)
-    raw_contexts = raw_data.get("CONTEXTS", [])
-    contexts = [
+    raw_contexts: list[str | TextContext] = raw_data.get("CONTEXTS", [])
+    contexts: list[str] = [
         c.get("text", "") if isinstance(c, dict) else str(c) for c in raw_contexts
     ]
 
     # Gold fields
-    short_answer = raw_data.get("final_decision", "").lower()
-    long_answer = raw_data.get("LONG_ANSWER", "")
+    short_answer: str = raw_data.get("final_decision", "").lower()
+    long_answer: str = raw_data.get("LONG_ANSWER", "")
 
     return (
         InferenceRecord(
@@ -197,8 +209,8 @@ def adapt_pubmedqa(
 
 
 def _stable_record_id(prefix: str, *parts: object) -> str:
-    payload = "||".join(str(part or "").strip() for part in parts)
-    digest = hashlib.md5(payload.encode("utf-8")).hexdigest()[:12]
+    payload: str = "||".join(str(part or "").strip() for part in parts)
+    digest: str = hashlib.md5(payload.encode("utf-8")).hexdigest()[:12]
     return f"{prefix}_{digest}"
 
 
