@@ -53,6 +53,15 @@ def sampled_numbers(rows: list[int]) -> list[int]:
     )
 
 
+def sampled_deterministic_numbers(rows: list[int]) -> list[int]:
+    return select_ranked_subset(
+        rows,
+        max_items=1,
+        retrieval_temperature=0,
+        shortlist_factor=2,
+    )
+
+
 class ConcreteStateEntity(StateEntity):
     id: str
     min_hops: int

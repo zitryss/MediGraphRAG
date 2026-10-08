@@ -56,6 +56,19 @@ def select_ranked_subset(
 
 @overload
 def select_ranked_subset(
+    items: Sequence[Item],
+    *,
+    max_items: int,
+    retrieval_temperature: Literal[0],
+    shortlist_factor: int,
+    sample_id: int = 0,
+    seed_parts: Sequence[object] | None = None,
+    score_getter: None = None,
+) -> list[Item]: ...
+
+
+@overload
+def select_ranked_subset(
     items: Sequence[Scored],
     *,
     max_items: int,
@@ -101,7 +114,7 @@ def select_ranked_subset(
     if len(candidates) <= k:
         return candidates[:k]
 
-    # The no-callback overload requires ScoredItem. Preserve the existing truthy
+    # The stochastic no-callback overload requires ScoredItem. Preserve truthy
     # callback selection, including errors from malformed/default-scored inputs.
     get_score: Callable[[Item], float] = score_getter or cast(
         Callable[[Item], float],

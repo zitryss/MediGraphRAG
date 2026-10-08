@@ -10,7 +10,7 @@ import math
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from itertools import combinations
-from typing import Literal
+from typing import Literal, NotRequired
 
 from typing_extensions import ReadOnly, TypedDict
 
@@ -91,12 +91,28 @@ class GraphStateSummary(TypedDict):
 
 
 class EmptyGraphStateDiversity(TypedDict):
+    """Partial output projection; absent nonempty fields stay optional, not null."""
+
     sample_count: int
     seed_entity_entropy: float
     path_entropy: float
     subgraph_entropy: float
     chunk_entropy: float
     route_entropy: float
+
+    empty_state_count: NotRequired[ReadOnly[int]]
+    seed_entity_entropy_norm: NotRequired[ReadOnly[float]]
+    path_entropy_norm: NotRequired[ReadOnly[float]]
+    subgraph_entropy_norm: NotRequired[ReadOnly[float]]
+    chunk_entropy_norm: NotRequired[ReadOnly[float]]
+    route_entropy_norm: NotRequired[ReadOnly[float]]
+    seed_entity_jaccard: NotRequired[ReadOnly[float]]
+    entity_jaccard: NotRequired[ReadOnly[float]]
+    path_jaccard: NotRequired[ReadOnly[float]]
+    subgraph_jaccard: NotRequired[ReadOnly[float]]
+    chunk_jaccard: NotRequired[ReadOnly[float]]
+    dominant_seed_entity_id: NotRequired[ReadOnly[str]]
+    dominant_seed_entity_fraction: NotRequired[ReadOnly[float]]
 
 
 class GraphStateDiversity(EmptyGraphStateDiversity):

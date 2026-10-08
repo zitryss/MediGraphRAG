@@ -11,11 +11,12 @@ LLM = TypeVar("LLM")
 
 
 class GraphQuery(Protocol):
+    """Minimum query capability consumed by retrieval and graph merging."""
+
     def query(
         self,
         query: str,
         params: dict[str, object] = ...,
-        session_params: dict[str, object] = ...,
     ) -> list[dict[str, object]]: ...
 
 

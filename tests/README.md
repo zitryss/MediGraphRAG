@@ -23,7 +23,7 @@ COVERAGE_FILE="$TEST_ARTIFACT_DIR/backend.coverage" .venv/bin/python -m coverage
 COVERAGE_FILE="$TEST_ARTIFACT_DIR/backend.coverage" .venv/bin/python -m coverage html -d "$TEST_ARTIFACT_DIR/html"
 ```
 
-The coverage configuration includes **all 81 Python modules** in the three shipped
+The coverage configuration includes all maintained Python modules in the three shipped
 packages, including unimported modules. `reproducibility/arxiv_v1` is a frozen historical
 snapshot and is deliberately outside the active-backend denominator. To include the
 separate developer-tool contract, pass
@@ -57,6 +57,38 @@ report that script separately when comparing backend percentages.
 - Readback fakes use numeric internal IDs and distinct string application IDs;
   relationships are returned only when the query's identity domain and parameters
   match. Passing serialization tests do not claim fallback relationships work.
+
+## Whole-scope typing baseline
+
+From the repository root, set `TYPING_EVIDENCE_DIR` to a new, empty directory
+outside the checkout, then run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m scripts.check_typing_baseline --output-dir "$TYPING_EVIDENCE_DIR"
+```
+
+The runner discovers every maintained `.py` and `.pyi` under `ontographrag`,
+`shared`, `experiments`, `tests`, and `scripts`. Newly tracked Python elsewhere
+must be classified; the frozen `reproducibility/arxiv_v1` archive remains excluded.
+It checks formatting, configured Ruff rules including ANN, strict mypy, strict
+Pyright with warnings, and lexical binding coverage. Tests and builds are separate
+gates; this command does not run them, install packages, or contact application
+services.
+
+`receipt.json` records the manifest, exact commands, tool versions, exit codes,
+outputs and source/configuration hashes. Missing or partial checker coverage,
+source changes during checking, stale evidence, and nonzero tool exits fail the
+run. Syntax-constrained inferred bindings are reported separately; they are not
+proof of concrete types without both semantic checkers.
+
+An optional `--exceptions PATH` passes an existing, symbol-specific binding
+ledger to the audit. Pending, expired, stale, ambiguous and unused entries fail;
+this is not a directory-wide escape hatch. Source positions are part of the
+fingerprint, so final formatting requires fingerprint refresh and independent
+review. Approved binding entries do not suppress checker diagnostics or make a
+failing baseline pass. Keep genuine runtime-sensitive boundaries and preserved
+product defects explicit; do not add casts, validation or type ignores merely
+to conceal them.
 
 ## Remaining coverage limits
 

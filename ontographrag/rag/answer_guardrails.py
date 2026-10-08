@@ -2,12 +2,18 @@ import json
 import logging
 import re
 from collections.abc import Mapping, Sequence
+from typing import TypeAlias
 
-from langchain_core.language_models.base import LanguageModelLike
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompt_values import PromptValue
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from typing_extensions import TypedDict
+
+
+GuardrailJSON: TypeAlias = (
+    str | int | float | bool | None | list["GuardrailJSON"] | dict[str, "GuardrailJSON"]
+)
 
 
 class GuardrailVerdict(TypedDict):
@@ -35,7 +41,9 @@ def render_guardrail_context(
 
 def parse_guardrail_verdict(raw: str) -> GuardrailVerdict:
     text: str = str(raw or "").strip()
-    payload: dict[str, object] = {}
+    # The default decoder accepts scalar and array JSON too. Keep that existing
+    # failure surface visible; an object annotation would falsely validate it.
+    payload: GuardrailJSON = {}
 
     if text:
         try:
@@ -95,7 +103,7 @@ def evaluate_runtime_answer_guardrail(
     question: str,
     answer: str,
     chunks: Sequence[Mapping[str, object]],
-    llm: LanguageModelLike,
+    llm: Runnable[PromptValue, object],
 ) -> GuardrailVerdict:
     prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
         [

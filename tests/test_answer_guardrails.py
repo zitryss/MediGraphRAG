@@ -79,3 +79,22 @@ def test_evaluate_runtime_answer_guardrail_uses_llm_json() -> None:
     assert verdict["answers_question"] is False
     assert verdict["supported_by_context"] is True
     assert verdict["reason"] == "off target"
+
+
+def test_runtime_guardrail_preserves_retry_for_nontext_model_output() -> None:
+    llm: RunnableLambda[object, object] = RunnableLambda(lambda _: object())
+    verdict: GuardrailVerdict = evaluate_runtime_answer_guardrail(
+        question="Question?",
+        answer="Answer",
+        chunks=[],
+        llm=llm,
+    )
+    assert verdict["decision"] == "retry"
+    assert verdict["reason"].startswith("guardrail_error:")
+    assert verdict["raw"] == ""
+
+
+@pytest.mark.parametrize("raw", ["[]", "null", "1", "true", '"keep"'])
+def test_parse_guardrail_verdict_preserves_nonobject_json_failure(raw: str) -> None:
+    with pytest.raises(AttributeError, match="get"):
+        parse_guardrail_verdict(raw)

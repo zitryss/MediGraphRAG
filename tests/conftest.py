@@ -123,20 +123,20 @@ class StubLLM:
     def invoke(self, inputs: object) -> str:
         return self._response
 
-    def __or__(self, other):
+    def __or__(self, other: object) -> _Chain:
         # Support `prompt | llm | parser` chaining in tests
         return _Chain(self, other)
 
 
 class _Chain:
-    def __init__(self, *parts) -> None:
-        self._parts = parts
+    def __init__(self, *parts: object) -> None:
+        self._parts: tuple[object, ...] = parts
 
-    def __or__(self, other):
+    def __or__(self, other: object) -> _Chain:
         return _Chain(*self._parts, other)
 
-    def invoke(self, inputs):
-        result = inputs
+    def invoke(self, inputs: object) -> object:
+        result: object = inputs
         for part in self._parts:
             if hasattr(part, "invoke"):
                 result = part.invoke(result)
@@ -148,4 +148,4 @@ def stub_llm() -> StubLLM:
     return StubLLM()
 
 
-pytest_plugins = ["tests.offline_support"]
+pytest_plugins: list[str] = ["tests.offline_support"]
