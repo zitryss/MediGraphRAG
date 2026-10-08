@@ -6,12 +6,15 @@ from abc import ABC, abstractmethod
 from openai import OpenAI as OpenAIClient
 import google.generativeai as genai
 from huggingface_hub import InferenceClient
-from typing import Dict, Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
 
 from langchain_core.runnables.base import Runnable
 from ontographrag.kg.utils.common_functions import _resolve_huggingface_embedding_model
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class ModelProvider(ABC):
@@ -84,7 +87,7 @@ class LangChainRunnableAdapter(Runnable):
         return self
 
 
-LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
+LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 
 
 class OpenAIProvider(ModelProvider):
@@ -264,8 +267,10 @@ class TemperatureLockedProvider(ModelProvider):
         return getattr(self.provider, name)
 
 
-def get_provider(provider: str, model: str = None, **kwargs) -> ModelProvider:
-    providers: Dict[str, Any] = {
+def get_provider(
+    provider: str, model: str | None = None, **kwargs: object
+) -> ModelProvider:
+    providers: dict[str, type[ModelProvider]] = {
         "openai": OpenAIProvider,
         "ollama": OllamaProvider,
         "gemini": GeminiProvider,
@@ -274,7 +279,7 @@ def get_provider(provider: str, model: str = None, **kwargs) -> ModelProvider:
         "openrouter": OpenRouterProvider,
     }
 
-    provider_class = providers.get(provider.lower())
+    provider_class: type[ModelProvider] | None = providers.get(provider.lower())
     if not provider_class:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -285,7 +290,7 @@ def get_provider(provider: str, model: str = None, **kwargs) -> ModelProvider:
 get_llm_provider = get_provider
 
 
-def get_embedding_model(provider="huggingface"):
+def get_embedding_model(provider: str = "huggingface") -> "Embeddings":
     """Get an embedding model from different providers
 
     Args:
@@ -307,7 +312,7 @@ def get_embedding_model(provider="huggingface"):
                     raise
 
             logger.info("Importing HuggingFaceEmbeddings")
-            model_name = _resolve_huggingface_embedding_model()
+            model_name: str = _resolve_huggingface_embedding_model()
             embedder = HuggingFaceEmbeddings(
                 model_name=model_name,
                 model_kwargs={"device": "cpu"},  # Use CPU by default for compatibility
@@ -338,7 +343,9 @@ def get_embedding_model(provider="huggingface"):
         )
 
 
-def get_embedding_method(provider_name=None):
+def get_embedding_method(
+    provider_name: str | None = None,
+) -> tuple[str, "Embeddings"]:
     """Get the configured embedding method from environment
 
     Args:
@@ -348,14 +355,14 @@ def get_embedding_method(provider_name=None):
         tuple: (provider_name, embedding_model)
     """
     if provider_name is None:
-        provider = os.getenv(
+        provider: str = os.getenv(
             "EMBEDDING_PROVIDER", "huggingface"
         )  # Default to huggingface
     else:
         provider = provider_name
 
     try:
-        embedder = get_embedding_model(provider)
+        embedder: Embeddings = get_embedding_model(provider)
         return provider, embedder
     except Exception as e:
         logger.warning(
