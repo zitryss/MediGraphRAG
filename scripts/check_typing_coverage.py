@@ -17,10 +17,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Literal, TypeGuard
+from typing import Literal, TypeAlias, TypeGuard
 
 ROOTS: tuple[str, ...] = ("ontographrag", "shared", "experiments", "tests", "scripts")
-Category = Literal["explicit", "inferred", "import", "receiver", "missing", "dynamic"]
+Category: TypeAlias = Literal[
+    "explicit", "inferred", "import", "receiver", "missing", "dynamic"
+]
 
 
 @dataclass
@@ -156,6 +158,9 @@ class Coverage(ast.NodeVisitor):
         for index, parameter in enumerate(parameters):
             self.scope.seen.add(parameter.arg)
             if parameter.annotation is not None:
+                self.scope.declarations[parameter.arg] = ast.unparse(
+                    parameter.annotation
+                )
                 self.emit(
                     parameter,
                     parameter.arg,
@@ -475,8 +480,8 @@ def inspect_source(source: str, path: str) -> list[Binding]:
     visitor.visit(tree)
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
         if token.type == tokenize.COMMENT and any(
-            marker in token.string.lower()
-            for marker in ("type: ignore", "pyright:", "noqa")
+            marker in "".join(token.string.lower().split())
+            for marker in ("type:ignore", "pyright:", "noqa")
         ):
             visitor.bindings.append(
                 Binding(

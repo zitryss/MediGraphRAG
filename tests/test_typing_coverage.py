@@ -216,3 +216,22 @@ def test_type_variable_is_a_definition_not_an_untyped_value() -> None:
         for binding in bindings
     )
     assert not any(binding.category == "missing" for binding in bindings)
+
+
+def test_nonlocal_parameter_retains_its_declared_type() -> None:
+    bindings: list[Binding] = inspect_source(
+        "def outer(x: int) -> None:\n    def inner() -> None:\n        nonlocal x\n        x = 2\n",
+        "fixture.py",
+    )
+    assert any(
+        binding.scope == "<module>.outer.inner"
+        and binding.symbol == "x"
+        and binding.category == "explicit"
+        and binding.declaration == "int"
+        for binding in bindings
+    )
+
+
+def test_compact_ignore_directive_is_detected() -> None:
+    bindings: list[Binding] = inspect_source("x: int = 1 # type:ignore\n", "fixture.py")
+    assert any(binding.kind == "suppression" for binding in bindings)
