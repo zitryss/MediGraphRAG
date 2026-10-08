@@ -20,6 +20,8 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
+from typing_extensions import TypedDict
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +31,17 @@ QUESTION_CONTEXT_ROLE_GOLD_EVIDENCE: str = "gold_evidence"
 QUESTION_CONTEXT_ROLE_NONE: str = "no_context"
 
 
-DATASET_CORPUS_PROFILES: dict[str, dict[str, Any]] = {
+class CorpusProfile(TypedDict):
+    question_context_role: str
+    requires_shared_corpus_for_fair_retrieval: bool
+    notes: str
+
+
+class DatasetCorpusProfile(CorpusProfile):
+    dataset: str
+
+
+DATASET_CORPUS_PROFILES: dict[str, CorpusProfile] = {
     # Provided contexts are the source abstract/document itself.
     "pubmedqa": {
         "question_context_role": QUESTION_CONTEXT_ROLE_SOURCE_DOCUMENT,
@@ -954,7 +966,7 @@ def infer_hop_count_from_raw(
     return None
 
 
-def get_dataset_corpus_profile(dataset_name: str) -> dict[str, Any]:
+def get_dataset_corpus_profile(dataset_name: str) -> DatasetCorpusProfile:
     """
     Describe what the per-question contexts mean for a dataset.
 
@@ -964,8 +976,8 @@ def get_dataset_corpus_profile(dataset_name: str) -> dict[str, Any]:
         retrieval corpus unless the user explicitly opts into a controlled-
         evidence evaluation
     """
-    dataset_key = dataset_name.lower()
-    profile = DATASET_CORPUS_PROFILES.get(
+    dataset_key: str = dataset_name.lower()
+    profile: CorpusProfile = DATASET_CORPUS_PROFILES.get(
         dataset_key,
         {
             "question_context_role": QUESTION_CONTEXT_ROLE_RETRIEVAL_BUNDLE,
@@ -1271,15 +1283,15 @@ def build_passage_corpus(
     is responsible for passing them to a passage-aware extraction method so
     the chunker never slices across passage boundaries.
     """
-    seen: set = set()
+    seen: set[str | tuple[str, str]] = set()
     passages: list[ContextPassage] = []
     for rec in inference_records:
-        rec_titles = list(rec.context_titles or [])
+        rec_titles: list[str | None] = list(rec.context_titles or [])
         for idx, ctx in enumerate(rec.contexts):
-            ctx_stripped = ctx.strip()
+            ctx_stripped: str = ctx.strip()
             if not ctx_stripped:
                 continue
-            dedupe_key = (
+            dedupe_key: str | tuple[str, str] = (
                 ctx_stripped if dedupe_across_questions else (str(rec.id), ctx_stripped)
             )
             if dedupe_key not in seen:
@@ -1433,7 +1445,7 @@ def _build_optional_shared_corpus_passages(
     if docs is None:
         return None
 
-    seen: set = set()
+    seen: set[str | tuple[str, str]] = set()
     passages: list[ContextPassage] = []
     for idx, doc in enumerate(docs):
         text = _format_biomedical_corpus_document(doc)
@@ -1495,7 +1507,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
         if docs is None:
             return None
 
-        seen: set = set()
+        seen: set[str | tuple[str, str]] = set()
         passages: list[ContextPassage] = []
         for idx, doc in enumerate(d for d in docs if _is_realmedqa_ideal_record(d)):
             text = _format_realmedqa_recommendation_document(doc)
@@ -1530,7 +1542,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
         if docs is None:
             return None
 
-        seen: set = set()
+        seen: set[str | tuple[str, str]] = set()
         passages: list[ContextPassage] = []
         for idx, doc in enumerate(docs):
             text = _format_hotpotqa_corpus_document(doc)
@@ -1564,7 +1576,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
     if docs is None:
         return None
 
-    seen: set = set()
+    seen: set[str | tuple[str, str]] = set()
     passages: list[ContextPassage] = []
     for idx, doc in enumerate(docs):
         if not isinstance(doc, dict):
