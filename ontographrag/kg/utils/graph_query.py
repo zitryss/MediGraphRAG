@@ -1,8 +1,9 @@
 import logging
-from neo4j import GraphDatabase, basic_auth
 import os
-from dotenv import load_dotenv
 from typing import TYPE_CHECKING
+
+from dotenv import load_dotenv
+from neo4j import GraphDatabase
 
 if TYPE_CHECKING:
     from neo4j import Auth as Neo4jAuth
@@ -44,7 +45,7 @@ def get_graphDB_driver(
                 raise ValueError("Neo4j URI is required but not provided")
 
         logging.info(
-            f"Using credentials: uri={uri}, user='{username}' (password set: {bool(password)}), database='{database}'"
+            f"Using credentials: uri={uri}, user='{username}' (password set: {bool(password)}), database='{database}'",
         )
 
         # Handle case where auth is disabled (both username and password are empty)
@@ -58,7 +59,8 @@ def get_graphDB_driver(
             auth = Auth("basic", username, password)
 
         enable_user_agent: bool = os.environ.get(
-            "ENABLE_USER_AGENT", "False"
+            "ENABLE_USER_AGENT",
+            "False",
         ).lower() in (
             "true",
             "1",

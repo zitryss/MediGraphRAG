@@ -1,26 +1,22 @@
 import hashlib
 import logging
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_google_vertexai import VertexAIEmbeddings
-from langchain_openai import OpenAIEmbeddings
-from neo4j import GraphDatabase, basic_auth
-from neo4j.exceptions import TransientError
-from langchain_neo4j import Neo4jGraph
-from langchain_community.graphs.graph_document import GraphDocument
-import re
 import os
-import time
 from pathlib import Path
-from urllib.parse import urlparse
-import boto3
-from langchain_community.embeddings import BedrockEmbeddings
-from dotenv import load_dotenv
 from typing import TYPE_CHECKING, NotRequired
-from typing_extensions import TypedDict
+
+import boto3
+from dotenv import load_dotenv
+from langchain_community.embeddings import BedrockEmbeddings
 from langchain_core.embeddings import Embeddings
+from langchain_google_vertexai import VertexAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_neo4j import Neo4jGraph
+from langchain_openai import OpenAIEmbeddings
+from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
     from _hashlib import HASH
+
     from mypy_boto3_bedrock_runtime import BedrockRuntimeClient
 
 
@@ -56,7 +52,8 @@ _HF_EMBEDDING_DEFAULTS_BY_PROFILE: dict[str, str] = {
 
 def _resolve_openai_embedding_config() -> tuple[OpenAIEmbeddingConfig, int]:
     model_name: str = os.getenv(
-        "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
+        "OPENAI_EMBEDDING_MODEL",
+        "text-embedding-3-small",
     ).strip()
     dimensions_env: str = os.getenv("OPENAI_EMBEDDING_DIMENSION", "").strip()
     dimension: int | None
@@ -79,7 +76,8 @@ def _resolve_openai_embedding_config() -> tuple[OpenAIEmbeddingConfig, int]:
 
 def _resolve_vertexai_embedding_config() -> tuple[VertexEmbeddingConfig, int]:
     model_name: str = os.getenv(
-        "VERTEXAI_EMBEDDING_MODEL", "text-embedding-005"
+        "VERTEXAI_EMBEDDING_MODEL",
+        "text-embedding-005",
     ).strip()
     dimensions_env: str = os.getenv("VERTEXAI_EMBEDDING_DIMENSION", "").strip()
     kwargs: VertexEmbeddingConfig = {"model": model_name}
@@ -115,7 +113,7 @@ def _resolve_huggingface_embedding_model(explicit_model_name: str = "") -> str:
     return _HF_EMBEDDING_DEFAULTS_BY_PROFILE["balanced"]
 
 
-def load_embedding_model(embedding_model_name: str) -> tuple[Embeddings, int]:
+def load_embedding_model(embedding_model_name: str | None) -> tuple[Embeddings, int]:
     """
     Load embedding model based on the model name
     Returns embeddings object and dimension
@@ -153,12 +151,12 @@ def load_embedding_model(embedding_model_name: str) -> tuple[Embeddings, int]:
         embeddings = get_bedrock_embeddings()
         dimension = 1536
         logging.info(
-            f"Embedding: Using bedrock titan Embeddings , Dimension:{dimension}"
+            f"Embedding: Using bedrock titan Embeddings , Dimension:{dimension}",
         )
     else:
         model_name: str = _resolve_huggingface_embedding_model(normalized)
         embeddings = HuggingFaceEmbeddings(
-            model_name=model_name  # , cache_folder="/embedding_model"
+            model_name=model_name,  # , cache_folder="/embedding_model"
         )
         sample_vector: list[float] = embeddings.embed_query("embedding readiness probe")
         dimension = len(sample_vector)
@@ -234,16 +232,16 @@ def get_bedrock_embeddings() -> BedrockEmbeddings:
         env_value: str | None = os.getenv("BEDROCK_EMBEDDING_MODEL")
         if not env_value:
             raise ValueError(
-                "Environment variable 'BEDROCK_EMBEDDING_MODEL' is not set."
+                "Environment variable 'BEDROCK_EMBEDDING_MODEL' is not set.",
             )
         try:
             model_name, aws_access_key, aws_secret_key, region_name = env_value.split(
-                ","
+                ",",
             )
         except ValueError:
             raise ValueError(
                 "Environment variable 'BEDROCK_EMBEDDING_MODEL' is improperly formatted. "
-                "Expected format: 'model_name,aws_access_key,aws_secret_key,region_name'."
+                "Expected format: 'model_name,aws_access_key,aws_secret_key,region_name'.",
             )
         bedrock_client: BedrockRuntimeClient = boto3.client(
             service_name="bedrock-runtime",
@@ -252,7 +250,8 @@ def get_bedrock_embeddings() -> BedrockEmbeddings:
             aws_secret_access_key=aws_secret_key.strip(),
         )
         bedrock_embeddings: BedrockEmbeddings = BedrockEmbeddings(
-            model_id=model_name.strip(), client=bedrock_client
+            model_id=model_name.strip(),
+            client=bedrock_client,
         )
         return bedrock_embeddings
     except Exception as _e:

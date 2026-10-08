@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class sourceNode:
@@ -27,7 +27,7 @@ class sourceNode:
     model: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    processing_time: float | None = None
+    processing_time: float | timedelta | None = None
     error_message: str | None = None
     total_chunks: int | None = None
     language: str | None = None

@@ -188,7 +188,7 @@ def chunk_text(
                 "end_pos": end_pos,
                 "total_chunks": total,
                 "embedding": embedding,
-            }
+            },
         )
 
     return formatted

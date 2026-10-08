@@ -8,14 +8,31 @@ CSV Processors for Knowledge Graph bulk ingestion.
   with structured section columns.
 """
 
-import pandas as pd
 import logging
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from collections.abc import Hashable, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, cast
 
+import pandas as pd
 
 if TYPE_CHECKING:
     from pandas._typing import Scalar
+
+
+class CSVReader(Protocol):
+    """The read_csv options used here; installed pandas accepts skiprows=None."""
+
+    def __call__(
+        self,
+        filepath_or_buffer: str,
+        *,
+        sep: str,
+        nrows: int | None = None,
+        encoding: str = "utf-8",
+        skiprows: range | None = None,
+        low_memory: bool = True,
+        dtype: type[str] | None = None,
+    ) -> pd.DataFrame: ...
 
 
 class CSVValidation(TypedDict):
@@ -89,7 +106,10 @@ class DocumentCSVProcessor:
     """
 
     def __init__(
-        self, text_column: str, id_column: str | None = None, delimiter: str = ","
+        self,
+        text_column: str,
+        id_column: str | None = None,
+        delimiter: str = ",",
     ) -> None:
         """
         Args:
@@ -106,20 +126,23 @@ class DocumentCSVProcessor:
         if not Path(file_path).exists():
             raise FileNotFoundError(f"CSV file not found: {file_path}")
 
-        df: pd.DataFrame = pd.read_csv(
-            file_path, sep=self.delimiter, nrows=5, encoding="utf-8"
+        df: pd.DataFrame = cast(CSVReader, pd.read_csv)(
+            file_path,
+            sep=self.delimiter,
+            nrows=5,
+            encoding="utf-8",
         )
 
         errors: list[str] = []
         if self.text_column not in df.columns:
             errors.append(
                 f"text_column '{self.text_column}' not found in CSV. "
-                f"Available columns: {list(df.columns)}"
+                f"Available columns: {list(df.columns)}",
             )
         if self.id_column and self.id_column not in df.columns:
             errors.append(
                 f"id_column '{self.id_column}' not found in CSV. "
-                f"Available columns: {list(df.columns)}"
+                f"Available columns: {list(df.columns)}",
             )
 
         return {
@@ -158,7 +181,7 @@ class DocumentCSVProcessor:
                 },
             }
         """
-        df: pd.DataFrame = pd.read_csv(
+        df: pd.DataFrame = cast(CSVReader, pd.read_csv)(
             file_path,
             sep=self.delimiter,
             skiprows=range(1, start_row + 1) if start_row > 0 else None,
@@ -167,7 +190,10 @@ class DocumentCSVProcessor:
         )
 
         documents: list[CSVDocument] = []
-        for local_idx, row in df.iterrows():
+        for local_idx, row in cast(
+            "Iterator[tuple[Hashable, pd.Series[str | int | float | bool]]]",
+            df.iterrows(),
+        ):
             row_index: int = start_row + local_idx
             text: str = str(row.get(self.text_column, "") or "")
             if not text.strip():
@@ -192,7 +218,7 @@ class DocumentCSVProcessor:
                     "doc_id": doc_id,
                     "row_index": row_index,
                     "metadata": metadata,
-                }
+                },
             )
 
         return {
@@ -249,7 +275,8 @@ class MedicalReportCSVProcessor:
         self.validated_schema: MedicalCSVValidation | None = None
 
     def validate_csv_format(
-        self, file_path: str
+        self,
+        file_path: str,
     ) -> MedicalCSVValidation | CSVValidationFailure:
         """
         Validate CSV file format and structure
@@ -266,7 +293,7 @@ class MedicalReportCSVProcessor:
                 raise FileNotFoundError(f"CSV file not found: {file_path}")
 
             # Test read with pipe delimiter
-            df_test: pd.DataFrame = pd.read_csv(
+            df_test: pd.DataFrame = cast(CSVReader, pd.read_csv)(
                 file_path,
                 sep=self.delimiter,
                 nrows=5,  # Only read first few rows for validation
@@ -290,7 +317,7 @@ class MedicalReportCSVProcessor:
             # Validate column count (should have all expected sections + full text)
             if len(df_test.columns) < 25:  # Minimum expected medical report sections
                 validation_results["validation_errors"].append(
-                    f"Insufficient columns. Expected at least {len(self.EXPECTED_FIELDS)}, got {len(df_test.columns)}"
+                    f"Insufficient columns. Expected at least {len(self.EXPECTED_FIELDS)}, got {len(df_test.columns)}",
                 )
 
             # Check if last column likely contains full report text (longer text)
@@ -299,7 +326,7 @@ class MedicalReportCSVProcessor:
                 avg_length: float = last_col_samples.str.len().mean()
                 if avg_length < 100:  # Probably not full report text
                     validation_results["validation_errors"].append(
-                        "Last column appears too short for full report text"
+                        "Last column appears too short for full report text",
                     )
 
             # Check for common medical report fields
@@ -318,7 +345,7 @@ class MedicalReportCSVProcessor:
 
             if len(found_med_fields) < 3:
                 validation_results["validation_errors"].append(
-                    "Few medical report fields detected. May not be a proper medical report CSV."
+                    "Few medical report fields detected. May not be a proper medical report CSV.",
                 )
 
             # Auto-map expected fields to actual columns
@@ -355,7 +382,10 @@ class MedicalReportCSVProcessor:
             return {"is_valid": False, "error": str(e), "delimiter": self.delimiter}
 
     def load_reports_bulk(
-        self, file_path: str, start_row: int = 0, max_rows: int | None = None
+        self,
+        file_path: str,
+        start_row: int = 0,
+        max_rows: int | None = None,
     ) -> MedicalReportBatch:
         """
         Load and process medical reports in bulk
@@ -375,11 +405,11 @@ class MedicalReportCSVProcessor:
                 )
                 if not validation["is_valid"]:
                     raise ValueError(
-                        f"CSV validation failed: {validation.get('validation_errors', [])}"
+                        f"CSV validation failed: {validation.get('validation_errors', [])}",
                     )
 
             # Load CSV with optimized settings
-            df: pd.DataFrame = pd.read_csv(
+            df: pd.DataFrame = cast(CSVReader, pd.read_csv)(
                 file_path,
                 sep=self.delimiter,
                 skiprows=range(1, start_row + 1) if start_row > 0 else None,
@@ -391,14 +421,20 @@ class MedicalReportCSVProcessor:
 
             # Apply field mapping to expected fields
             mapped_df: pd.DataFrame = df.copy()
-            if self.validated_schema.get("field_mapping"):
-                for expected, actual in self.validated_schema["field_mapping"].items():
+            if cast(MedicalCSVValidation, self.validated_schema).get("field_mapping"):
+                for expected, actual in cast(
+                    MedicalCSVValidation,
+                    self.validated_schema,
+                )["field_mapping"].items():
                     if actual in df.columns:
                         mapped_df[expected] = df[actual]
 
             # Process each row into structured report format
             processed_reports: list[MedicalReport] = []
-            for idx, row in mapped_df.iterrows():
+            for idx, row in cast(
+                "Iterator[tuple[Hashable, pd.Series[str]]]",
+                mapped_df.iterrows(),
+            ):
                 report: MedicalReport = self._process_single_report(row)
                 report["row_index"] = idx + start_row
                 processed_reports.append(report)
@@ -473,7 +509,7 @@ class MedicalReportCSVProcessor:
                     report["sections"][section_name] = cleaned_content
                 else:
                     logging.warning(
-                        f"Section '{section_name}' has very short content, skipping"
+                        f"Section '{section_name}' has very short content, skipping",
                     )
 
         return report
@@ -503,7 +539,10 @@ class MedicalReportCSVProcessor:
 
         # Write to CSV with pipe delimiter
         df_template.to_csv(
-            template_path, sep=self.delimiter, index=False, encoding="utf-8"
+            template_path,
+            sep=self.delimiter,
+            index=False,
+            encoding="utf-8",
         )
 
         logging.info(f"CSV template created at: {template_path}")

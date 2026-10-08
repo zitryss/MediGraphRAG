@@ -6,7 +6,7 @@ module remains as a narrow import shim for older callers that imported graph
 builder constants from ``ontographrag.kg.utils.extract_graph``.
 """
 
-from .constants import (
+from ontographrag.kg.utils.constants import (
     BUCKET_FAILED_FILE,
     BUCKET_UPLOAD,
     DELETE_ENTITIES_AND_START_FROM_BEGINNING,

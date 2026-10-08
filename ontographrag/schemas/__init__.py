@@ -1,10 +1,10 @@
 from .models import (
     Chunk,
     Entity,
-    Relationship,
-    TraversalPath,
     KGContext,
+    Relationship,
     RetrievalResult,
+    TraversalPath,
 )
 
 __all__: list[str] = [

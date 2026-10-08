@@ -17,10 +17,11 @@ marked Optional so existing callers that omit them don't break on parse.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from typing import Any, cast
 
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Ontology schema  (steps 1–2: typed schema models)
@@ -45,11 +46,13 @@ class DataBinding(BaseModel):
 
     name: str
     type: PropertyType = PropertyType.STRING
-    description: Optional[str] = None
+    description: str | None = None
     identifier: bool = False  # is this the primary lookup key?
     required: bool = False
-    enum_values: List[str] = Field(default_factory=list)
-    unit: Optional[str] = None  # e.g. "mg", "years", "mmHg"
+    enum_values: list[str] = Field(
+        default_factory=cast("Callable[[], list[str]]", list),
+    )
+    unit: str | None = None  # e.g. "mg", "years", "mmHg"
 
 
 class RelationshipAttribute(BaseModel):
@@ -57,8 +60,8 @@ class RelationshipAttribute(BaseModel):
 
     name: str
     type: PropertyType = PropertyType.STRING
-    description: Optional[str] = None
-    unit: Optional[str] = None
+    description: str | None = None
+    unit: str | None = None
 
 
 class EntityType(BaseModel):
@@ -66,9 +69,11 @@ class EntityType(BaseModel):
 
     id: str
     label: str
-    description: Optional[str] = None
-    uri: Optional[str] = None
-    properties: List[DataBinding] = Field(default_factory=list)
+    description: str | None = None
+    uri: str | None = None
+    properties: list[DataBinding] = Field(
+        default_factory=cast("Callable[[], list[DataBinding]]", list),
+    )
 
 
 class RelationshipType(BaseModel):
@@ -76,27 +81,33 @@ class RelationshipType(BaseModel):
 
     id: str
     label: str
-    description: Optional[str] = None
-    uri: Optional[str] = None
-    domain: Optional[str] = None  # EntityType.id of the source class
-    range: Optional[str] = None  # EntityType.id of the target class
-    cardinality: Optional[str] = None  # "one_to_one" | "one_to_many" | "many_to_many"
-    attributes: List[RelationshipAttribute] = Field(default_factory=list)
+    description: str | None = None
+    uri: str | None = None
+    domain: str | None = None  # EntityType.id of the source class
+    range: str | None = None  # EntityType.id of the target class
+    cardinality: str | None = None  # "one_to_one" | "one_to_many" | "many_to_many"
+    attributes: list[RelationshipAttribute] = Field(
+        default_factory=cast("Callable[[], list[RelationshipAttribute]]", list),
+    )
 
 
 class OntologySchema(BaseModel):
     """Full parsed ontology — the single internal representation for both OWL and JSON input."""
 
-    entity_types: List[EntityType] = Field(default_factory=list)
-    relationship_types: List[RelationshipType] = Field(default_factory=list)
+    entity_types: list[EntityType] = Field(
+        default_factory=cast("Callable[[], list[EntityType]]", list),
+    )
+    relationship_types: list[RelationshipType] = Field(
+        default_factory=cast("Callable[[], list[RelationshipType]]", list),
+    )
     # "owl" | "json" | "inferred" — records which parser produced this
     source_format: str = "unknown"
-    source_path: Optional[str] = None
+    source_path: str | None = None
 
     # --------------- convenience helpers ---------------
 
-    def entity_type_by_id(self, eid: str) -> Optional[EntityType]:
-        eid_lower = eid.lower()
+    def entity_type_by_id(self, eid: str) -> EntityType | None:
+        eid_lower: str = eid.lower()
         for et in self.entity_types:
             if et.id.lower() == eid_lower or et.label.lower() == eid_lower:
                 return et
@@ -104,9 +115,9 @@ class OntologySchema(BaseModel):
 
     def compatible_relationships(
         self,
-        source_type: Optional[str] = None,
-        target_type: Optional[str] = None,
-    ) -> List[RelationshipType]:
+        source_type: str | None = None,
+        target_type: str | None = None,
+    ) -> list[RelationshipType]:
         """Return relationship types whose domain/range are compatible with the given entity types.
 
         A relationship is compatible when:
@@ -118,15 +129,17 @@ class OntologySchema(BaseModel):
         if not source_type and not target_type:
             return list(self.relationship_types)
 
-        src = (source_type or "").lower()
-        tgt = (target_type or "").lower()
+        src: str = (source_type or "").lower()
+        tgt: str = (target_type or "").lower()
 
-        full_match, partial_match, unconstrained = [], [], []
+        full_match: list[RelationshipType] = []
+        partial_match: list[RelationshipType] = []
+        unconstrained: list[RelationshipType] = []
         for rt in self.relationship_types:
-            d = (rt.domain or "").lower()
-            r = (rt.range or "").lower()
-            dom_ok = not d or d == src
-            rang_ok = not r or r == tgt
+            d: str = (rt.domain or "").lower()
+            r: str = (rt.range or "").lower()
+            dom_ok: bool = not d or d == src
+            rang_ok: bool = not r or r == tgt
             if not dom_ok or not rang_ok:
                 continue
             if d and r:
@@ -147,16 +160,20 @@ class Chunk(BaseModel):
     """A text chunk retrieved from the vector/text index or entity-first search."""
 
     text: str
-    chunk_id: Optional[str] = None
+    chunk_id: str | None = None
     score: float = 0.0
-    document: Optional[str] = None
-    kg_name: Optional[str] = None
+    document: str | None = None
+    kg_name: str | None = None
 
     # Entity IDs directly linked to this chunk (set by entity-first search).
-    linked_entity_ids: List[str] = Field(default_factory=list)
+    linked_entity_ids: list[str] = Field(
+        default_factory=cast("Callable[[], list[str]]", list),
+    )
 
     # Inline entity dicts carried by vector/text search results.
-    entities: List[Dict[str, Any]] = Field(default_factory=list)
+    entities: list[dict[str, Any]] = Field(
+        default_factory=cast("Callable[[], list[dict[str, Any]]]", list),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -168,9 +185,9 @@ class Entity(BaseModel):
     """A KG entity, as returned by entity-first search and graph traversal."""
 
     id: str
-    name: Optional[str] = None
-    type: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    type: str | None = None
+    description: str | None = None
 
     # How the entity entered the result set.
     # "entity_lookup"  — matched directly from the question text
@@ -181,7 +198,7 @@ class Entity(BaseModel):
     min_hops: int = 0
 
     # Ontology class (may differ from type in ontology-guided KGs).
-    ontology_class: Optional[str] = None
+    ontology_class: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -198,16 +215,16 @@ class Relationship(BaseModel):
 
     # Composite key used for deduplication in the result set.
     # Format: "{source}-{type}-{target}"
-    key: Optional[str] = None
+    key: str | None = None
 
     # Claim modifiers — all three are part of the Neo4j MERGE key so that
     # contradictory / variant claims are stored as distinct edges.
     negated: bool = False
-    condition: Optional[str] = None
-    quantitative: Optional[str] = None
+    condition: str | None = None
+    quantitative: str | None = None
 
     confidence: float = 1.0
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +241,7 @@ class TraversalPath(BaseModel):
     # Entity IDs along the path — used to prune paths after chunk truncation.
     # Paths produced before this field was added will have node_ids=[] and are
     # kept as-is (see _iterative_hop_retrieval path pruning logic).
-    node_ids: List[str] = Field(default_factory=list)
+    node_ids: list[str] = Field(default_factory=cast("Callable[[], list[str]]", list))
 
 
 # ---------------------------------------------------------------------------
@@ -241,22 +258,26 @@ class KGContext(BaseModel):
 
     query: str
 
-    chunks: List[Chunk] = Field(default_factory=list)
+    chunks: list[Chunk] = Field(default_factory=cast("Callable[[], list[Chunk]]", list))
 
     # Keyed by entity ID.
-    entities: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    entities: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
-    relationships: List[Relationship] = Field(default_factory=list)
+    relationships: list[Relationship] = Field(
+        default_factory=cast("Callable[[], list[Relationship]]", list),
+    )
 
     # Graph-traversal neighbours keyed by entity ID (subset of entities that
     # were discovered via graph walk, not from question-entity matching).
-    graph_neighbors: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    graph_neighbors: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     # Multi-hop traversal paths discovered during graph walk.
-    traversal_paths: List[TraversalPath] = Field(default_factory=list)
+    traversal_paths: list[TraversalPath] = Field(
+        default_factory=cast("Callable[[], list[TraversalPath]]", list),
+    )
 
     # Source document names present in the retrieved chunks.
-    documents: List[str] = Field(default_factory=list)
+    documents: list[str] = Field(default_factory=cast("Callable[[], list[str]]", list))
 
     total_score: float = 0.0
     entity_count: int = 0
@@ -267,7 +288,7 @@ class KGContext(BaseModel):
     #         "iterative_hop", "hybrid"
     search_method: str = "entity_first"
 
-    kg_name: Optional[str] = None
+    kg_name: str | None = None
 
     # Grounding metrics (anchored to hop-0 in iterative retrieval).
     seed_entity_count: int = 0
@@ -294,10 +315,10 @@ class RetrievalResult(BaseModel):
     used_kg: bool = True
 
     # LLM model that generated the answer.
-    model: Optional[str] = None
+    model: str | None = None
 
     # Milliseconds taken for the full generate_response call.
-    latency_ms: Optional[float] = None
+    latency_ms: float | None = None
 
     # Optional evaluation scores (filled in by the experiment pipeline).
-    scores: Dict[str, Any] = Field(default_factory=dict)
+    scores: dict[str, Any] = Field(default_factory=dict)
