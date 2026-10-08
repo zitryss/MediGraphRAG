@@ -31,7 +31,7 @@ _MONTH_PATTERN: str = (
     r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
 )
 
-_DATE_PATTERNS = (
+_DATE_PATTERNS: tuple[str, str, str, str] = (
     rf"\b{_MONTH_PATTERN}\s+\d{{1,2}}(?:\s*(?:and|-)\s*\d{{1,2}})?(?:,)?\s+\d{{4}}\b",
     rf"\b\d{{1,2}}(?:\s*(?:and|-)\s*\d{{1,2}})?\s+{_MONTH_PATTERN}\s+\d{{4}}\b",
     rf"\b{_MONTH_PATTERN}\s+\d{{4}}\b",
@@ -48,11 +48,13 @@ _QUESTION_NORMALIZERS: dict[str, Callable[[str, str, str], str]] = {}
 
 def _extract_leading_label(response: str, labels: Iterable[str]) -> str:
     """Return a normalized leading decision label when one is explicitly present."""
-    text = str(response or "").strip().lower()
+    text: str = str(response or "").strip().lower()
     if not text:
         return ""
 
-    allowed = [str(label).strip().lower() for label in labels if str(label).strip()]
+    allowed: list[str] = [
+        str(label).strip().lower() for label in labels if str(label).strip()
+    ]
     if not allowed:
         return ""
 
@@ -61,8 +63,8 @@ def _extract_leading_label(response: str, labels: Iterable[str]) -> str:
         return text
 
     # Leading label followed by punctuation or explanation.
-    pattern = r"^\s*(" + "|".join(re.escape(label) for label in allowed) + r")\b"
-    match = re.search(pattern, text)
+    pattern: str = r"^\s*(" + "|".join(re.escape(label) for label in allowed) + r")\b"
+    match: re.Match[str] | None = re.search(pattern, text)
     if match:
         return match.group(1)
 
@@ -81,21 +83,21 @@ def _extract_leading_label(response: str, labels: Iterable[str]) -> str:
 
 def _strip_short_answer_wrapper(response: str) -> str:
     """Remove explicit answer wrappers without paraphrasing the answer itself."""
-    text = str(response or "").strip()
+    text: str = str(response or "").strip()
     if not text:
         return ""
 
     # Prefer the first non-empty line for wrapper-style outputs.
-    first_line = next(
+    first_line: str = next(
         (line.strip() for line in text.splitlines() if line.strip()), text
     )
 
-    wrapper_patterns = [
+    wrapper_patterns: list[str] = [
         r"^\s*(?:final answer|answer)\s*[:\-]\s*(.+?)\s*$",
         r"^\s*the answer is\s+(.+?)\s*$",
     ]
     for pattern in wrapper_patterns:
-        match = re.match(pattern, first_line, flags=re.IGNORECASE)
+        match: re.Match[str] | None = re.match(pattern, first_line, flags=re.IGNORECASE)
         if match:
             return match.group(1).strip().strip(" .")
 
@@ -111,13 +113,13 @@ def _extract_leading_short_label(response: str) -> str:
 
 
 def _is_binary_question(question: str) -> bool:
-    text = str(question or "").strip().lower()
+    text: str = str(question or "").strip().lower()
     return any(text.startswith(prefix) for prefix in _BINARY_QUESTION_PREFIXES)
 
 
 def _extract_date_like_span(response: str, question: str) -> str:
     """Return a likely date span when the question is asking for one."""
-    q = str(question or "").strip().lower()
+    q: str = str(question or "").strip().lower()
     if not (
         q.startswith("when ")
         or " what month" in q
@@ -129,12 +131,14 @@ def _extract_date_like_span(response: str, question: str) -> str:
     ):
         return ""
 
-    text = str(response or "").strip()
+    text: str = str(response or "").strip()
     if not text:
         return ""
 
     for pattern in _DATE_PATTERNS:
-        matches = list(re.finditer(pattern, text, flags=re.IGNORECASE))
+        matches: list[re.Match[str]] = list(
+            re.finditer(pattern, text, flags=re.IGNORECASE)
+        )
         if matches:
             # Prefer the longest/most specific match. Ties go to the last span.
             matches.sort(key=lambda m: (len(m.group(0)), m.start()))
@@ -144,20 +148,20 @@ def _extract_date_like_span(response: str, question: str) -> str:
 
 def _normalize_football_club_answer(response: str, question: str) -> str:
     """Trim club-specific suffixes for benchmark answers when safe to do so."""
-    q = str(question or "").strip().lower()
+    q: str = str(question or "").strip().lower()
     if "football club" not in q and "club" not in q:
         return str(response or "").strip()
 
-    text = str(response or "").strip()
+    text: str = str(response or "").strip()
     if not text or len(text.split()) > 6:
         return text
 
-    patterns = [
+    patterns: list[str] = [
         r"\s+football club\.?$",
         r"\s+f\.c\.?$",
         r"\s+fc\.?$",
     ]
-    normalized = text
+    normalized: str = text
     for pattern in patterns:
         normalized = re.sub(pattern, "", normalized, flags=re.IGNORECASE)
     return normalized.strip().strip(" .") or text
@@ -167,24 +171,24 @@ def _normalize_multihop_short_answer(
     response: str, question: str, task_type: str
 ) -> str:
     """Question-aware canonicalizer for short-answer multi-hop benchmarks."""
-    text = _strip_short_answer_wrapper(response)
+    text: str = _strip_short_answer_wrapper(response)
     if not text:
         return text
 
     # Many benchmark questions are yes/no but still routed through free-text.
     if task_type == "binary" or _is_binary_question(question):
-        label = _extract_leading_short_label(text)
+        label: str = _extract_leading_short_label(text)
         if label:
             return label
 
-    date_span = _extract_date_like_span(text, question)
+    date_span: str = _extract_date_like_span(text, question)
     if date_span:
         return date_span
 
-    first_line = next(
+    first_line: str = next(
         (line.strip() for line in text.splitlines() if line.strip()), text
     )
-    first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
+    first_sentence: str = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
     if 0 < len(first_sentence.split()) <= 6:
         text = first_sentence.strip().strip(" .")
     else:
@@ -196,7 +200,7 @@ def _normalize_multihop_short_answer(
 
 def _extract_numeric_span(response: str, question: str) -> str:
     """Return a likely count/measurement span when the question asks for one."""
-    q = str(question or "").strip().lower()
+    q: str = str(question or "").strip().lower()
     if not (
         q.startswith("how many")
         or q.startswith("how much")
@@ -205,12 +209,12 @@ def _extract_numeric_span(response: str, question: str) -> str:
     ):
         return ""
 
-    text = str(response or "").strip()
+    text: str = str(response or "").strip()
     if not text:
         return ""
 
     for pattern in _NUMERIC_PATTERNS:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
+        match: re.Match[str] | None = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             return match.group(0).strip().strip(" .")
     return ""
@@ -218,14 +222,14 @@ def _extract_numeric_span(response: str, question: str) -> str:
 
 def _extract_subject_before_copula(text: str) -> str:
     """Extract a short subject phrase from 'X is/was ...' style answers."""
-    match = re.match(
+    match: re.Match[str] | None = re.match(
         r"^\s*(.+?)\s+(?:is|was|are|were|refers to|stands for)\b",
         str(text or "").strip(),
         flags=re.IGNORECASE,
     )
     if not match:
         return ""
-    candidate = match.group(1).strip().strip(" ,.;:")
+    candidate: str = match.group(1).strip().strip(" ,.;:")
     if 0 < len(candidate.split()) <= 8:
         return candidate
     return ""
@@ -233,32 +237,32 @@ def _extract_subject_before_copula(text: str) -> str:
 
 def _normalize_bioasq_answer(response: str, question: str, task_type: str) -> str:
     """Dataset-specific BioASQ canonicalizer for factoid-style free-text answers."""
-    text = _strip_short_answer_wrapper(response)
+    text: str = _strip_short_answer_wrapper(response)
     if not text:
         return text
 
-    label = _extract_leading_short_label(text)
+    label: str = _extract_leading_short_label(text)
     if task_type == "binary" and label:
         return label
 
-    date_span = _extract_date_like_span(text, question)
+    date_span: str = _extract_date_like_span(text, question)
     if date_span:
         return date_span
 
-    numeric_span = _extract_numeric_span(text, question)
+    numeric_span: str = _extract_numeric_span(text, question)
     if numeric_span:
         return numeric_span
 
-    first_line = next(
+    first_line: str = next(
         (line.strip() for line in text.splitlines() if line.strip()), text
     )
-    first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
+    first_sentence: str = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
 
-    subject = _extract_subject_before_copula(first_sentence)
+    subject: str = _extract_subject_before_copula(first_sentence)
     if subject:
         return subject
 
-    first_clause = re.split(r"\s*[,:;]\s*", first_sentence, maxsplit=1)[0].strip()
+    first_clause: str = re.split(r"\s*[,:;]\s*", first_sentence, maxsplit=1)[0].strip()
     if 0 < len(first_clause.split()) <= 8:
         return first_clause.strip(" .")
 
@@ -271,15 +275,17 @@ def _normalize_bioasq_answer(response: str, question: str, task_type: str) -> st
 def _normalize_realmedqa_answer(response: str, question: str, task_type: str) -> str:
     """Dataset-specific recommendation-style canonicalizer for RealMedQA."""
     del question, task_type
-    text = _strip_short_answer_wrapper(response)
+    text: str = _strip_short_answer_wrapper(response)
     if not text:
         return text
 
-    lowered = text.lower().strip()
+    lowered: str = text.lower().strip()
     if lowered.startswith("insufficient information"):
         return "Insufficient Information."
 
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    sentences: list[str] = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()
+    ]
     if not sentences:
         return text
 
@@ -314,15 +320,15 @@ def build_answer_instructions(
 
     The goal is to make the generation format match the evaluation contract.
     """
-    dataset = str(dataset_name or "").strip().lower()
-    task = str(task_type or "").strip().lower()
-    normalized_options = {
+    dataset: str = str(dataset_name or "").strip().lower()
+    task: str = str(task_type or "").strip().lower()
+    normalized_options: dict[str, str] = {
         str(k).strip().upper(): str(v).strip()
         for k, v in (options or {}).items()
         if str(v).strip()
     }
 
-    lines = []
+    lines: list[str] = []
 
     if dataset == "pubmedqa":
         lines.extend(
@@ -432,14 +438,14 @@ def normalize_answer_to_contract(
     This is intentionally conservative: it only compresses responses when an
     explicit label is already present. Free-text answers are left untouched.
     """
-    dataset = str(dataset_name or "").strip().lower()
-    task = str(task_type or "").strip().lower()
-    text = str(response or "").strip()
+    dataset: str = str(dataset_name or "").strip().lower()
+    task: str = str(task_type or "").strip().lower()
+    text: str = str(response or "").strip()
     if not text:
         return text
 
     if dataset == "pubmedqa":
-        label = _extract_leading_label(text, ("yes", "no", "maybe"))
+        label: str = _extract_leading_label(text, ("yes", "no", "maybe"))
         return label or text
 
     if dataset == "bioasq" and task == "binary":
@@ -451,7 +457,9 @@ def normalize_answer_to_contract(
         return label or text
 
     if dataset in _QUESTION_NORMALIZERS:
-        normalizer = _QUESTION_NORMALIZERS.get(dataset, _normalize_generic_answer)
+        normalizer: Callable[[str, str, str], str] = _QUESTION_NORMALIZERS.get(
+            dataset, _normalize_generic_answer
+        )
         return normalizer(text, question, task)
 
     return _normalize_generic_answer(text, question, task)
