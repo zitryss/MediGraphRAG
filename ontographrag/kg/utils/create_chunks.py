@@ -14,10 +14,14 @@ class CreateChunksofDocument:
     """
 
     def __init__(self, pages: list[Document], graph: Neo4jGraph) -> None:
-        self.pages = pages
-        self.graph = graph
+        self.pages: list[Document] = pages
+        self.graph: Neo4jGraph = graph
 
-    def split_file_into_chunks(self, token_chunk_size, chunk_overlap):
+    def split_file_into_chunks(
+        self,
+        token_chunk_size: int,
+        chunk_overlap: int,
+    ) -> list[Document]:
         """
         Split a list of documents(file pages) into chunks of fixed size.
 
@@ -28,17 +32,19 @@ class CreateChunksofDocument:
             A list of chunks each of which is a langchain Document.
         """
         logging.info("Split file into smaller chunks")
-        text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-            chunk_size=token_chunk_size, chunk_overlap=chunk_overlap
+        text_splitter: RecursiveCharacterTextSplitter = (
+            RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+                chunk_size=token_chunk_size, chunk_overlap=chunk_overlap
+            )
         )
         # Fix: Use consistent MAX_TOKEN_CHUNK_SIZE instead of environment-dependent value
-        MAX_TOKEN_CHUNK_SIZE = 8000  # Fixed value for determinism
-        chunk_to_be_created = int(MAX_TOKEN_CHUNK_SIZE / token_chunk_size)
+        MAX_TOKEN_CHUNK_SIZE: int = 8000  # Fixed value for determinism
+        chunk_to_be_created: int = int(MAX_TOKEN_CHUNK_SIZE / token_chunk_size)
 
         if "page" in self.pages[0].metadata:
-            chunks = []
+            chunks: list[Document] = []
             for i, document in enumerate(self.pages):
-                page_number = i + 1
+                page_number: int = i + 1
                 if len(chunks) >= chunk_to_be_created:
                     break
                 else:
@@ -54,12 +60,12 @@ class CreateChunksofDocument:
             if len(self.pages) == 1 or (
                 len(self.pages) > 1 and self.pages[1].page_content.strip() == ""
             ):
-                match = re.search(
+                match: re.Match[str] | None = re.search(
                     r"(?:v=)([0-9A-Za-z_-]{11})\s*", self.pages[0].metadata["source"]
                 )
-                youtube_id = match.group(1)
-                chunks_without_time_range = text_splitter.split_documents(
-                    [self.pages[0]]
+                youtube_id: str = match.group(1)
+                chunks_without_time_range: list[Document] = (
+                    text_splitter.split_documents([self.pages[0]])
                 )
                 chunks = get_calculated_timestamps(
                     chunks_without_time_range[:chunk_to_be_created], youtube_id

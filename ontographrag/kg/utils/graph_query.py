@@ -2,12 +2,22 @@ import logging
 from neo4j import GraphDatabase, basic_auth
 import os
 from dotenv import load_dotenv
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from neo4j import Auth as Neo4jAuth
+    from neo4j import Driver
 
 # Load environment variables
 load_dotenv()
 
 
-def get_graphDB_driver(uri, username, password, database="neo4j"):
+def get_graphDB_driver(
+    uri: str | None,
+    username: str | None,
+    password: str | None,
+    database: str | None = "neo4j",
+) -> "Driver | None":
     """
     Creates and returns a Neo4j database driver instance configured with the provided credentials.
 
@@ -40,20 +50,22 @@ def get_graphDB_driver(uri, username, password, database="neo4j"):
         # Handle case where auth is disabled (both username and password are empty)
         if not username and not password:
             logging.info("Using no-authentication mode")
-            auth = None
+            auth: Neo4jAuth | None = None
         else:
             logging.info("Using basic authentication")
             from neo4j import Auth
 
             auth = Auth("basic", username, password)
 
-        enable_user_agent = os.environ.get("ENABLE_USER_AGENT", "False").lower() in (
+        enable_user_agent: bool = os.environ.get(
+            "ENABLE_USER_AGENT", "False"
+        ).lower() in (
             "true",
             "1",
             "yes",
         )
         if enable_user_agent:
-            driver = GraphDatabase.driver(
+            driver: Driver = GraphDatabase.driver(
                 uri,
                 auth=auth,
                 database=database,
@@ -69,6 +81,6 @@ def get_graphDB_driver(uri, username, password, database="neo4j"):
         logging.info("Connection successful")
         return driver
     except Exception as e:
-        error_message = f"Failed to connect to Neo4j at {uri}: {e!s}"
+        error_message: str = f"Failed to connect to Neo4j at {uri}: {e!s}"
         logging.error(error_message, exc_info=True)
         return None
