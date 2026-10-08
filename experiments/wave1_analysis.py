@@ -28,20 +28,20 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.trust_analysis import (
-    TrustRow,
-    CompleteTrustRow,
-    has_complete_metrics,
-    SilentSummary,
-    rows_for,
-    gps_scores,
-    REPO,
-    MANIFEST,
-    KEY,
-    STRICT_RUNS,
-    SD_FLOOR,
-)
 from experiments.gps_v2_paper_numbers import percentile_ranks
+from experiments.trust_analysis import (
+    KEY,
+    MANIFEST,
+    REPO,
+    SD_FLOOR,
+    STRICT_RUNS,
+    CompleteTrustRow,
+    SilentSummary,
+    TrustRow,
+    gps_scores,
+    has_complete_metrics,
+    rows_for,
+)
 
 
 class SilentCI(TypedDict):
@@ -299,8 +299,14 @@ def taxonomy_prevalence() -> dict[str, TaxonomySummary]:
     out: dict[str, TaxonomySummary] = {}
     gps_cache: dict[tuple[str, str], dict[str, float | None]] = {}
     for policy in ("vanilla", "kg", "strict"):
+        tot: int
+        wrong: int
+        calm_wrong: int
+        calm_wrong_flagged: int
         tot = wrong = calm_wrong = calm_wrong_flagged = 0
         noisy_wrong: int = 0
+        correct_cert: int
+        correct_n: int
         correct_cert = correct_n = 0
         for slug in KEY:
             if policy == "strict" and slug not in STRICT_RUNS:

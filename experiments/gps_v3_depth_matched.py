@@ -21,7 +21,7 @@ import json
 import os
 import sys
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, NotRequired, TypeGuard, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeGuard, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -31,15 +31,15 @@ from sklearn.metrics import roc_auc_score
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v2_paper_numbers import percentile_ranks
 from experiments.gps_v2_replay import (
+    PresentNullReason,
     ReplayArtifact,
     ReplayScore,
     ReplayStore,
     StoredAnswer,
 )
 
-
 if TYPE_CHECKING:
-    from experiments.trust_analysis import ManifestEntry, TrustDocument, TrustDetail
+    from experiments.trust_analysis import ManifestEntry, TrustDetail, TrustDocument
 
 
 class HopRow(TypedDict, total=False):
@@ -183,7 +183,10 @@ def score_from_store_depth_matched(
     if not store_row:
         return {"score": 0.5, "null_reason": "missing_store"}
     if store_row.get("null_reason"):
-        return {"score": 0.5, "null_reason": store_row["null_reason"]}
+        return {
+            "score": 0.5,
+            "null_reason": cast(PresentNullReason, store_row)["null_reason"],
+        }
     kept: list[StoredAnswer] = [
         a
         for a in store_row.get("answers", [])

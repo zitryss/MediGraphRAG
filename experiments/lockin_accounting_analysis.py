@@ -13,7 +13,7 @@ import os
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from typing import NotRequired, TypeGuard, TypedDict
+from typing import NotRequired, TypedDict, TypeGuard
 
 import numpy as np
 

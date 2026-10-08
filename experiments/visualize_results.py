@@ -5,28 +5,30 @@ Supports both single-dataset and multi-dataset result formats.
 Results are aggregated by configuration and logged to Weights & Biases.
 """
 
-import json
 import argparse
-from pathlib import Path
+import json
 from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from math import ceil
-from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeAlias, TypedDict
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypedDict, cast
+
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import ReadOnly
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
-    from matplotlib.figure import Figure
-    from matplotlib.container import BarContainer
-    from matplotlib.colors import Colormap
-    from matplotlib.image import AxesImage
     from matplotlib.colorbar import Colorbar
+    from matplotlib.colors import Colormap
+    from matplotlib.container import BarContainer
+    from matplotlib.figure import Figure
+    from matplotlib.image import AxesImage
 
 # Try to import matplotlib and wandb
 try:
-    import matplotlib.pyplot as plt
     import matplotlib
+    import matplotlib.pyplot as plt
 
     matplotlib.use("Agg")  # Non-interactive backend
     HAS_MATPLOTLIB: bool = True
@@ -43,20 +45,106 @@ except ImportError:
     print("Warning: wandb not installed. Will skip wandb logging.")
 
 
+class FloatMaskModule(Protocol):
+    """Source-proven dtype-preserving subset of numpy.ma.array."""
+
+    def array(
+        self,
+        data: NDArray[np.float64],
+        *,
+        mask: NDArray[np.bool_],
+    ) -> np.ma.MaskedArray[tuple[int, ...], np.dtype[np.float64]]: ...
+
+
+class ImageLogger(Protocol):
+    """Required image-logging capability; optional SDK conformance is unchecked."""
+
+    def log(self, data: dict[str, "wandb.Image"], /) -> object: ...
+
+
+class EvaluationRun(Protocol):
+    """Only the run operation consumed by the evaluation logger."""
+
+    def finish(self) -> object: ...
+
+
+class MetricsTable(Protocol):
+    """The four formatted text cells supplied by this report."""
+
+    def add_data(
+        self,
+        metric: str,
+        vanilla: str,
+        kg: str,
+        difference: str,
+        /,
+    ) -> object: ...
+
+
 MetricValues: TypeAlias = dict[str, float]
 SystemMetrics: TypeAlias = dict[str, MetricValues]
 AggregatedMetrics: TypeAlias = dict[str, dict[str, dict[str, float | np.float64]]]
 OverallMetrics: TypeAlias = dict[str, dict[str, float | np.float64]]
 
 
-class PlotConfig(TypedDict, total=False):
+class PlotConfigView(TypedDict, total=False):
+    name: ReadOnly[str]
+    similarity_threshold: ReadOnly[float]
+    max_chunks: ReadOnly[int]
+
+
+class PlotConfig(PlotConfigView):
     name: str
     similarity_threshold: float
     max_chunks: int
 
 
-class PlotDetail(TypedDict, total=False):
+class PlotDetailView(TypedDict, total=False):
+    question_id: ReadOnly[str | int]
+    task_type: ReadOnly[str]
+    kg_correct: ReadOnly[bool]
+    kg_generation_failed: ReadOnly[bool]
+    kg_semantic_entropy: ReadOnly[float | str | None]
+    kg_discrete_semantic_entropy: ReadOnly[float | str | None]
+    kg_sre_uq: ReadOnly[float | str | None]
+    kg_p_true: ReadOnly[float | str | None]
+    kg_selfcheckgpt: ReadOnly[float | str | None]
+    kg_vn_entropy: ReadOnly[float | str | None]
+    kg_sd_uq: ReadOnly[float | str | None]
+    kg_graph_path_support: ReadOnly[float | str | None]
+    kg_graph_path_disagreement: ReadOnly[float | str | None]
+    kg_competing_answer_alternatives: ReadOnly[float | str | None]
+    kg_evidence_vn_entropy: ReadOnly[float | str | None]
+    kg_subgraph_informativeness: ReadOnly[float | str | None]
+    kg_subgraph_perturbation_stability: ReadOnly[float | str | None]
+    kg_support_entailment_uncertainty: ReadOnly[float | str | None]
+    kg_evidence_conflict_uncertainty: ReadOnly[float | str | None]
+    kg_graph_path_support_null_reason: ReadOnly[str | None]
+    kg_subgraph_perturbation_stability_null_reason: ReadOnly[str | None]
+    vanilla_correct: ReadOnly[bool]
+    vanilla_generation_failed: ReadOnly[bool]
+    vanilla_semantic_entropy: ReadOnly[float | str | None]
+    vanilla_discrete_semantic_entropy: ReadOnly[float | str | None]
+    vanilla_sre_uq: ReadOnly[float | str | None]
+    vanilla_p_true: ReadOnly[float | str | None]
+    vanilla_selfcheckgpt: ReadOnly[float | str | None]
+    vanilla_vn_entropy: ReadOnly[float | str | None]
+    vanilla_sd_uq: ReadOnly[float | str | None]
+    vanilla_graph_path_support: ReadOnly[float | str | None]
+    vanilla_graph_path_disagreement: ReadOnly[float | str | None]
+    vanilla_competing_answer_alternatives: ReadOnly[float | str | None]
+    vanilla_evidence_vn_entropy: ReadOnly[float | str | None]
+    vanilla_subgraph_informativeness: ReadOnly[float | str | None]
+    vanilla_subgraph_perturbation_stability: ReadOnly[float | str | None]
+    vanilla_support_entailment_uncertainty: ReadOnly[float | str | None]
+    vanilla_evidence_conflict_uncertainty: ReadOnly[float | str | None]
+    vanilla_graph_path_support_null_reason: ReadOnly[str | None]
+    vanilla_subgraph_perturbation_stability_null_reason: ReadOnly[str | None]
+
+
+class PlotDetail(PlotDetailView):
     question_id: str | int
+    task_type: str
     kg_correct: bool
     kg_generation_failed: bool
     kg_semantic_entropy: float | str | None
@@ -97,14 +185,74 @@ class PlotDetail(TypedDict, total=False):
     vanilla_subgraph_perturbation_stability_null_reason: str | None
 
 
-class TaskTypeMetrics(TypedDict, total=False):
+class TaskTypeMetricsView(TypedDict, total=False):
+    n: ReadOnly[int]
+    vanilla_accuracy: ReadOnly[float]
+    kg_accuracy: ReadOnly[float]
+    auroc_aurec: ReadOnly[SystemMetrics]
+
+
+class TaskTypeMetrics(TaskTypeMetricsView):
     n: int
     vanilla_accuracy: float
     kg_accuracy: float
     auroc_aurec: SystemMetrics
 
 
-class ConfigResult(TypedDict, total=False):
+class ComplementarityView(TypedDict, total=False):
+    both_correct_pct: ReadOnly[float]
+    vanilla_only_pct: ReadOnly[float]
+    kg_only_pct: ReadOnly[float]
+    neither_correct_pct: ReadOnly[float]
+
+
+class PlotEvaluationView(TypedDict, total=False):
+    config: ReadOnly[PlotConfigView]
+    details: ReadOnly[Sequence[PlotDetailView]]
+    auroc_aurec: ReadOnly[SystemMetrics]
+    vanilla_avg_compute_times: ReadOnly[MetricValues]
+    kg_avg_compute_times: ReadOnly[MetricValues]
+    accuracy_by_task_type: ReadOnly[Mapping[str, TaskTypeMetricsView]]
+    complementarity: ReadOnly[ComplementarityView | MetricValues]
+    vanilla_accuracy: ReadOnly[float]
+    kg_accuracy: ReadOnly[float]
+    kg_avg_semantic_entropy: ReadOnly[float | None]
+    kg_avg_discrete_semantic_entropy: ReadOnly[float | None]
+    kg_avg_sre_uq: ReadOnly[float | None]
+    kg_avg_p_true: ReadOnly[float | None]
+    kg_avg_selfcheckgpt: ReadOnly[float | None]
+    kg_avg_vn_entropy: ReadOnly[float | None]
+    kg_avg_sd_uq: ReadOnly[float | None]
+    kg_avg_graph_path_support: ReadOnly[float | None]
+    kg_avg_graph_path_disagreement: ReadOnly[float | None]
+    kg_avg_competing_answer_alternatives: ReadOnly[float | None]
+    kg_avg_evidence_vn_entropy: ReadOnly[float | None]
+    kg_avg_subgraph_informativeness: ReadOnly[float | None]
+    kg_avg_subgraph_perturbation_stability: ReadOnly[float | None]
+    kg_avg_support_entailment_uncertainty: ReadOnly[float | None]
+    kg_avg_evidence_conflict_uncertainty: ReadOnly[float | None]
+    vanilla_avg_semantic_entropy: ReadOnly[float | None]
+    vanilla_avg_discrete_semantic_entropy: ReadOnly[float | None]
+    vanilla_avg_sre_uq: ReadOnly[float | None]
+    vanilla_avg_p_true: ReadOnly[float | None]
+    vanilla_avg_selfcheckgpt: ReadOnly[float | None]
+    vanilla_avg_vn_entropy: ReadOnly[float | None]
+    vanilla_avg_sd_uq: ReadOnly[float | None]
+    vanilla_avg_graph_path_support: ReadOnly[float | None]
+    vanilla_avg_graph_path_disagreement: ReadOnly[float | None]
+    vanilla_avg_competing_answer_alternatives: ReadOnly[float | None]
+    vanilla_avg_evidence_vn_entropy: ReadOnly[float | None]
+    vanilla_avg_subgraph_informativeness: ReadOnly[float | None]
+    vanilla_avg_subgraph_perturbation_stability: ReadOnly[float | None]
+    vanilla_avg_support_entailment_uncertainty: ReadOnly[float | None]
+    vanilla_avg_evidence_conflict_uncertainty: ReadOnly[float | None]
+
+
+class ConfigResultView(PlotEvaluationView, total=False):
+    metrics_by_approach: ReadOnly[SystemMetrics]
+
+
+class ConfigResult(ConfigResultView):
     config: PlotConfig
     details: list[PlotDetail]
     metrics_by_approach: SystemMetrics
@@ -112,7 +260,7 @@ class ConfigResult(TypedDict, total=False):
     vanilla_avg_compute_times: MetricValues
     kg_avg_compute_times: MetricValues
     accuracy_by_task_type: dict[str, TaskTypeMetrics]
-    complementarity: MetricValues
+    complementarity: ComplementarityView | MetricValues
     vanilla_accuracy: float
     kg_accuracy: float
     kg_avg_semantic_entropy: float | None
@@ -147,7 +295,19 @@ class ConfigResult(TypedDict, total=False):
     vanilla_avg_evidence_conflict_uncertainty: float | None
 
 
-class ResultBlock(TypedDict, total=False):
+class PlotDatasetView(TypedDict, total=False):
+    dataset: ReadOnly[str]
+    config_results: ReadOnly[Sequence[PlotEvaluationView]]
+
+
+class ResultBlockView(TypedDict, total=False):
+    dataset: ReadOnly[str]
+    config_results: ReadOnly[Sequence[ConfigResultView]]
+    config: ReadOnly[PlotConfigView]
+    evaluation: ReadOnly[SystemMetrics]
+
+
+class ResultBlock(ResultBlockView):
     dataset: str
     config_results: list[ConfigResult]
     config: PlotConfig
@@ -162,7 +322,7 @@ class DatasetAnalysis(TypedDict, total=False):
 
 
 class LegacyDataset(TypedDict, total=False):
-    results: list[ResultBlock]
+    results: list[ResultBlockView]
     analysis: DatasetAnalysis
 
 
@@ -174,7 +334,7 @@ class CombinedAnalysis(TypedDict, total=False):
 
 
 class VisualizationResults(TypedDict, total=False):
-    results: list[ResultBlock]
+    results: list[ResultBlockView]
     metric_names: list[str]
     per_dataset_results: dict[str, LegacyDataset]
     combined_analysis: CombinedAnalysis
@@ -193,7 +353,94 @@ class ReliabilityData(TypedDict):
     errors: list[int]
 
 
-UNCERTAINTY_METRIC_SPECS: list[tuple[str, str, str, bool]] = [
+MetricName: TypeAlias = Literal[
+    "semantic_entropy",
+    "discrete_semantic_entropy",
+    "sre_uq",
+    "p_true",
+    "selfcheckgpt",
+    "vn_entropy",
+    "sd_uq",
+    "graph_path_support",
+    "graph_path_disagreement",
+    "competing_answer_alternatives",
+    "evidence_vn_entropy",
+    "subgraph_informativeness",
+    "subgraph_perturbation_stability",
+    "support_entailment_uncertainty",
+    "evidence_conflict_uncertainty",
+]
+
+DetailMetricKey: TypeAlias = Literal[
+    "vanilla_semantic_entropy",
+    "vanilla_discrete_semantic_entropy",
+    "vanilla_sre_uq",
+    "vanilla_p_true",
+    "vanilla_selfcheckgpt",
+    "vanilla_vn_entropy",
+    "vanilla_sd_uq",
+    "vanilla_graph_path_support",
+    "vanilla_graph_path_disagreement",
+    "vanilla_competing_answer_alternatives",
+    "vanilla_evidence_vn_entropy",
+    "vanilla_subgraph_informativeness",
+    "vanilla_subgraph_perturbation_stability",
+    "vanilla_support_entailment_uncertainty",
+    "vanilla_evidence_conflict_uncertainty",
+    "kg_semantic_entropy",
+    "kg_discrete_semantic_entropy",
+    "kg_sre_uq",
+    "kg_p_true",
+    "kg_selfcheckgpt",
+    "kg_vn_entropy",
+    "kg_sd_uq",
+    "kg_graph_path_support",
+    "kg_graph_path_disagreement",
+    "kg_competing_answer_alternatives",
+    "kg_evidence_vn_entropy",
+    "kg_subgraph_informativeness",
+    "kg_subgraph_perturbation_stability",
+    "kg_support_entailment_uncertainty",
+    "kg_evidence_conflict_uncertainty",
+]
+
+SummaryMetricKey: TypeAlias = Literal[
+    "vanilla_accuracy",
+    "kg_accuracy",
+    "vanilla_avg_semantic_entropy",
+    "vanilla_avg_discrete_semantic_entropy",
+    "vanilla_avg_sre_uq",
+    "vanilla_avg_p_true",
+    "vanilla_avg_selfcheckgpt",
+    "vanilla_avg_vn_entropy",
+    "vanilla_avg_sd_uq",
+    "vanilla_avg_graph_path_support",
+    "vanilla_avg_graph_path_disagreement",
+    "vanilla_avg_competing_answer_alternatives",
+    "vanilla_avg_evidence_vn_entropy",
+    "vanilla_avg_subgraph_informativeness",
+    "vanilla_avg_subgraph_perturbation_stability",
+    "vanilla_avg_support_entailment_uncertainty",
+    "vanilla_avg_evidence_conflict_uncertainty",
+    "kg_avg_semantic_entropy",
+    "kg_avg_discrete_semantic_entropy",
+    "kg_avg_sre_uq",
+    "kg_avg_p_true",
+    "kg_avg_selfcheckgpt",
+    "kg_avg_vn_entropy",
+    "kg_avg_sd_uq",
+    "kg_avg_graph_path_support",
+    "kg_avg_graph_path_disagreement",
+    "kg_avg_competing_answer_alternatives",
+    "kg_avg_evidence_vn_entropy",
+    "kg_avg_subgraph_informativeness",
+    "kg_avg_subgraph_perturbation_stability",
+    "kg_avg_support_entailment_uncertainty",
+    "kg_avg_evidence_conflict_uncertainty",
+]
+
+
+UNCERTAINTY_METRIC_SPECS: list[tuple[MetricName, str, str, bool]] = [
     ("semantic_entropy", "Semantic Entropy", "SE", True),
     ("discrete_semantic_entropy", "Discrete Sem. Entropy", "DSE", True),
     ("sre_uq", "SRE-UQ", "SRE-UQ", True),
@@ -215,7 +462,7 @@ UNCERTAINTY_METRIC_SPECS: list[tuple[str, str, str, bool]] = [
     ("support_entailment_uncertainty", "Support Entailment Uncertainty", "SEU", True),
     ("evidence_conflict_uncertainty", "Evidence Conflict Uncertainty", "ECU", True),
 ]
-DEFAULT_UNCERTAINTY_METRICS: list[str] = [
+DEFAULT_UNCERTAINTY_METRICS: list[MetricName] = [
     name for name, _, _, _ in UNCERTAINTY_METRIC_SPECS
 ]
 METRIC_DISPLAY_NAMES: dict[str, str] = {
@@ -232,17 +479,17 @@ METRIC_LOWER_IS_BETTER: dict[str, bool] = {
 def _has_new_summary_schema(results: VisualizationResults) -> bool:
     """Detect strict summary schema written by experiments/experiment.py."""
     try:
-        dataset_blocks: list[ResultBlock] = results.get("results", [])
+        dataset_blocks: list[ResultBlockView] = results.get("results", [])
         if not dataset_blocks:
             return False
-        first_block: ResultBlock = dataset_blocks[0]
-        first_cfg: ConfigResult = first_block.get("config_results", [])[0]
+        first_block: ResultBlockView = dataset_blocks[0]
+        first_cfg: ConfigResultView = first_block.get("config_results", [])[0]
         return isinstance(first_cfg.get("metrics_by_approach", None), dict)
     except Exception:
         return False
 
 
-def _get_metric_names(results: VisualizationResults) -> list[str]:
+def _get_metric_names(results: VisualizationResults) -> Sequence[str]:
     metric_names: list[str] = results.get("metric_names", [])
     if metric_names and isinstance(metric_names, list):
         return metric_names
@@ -261,13 +508,13 @@ def aggregate_by_config(results: VisualizationResults) -> AggregatedMetrics:
     config_metrics: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(
         lambda: {"vanilla_rag": defaultdict(list), "kg_rag": defaultdict(list)}
     )
-    metric_names: list[str] = _get_metric_names(results)
+    metric_names: Sequence[str] = _get_metric_names(results)
 
     if _has_new_summary_schema(results):
         # New strict summary schema
         for dataset_block in results.get("results", []):
             for cfg in dataset_block.get("config_results", []):
-                config: PlotConfig = cfg.get("config", {})
+                config: PlotConfigView = cfg.get("config", {})
                 config_name: str = (
                     config.get("name")
                     or f"thresh={config.get('similarity_threshold', 'unknown')}_chunks={config.get('max_chunks', 'unknown')}"
@@ -286,7 +533,7 @@ def aggregate_by_config(results: VisualizationResults) -> AggregatedMetrics:
             aggregated[config_key] = {}
             for system, samples_by_metric in systems.items():
                 aggregated[config_key][system] = {
-                    metric: np.mean(values) if values else 0
+                    metric: cast(float | np.float64, np.mean(values)) if values else 0
                     for metric, values in samples_by_metric.items()
                 }
         return aggregated
@@ -342,7 +589,7 @@ def aggregate_by_config(results: VisualizationResults) -> AggregatedMetrics:
         aggregated[config_key] = {}
         for system, samples_by_metric in systems.items():
             aggregated[config_key][system] = {
-                metric: np.mean(values) if values else 0
+                metric: cast(float | np.float64, np.mean(values)) if values else 0
                 for metric, values in samples_by_metric.items()
             }
 
@@ -355,7 +602,7 @@ def aggregate_overall(results: VisualizationResults) -> OverallMetrics:
         "vanilla_rag": defaultdict(list),
         "kg_rag": defaultdict(list),
     }
-    metric_names: list[str] = _get_metric_names(results)
+    metric_names: Sequence[str] = _get_metric_names(results)
 
     if _has_new_summary_schema(results):
         for dataset_block in results.get("results", []):
@@ -370,11 +617,11 @@ def aggregate_overall(results: VisualizationResults) -> OverallMetrics:
 
         return {
             "vanilla_rag": {
-                metric: np.mean(values) if values else 0
+                metric: cast(float | np.float64, np.mean(values)) if values else 0
                 for metric, values in overall["vanilla_rag"].items()
             },
             "kg_rag": {
-                metric: np.mean(values) if values else 0
+                metric: cast(float | np.float64, np.mean(values)) if values else 0
                 for metric, values in overall["kg_rag"].items()
             },
         }
@@ -420,11 +667,11 @@ def aggregate_overall(results: VisualizationResults) -> OverallMetrics:
     # Compute averages
     return {
         "vanilla_rag": {
-            metric: np.mean(values) if values else 0
+            metric: cast(float | np.float64, np.mean(values)) if values else 0
             for metric, values in overall["vanilla_rag"].items()
         },
         "kg_rag": {
-            metric: np.mean(values) if values else 0
+            metric: cast(float | np.float64, np.mean(values)) if values else 0
             for metric, values in overall["kg_rag"].items()
         },
     }
@@ -463,7 +710,7 @@ def print_per_dataset_summary(results: VisualizationResults) -> None:
 
 def create_comparison_chart(
     aggregated: AggregatedMetrics,
-    metric_names: list[str],
+    metric_names: Sequence[str],
     output_path: str | None = None,
 ) -> "Figure | None":
     """Create grouped bar chart comparing Vanilla RAG vs KG-RAG by config."""
@@ -472,7 +719,7 @@ def create_comparison_chart(
         return None
 
     configs: list[str] = sorted(aggregated.keys())
-    metrics: list[str] = metric_names
+    metrics: Sequence[str] = metric_names
 
     n_configs: int = len(configs)
     n_metrics: int = len(metrics)
@@ -536,14 +783,14 @@ def create_comparison_chart(
 
 
 def create_overall_comparison_chart(
-    overall: OverallMetrics, metric_names: list[str], output_path: str | None = None
+    overall: OverallMetrics, metric_names: Sequence[str], output_path: str | None = None
 ) -> "Figure | None":
     """Create overall comparison bar chart."""
     if not HAS_MATPLOTLIB:
         print("Skipping chart creation (matplotlib not available)")
         return None
 
-    metrics: list[str] = metric_names
+    metrics: Sequence[str] = metric_names
 
     vanilla_values: list[float | np.float64] = [
         overall["vanilla_rag"].get(m, 0) for m in metrics
@@ -605,9 +852,9 @@ def create_overall_comparison_chart(
 
 
 def plot_metric_bar_charts(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """Bar charts: Vanilla RAG vs KG-RAG on accuracy + all live uncertainty metrics.
 
@@ -619,15 +866,15 @@ def plot_metric_bar_charts(
         print("Skipping bar charts (matplotlib not available)")
         return []
 
-    panels: list[tuple[str, str, str, bool]] = [
+    panels: list[tuple[str, SummaryMetricKey, SummaryMetricKey, bool]] = [
         ("Accuracy", "vanilla_accuracy", "kg_accuracy", False)
     ]
     for metric_name, display_name, _, lower_is_better in UNCERTAINTY_METRIC_SPECS:
         panels.append(
             (
                 display_name,
-                f"vanilla_avg_{metric_name}",
-                f"kg_avg_{metric_name}",
+                cast(SummaryMetricKey, f"vanilla_avg_{metric_name}"),
+                cast(SummaryMetricKey, f"kg_avg_{metric_name}"),
                 lower_is_better,
             )
         )
@@ -645,8 +892,8 @@ def plot_metric_bar_charts(
             cfg_name: str = cfg_res.get("config", {}).get("name", "default")
             label: str = f"{dataset_name} / {cfg_name}"
             for title, v_key, k_key, _ in panels:
-                vanilla_val = cfg_res.get(v_key)
-                kg_val = cfg_res.get(k_key)
+                vanilla_val: float | None = cfg_res.get(v_key)
+                kg_val: float | None = cfg_res.get(k_key)
                 bar_data[title]["labels"].append(label)
                 bar_data[title]["vanilla"].append(
                     float(vanilla_val) if vanilla_val is not None else np.nan
@@ -740,9 +987,9 @@ def plot_metric_bar_charts(
 
 
 def plot_auroc_aurec_heatmaps(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """Plot AUROC and AUREC as side-by-side 2D heatmaps (metrics × systems).
 
@@ -761,7 +1008,7 @@ def plot_auroc_aurec_heatmaps(
         print("Skipping heatmap (matplotlib not available)")
         return []
 
-    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[MetricName] = DEFAULT_UNCERTAINTY_METRICS
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     saved_paths: list[str] = []
@@ -847,7 +1094,9 @@ def plot_auroc_aurec_heatmaps(
         fmt_fn: Callable[[np.float64], str],
         cbar_label: str,
     ) -> None:
-        masked: NDArray[np.float64] = np.ma.array(mat, mask=np.isnan(mat))
+        masked: np.ma.MaskedArray[tuple[int, ...], np.dtype[np.float64]] = cast(
+            FloatMaskModule, np.ma
+        ).array(mat, mask=np.isnan(mat))
         cmap_obj: Colormap = plt.get_cmap(cmap).copy()
         cmap_obj.set_bad(color="#cccccc")
 
@@ -949,9 +1198,9 @@ def plot_auroc_aurec_heatmaps(
 
 
 def plot_metric_correlation_matrix(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """Spearman correlation heatmap between all live uncertainty metrics.
 
@@ -963,7 +1212,7 @@ def plot_metric_correlation_matrix(
     if not HAS_MATPLOTLIB:
         return []
 
-    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[MetricName] = DEFAULT_UNCERTAINTY_METRICS
 
     # Collect per-question scores (combine both systems for more data points)
     scores: dict[str, list[float]] = {m: [] for m in metric_order}
@@ -972,7 +1221,10 @@ def plot_metric_correlation_matrix(
             for detail in cfg_res.get("details", []):
                 for m in metric_order:
                     for prefix in ("vanilla", "kg"):
-                        val = detail.get(f"{prefix}_{m}")
+                        # Both loops enumerate the finite declared metric/prefix sets.
+                        val: float | str | None = detail.get(
+                            cast(DetailMetricKey, f"{prefix}_{m}")
+                        )
                         if val is not None:
                             scores[m].append(float(val))
 
@@ -993,7 +1245,7 @@ def plot_metric_correlation_matrix(
             corr_mat = np.array([[1.0]])
     except Exception:
         # Fallback: Pearson via numpy
-        corr_mat = np.corrcoef(arr)
+        corr_mat = cast(NDArray[np.float64], np.corrcoef(arr))
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -1006,12 +1258,12 @@ def plot_metric_correlation_matrix(
     # Annotate cells
     for r in range(n_m):
         for c in range(n_m):
-            val = corr_mat[r, c]
-            text_color: str = "white" if abs(val) > 0.6 else "black"
+            correlation_value: np.float64 = cast(NDArray[np.float64], corr_mat)[r, c]
+            text_color: str = "white" if abs(correlation_value) > 0.6 else "black"
             ax.text(
                 c,
                 r,
-                f"{val:.2f}",
+                f"{correlation_value:.2f}",
                 ha="center",
                 va="center",
                 fontsize=8,
@@ -1050,9 +1302,9 @@ def plot_metric_correlation_matrix(
 
 
 def plot_reliability_diagrams(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """Reliability (calibration) diagrams for all live uncertainty metrics.
 
@@ -1065,7 +1317,7 @@ def plot_reliability_diagrams(
     if not HAS_MATPLOTLIB:
         return []
 
-    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[MetricName] = DEFAULT_UNCERTAINTY_METRICS
 
     # Collect per-question (uncertainty, is_incorrect) pairs — combine both systems
     data: dict[str, ReliabilityData] = {
@@ -1080,7 +1332,10 @@ def plot_reliability_diagrams(
                 ):
                     is_incorrect: int = 0 if detail.get(correct_key, False) else 1
                     for m in metric_order:
-                        val = detail.get(f"{prefix}_{m}")
+                        # Both loops enumerate the finite declared metric/prefix sets.
+                        val: float | str | None = detail.get(
+                            cast(DetailMetricKey, f"{prefix}_{m}")
+                        )
                         if val is not None:
                             data[m]["scores"].append(float(val))
                             data[m]["errors"].append(is_incorrect)
@@ -1181,9 +1436,9 @@ def plot_reliability_diagrams(
 
 
 def plot_compute_time_chart(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """Horizontal bar chart of per-metric computation time (log scale).
 
@@ -1195,7 +1450,7 @@ def plot_compute_time_chart(
     if not HAS_MATPLOTLIB:
         return []
 
-    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[MetricName] = DEFAULT_UNCERTAINTY_METRICS
 
     # Collect times across datasets/configs
     from collections import defaultdict as _dd
@@ -1310,9 +1565,9 @@ def plot_compute_time_chart(
 
 
 def plot_auroc_vs_compute_time(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """Scatter plot of AUROC vs log10(compute time) with Pareto frontier.
 
@@ -1325,7 +1580,7 @@ def plot_auroc_vs_compute_time(
     if not HAS_MATPLOTLIB:
         return []
 
-    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[MetricName] = DEFAULT_UNCERTAINTY_METRICS
 
     from collections import defaultdict as _dd
 
@@ -1470,9 +1725,9 @@ def plot_auroc_vs_compute_time(
 
 
 def plot_complementarity_matrix(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """
     Plot a 2×2 complementarity matrix per dataset (Zhang et al. 2025 methodology).
@@ -1495,7 +1750,9 @@ def plot_complementarity_matrix(
     for dataset_block in all_results:
         dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
-            comp: MetricValues | None = cfg_res.get("complementarity")
+            comp: ComplementarityView | MetricValues | None = cfg_res.get(
+                "complementarity"
+            )
             if not comp:
                 continue
 
@@ -1553,9 +1810,9 @@ def plot_complementarity_matrix(
 
 
 def plot_query_type_stratification(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """
     Plot accuracy and best-metric AUROC broken down by task_type per dataset.
@@ -1580,7 +1837,7 @@ def plot_query_type_stratification(
     for dataset_block in all_results:
         dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
-            by_type: dict[str, TaskTypeMetrics] | None = cfg_res.get(
+            by_type: Mapping[str, TaskTypeMetricsView] | None = cfg_res.get(
                 "accuracy_by_task_type"
             )
             if not by_type or len(by_type) < 2:
@@ -1707,7 +1964,7 @@ def log_to_wandb(
     results: VisualizationResults,
     aggregated: AggregatedMetrics,
     overall: OverallMetrics,
-    metric_names: list[str],
+    metric_names: Sequence[str],
     project_name: str = "kg-rag-evaluation",
 ) -> None:
     """Log results to Weights & Biases."""
@@ -1716,10 +1973,10 @@ def log_to_wandb(
         return
 
     # Initialize wandb
-    run = wandb.init(project=project_name, job_type="evaluation")
+    run: EvaluationRun = wandb.init(project=project_name, job_type="evaluation")
 
     # Log overall metrics as a table
-    metrics_table = wandb.Table(
+    metrics_table: MetricsTable = wandb.Table(
         columns=["Metric", "Vanilla RAG", "KG-RAG", "Difference"]
     )
     for metric in metric_names:
@@ -1807,7 +2064,7 @@ def main() -> None:
 
     # Aggregate results
     print("Aggregating results by configuration...")
-    metric_names: list[str] = _get_metric_names(results)
+    metric_names: Sequence[str] = _get_metric_names(results)
     aggregated: AggregatedMetrics = aggregate_by_config(results)
     overall: OverallMetrics = aggregate_overall(results)
 
@@ -1916,7 +2173,7 @@ def _display_eval_metric_value(
 
 
 def _metric_score_for_correlation(
-    detail: PlotDetail,
+    detail: PlotDetailView,
     *,
     prefix: str,
     metric_name: str,
@@ -1932,7 +2189,7 @@ def _metric_score_for_correlation(
         if str(detail.get(null_key, "")):
             return float("nan")
         if null_key not in detail:
-            legacy_value = detail.get(f"{prefix}_{metric_name}")
+            legacy_value: object = detail.get(f"{prefix}_{metric_name}")
             if legacy_value is not None:
                 try:
                     if abs(float(legacy_value) - 0.5) <= 1e-12:
@@ -1940,7 +2197,7 @@ def _metric_score_for_correlation(
                 except (TypeError, ValueError):
                     return float("nan")
 
-    value = detail.get(f"{prefix}_{metric_name}")
+    value: object = detail.get(f"{prefix}_{metric_name}")
     if value is None:
         return float("nan")
     try:
@@ -1953,9 +2210,9 @@ def _metric_score_for_correlation(
 
 
 def plot_per_system_auroc_comparison(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """Grouped bar chart: AUROC per metric, Vanilla vs KG-RAG side-by-side.
 
@@ -2091,9 +2348,9 @@ def plot_per_system_auroc_comparison(
 
 
 def plot_metric_spearman_matrix(
-    all_results: list[ResultBlock],
+    all_results: Sequence[PlotDatasetView],
     output_dir: str = "results/visualizations",
-    wandb_run=None,
+    wandb_run: ImageLogger | None = None,
 ) -> list[str]:
     """Pairwise Spearman ρ heatmap across all uncertainty metrics.
 

@@ -9,21 +9,32 @@ import json
 import os
 import sys
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, TypedDict
-from typing_extensions import ReadOnly
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import ReadOnly
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
+
+class OptionalPlotting(Protocol):
+    """The two pyplot operations used by the optional phase plot."""
+
+    def subplots(self, *, figsize: tuple[float, float]) -> tuple["Figure", "Axes"]: ...
+
+    def close(self, fig: "Figure") -> None: ...
+
+
 try:
     import matplotlib
 
     matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as _pyplot
+
+    plt: OptionalPlotting | None = _pyplot
 except Exception:  # pragma: no cover - plotting is optional
     plt = None
 
@@ -31,9 +42,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS
 from ontographrag.rag.graph_state import (
-    graph_state_diversity,
     GraphStateSample,
     GraphStateSummary,
+    graph_state_diversity,
 )
 
 

@@ -16,22 +16,35 @@ import glob
 import json
 import os
 import sys
-from collections.abc import Sequence
-from typing import NotRequired, TypedDict
+from collections.abc import Mapping, Sequence
+from typing import NotRequired, TypedDict, cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
+from typing_extensions import ReadOnly
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v2_replay import (
-    score_from_store,
-    ReplayArtifact,
+    LoggedSummary,
     ReplayScore,
     ReplayStore,
-    LoggedSummary,
+    V2ReplayArtifact,
+    V2ReplayStore,
+    score_from_store,
 )
+
+
+class ScoreQuestion(TypedDict):
+    question_id: ReadOnly[str | int]
+    store: NotRequired[ReadOnly[Mapping[str, ReplayStore | V2ReplayStore]]]
+    kg_correct: NotRequired[ReadOnly[bool | None]]
+    vanilla_correct: NotRequired[ReadOnly[bool | None]]
+
+
+class ScoreArtifact(TypedDict):
+    questions: ReadOnly[Sequence[ScoreQuestion]]
 
 
 class PaperDetail(TypedDict, total=False):
@@ -136,11 +149,11 @@ def latest_artifact(slug: str, strict: bool = False) -> str | None:
     return sorted(paths)[-1] if paths else None
 
 
-def v2_scores(art: ReplayArtifact, side: str) -> list[tuple[str, float | None, bool]]:
+def v2_scores(art: ScoreArtifact, side: str) -> list[tuple[str, float | None, bool]]:
     """(question_id, score|None, correct, answered) per question."""
     out: list[tuple[str, float | None, bool]] = []
     for q in art["questions"]:
-        st: ReplayStore | None = (q.get("store") or {}).get(side)
+        st: ReplayStore | V2ReplayStore | None = (q.get("store") or {}).get(side)
         if st is None or st.get("null_reason") == "generation_failed":
             continue
         res: ReplayScore = score_from_store(st, TAU, GAMMA)
@@ -211,7 +224,7 @@ def main() -> None:
 
     pooled: dict[str, list[float]] = {"sd": [], "seu": [], "gps": []}
     for slug in SLUGS:
-        art: ReplayArtifact = json.load(open(latest_artifact(slug)))
+        art: V2ReplayArtifact = json.load(open(latest_artifact(slug)))
         run_doc: PaperDocument = json.load(
             open(os.path.join(REPO, manifest[key_for[slug]]["result_path"]))
         )
@@ -278,7 +291,7 @@ def main() -> None:
         boot: list[float] = []
         for _ in range(B):
             idx: NDArray[np.int64] = RNG.integers(0, len(x), len(x))
-            boot.append(spearmanr(x[idx], y[idx]).statistic)
+            boot.append(cast(float | np.float64, spearmanr(x[idx], y[idx]).statistic))
         return {
             "rho": rho,
             "ci": [float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))],
@@ -305,8 +318,8 @@ def main() -> None:
         }
 
     # 2wiki hop-wise GPS AUC per policy
-    adaptive_art: ReplayArtifact = json.load(open(latest_artifact("2wikimultihopqa")))
-    strict_art: ReplayArtifact = json.load(
+    adaptive_art: V2ReplayArtifact = json.load(open(latest_artifact("2wikimultihopqa")))
+    strict_art: V2ReplayArtifact = json.load(
         open(latest_artifact("2wikimultihopqa", strict=True))
     )
     run_doc = json.load(
@@ -335,9 +348,9 @@ def main() -> None:
             out["hopwise_2wiki"][f"{label}_{hop}hop"] = {"n": len(sel), "auroc": a}
 
     # case-study lookups
-    musique_art: ReplayArtifact = json.load(open(latest_artifact("musique")))
-    twiki_art: ReplayArtifact = adaptive_art
-    case_specs: dict[str, tuple[ReplayArtifact, str]] = {
+    musique_art: V2ReplayArtifact = json.load(open(latest_artifact("musique")))
+    twiki_art: V2ReplayArtifact = adaptive_art
+    case_specs: dict[str, tuple[V2ReplayArtifact, str]] = {
         "mickey_mouse": (musique_art, "Mickey Mouse"),
         "fire_eater": (twiki_art, "Fire-Eater"),
         "the_cup": (twiki_art, "The Cup (1999"),
@@ -354,7 +367,9 @@ def main() -> None:
     for name, (art, needle) in case_specs.items():
         for q in art["questions"]:
             if needle.lower() in qtext.get(str(q["question_id"]), "").lower():
-                st: ReplayStore | None = (q.get("store") or {}).get("kg")
+                st: ReplayStore | V2ReplayStore | None = (q.get("store") or {}).get(
+                    "kg"
+                )
                 res: ReplayScore | CaseReplayScore = (
                     score_from_store(st, TAU, GAMMA)
                     if st

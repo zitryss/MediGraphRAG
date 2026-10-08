@@ -19,15 +19,25 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NotRequired, TypeAlias, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    NotRequired,
+    Protocol,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import ReadOnly
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
-    from matplotlib.figure import Figure
+    from matplotlib.colors import Colormap
     from matplotlib.container import BarContainer
+    from matplotlib.figure import Figure
 
 MetricKey: TypeAlias = Literal[
     "semantic_entropy",
@@ -98,7 +108,7 @@ class MetricStats(TypedDict):
     family: str
 
 
-class HopStats(TypedDict):
+class BuildingHopStats(TypedDict):
     n: int
     error_rate: float
     semantic_entropy: NotRequired[MetricStats]
@@ -112,6 +122,44 @@ class HopStats(TypedDict):
     subgraph_perturbation_stability: NotRequired[MetricStats]
     support_entailment_uncertainty: NotRequired[MetricStats]
     evidence_conflict_uncertainty: NotRequired[MetricStats]
+
+
+class HopStats(TypedDict):
+    """Complete compute_stats output: every declared metric receives a record."""
+
+    n: int
+    error_rate: float
+    semantic_entropy: MetricStats
+    discrete_semantic_entropy: MetricStats
+    sre_uq: MetricStats
+    p_true: MetricStats
+    selfcheckgpt: MetricStats
+    vn_entropy: MetricStats
+    sd_uq: MetricStats
+    graph_path_support: MetricStats
+    subgraph_perturbation_stability: MetricStats
+    support_entailment_uncertainty: MetricStats
+    evidence_conflict_uncertainty: MetricStats
+
+
+class FamilyStatsView(TypedDict, total=False):
+    semantic_entropy: ReadOnly[MetricStats]
+    discrete_semantic_entropy: ReadOnly[MetricStats]
+    sre_uq: ReadOnly[MetricStats]
+    p_true: ReadOnly[MetricStats]
+    selfcheckgpt: ReadOnly[MetricStats]
+    vn_entropy: ReadOnly[MetricStats]
+    sd_uq: ReadOnly[MetricStats]
+    graph_path_support: ReadOnly[MetricStats]
+    subgraph_perturbation_stability: ReadOnly[MetricStats]
+    support_entailment_uncertainty: ReadOnly[MetricStats]
+    evidence_conflict_uncertainty: ReadOnly[MetricStats]
+
+
+class FamilyMetricLookup(Protocol):
+    """Read-only indexing for the finite metric fields, not other row metadata."""
+
+    def __getitem__(self, key: MetricKey, /) -> MetricStats: ...
 
 
 class HopSummary(TypedDict):
@@ -302,7 +350,7 @@ def compute_stats(
             for d in clean_details
         ]
     )
-    results: HopStats = {
+    results: BuildingHopStats = {
         "n": len(clean_details),
         "error_rate": baseline_error_rate(y_true_global),
     }
@@ -326,7 +374,7 @@ def compute_stats(
             else:
                 metric_details = []
                 for d in clean_details:
-                    legacy_value = d.get(f"{system_prefix}_{key}")
+                    legacy_value: object = d.get(f"{system_prefix}_{key}")
                     try:
                         if (
                             legacy_value is not None
@@ -368,15 +416,18 @@ def compute_stats(
             "label": label,
             "family": family,
         }
-    return results
+    # Both loop branches populate every key enumerated by METRICS.
+    return cast(HopStats, results)
 
 
-def family_avg(stats: HopStats, stat_key: StatKey) -> dict[str, float]:
+def family_avg(stats: FamilyStatsView, stat_key: StatKey) -> dict[str, float]:
     """Average a stat (auroc or ppv) across metrics within each family."""
     buckets: dict[str, list[float]] = defaultdict(list)
     for key, label, family, _ in METRICS:
-        if key in stats and not np.isnan(stats[key].get(stat_key, float("nan"))):
-            buckets[family].append(stats[key][stat_key])
+        if key in stats and not np.isnan(
+            cast(FamilyMetricLookup, stats)[key].get(stat_key, float("nan"))
+        ):
+            buckets[family].append(cast(FamilyMetricLookup, stats)[key][stat_key])
     return {f: float(np.mean(vs)) for f, vs in buckets.items() if vs}
 
 
@@ -583,8 +634,8 @@ def plot_hop_auroc(
         import matplotlib
 
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
+        import matplotlib.pyplot as plt
     except ImportError:
         print("matplotlib not available — skipping plots")
         return
@@ -725,7 +776,9 @@ def plot_ppv_bars(
             ]
             means.append(float(np.mean(bucket_vals)) if bucket_vals else float("nan"))
 
-        offsets: NDArray[np.float64] = x + (fi - 1) * bar_width
+        offsets: NDArray[np.float64] = cast(
+            NDArray[np.float64], x + (fi - 1) * bar_width
+        )
         bars: BarContainer = ax.bar(
             offsets,
             [m if not np.isnan(m) else 0 for m in means],
@@ -833,7 +886,7 @@ def plot_per_metric_detail(
                 mat[i, j] = float(np.mean(vals))
 
     norm: TwoSlopeNorm = TwoSlopeNorm(vmin=0.25, vcenter=0.50, vmax=0.95)
-    cmap = sns.diverging_palette(10, 130, s=80, l=50, as_cmap=True)
+    cmap: Colormap = sns.diverging_palette(10, 130, s=80, l=50, as_cmap=True)
 
     fig: Figure
     ax: Axes

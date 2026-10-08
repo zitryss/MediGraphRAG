@@ -9,15 +9,16 @@ collapsing onto the floor.  Pure log analysis; no reruns.
 
 import os
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, TypedDict, cast
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import ReadOnly
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
-    from matplotlib.lines import Line2D
+    from matplotlib.lines import Line2D as MatplotlibLine2D
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(
@@ -27,10 +28,31 @@ sys.path.insert(
     ),
 )
 import make_figures  # rcParams styling
-import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
 
-from experiments.trust_analysis import rows_for, CompleteTrustRow, has_complete_metrics
+from experiments.trust_analysis import CompleteTrustRow, has_complete_metrics, rows_for
+
+
+class PyplotLineExport(Protocol):
+    """The Line2D class actually imported into installed matplotlib.pyplot."""
+
+    @property
+    def Line2D(self) -> type["MatplotlibLine2D"]: ...
+
+
+class NumericHistogramAxes(Protocol):
+    """Existing numeric-array histogram call; its tuple return is unused."""
+
+    def hist(
+        self,
+        x: NDArray[np.float64],
+        *,
+        bins: NDArray[np.float64],
+        color: str,
+        alpha: float,
+    ) -> object: ...
+
 
 FLOOR: float = 1e-12
 N_ARROWS: int = 12
@@ -48,7 +70,12 @@ def wrong_rows(slug: str, policy: str) -> dict[str, CompleteTrustRow]:
     }
 
 
-def xy(r: CompleteTrustRow) -> tuple[np.float64, float]:
+class MigrationPoint(TypedDict):
+    sd: ReadOnly[float]
+    seu: ReadOnly[float]
+
+
+def xy(r: MigrationPoint) -> tuple[np.float64, float]:
     return np.log10(max(r["sd"], 0.0) + FLOOR), r["seu"]
 
 
@@ -107,7 +134,7 @@ def main() -> None:
                 linewidths=0,
                 zorder=3,
             )
-            ax_m.hist(
+            cast(NumericHistogramAxes, ax_m).hist(
                 pts[:, 0], bins=np.linspace(-12.2, -1.0, 36), color=color, alpha=0.55
             )
         ax.axvline(np.log10(FLOOR) + 0.02, color="#888888", lw=0.7, ls=":")
@@ -126,8 +153,8 @@ def main() -> None:
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     axes_main[0].set_ylabel("SEU (evidence-state\nuncertainty)", fontsize=8)
-    handles: list[Line2D] = [
-        plt.Line2D(
+    handles: list[MatplotlibLine2D] = [
+        cast(PyplotLineExport, plt).Line2D(
             [0],
             [0],
             marker="o",
@@ -136,7 +163,7 @@ def main() -> None:
             markersize=6,
             label="Adaptive KG (wrong answers)",
         ),
-        plt.Line2D(
+        cast(PyplotLineExport, plt).Line2D(
             [0],
             [0],
             marker="^",
@@ -145,7 +172,7 @@ def main() -> None:
             markersize=6,
             label="Strict KG (wrong answers)",
         ),
-        plt.Line2D(
+        cast(PyplotLineExport, plt).Line2D(
             [0],
             [0],
             color="#999999",

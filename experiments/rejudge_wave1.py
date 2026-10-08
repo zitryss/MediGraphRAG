@@ -13,8 +13,8 @@ results/analyses/rejudge_wave1.json.
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -25,24 +25,24 @@ if TYPE_CHECKING:
 from sklearn.metrics import cohen_kappa_score, roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 from experiments.rejudge_independent import (
-    judge_one,
-    get_client,
     JUDGE_MODEL,
     JudgedAnswer,
-    JudgeDocument,
     JudgeDetail,
+    JudgeDocument,
     JudgeSummary,
+    get_client,
+    judge_one,
 )
 from experiments.trust_analysis import (
-    rows_for,
-    REPO,
-    MANIFEST,
     KEY,
+    MANIFEST,
+    REPO,
     STRICT_RUNS,
     TrustRow,
+    rows_for,
 )
-from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 
 TARGETS: list[tuple[str, str]] = [
     ("hotpotqa", "kg"),

@@ -20,7 +20,7 @@ import glob
 import json
 import os
 import sys
-from typing import Literal, NotRequired, TypeAlias, TypedDict
+from typing import Literal, NotRequired, TypeAlias, TypedDict, cast
 
 import numpy as np
 from scipy.stats import spearmanr
@@ -99,7 +99,7 @@ def load_details(path: str) -> list[TraceDetail]:
 
 def fin(x: float | str | None) -> bool | np.bool_:
     try:
-        return np.isfinite(float(x))
+        return cast(np.bool_, np.isfinite(float(x)))
     except Exception:
         return False
 

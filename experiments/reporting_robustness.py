@@ -17,19 +17,19 @@ from numpy.typing import NDArray
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.certificate_eval import certificate_mask, load_all, CertificateRow
+from experiments.certificate_eval import CertificateRow, certificate_mask, load_all
 from experiments.trust_analysis import (
     KEY,
     MANIFEST,
     REPO,
     STRICT_RUNS,
-    rows_for,
-    TrustDocument,
+    CompleteTrustRow,
     TrustConfig,
     TrustDetail,
+    TrustDocument,
     TrustRow,
-    CompleteTrustRow,
     has_complete_metrics,
+    rows_for,
 )
 
 

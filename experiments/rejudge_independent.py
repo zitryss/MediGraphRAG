@@ -12,8 +12,8 @@ import os
 import sys
 import time
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict
 from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
@@ -27,13 +27,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v2_replay import _load_env
 from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 from experiments.trust_analysis import (
-    rows_for,
-    REPO,
-    MANIFEST,
     KEY,
+    MANIFEST,
+    REPO,
     STRICT_RUNS,
-    TrustRow,
     NamedConfig,
+    TrustRow,
+    rows_for,
 )
 
 JudgedAnswer: TypeAlias = tuple[str, str, str, str, bool]

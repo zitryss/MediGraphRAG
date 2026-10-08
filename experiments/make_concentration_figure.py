@@ -11,7 +11,7 @@ import json
 import os
 import sys
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypedDict, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,7 +19,8 @@ from numpy.typing import NDArray
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
-    from matplotlib.lines import Line2D
+    from matplotlib.lines import Line2D as MatplotlibLine2D
+    from scipy.stats._stats_py import SignificanceResult
 from scipy.stats import spearmanr
 
 sys.path.insert(
@@ -30,6 +31,13 @@ sys.path.insert(
 )
 import make_figures  # rcParams styling
 import matplotlib.pyplot as plt
+
+
+class PyplotLineExport(Protocol):
+    """The Line2D class actually imported into installed matplotlib.pyplot."""
+
+    @property
+    def Line2D(self) -> type["MatplotlibLine2D"]: ...
 
 
 class ConcentrationDetail(TypedDict, total=False):
@@ -101,7 +109,9 @@ def binned_means(
 ) -> BinnedMeans:
     if len(x) < 8:
         return [], [], []
-    edges: NDArray[np.float64] = np.quantile(x, np.linspace(0, 1, n_bins + 1))
+    edges: NDArray[np.float64] = cast(
+        NDArray[np.float64], np.quantile(x, np.linspace(0, 1, n_bins + 1))
+    )
     mids: list[float]
     means: list[float]
     cis: list[tuple[float, float]]
@@ -110,11 +120,14 @@ def binned_means(
         m: NDArray[np.bool_] = (x >= lo) & (x <= hi)
         if m.sum() < 4:
             continue
-        vals: NDArray[np.float64 | np.int64] = y[m]
-        mids.append(float(x[m].mean()))
+        vals: NDArray[np.float64 | np.int64] = cast(
+            NDArray[np.float64 | np.int64], y[m]
+        )
+        mids.append(float(cast(NDArray[np.float64 | np.int64], x[m]).mean()))
         means.append(float(vals.mean()))
         bs: list[np.float64] = [
-            np.mean(RNG.choice(vals, len(vals), replace=True)) for _ in range(boot)
+            cast(np.float64, np.mean(RNG.choice(vals, len(vals), replace=True)))
+            for _ in range(boot)
         ]
         cis.append((float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))))
     return mids, means, cis
@@ -149,7 +162,7 @@ def single_panel(srcs: ConcentrationSources) -> None:
         )
     from scipy.stats import spearmanr as _sp
 
-    rho = _sp(ow, sw)
+    rho: SignificanceResult[float | NDArray[np.float64]] = _sp(ow, sw)
     ax.text(
         0.04,
         0.05,
@@ -220,7 +233,7 @@ def main() -> None:
                     zorder=3,
                 )
             if len(ow) >= 8 and len(set(ow)) > 1:
-                rho = spearmanr(ow, sw)
+                rho: SignificanceResult[float | NDArray[np.float64]] = spearmanr(ow, sw)
                 ptxt: str = f"p={rho.pvalue:.2f}" if rho.pvalue >= 0.01 else "p<0.01"
                 ax.text(
                     0.03,
@@ -251,10 +264,14 @@ def main() -> None:
                 ax.set_xlabel("Retrieval overlap", fontsize=7.6)
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
-    h: list[Line2D] = [
-        plt.Line2D([], [], color=C_WRONG, marker="o", ls="", ms=5, label="wrong"),
-        plt.Line2D([], [], color=C_OK, marker="o", ls="", ms=5, label="correct"),
-        plt.Line2D(
+    h: list[MatplotlibLine2D] = [
+        cast(PyplotLineExport, plt).Line2D(
+            [], [], color=C_WRONG, marker="o", ls="", ms=5, label="wrong"
+        ),
+        cast(PyplotLineExport, plt).Line2D(
+            [], [], color=C_OK, marker="o", ls="", ms=5, label="correct"
+        ),
+        cast(PyplotLineExport, plt).Line2D(
             [],
             [],
             color=C_WRONG,

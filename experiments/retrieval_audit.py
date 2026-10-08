@@ -38,7 +38,17 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NotRequired, TypeAlias, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    LiteralString,
+    NotRequired,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
+
+from typing_extensions import ReadOnly
 
 if TYPE_CHECKING:
     from neo4j import Driver, Result
@@ -60,10 +70,18 @@ class SupportingFacts(TypedDict, total=False):
     sent_id: list[int]
 
 
-class HotpotQuestion(TypedDict):
+class SupportingFactsQuestion(TypedDict, total=False):
+    supporting_facts: SupportingFacts | list[list[str | int]] | None
+
+
+class HotpotQuestion(SupportingFactsQuestion):
     _id: str
-    supporting_facts: NotRequired[SupportingFacts | list[list[str | int]]]
     context: NotRequired[list[list[str | list[str]]]]
+
+
+class CorrectnessInput(TypedDict, total=False):
+    vanilla_correct: ReadOnly[object]
+    kg_correct: ReadOnly[object]
 
 
 class EvaluationQuestion(TypedDict):
@@ -90,7 +108,8 @@ class EntityCountProjection(TypedDict):
 
 class ElementProjection(TypedDict):
     eid: str
-    text: str | None
+    # Uninspected stored properties have no scalar schema guarantee.
+    text: object
 
 
 class VectorProjection(TypedDict):
@@ -99,7 +118,8 @@ class VectorProjection(TypedDict):
 
 
 class EntityIDProjection(TypedDict):
-    eid: str | None
+    # This helper returns the raw stored property, not the driver element ID.
+    eid: object
 
 
 class PathCountProjection(TypedDict):
@@ -166,6 +186,30 @@ class FailureAnalysis(TypedDict):
     retrieval_failure_qids: list[str]
 
 
+class ClassReportSummary(TypedDict, total=False):
+    n: ReadOnly[int]
+    avg_sf_extraction_recall: ReadOnly[float | None]
+    avg_sf_vector_retrieval_recall: ReadOnly[float | None]
+    avg_grounding_quality: ReadOnly[float | None]
+    avg_seed_entity_count: ReadOnly[float | None]
+    all_sf_vector_retrievable_pct: ReadOnly[float | None]
+
+
+class OverallReportSummary(TypedDict, total=False):
+    avg_sf_extraction_recall: ReadOnly[float | None]
+    avg_sf_vector_retrieval_recall: ReadOnly[float | None]
+    sf_fully_in_graph_pct: ReadOnly[float | None]
+    sf_fully_vector_retrievable_pct: ReadOnly[float | None]
+
+
+class FailureReportSummary(TypedDict, total=False):
+    total_vanilla_only: ReadOnly[int]
+    extraction_failures: ReadOnly[int]
+    retrieval_failures_given_in_graph: ReadOnly[int]
+    extraction_failure_qids: ReadOnly[list[str]]
+    retrieval_failure_qids: ReadOnly[list[str]]
+
+
 class AuditAggregate(TypedDict):
     total_questions: int
     correctness_breakdown: dict[CorrectnessClass, int]
@@ -202,7 +246,7 @@ def _make_driver(uri: str, user: str, password: str) -> Driver:
 
 
 def _run_query(
-    driver: Driver, cypher: str, params: dict[str, object] | None = None
+    driver: Driver, cypher: LiteralString, params: dict[str, object] | None = None
 ) -> list[dict[str, object]]:
     with driver.session() as session:
         result: Result = session.run(cypher, params or {})
@@ -221,7 +265,7 @@ def _load_raw_hotpotqa(raw_path: str) -> dict[str, HotpotQuestion]:
     return {q["_id"]: q for q in raw}
 
 
-def _get_supporting_facts(raw_q: HotpotQuestion) -> list[tuple[str, int]]:
+def _get_supporting_facts(raw_q: SupportingFactsQuestion) -> list[tuple[str, int]]:
     """
     Return [(title, sent_id), ...] for each supporting fact.
 
@@ -229,7 +273,10 @@ def _get_supporting_facts(raw_q: HotpotQuestion) -> list[tuple[str, int]]:
       - {"title": [...], "sent_id": [...]}  (object form, most common)
       - [[title, sent_id], ...]             (array form, some versions)
     """
-    sf: SupportingFacts | list[list[str | int]] = raw_q.get("supporting_facts", {})
+    empty_supporting_facts: SupportingFacts = {}
+    sf: SupportingFacts | list[list[str | int]] | None = raw_q.get(
+        "supporting_facts", empty_supporting_facts
+    )
     if isinstance(sf, dict):
         titles: list[str] = sf.get("title", [])
         sent_ids: list[int] = sf.get("sent_id", [])
@@ -261,9 +308,12 @@ def _check_chunks_in_graph(
     """
     results: dict[int, GraphPresence] = {}
     for pidx in passage_indices:
-        rows: list[ChunkCountProjection] = _run_query(
-            driver,
-            """
+        # count and IS NOT NULL project an integer and boolean, respectively.
+        rows: list[ChunkCountProjection] = cast(
+            list[ChunkCountProjection],
+            _run_query(
+                driver,
+                """
             MATCH (c:Chunk)
             WHERE c.questionId = $qid AND c.passageIndex = $pidx
               AND (c.kgName = $kg_name OR $kg_name IS NULL)
@@ -272,20 +322,25 @@ def _check_chunks_in_graph(
               c.embedding IS NOT NULL AS has_embedding
             LIMIT 1
             """,
-            {"qid": question_id, "pidx": pidx, "kg_name": kg_name},
+                {"qid": question_id, "pidx": pidx, "kg_name": kg_name},
+            ),
         )
         chunk_count: int = rows[0]["chunk_count"] if rows else 0
         has_embedding: bool = rows[0]["has_embedding"] if rows else False
 
-        entity_rows: list[EntityCountProjection] = _run_query(
-            driver,
-            """
+        # DISTINCT does not change the integer result of Cypher count.
+        entity_rows: list[EntityCountProjection] = cast(
+            list[EntityCountProjection],
+            _run_query(
+                driver,
+                """
             MATCH (c:Chunk)-[:HAS_ENTITY]->(e:__Entity__)
             WHERE c.questionId = $qid AND c.passageIndex = $pidx
               AND (c.kgName = $kg_name OR $kg_name IS NULL)
             RETURN count(DISTINCT e) AS entity_count
             """,
-            {"qid": question_id, "pidx": pidx, "kg_name": kg_name},
+                {"qid": question_id, "pidx": pidx, "kg_name": kg_name},
+            ),
         )
         entity_count: int = entity_rows[0]["entity_count"] if entity_rows else 0
 
@@ -312,16 +367,20 @@ def _check_chunk_retrievable_via_vector(
     Returns (found_in_top_k, similarity_score_or_None).
     """
     # Get the chunk text for this passage
-    chunk_rows: list[ElementProjection] = _run_query(
-        driver,
-        """
+    # elementId is a string; the unused text property remains unconstrained.
+    chunk_rows: list[ElementProjection] = cast(
+        list[ElementProjection],
+        _run_query(
+            driver,
+            """
         MATCH (c:Chunk)
         WHERE c.questionId = $qid AND c.passageIndex = $pidx
           AND (c.kgName = $kg_name OR $kg_name IS NULL)
         RETURN elementId(c) AS eid, c.text AS text
         LIMIT 1
         """,
-        {"qid": question_id, "pidx": passage_index, "kg_name": kg_name},
+            {"qid": question_id, "pidx": passage_index, "kg_name": kg_name},
+        ),
     )
     if not chunk_rows:
         return False, None
@@ -330,16 +389,20 @@ def _check_chunk_retrievable_via_vector(
 
     # Run vector search and check if this chunk appears
     try:
-        vector_rows: list[VectorProjection] = _run_query(
-            driver,
-            """
+        # The built-in vector procedure yields a numeric similarity score.
+        vector_rows: list[VectorProjection] = cast(
+            list[VectorProjection],
+            _run_query(
+                driver,
+                """
             CALL db.index.vector.queryNodes('vector', $k, $embedding)
             YIELD node AS chunk, score
             WHERE chunk.questionId = $qid
             RETURN elementId(chunk) AS eid, score
             LIMIT $k
             """,
-            {"k": top_k, "embedding": query_embedding, "qid": question_id},
+                {"k": top_k, "embedding": query_embedding, "qid": question_id},
+            ),
         )
         for row in vector_rows:
             if row["eid"] == target_eid:
@@ -361,16 +424,19 @@ def _get_entity_seeds_for_question(
     kg_name: str,
     entity_names: list[str],
     limit: int = 12,
-) -> list[str | None]:
+) -> list[object]:
     """
     Look up entity IDs that match any of the entity_names for this question's scope.
     Approximates what the entity-first retriever would use as seeds.
     """
     if not entity_names:
         return []
-    rows: list[EntityIDProjection] = _run_query(
-        driver,
-        """
+    # Only the alias is fixed: e.id may be absent or any stored property value.
+    rows: list[EntityIDProjection] = cast(
+        list[EntityIDProjection],
+        _run_query(
+            driver,
+            """
         MATCH (e:__Entity__)
         WHERE toLower(e.name) IN $names
         AND EXISTS {
@@ -380,11 +446,12 @@ def _get_entity_seeds_for_question(
         RETURN e.id AS eid
         LIMIT $limit
         """,
-        {
-            "names": [n.lower() for n in entity_names],
-            "qid": question_id,
-            "limit": limit,
-        },
+            {
+                "names": [n.lower() for n in entity_names],
+                "qid": question_id,
+                "limit": limit,
+            },
+        ),
     )
     return [r["eid"] for r in rows]
 
@@ -404,9 +471,12 @@ def _check_passage_reachable_via_entity_traversal(
     if not seed_entity_ids:
         return False
     try:
-        rows: list[PathCountProjection] = _run_query(
-            driver,
-            f"""
+        # Counting paths projects an integer independently of path contents.
+        rows: list[PathCountProjection] = cast(
+            list[PathCountProjection],
+            _run_query(
+                driver,
+                f"""
             MATCH (seed:__Entity__)
             WHERE seed.id IN $seed_ids
             MATCH path = (seed)-[*1..{max_hops}]-(neighbor:__Entity__)
@@ -417,11 +487,12 @@ def _check_passage_reachable_via_entity_traversal(
             RETURN count(path) AS n
             LIMIT 1
             """,
-            {
-                "seed_ids": seed_entity_ids,
-                "qid": question_id,
-                "pidx": passage_index,
-            },
+                {
+                    "seed_ids": seed_entity_ids,
+                    "qid": question_id,
+                    "pidx": passage_index,
+                },
+            ),
         )
         return bool(rows and rows[0]["n"] > 0)
     except Exception as e:
@@ -542,9 +613,9 @@ def _audit_question(
     }
 
 
-def _correctness_class(eval_q: EvaluationQuestion) -> CorrectnessClass:
-    v: bool | None = eval_q.get("vanilla_correct")
-    k: bool | None = eval_q.get("kg_correct")
+def _correctness_class(eval_q: CorrectnessInput) -> CorrectnessClass:
+    v: object = eval_q.get("vanilla_correct")
+    k: object = eval_q.get("kg_correct")
     if v and k:
         return "both_correct"
     if v and not k:
@@ -565,7 +636,9 @@ def _aggregate(results: list[QuestionAudit]) -> AuditAggregate:
         by_class[r["correctness_class"]].append(r)
 
     def _avg(lst: list[QuestionAudit], key: RecallKey) -> float | None:
-        vals: list[float | int] = [x[key] for x in lst if x.get(key) is not None]
+        vals: list[float | int] = [
+            cast(float | int, x[key]) for x in lst if x.get(key) is not None
+        ]
         return sum(vals) / len(vals) if vals else None
 
     agg: AuditAggregate = {
@@ -620,14 +693,15 @@ def _aggregate(results: list[QuestionAudit]) -> AuditAggregate:
     extraction_failures: list[QuestionAudit] = [
         q
         for q in vanilla_only
-        if q.get("sf_extraction_recall") is not None and q["sf_extraction_recall"] < 1.0
+        if q.get("sf_extraction_recall") is not None
+        and cast(float, q["sf_extraction_recall"]) < 1.0
     ]
     retrieval_failures: list[QuestionAudit] = [
         q
         for q in vanilla_only
         if q.get("sf_extraction_recall") == 1.0
         and q.get("sf_vector_retrieval_recall") is not None
-        and q["sf_vector_retrieval_recall"] < 1.0
+        and cast(float, q["sf_vector_retrieval_recall"]) < 1.0
     ]
     agg["vanilla_only_failure_analysis"] = {
         "total_vanilla_only": len(vanilla_only),
@@ -649,10 +723,11 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
 
     cb: dict[CorrectnessClass, int] = agg.get("correctness_breakdown", {})
     lines.append("\nCorrectness breakdown:")
+    cls: CorrectnessClass
     for cls in ("both_correct", "vanilla_only", "kg_only", "neither"):
         lines.append(f"  {cls}: {cb.get(cls, 0)}")
 
-    ov: OverallAggregate = agg.get("overall", {})
+    ov: OverallReportSummary = agg.get("overall", {})
     lines.append("\nOverall supporting-fact (SF) coverage:")
     lines.append(
         f"  SF passages in graph (extraction recall):  {ov.get('avg_sf_extraction_recall', 'N/A'):.1%}"
@@ -677,13 +752,15 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
 
     lines.append("\nBy correctness class:")
     for cls in ("both_correct", "vanilla_only", "kg_only", "neither"):
-        d: ClassAggregate | SupportingFactDetail = agg.get(cls, {})
-        if not d:
+        class_summary: ClassReportSummary = agg.get(cls, {})
+        if not class_summary:
             continue
-        lines.append(f"\n  [{cls.upper()}] n={d['n']}")
-        er: float | None = d.get("avg_sf_extraction_recall")
-        vr: float | None = d.get("avg_sf_vector_retrieval_recall")
-        af: float | None = d.get("all_sf_vector_retrievable_pct")
+        lines.append(
+            f"\n  [{cls.upper()}] n={cast(ClassAggregate, class_summary)['n']}"
+        )
+        er: float | None = class_summary.get("avg_sf_extraction_recall")
+        vr: float | None = class_summary.get("avg_sf_vector_retrieval_recall")
+        af: float | None = class_summary.get("all_sf_vector_retrievable_pct")
         lines.append(
             f"    SF extraction recall:      {er:.1%}"
             if er is not None
@@ -700,17 +777,17 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
             else "    All SF vector-retrievable:  N/A"
         )
         lines.append(
-            f"    Avg grounding_quality:     {d.get('avg_grounding_quality', 'N/A'):.3f}"
-            if d.get("avg_grounding_quality") is not None
+            f"    Avg grounding_quality:     {class_summary.get('avg_grounding_quality', 'N/A'):.3f}"
+            if class_summary.get("avg_grounding_quality") is not None
             else "    Avg grounding_quality:     N/A"
         )
         lines.append(
-            f"    Avg seed entity count:     {d.get('avg_seed_entity_count', 'N/A'):.1f}"
-            if d.get("avg_seed_entity_count") is not None
+            f"    Avg seed entity count:     {class_summary.get('avg_seed_entity_count', 'N/A'):.1f}"
+            if class_summary.get("avg_seed_entity_count") is not None
             else "    Avg seed entity count:     N/A"
         )
 
-    fa: FailureAnalysis = agg.get("vanilla_only_failure_analysis", {})
+    fa: FailureReportSummary = agg.get("vanilla_only_failure_analysis", {})
     lines.append("\nVanilla-only failure analysis:")
     lines.append(f"  Total vanilla-only questions: {fa.get('total_vanilla_only', 0)}")
     lines.append(
@@ -720,7 +797,9 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
         f"  Retrieval failures (in graph, not retrieved): {fa.get('retrieval_failures_given_in_graph', 0)}"
     )
     if fa.get("retrieval_failure_qids"):
-        lines.append(f"  Retrieval-failure QIDs: {fa['retrieval_failure_qids']}")
+        lines.append(
+            f"  Retrieval-failure QIDs: {cast(FailureAnalysis, fa)['retrieval_failure_qids']}"
+        )
 
     lines.append("\nVanilla-only question details:")
     vanilla_only_qs: list[QuestionAudit] = [

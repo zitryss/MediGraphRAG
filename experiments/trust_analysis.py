@@ -15,11 +15,12 @@ import json
 import os
 import sys
 from collections.abc import Sequence
-from typing import NotRequired, TypeGuard, TypedDict
+from typing import NotRequired, TypedDict, TypeGuard
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from sklearn.metrics import roc_auc_score
+from typing_extensions import ReadOnly
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v2_paper_numbers import percentile_ranks
@@ -75,6 +76,12 @@ class CompleteTrustRow(TypedDict):
 
 def has_complete_metrics(row: TrustRow) -> TypeGuard[CompleteTrustRow]:
     return row["sd"] is not None and row["seu"] is not None
+
+
+class SilentRateRow(TypedDict):
+    correct: ReadOnly[object]
+    dse: ReadOnly[float | None]
+    sd: ReadOnly[float | None]
 
 
 class SilentSummary(TypedDict):
@@ -179,11 +186,11 @@ def rows_for(slug: str, policy: str) -> list[TrustRow]:
     return out
 
 
-def silent_rate(rows: Sequence[TrustRow]) -> tuple[float | None, int]:
-    wrong: list[TrustRow] = [r for r in rows if not r["correct"]]
+def silent_rate(rows: Sequence[SilentRateRow]) -> tuple[float | None, int]:
+    wrong: list[SilentRateRow] = [r for r in rows if not r["correct"]]
     if not wrong:
         return None, 0
-    calm: list[TrustRow] = [
+    calm: list[SilentRateRow] = [
         r
         for r in wrong
         if r["dse"] is not None

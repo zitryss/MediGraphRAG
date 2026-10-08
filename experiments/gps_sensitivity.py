@@ -60,7 +60,6 @@ class SensitivityReport(TypedDict):
 
 from experiments.gps_v2_replay import ReplayArtifact, ReplayScore, ReplayStore
 
-
 OUT_PATH: str = os.path.join(REPO, "results", "analyses", "gps_sensitivity.json")
 
 TAUS: list[float] = [0.50, 0.55, 0.60, 0.65, 0.70]

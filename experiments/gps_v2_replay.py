@@ -34,13 +34,22 @@ import sys
 import time
 from collections import Counter
 from datetime import date
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    LiteralString,
+    NotRequired,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import ReadOnly
 
 if TYPE_CHECKING:
-    from neo4j import Session
+    from neo4j import Driver, Result, Session
     from sentence_transformers import SentenceTransformer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -62,7 +71,7 @@ class SoftMatch(TypedDict):
     cos: float
 
 
-class MergedReplayRow(TypedDict):
+class ReplayRowFields(TypedDict):
     question_id: str | int
     question: str
     kg_response: NotRequired[str]
@@ -73,7 +82,22 @@ class MergedReplayRow(TypedDict):
     vanilla_generation_failed: NotRequired[bool]
     kg_graph_path_support: NotRequired[float | None]
     vanilla_graph_path_support: NotRequired[float | None]
-    store: NotRequired[dict[str, ReplayStore]]
+
+
+class MergedReplayRow(ReplayRowFields, total=False):
+    store: dict[str, V2ReplayStore]
+
+
+class CompletedReplayRow(ReplayRowFields):
+    store: dict[str, V2ReplayStore]
+
+
+class KGResponseView(TypedDict):
+    kg_response: ReadOnly[str]
+
+
+class VanillaResponseView(TypedDict):
+    vanilla_response: ReadOnly[str]
 
 
 class ReplayConfig(TypedDict, total=False):
@@ -86,6 +110,8 @@ class ReplayDocument(TypedDict, total=False):
 
 
 class StoredAnswer(TypedDict, total=False):
+    """Sparse saved input accepted by depth-matched v3 scoring."""
+
     q_sources: list[str]
     id: str
     name: str | None
@@ -95,10 +121,66 @@ class StoredAnswer(TypedDict, total=False):
 
 
 class ReplayStore(TypedDict, total=False):
+    """Sparse imported store; not the completed v2 producer contract."""
+
     null_reason: str | None
     q_ids: list[str]
     q_source: str
     answers: list[StoredAnswer]
+
+
+class LinkedAnswer(TypedDict):
+    """Mutable link record before path resolution adds L."""
+
+    id: str
+    name: str | None
+    cos: float
+    source: str
+    q_sources: NotRequired[list[str]]
+    L: NotRequired[int | None]
+
+
+class PathPendingAnswer(TypedDict):
+    id: str
+    name: str | None
+    cos: float
+    source: str
+    q_sources: list[str]
+    L: NotRequired[int | None]
+
+
+class V2StoredAnswer(TypedDict):
+    """Serialized completed v2 link: path length is present, possibly null."""
+
+    id: str
+    name: str | None
+    cos: float
+    source: str
+    L: int | None
+    q_sources: NotRequired[ReadOnly[list[str]]]
+
+
+class V2NullStore(TypedDict):
+    null_reason: Literal["generation_failed", "no_q_entities", "no_a_entities"]
+    q_ids: NotRequired[list[str]]
+    q_source: NotRequired[str]
+    answers: NotRequired[ReadOnly[list[V2StoredAnswer]]]
+
+
+class V2AnsweredStore(TypedDict):
+    null_reason: None
+    q_ids: list[str]
+    q_source: str
+    answers: list[V2StoredAnswer]
+
+
+V2ReplayStore: TypeAlias = V2NullStore | V2AnsweredStore
+
+
+class PresentNullReason(TypedDict):
+    """Read view after the existing truthy null_reason check."""
+
+    null_reason: ReadOnly[str]
 
 
 class ReplayScore(TypedDict):
@@ -125,6 +207,19 @@ class ReplayArtifact(TypedDict):
     v1_logged: NotRequired[dict[str, LoggedSummary]]
 
 
+class V2ReplayQuestion(TypedDict):
+    question_id: str | int
+    kg_correct: bool | None
+    vanilla_correct: bool | None
+    store: dict[str, V2ReplayStore]
+
+
+class V2ReplayArtifact(TypedDict):
+    source_result: str
+    questions: list[V2ReplayQuestion]
+    v1_logged: dict[str, LoggedSummary]
+
+
 class ReplaySummary(TypedDict):
     tau: float
     gamma: float
@@ -133,6 +228,23 @@ class ReplaySummary(TypedDict):
     coverage: float | None
     auroc: float | None
     abstain_reasons: dict[str, int]
+
+
+class ReplayParameters(TypedDict):
+    min_name_length: int
+    max_entities: int
+    tau_loose_store: float
+    tau_q_fixed: float
+    max_hops: int
+    mode: str
+
+
+class ReplayOutput(V2ReplayArtifact):
+    replay: str
+    date: str
+    dataset: str
+    params: ReplayParameters
+    summary: dict[str, list[ReplaySummary]]
 
 
 REPO_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -216,7 +328,7 @@ class ScopedEntityIndex:
     """Entities (with embeddings) visible in one (kg_name, question_id) scope."""
 
     def __init__(self, session: Session, kg_name: str, question_id: str | None) -> None:
-        scope: str = _question_local_entity_support_predicate(
+        scope: LiteralString = _question_local_entity_support_predicate(
             "e", kg_name=kg_name, question_id=question_id
         )
         self.rows: list[ScopedEntity] = _load_scoped_entities(
@@ -231,7 +343,7 @@ class ScopedEntityIndex:
             params["kg_name"] = kg_name
         if question_id:
             params["question_id"] = question_id
-        emb_rows = session.run(
+        emb_rows: Result = session.run(
             f"""
             MATCH (e:__Entity__)
             WHERE size(e.name) >= $min_len AND e.embedding IS NOT NULL AND {scope}
@@ -301,7 +413,7 @@ def _min_path_length(
     max_hops: int,
 ) -> int | None:
     """Smallest L in 1..max_hops with a qualifying path, mirroring GPS-v1 filters."""
-    path_scope: str = _question_local_path_support_predicate(
+    path_scope: LiteralString = _question_local_path_support_predicate(
         path_var="p", kg_name=kg_name, question_id=question_id
     )
     params: dict[str, str | list[str]] = {"q_ids": q_ids, "a_id": a_id}
@@ -333,7 +445,7 @@ def replay_question(
     kg_name: str,
     question_id: str | None,
     max_hops: int,
-) -> ReplayStore:
+) -> V2ReplayStore:
     """Resolve links + path lengths once, at the loose threshold (store row)."""
     q_matches: list[ScopedEntity] = index.surface_match(question)
     q_source: str = "surface"
@@ -348,7 +460,7 @@ def replay_question(
         return {"null_reason": "no_q_entities"}
 
     span: str = _primary_answer_span(answer)
-    a_links: dict[str, StoredAnswer] = {}
+    a_links: dict[str, LinkedAnswer] = {}
     m: ScopedEntity | SoftMatch
     for m in index.surface_match(span):
         a_id: str = str(m.get("id"))
@@ -361,10 +473,11 @@ def replay_question(
             }
     for m in index.soft_match(span, encoder, TAU_LOOSE):
         if m["id"] not in a_links:
-            a_links[m["id"]] = {**m, "source": "soft"}
+            # soft_match emits exactly id/name/cos; this expansion only adds source.
+            a_links[m["id"]] = cast(LinkedAnswer, {**m, "source": "soft"})
     # v1 trivial-overlap rule: an answer entity that is also a question entity
     # does not count, and its path sources exclude itself.
-    answers: list[StoredAnswer] = []
+    answers: list[LinkedAnswer] = []
     for a in a_links.values():
         sources: list[str] = [q for q in q_ids if q != a["id"]]
         if not sources:
@@ -378,22 +491,34 @@ def replay_question(
 
     for a in answers:
         a["L"] = _min_path_length(
-            session, a["q_sources"], a["id"], kg_name, question_id, max_hops
+            session,
+            # Each retained link received q_sources immediately before append.
+            cast(PathPendingAnswer, a)["q_sources"],
+            a["id"],
+            kg_name,
+            question_id,
+            max_hops,
         )
         del a["q_sources"]
     return {
         "null_reason": None,
         "q_ids": q_ids,
         "q_source": q_source,
-        "answers": answers,
+        # The loop assigns L to every retained link and removes q_sources.
+        "answers": cast(list[V2StoredAnswer], answers),
     }
 
 
-def score_from_store(store_row: ReplayStore, tau: float, gamma: float) -> ReplayScore:
+def score_from_store(
+    store_row: ReplayStore | V2ReplayStore, tau: float, gamma: float
+) -> ReplayScore:
     """Evaluate one (tau, gamma) grid point from a stored replay row."""
     if store_row.get("null_reason"):
-        return {"score": 0.5, "null_reason": store_row["null_reason"]}
-    kept: list[StoredAnswer] = [
+        return {
+            "score": 0.5,
+            "null_reason": cast(PresentNullReason, store_row)["null_reason"],
+        }
+    kept: list[StoredAnswer | V2StoredAnswer] = [
         a for a in store_row["answers"] if a["source"] == "surface" or a["cos"] >= tau
     ][:MAX_ENTITIES]
     if not kept:
@@ -414,7 +539,7 @@ def auroc(scores: list[float], wrong: list[bool]) -> float | None:
 
 
 def summarize(
-    rows: list[MergedReplayRow], side: str, tau: float, gamma: float
+    rows: list[CompletedReplayRow], side: str, tau: float, gamma: float
 ) -> ReplaySummary:
     scored: list[float]
     wrong: list[bool]
@@ -474,7 +599,9 @@ def run_dataset(
         rows = _merged_rows(result_path)
     print(f"[{slug}] {len(rows)} questions from {os.path.basename(result_path)}")
 
-    driver = GraphDatabase.driver(env["uri"], auth=(env["user"], env["password"]))
+    driver: Driver = GraphDatabase.driver(
+        env["uri"], auth=(env["user"], env["password"])
+    )
     shared_index: ScopedEntityIndex | None = None
     t0: float = time.time()
     with driver.session(database=env["database"]) as session:
@@ -489,7 +616,12 @@ def run_dataset(
                 session, slug, qid
             )
             r["store"] = {}
-            sides: tuple[tuple[str, str], ...] = (
+            sides: tuple[
+                tuple[
+                    Literal["kg", "vanilla"], Literal["kg_response", "vanilla_response"]
+                ],
+                ...,
+            ] = (
                 (("kg", "kg_response"),)
                 if runfile
                 else (("kg", "kg_response"), ("vanilla", "vanilla_response"))
@@ -507,9 +639,10 @@ def run_dataset(
                     encoder,
                     index,
                     r["question"],
-                    r["kg_response"]
+                    # The false failed/missing-response guard proves this selected key.
+                    cast(KGResponseView, r)["kg_response"]
                     if resp_key == "kg_response"
-                    else r["vanilla_response"],
+                    else cast(VanillaResponseView, r)["vanilla_response"],
                     slug,
                     qid,
                     max_hops,
@@ -518,12 +651,17 @@ def run_dataset(
                 print(f"[{slug}] {i + 1}/{len(rows)} ({time.time() - t0:.0f}s)")
     driver.close()
 
+    # Every row gets store={} before either side is resolved or marked failed.
+    completed_rows: list[CompletedReplayRow] = cast(list[CompletedReplayRow], rows)
+
     grid_points: list[tuple[float, float]] = (
         [(t, g) for t in GRID_TAU for g in GRID_GAMMA] if grid else [(tau, gamma)]
     )
-    eval_sides: tuple[str, ...] = ("kg",) if runfile else ("kg", "vanilla")
+    eval_sides: tuple[Literal["kg", "vanilla"], ...] = (
+        ("kg",) if runfile else ("kg", "vanilla")
+    )
     summary: dict[str, list[ReplaySummary]] = {
-        side: [summarize(rows, side, t, g) for (t, g) in grid_points]
+        side: [summarize(completed_rows, side, t, g) for (t, g) in grid_points]
         for side in eval_sides
     }
     # v1 comparison from the logged scores (0.5 sentinel rows excluded — the
@@ -556,7 +694,7 @@ def run_dataset(
             )
         v1[side] = {"usable": len(s), "auroc": auroc(s, w)}
 
-    out = {
+    out: ReplayOutput = {
         "replay": "gps_v2",
         "date": str(date.today()),
         "dataset": slug,
@@ -578,7 +716,7 @@ def run_dataset(
                 "vanilla_correct": r.get("vanilla_correct"),
                 "store": r["store"],
             }
-            for r in rows
+            for r in completed_rows
         ],
     }
     suffix: str = "_strict" if runfile else ""

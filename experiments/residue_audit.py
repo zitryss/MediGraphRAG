@@ -17,11 +17,11 @@ import os
 from typing import NotRequired, TypedDict
 
 from experiments.lockin_accounting_analysis import (
-    AccountingDetail,
-    AccountingRow,
     KEY,
     MANIFEST,
     REPO,
+    AccountingDetail,
+    AccountingRow,
     gps_cache,
     gps_flags,
     is_silent,

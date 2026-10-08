@@ -16,7 +16,7 @@ import json
 import os
 import sys
 from datetime import datetime
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,12 +27,12 @@ from experiments.answer_formatting import (
 from experiments.experiment import MIRAGEEvaluationPipeline
 from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS
 from experiments.uncertainty_metrics import (
-    compute_all_uncertainty_metrics,
     UncertaintyMetrics,
+    compute_all_uncertainty_metrics,
 )
 from ontographrag.rag.graph_state import (
-    GraphStateSummary,
     EmptyGraphStateDiversity,
+    GraphStateSummary,
     dominant_anchor_id,
     graph_state_diversity,
     summarize_context_graph_state,
@@ -130,6 +130,18 @@ class InterventionTrigger(TypedDict):
     seu_gte: float
     wrong_only: bool
     require_populated_route: bool
+
+
+class InterventionReportPatch(TypedDict, total=False):
+    created_at: str
+    mode: str
+    note: str
+    dataset: str
+    policy: str
+    trigger: InterventionTrigger
+    candidate_count: int
+    candidates: list[InterventionCandidate]
+    results: list[InterventionResult]
 
 
 class InterventionReport(TypedDict):
@@ -318,7 +330,9 @@ def _sample_diversity(
         prompt=row["question"],
         context="",
     )
-    diversity: InterventionDiversity = {**graph_state_diversity(graph_states)}
+    diversity: InterventionDiversity = cast(
+        InterventionDiversity, {**graph_state_diversity(graph_states)}
+    )
     diversity["chunk_text_jaccard"] = float(chunk_jaccard or 0.0)
     diversity["discrete_semantic_entropy"] = float(
         uq.get("discrete_semantic_entropy", 0.0)
@@ -467,7 +481,7 @@ def main() -> None:
         "candidates": candidates,
     }
     if args.run and candidates:
-        out.update(run_intervention(args, candidates))
+        out.update(cast(InterventionReportPatch, run_intervention(args, candidates)))
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     json.dump(out, open(args.out, "w"), indent=1, default=float)

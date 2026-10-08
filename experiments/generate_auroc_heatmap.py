@@ -5,24 +5,32 @@ Saves to paper/figures/auroc_heatmap.pdf (and .png for preview).
 
 import json
 import os
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict, cast
+
 import numpy as np
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
-    from matplotlib.figure import Figure
-    from matplotlib.colors import Colormap
-    from matplotlib.colorbar import Colorbar
     from matplotlib.cm import ScalarMappable
+    from matplotlib.colorbar import Colorbar
+    from matplotlib.colors import Colormap
+    from matplotlib.figure import Figure
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.colors import TwoSlopeNorm
 from pathlib import Path
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.colors import TwoSlopeNorm
+
+
+class RectangleAxesFigure(Protocol):
+    """Figure.add_axes accepts the existing four numeric bounds as a list."""
+
+    def add_axes(self, rect: list[float]) -> "Axes": ...
 
 
 class HeatmapConfig(TypedDict, total=False):
@@ -276,7 +284,7 @@ for family, r0, r1 in family_spans:
 # ── Shared colorbar ───────────────────────────────────────────────────────────
 sm: "ScalarMappable" = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
 sm.set_array([])
-cbar_ax: "Axes" = fig.add_axes([0.92, 0.18, 0.016, 0.65])
+cbar_ax: "Axes" = cast(RectangleAxesFigure, fig).add_axes([0.92, 0.18, 0.016, 0.65])
 cb: "Colorbar" = fig.colorbar(sm, cax=cbar_ax)
 cb.set_label("AUROC", fontsize=8.5)
 cb.ax.tick_params(labelsize=7.5)
