@@ -19,8 +19,131 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal, NotRequired, TypeAlias, TypedDict
 
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+    from matplotlib.container import BarContainer
+
+MetricKey: TypeAlias = Literal[
+    "semantic_entropy",
+    "discrete_semantic_entropy",
+    "sre_uq",
+    "p_true",
+    "selfcheckgpt",
+    "vn_entropy",
+    "sd_uq",
+    "graph_path_support",
+    "subgraph_perturbation_stability",
+    "support_entailment_uncertainty",
+    "evidence_conflict_uncertainty",
+]
+FamilyKey: TypeAlias = Literal["output", "structural", "grounding"]
+StatKey: TypeAlias = Literal["auroc", "ppv"]
+
+
+class HopDetail(TypedDict, total=False):
+    id: str | int
+    question_id: str | int
+    hop_count: int | None
+    kg_correct: bool
+    kg_generation_failed: bool
+    kg_semantic_entropy: float | str | None
+    kg_discrete_semantic_entropy: float | str | None
+    kg_sre_uq: float | str | None
+    kg_p_true: float | str | None
+    kg_selfcheckgpt: float | str | None
+    kg_vn_entropy: float | str | None
+    kg_sd_uq: float | str | None
+    kg_graph_path_support: float | str | None
+    kg_subgraph_perturbation_stability: float | str | None
+    kg_support_entailment_uncertainty: float | str | None
+    kg_evidence_conflict_uncertainty: float | str | None
+    kg_graph_path_support_null_reason: str | None
+    kg_subgraph_perturbation_stability_null_reason: str | None
+    vanilla_correct: bool
+    vanilla_generation_failed: bool
+    vanilla_semantic_entropy: float | str | None
+    vanilla_discrete_semantic_entropy: float | str | None
+    vanilla_sre_uq: float | str | None
+    vanilla_p_true: float | str | None
+    vanilla_selfcheckgpt: float | str | None
+    vanilla_vn_entropy: float | str | None
+    vanilla_sd_uq: float | str | None
+    vanilla_graph_path_support: float | str | None
+    vanilla_subgraph_perturbation_stability: float | str | None
+    vanilla_support_entailment_uncertainty: float | str | None
+    vanilla_evidence_conflict_uncertainty: float | str | None
+    vanilla_graph_path_support_null_reason: str | None
+    vanilla_subgraph_perturbation_stability_null_reason: str | None
+
+
+class HopConfig(TypedDict, total=False):
+    config: dict[str, str]
+    details: list[HopDetail]
+
+
+class HopDocument(TypedDict, total=False):
+    config_results: list[HopConfig]
+
+
+class MetricStats(TypedDict):
+    auroc: float
+    ppv: float
+    label: str
+    family: str
+
+
+class HopStats(TypedDict):
+    n: int
+    error_rate: float
+    semantic_entropy: NotRequired[MetricStats]
+    discrete_semantic_entropy: NotRequired[MetricStats]
+    sre_uq: NotRequired[MetricStats]
+    p_true: NotRequired[MetricStats]
+    selfcheckgpt: NotRequired[MetricStats]
+    vn_entropy: NotRequired[MetricStats]
+    sd_uq: NotRequired[MetricStats]
+    graph_path_support: NotRequired[MetricStats]
+    subgraph_perturbation_stability: NotRequired[MetricStats]
+    support_entailment_uncertainty: NotRequired[MetricStats]
+    evidence_conflict_uncertainty: NotRequired[MetricStats]
+
+
+class HopSummary(TypedDict):
+    dataset: str
+    hop_label: str
+    n: int
+    error_rate: float
+    output_auroc: float
+    structural_auroc: float
+    grounding_auroc: float
+    output_ppv: float
+    structural_ppv: float
+    grounding_ppv: float
+    _stats: NotRequired[HopStats]
+
+
+class PerMetricRow(TypedDict):
+    dataset: str
+    hop_label: str
+    metric: str
+    family: str
+    n: int
+    auroc: float
+    ppv: float
+    error_rate: float
+
+
+class HopReport(TypedDict):
+    rows: list[HopSummary]
+    rows_detail: list[PerMetricRow]
+    saved_figures: list[str]
+
 
 # ── Results paths ──────────────────────────────────────────────────────────────
 RUNS: dict[str, str] = {
@@ -34,7 +157,7 @@ RUNS: dict[str, str] = {
 
 # ── Metric layout ──────────────────────────────────────────────────────────────
 # (internal_key, display_label, family, higher_is_more_certain)
-METRICS: list[tuple[str, str, str, bool]] = [
+METRICS: list[tuple[MetricKey, str, FamilyKey, bool]] = [
     # Output estimators
     ("semantic_entropy", "SE", "output", False),
     ("discrete_semantic_entropy", "DSE", "output", False),
@@ -70,14 +193,14 @@ SYSTEM_PREFIX: str = "kg"
 SINGLE_HOP_DATASETS: set[str] = {"BioASQ", "RealMedQA", "PubMedQA"}
 # HotpotQA is 2-hop by design even though hop_count metadata is absent
 HOTPOTQA_DEFAULT_HOP: int = 2
-PREFERRED_CONFIG_NAME = os.environ.get("MIRAGE_CONFIG_NAME")
+PREFERRED_CONFIG_NAME: str | None = os.environ.get("MIRAGE_CONFIG_NAME")
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────
 
 
-def _select_config_result(path: str, results_doc: dict) -> dict:
-    config_results = results_doc.get("config_results", [])
+def _select_config_result(path: str, results_doc: HopDocument) -> HopConfig:
+    config_results: list[HopConfig] = results_doc.get("config_results", [])
     if not config_results:
         raise ValueError(f"{path} contains no config_results")
     if len(config_results) == 1:
@@ -92,7 +215,7 @@ def _select_config_result(path: str, results_doc: dict) -> dict:
         if cfg_res.get("config", {}).get("name") == "default":
             return cfg_res
 
-    config_names = [
+    config_names: list[str] = [
         cfg.get("config", {}).get("name", "<unnamed>") for cfg in config_results
     ]
     raise ValueError(
@@ -101,9 +224,9 @@ def _select_config_result(path: str, results_doc: dict) -> dict:
     )
 
 
-def load_details(path: str) -> list[dict]:
+def load_details(path: str) -> list[HopDetail]:
     with open(path) as f:
-        results_doc = json.load(f)
+        results_doc: HopDocument = json.load(f)
     return _select_config_result(path, results_doc).get("details", [])
 
 
@@ -125,7 +248,9 @@ def to_uncertainty(score: float, higher_is_more_certain: bool) -> float:
 # ── Core stats ─────────────────────────────────────────────────────────────────
 
 
-def auroc(y_true: np.ndarray, uncertainty: np.ndarray) -> float:
+def auroc(
+    y_true: NDArray[np.float64 | np.int64], uncertainty: NDArray[np.float64 | np.int64]
+) -> float:
     """AUROC: predicting incorrectness from uncertainty. 0.5 = chance."""
     try:
         from sklearn.metrics import roc_auc_score
@@ -136,49 +261,54 @@ def auroc(y_true: np.ndarray, uncertainty: np.ndarray) -> float:
     return float(roc_auc_score(y_true, -uncertainty))
 
 
-def ppv_at_k(y_true: np.ndarray, uncertainty: np.ndarray, frac: float = 0.20) -> float:
+def ppv_at_k(
+    y_true: NDArray[np.float64 | np.int64],
+    uncertainty: NDArray[np.float64 | np.int64],
+    frac: float = 0.20,
+) -> float:
     """Precision@k: among the top-frac most uncertain questions, what fraction are wrong?
     Returns NaN if fewer than 2 questions in the pool.
     """
-    n = len(y_true)
-    k = max(1, int(np.ceil(n * frac)))
+    n: int = len(y_true)
+    k: int = max(1, int(np.ceil(n * frac)))
     if n < 2:
         return float("nan")
-    order = np.argsort(-uncertainty)  # most uncertain first
-    top_k = y_true[order[:k]]
-    wrong_in_top_k = np.sum(top_k == 0)
+    order: NDArray[np.intp] = np.argsort(-uncertainty)  # most uncertain first
+    top_k: NDArray[np.float64 | np.int64] = y_true[order[:k]]
+    wrong_in_top_k: np.int64 = np.sum(top_k == 0)
     return float(wrong_in_top_k / k)
 
 
-def baseline_error_rate(y_true: np.ndarray) -> float:
+def baseline_error_rate(y_true: NDArray[np.float64 | np.int64]) -> float:
     return float(np.mean(y_true == 0)) if len(y_true) > 0 else float("nan")
 
 
 def compute_stats(
-    details: list[dict],
+    details: list[HopDetail],
     hop_label_: str,
     ds_name: str,
     ppv_frac: float = 0.20,
     system_prefix: str = SYSTEM_PREFIX,
-) -> dict:
+) -> HopStats:
     """For a slice of details (same hop bucket), compute AUROC and PPV for each metric."""
-    results = {}
-    clean_details = [
+    clean_details: list[HopDetail] = [
         d
         for d in details
         if not bool(d.get(f"{system_prefix}_generation_failed", False))
     ]
-    y_true_global = np.array(
+    y_true_global: NDArray[np.float64] = np.array(
         [
             1.0 if d.get(f"{system_prefix}_correct", False) else 0.0
             for d in clean_details
         ]
     )
-    results["n"] = len(clean_details)
-    results["error_rate"] = baseline_error_rate(y_true_global)
+    results: HopStats = {
+        "n": len(clean_details),
+        "error_rate": baseline_error_rate(y_true_global),
+    }
 
     for key, label, family, higher_is_certain in METRICS:
-        metric_details = clean_details
+        metric_details: list[HopDetail] = clean_details
         if key == "graph_path_support":
             metric_details = [
                 d
@@ -186,7 +316,9 @@ def compute_stats(
                 if not str(d.get(f"{system_prefix}_graph_path_support_null_reason", ""))
             ]
         elif key == "subgraph_perturbation_stability":
-            null_key = f"{system_prefix}_subgraph_perturbation_stability_null_reason"
+            null_key: str = (
+                f"{system_prefix}_subgraph_perturbation_stability_null_reason"
+            )
             if any(null_key in d for d in clean_details):
                 metric_details = [
                     d for d in clean_details if not str(d.get(null_key, ""))
@@ -203,13 +335,13 @@ def compute_stats(
                             metric_details.append(d)
                     except (TypeError, ValueError):
                         continue
-        raw = np.array(
+        raw: NDArray[np.float64] = np.array(
             [
                 float(d.get(f"{system_prefix}_{key}", float("nan")))
                 for d in metric_details
             ]
         )
-        valid = ~np.isnan(raw)
+        valid: NDArray[np.bool_] = ~np.isnan(raw)
         if valid.sum() < 4:
             results[key] = {
                 "auroc": float("nan"),
@@ -218,18 +350,18 @@ def compute_stats(
                 "family": family,
             }
             continue
-        unc = np.where(
+        unc: NDArray[np.float64] = np.where(
             valid,
             np.vectorize(lambda s: to_uncertainty(s, higher_is_certain))(raw),
             float("nan"),
         )
-        yt = np.array(
+        yt: NDArray[np.float64] = np.array(
             [
                 1.0 if d.get(f"{system_prefix}_correct", False) else 0.0
                 for d in metric_details
             ]
         )[valid]
-        un = unc[valid]
+        un: NDArray[np.float64] = unc[valid]
         results[key] = {
             "auroc": auroc(yt, un),
             "ppv": ppv_at_k(yt, un, ppv_frac),
@@ -239,7 +371,7 @@ def compute_stats(
     return results
 
 
-def family_avg(stats: dict, stat_key: str) -> dict[str, float]:
+def family_avg(stats: HopStats, stat_key: StatKey) -> dict[str, float]:
     """Average a stat (auroc or ppv) across metrics within each family."""
     buckets: dict[str, list[float]] = defaultdict(list)
     for key, label, family, _ in METRICS:
@@ -251,33 +383,33 @@ def family_avg(stats: dict, stat_key: str) -> dict[str, float]:
 # ── Build analysis table ────────────────────────────────────────────────────────
 
 
-def build_hop_table() -> list[dict]:
+def build_hop_table() -> list[HopSummary]:
     """
     Returns a list of rows:
       {dataset, hop_label, n, error_rate,
        output_auroc, structural_auroc, grounding_auroc,
        output_ppv, structural_ppv, grounding_ppv}
     """
-    rows = []
+    rows: list[HopSummary] = []
     for ds, path in RUNS.items():
         try:
-            details = load_details(path)
+            details: list[HopDetail] = load_details(path)
         except Exception as e:
             print(f"  [skip] {ds}: {e}")
             continue
 
         # Group by hop bucket
-        buckets: dict[str, list[dict]] = defaultdict(list)
+        buckets: dict[str, list[HopDetail]] = defaultdict(list)
         for d in details:
-            hc = d.get("hop_count")
-            hl = hop_label(hc, ds)
+            hc: int | None = d.get("hop_count")
+            hl: str = hop_label(hc, ds)
             if hl != "unknown":
                 buckets[hl].append(d)
 
         for hl, bucket_details in sorted(buckets.items()):
-            stats = compute_stats(bucket_details, hl, ds)
-            fa = family_avg(stats, "auroc")
-            fp = family_avg(stats, "ppv")
+            stats: HopStats = compute_stats(bucket_details, hl, ds)
+            fa: dict[str, float] = family_avg(stats, "auroc")
+            fp: dict[str, float] = family_avg(stats, "ppv")
             rows.append(
                 {
                     "dataset": ds,
@@ -296,22 +428,22 @@ def build_hop_table() -> list[dict]:
     return rows
 
 
-def build_per_metric_table() -> list[dict]:
+def build_per_metric_table() -> list[PerMetricRow]:
     """Full per-metric table for appendix figure."""
-    rows = []
+    rows: list[PerMetricRow] = []
     for ds, path in RUNS.items():
         try:
-            details = load_details(path)
+            details: list[HopDetail] = load_details(path)
         except Exception:
             continue
-        buckets: dict[str, list[dict]] = defaultdict(list)
+        buckets: dict[str, list[HopDetail]] = defaultdict(list)
         for d in details:
-            hc = d.get("hop_count")
-            hl = hop_label(hc, ds)
+            hc: int | None = d.get("hop_count")
+            hl: str = hop_label(hc, ds)
             if hl != "unknown":
                 buckets[hl].append(d)
         for hl, bucket_details in sorted(buckets.items()):
-            stats = compute_stats(bucket_details, hl, ds)
+            stats: HopStats = compute_stats(bucket_details, hl, ds)
             for key, label, family, _ in METRICS:
                 if key not in stats:
                     continue
@@ -333,7 +465,7 @@ def build_per_metric_table() -> list[dict]:
 # ── Print narrative table ──────────────────────────────────────────────────────
 
 
-def print_table(rows: list[dict]) -> None:
+def print_table(rows: list[HopSummary]) -> None:
     print("\n" + "=" * 88)
     print(
         f"{'Dataset':<14} {'Hop':>10}  {'n':>4}  {'ErrRate':>7}  "
@@ -342,7 +474,7 @@ def print_table(rows: list[dict]) -> None:
     )
     print("-" * 88)
 
-    def fmt(v):
+    def fmt(v: float) -> str:
         return f"{v:.3f}" if not np.isnan(v) else "   — "
 
     for r in rows:
@@ -354,36 +486,57 @@ def print_table(rows: list[dict]) -> None:
     print("=" * 88)
 
 
-def print_narrative(rows: list[dict]) -> None:
+def _family_value(row: HopSummary, family: str, stat: str) -> float:
+    if family == "output":
+        if stat == "auroc":
+            return row.get("output_auroc", float("nan"))
+        if stat == "ppv":
+            return row.get("output_ppv", float("nan"))
+    if family == "structural":
+        if stat == "auroc":
+            return row.get("structural_auroc", float("nan"))
+        if stat == "ppv":
+            return row.get("structural_ppv", float("nan"))
+    if family == "grounding":
+        if stat == "auroc":
+            return row.get("grounding_auroc", float("nan"))
+        if stat == "ppv":
+            return row.get("grounding_ppv", float("nan"))
+    return float("nan")
+
+
+def print_narrative(rows: list[HopSummary]) -> None:
     """Print the story: does structural AUROC increase with hop count?"""
     print("\n── Structural AUROC lift (multi-hop vs single-hop) ──────────────────")
 
-    single_hop = [r for r in rows if "1-hop" in r["hop_label"]]
-    two_hop = [r for r in rows if r["hop_label"] in ("2-hop",)]
-    many_hop = [r for r in rows if r["hop_label"] in ("3-hop", "4-hop", "5+-hop")]
+    single_hop: list[HopSummary] = [r for r in rows if "1-hop" in r["hop_label"]]
+    two_hop: list[HopSummary] = [r for r in rows if r["hop_label"] in ("2-hop",)]
+    many_hop: list[HopSummary] = [
+        r for r in rows if r["hop_label"] in ("3-hop", "4-hop", "5+-hop")
+    ]
 
-    def mean_family(subset, family, key):
-        vals = [
-            r[f"{family}_{key}"]
+    def mean_family(subset: list[HopSummary], family: str, key: str) -> float:
+        vals: list[float] = [
+            _family_value(r, family, key)
             for r in subset
-            if not np.isnan(r.get(f"{family}_{key}", float("nan")))
+            if not np.isnan(_family_value(r, family, key))
         ]
         return float(np.mean(vals)) if vals else float("nan")
 
     for stat_key, label in [("auroc", "AUROC"), ("ppv", "PPV@20%")]:
         print(f"\n  {label}:")
         for family in ["output", "structural", "grounding"]:
-            s1 = mean_family(single_hop, family, stat_key)
-            s2 = mean_family(two_hop, family, stat_key)
-            sm = mean_family(many_hop, family, stat_key)
+            s1: float = mean_family(single_hop, family, stat_key)
+            s2: float = mean_family(two_hop, family, stat_key)
+            sm: float = mean_family(many_hop, family, stat_key)
 
-            def f(v):
+            def f(v: float) -> str:
                 return f"{v:.3f}" if not np.isnan(v) else "  —  "
 
-            lift_2 = (
+            lift_2: str = (
                 f"{s2 - s1:+.3f}" if not np.isnan(s1) and not np.isnan(s2) else "  —  "
             )
-            lift_m = (
+            lift_m: str = (
                 f"{sm - s1:+.3f}" if not np.isnan(s1) and not np.isnan(sm) else "  —  "
             )
             print(
@@ -392,7 +545,7 @@ def print_narrative(rows: list[dict]) -> None:
             )
 
 
-def print_ppv_story(rows: list[dict]) -> None:
+def print_ppv_story(rows: list[HopSummary]) -> None:
     """Print PPV > baseline check: when flagged uncertain, are they really more wrong?"""
     print("\n── Positive Predictive Power: PPV vs. baseline error rate ─────────────")
     print(
@@ -403,16 +556,16 @@ def print_ppv_story(rows: list[dict]) -> None:
     )
 
     for r in rows:
-        base = r["error_rate"]
-        ds = r["dataset"]
-        hl = r["hop_label"]
+        base: float = r["error_rate"]
+        ds: str = r["dataset"]
+        hl: str = r["hop_label"]
         print(f"  {ds} [{hl}]  base_err={base:.2f}")
         for family in ["output", "structural", "grounding"]:
-            ppv = r.get(f"{family}_ppv", float("nan"))
-            lift = (
+            ppv: float = _family_value(r, family, "ppv")
+            lift: float = (
                 ppv - base if not np.isnan(ppv) and not np.isnan(base) else float("nan")
             )
-            lift_str = f"{lift:+.2f}" if not np.isnan(lift) else "  —"
+            lift_str: str = f"{lift:+.2f}" if not np.isnan(lift) else "  —"
             print(
                 f"       {FAMILY_LABELS[family]:>10}: PPV={ppv:.2f}  (lift vs base: {lift_str})"
             )
@@ -423,7 +576,7 @@ def print_ppv_story(rows: list[dict]) -> None:
 
 
 def plot_hop_auroc(
-    rows: list[dict], out_dir: Path, filename_stem: str = "hop_auroc"
+    rows: list[HopSummary], out_dir: Path, filename_stem: str = "hop_auroc"
 ) -> None:
     """Main figure: 3-family AUROC grouped by hop bucket with dataset scatter."""
     try:
@@ -437,12 +590,12 @@ def plot_hop_auroc(
         return
 
     # Collect data: hop_label → family → list of (dataset, auroc)
-    hop_order = ["1-hop (proxy)", "2-hop", "3-hop", "4-hop"]
-    present_hops = sorted(
+    hop_order: list[str] = ["1-hop (proxy)", "2-hop", "3-hop", "4-hop"]
+    present_hops: list[str] = sorted(
         set(r["hop_label"] for r in rows),
         key=lambda h: hop_order.index(h) if h in hop_order else 99,
     )
-    families = ["output", "structural", "grounding"]
+    families: list[FamilyKey] = ["output", "structural", "grounding"]
 
     fig, axes = plt.subplots(1, 3, figsize=(12, 4.5), sharey=True)
     fig.suptitle(
@@ -454,13 +607,16 @@ def plot_hop_auroc(
     import matplotlib.ticker as mticker
 
     for ax, family in zip(axes, families):
-        color = FAMILY_COLORS[family]
+        color: str = FAMILY_COLORS[family]
 
+        xs: list[int]
+        ys: list[float]
+        ds_labels: list[str]
         xs, ys, ds_labels = [], [], []
         for xi, hl in enumerate(present_hops):
-            bucket = [r for r in rows if r["hop_label"] == hl]
+            bucket: list[HopSummary] = [r for r in rows if r["hop_label"] == hl]
             for r in bucket:
-                val = r.get(f"{family}_auroc", float("nan"))
+                val: float = _family_value(r, family, "auroc")
                 if not np.isnan(val):
                     xs.append(xi)
                     ys.append(val)
@@ -470,18 +626,18 @@ def plot_hop_auroc(
         ax.scatter(xs, ys, color=color, s=70, alpha=0.75, zorder=3)
 
         # Mean line
-        means = []
+        means: list[float] = []
         for xi, hl in enumerate(present_hops):
-            bucket_vals = [
-                r.get(f"{family}_auroc", float("nan"))
+            bucket_vals: list[float] = [
+                _family_value(r, family, "auroc")
                 for r in rows
                 if r["hop_label"] == hl
-                and not np.isnan(r.get(f"{family}_auroc", float("nan")))
+                and not np.isnan(_family_value(r, family, "auroc"))
             ]
             means.append(float(np.mean(bucket_vals)) if bucket_vals else float("nan"))
 
-        valid_xi = [xi for xi, m in enumerate(means) if not np.isnan(m)]
-        valid_m = [m for m in means if not np.isnan(m)]
+        valid_xi: list[int] = [xi for xi, m in enumerate(means) if not np.isnan(m)]
+        valid_m: list[float] = [m for m in means if not np.isnan(m)]
         if len(valid_xi) >= 2:
             ax.plot(
                 valid_xi,
@@ -531,7 +687,7 @@ def plot_hop_auroc(
 
 
 def plot_ppv_bars(
-    rows: list[dict], out_dir: Path, filename_stem: str = "hop_ppv"
+    rows: list[HopSummary], out_dir: Path, filename_stem: str = "hop_ppv"
 ) -> None:
     """PPV@20% comparison: single-hop vs multi-hop, per family."""
     try:
@@ -543,32 +699,34 @@ def plot_ppv_bars(
     except ImportError:
         return
 
-    hop_order = ["1-hop (proxy)", "2-hop", "3-hop", "4-hop"]
-    present_hops = sorted(
+    hop_order: list[str] = ["1-hop (proxy)", "2-hop", "3-hop", "4-hop"]
+    present_hops: list[str] = sorted(
         set(r["hop_label"] for r in rows),
         key=lambda h: hop_order.index(h) if h in hop_order else 99,
     )
-    families = ["output", "structural", "grounding"]
-    n_hops = len(present_hops)
-    n_fams = len(families)
+    families: list[FamilyKey] = ["output", "structural", "grounding"]
+    n_hops: int = len(present_hops)
+    n_fams: int = len(families)
 
+    fig: Figure
+    ax: Axes
     fig, ax = plt.subplots(figsize=(9, 4.5))
     bar_width: float = 0.22
-    x = np.arange(n_hops)
+    x: NDArray[np.int64] = np.arange(n_hops)
 
     for fi, family in enumerate(families):
-        means = []
+        means: list[float] = []
         for hl in present_hops:
-            bucket_vals = [
-                r.get(f"{family}_ppv", float("nan"))
+            bucket_vals: list[float] = [
+                _family_value(r, family, "ppv")
                 for r in rows
                 if r["hop_label"] == hl
-                and not np.isnan(r.get(f"{family}_ppv", float("nan")))
+                and not np.isnan(_family_value(r, family, "ppv"))
             ]
             means.append(float(np.mean(bucket_vals)) if bucket_vals else float("nan"))
 
-        offsets = x + (fi - 1) * bar_width
-        bars = ax.bar(
+        offsets: NDArray[np.float64] = x + (fi - 1) * bar_width
+        bars: BarContainer = ax.bar(
             offsets,
             [m if not np.isnan(m) else 0 for m in means],
             width=bar_width,
@@ -591,13 +749,13 @@ def plot_ppv_bars(
 
     # Mean baseline per hop
     for xi, hl in enumerate(present_hops):
-        base_vals = [
+        base_vals: list[float] = [
             r["error_rate"]
             for r in rows
             if r["hop_label"] == hl and not np.isnan(r.get("error_rate", float("nan")))
         ]
         if base_vals:
-            base = float(np.mean(base_vals))
+            base: float = float(np.mean(base_vals))
             ax.hlines(
                 base,
                 xi - 1.5 * bar_width,
@@ -636,7 +794,9 @@ def plot_ppv_bars(
 
 
 def plot_per_metric_detail(
-    rows_detail: list[dict], out_dir: Path, filename_stem: str = "hop_auroc_detail"
+    rows_detail: list[PerMetricRow],
+    out_dir: Path,
+    filename_stem: str = "hop_auroc_detail",
 ) -> None:
     """Appendix figure: per-metric AUROC heatmap across (metric × hop bucket)."""
     try:
@@ -650,19 +810,19 @@ def plot_per_metric_detail(
         print("matplotlib/seaborn not available — skipping detail plot")
         return
 
-    hop_order = ["1-hop (proxy)", "2-hop", "3-hop", "4-hop"]
-    all_metrics = [m[1] for m in METRICS]
-    families = [m[2] for m in METRICS]
+    hop_order: list[str] = ["1-hop (proxy)", "2-hop", "3-hop", "4-hop"]
+    all_metrics: list[str] = [m[1] for m in METRICS]
+    families: list[FamilyKey] = [m[2] for m in METRICS]
 
-    present_hops = [
+    present_hops: list[str] = [
         h for h in hop_order if any(r["hop_label"] == h for r in rows_detail)
     ]
 
     # Build matrix: metrics × hops (mean AUROC across datasets)
-    mat = np.full((len(all_metrics), len(present_hops)), np.nan)
+    mat: NDArray[np.float64] = np.full((len(all_metrics), len(present_hops)), np.nan)
     for i, (_, label, _, _) in enumerate(METRICS):
         for j, hl in enumerate(present_hops):
-            vals = [
+            vals: list[float] = [
                 r["auroc"]
                 for r in rows_detail
                 if r["metric"] == label
@@ -672,11 +832,13 @@ def plot_per_metric_detail(
             if vals:
                 mat[i, j] = float(np.mean(vals))
 
-    norm = TwoSlopeNorm(vmin=0.25, vcenter=0.50, vmax=0.95)
+    norm: TwoSlopeNorm = TwoSlopeNorm(vmin=0.25, vcenter=0.50, vmax=0.95)
     cmap = sns.diverging_palette(10, 130, s=80, l=50, as_cmap=True)
 
+    fig: Figure
+    ax: Axes
     fig, ax = plt.subplots(figsize=(max(4, len(present_hops) * 1.4), 6))
-    mask = np.isnan(mat)
+    mask: NDArray[np.bool_] = np.isnan(mat)
     sns.heatmap(
         mat,
         ax=ax,
@@ -691,7 +853,7 @@ def plot_per_metric_detail(
     )
     for r in range(len(all_metrics)):
         for c in range(len(present_hops)):
-            v = mat[r, c]
+            v: np.float64 = mat[r, c]
             if not np.isnan(v):
                 ax.text(
                     c + 0.5,
@@ -737,11 +899,11 @@ def plot_per_metric_detail(
 
 
 def run_hop_stratified_analysis(
-    details_by_dataset: dict[str, list[dict]],
+    details_by_dataset: dict[str, list[HopDetail]],
     output_dir: str = "paper/figures",
     system_prefix: str = SYSTEM_PREFIX,
     figure_suffix: str = "",
-) -> dict:
+) -> HopReport:
     """Callable API — run the full hop-stratified analysis on in-memory details.
 
     Parameters
@@ -760,27 +922,27 @@ def run_hop_stratified_analysis(
         "saved_figures"— list of written file paths
     """
     # Build per-bucket stats from in-memory dicts (avoids re-reading JSON files)
-    rows: list[dict] = []
-    rows_detail: list[dict] = []
+    rows: list[HopSummary] = []
+    rows_detail: list[PerMetricRow] = []
 
     for ds_name, details in details_by_dataset.items():
         # Group by hop bucket
-        buckets: dict[str, list[dict]] = defaultdict(list)
+        buckets: dict[str, list[HopDetail]] = defaultdict(list)
         for d in details:
-            hc = d.get("hop_count")
-            hl = hop_label(hc, ds_name)
+            hc: int | None = d.get("hop_count")
+            hl: str = hop_label(hc, ds_name)
             if hl != "unknown":
                 buckets[hl].append(d)
 
         for hl, bucket_details in sorted(buckets.items()):
-            stats = compute_stats(
+            stats: HopStats = compute_stats(
                 bucket_details,
                 hl,
                 ds_name,
                 system_prefix=system_prefix,
             )
-            fa = family_avg(stats, "auroc")
-            fp = family_avg(stats, "ppv")
+            fa: dict[str, float] = family_avg(stats, "auroc")
+            fp: dict[str, float] = family_avg(stats, "ppv")
             rows.append(
                 {
                     "dataset": ds_name,
@@ -812,9 +974,9 @@ def run_hop_stratified_analysis(
                     }
                 )
 
-    out_path = Path(output_dir)
+    out_path: Path = Path(output_dir)
     saved: list[str] = []
-    suffix = f"_{figure_suffix}" if figure_suffix else ""
+    suffix: str = f"_{figure_suffix}" if figure_suffix else ""
 
     if rows:
         print_table(rows)
@@ -822,16 +984,16 @@ def run_hop_stratified_analysis(
         print_ppv_story(rows)
 
         plot_hop_auroc(rows, out_path, filename_stem=f"hop_auroc{suffix}")
-        hop_auroc_pdf = str(out_path / f"hop_auroc{suffix}.pdf")
-        hop_auroc_png = str(out_path / f"hop_auroc{suffix}.png")
+        hop_auroc_pdf: str = str(out_path / f"hop_auroc{suffix}.pdf")
+        hop_auroc_png: str = str(out_path / f"hop_auroc{suffix}.png")
         if Path(hop_auroc_pdf).exists():
             saved.append(hop_auroc_pdf)
         if Path(hop_auroc_png).exists():
             saved.append(hop_auroc_png)
 
         plot_ppv_bars(rows, out_path, filename_stem=f"hop_ppv{suffix}")
-        ppv_pdf = str(out_path / f"hop_ppv{suffix}.pdf")
-        ppv_png = str(out_path / f"hop_ppv{suffix}.png")
+        ppv_pdf: str = str(out_path / f"hop_ppv{suffix}.pdf")
+        ppv_png: str = str(out_path / f"hop_ppv{suffix}.png")
         if Path(ppv_pdf).exists():
             saved.append(ppv_pdf)
         if Path(ppv_png).exists():
@@ -842,7 +1004,7 @@ def run_hop_stratified_analysis(
             plot_per_metric_detail(
                 rows_detail, out_path, filename_stem=f"hop_auroc_detail{suffix}"
             )
-            detail_pdf = str(out_path / f"hop_auroc_detail{suffix}.pdf")
+            detail_pdf: str = str(out_path / f"hop_auroc_detail{suffix}.pdf")
             if Path(detail_pdf).exists():
                 saved.append(detail_pdf)
         except Exception as e:
@@ -856,14 +1018,14 @@ def run_hop_stratified_analysis(
 
 def main() -> None:
     print("Loading per-question data...")
-    rows = build_hop_table()
-    rows_detail = build_per_metric_table()
+    rows: list[HopSummary] = build_hop_table()
+    rows_detail: list[PerMetricRow] = build_per_metric_table()
 
     print_table(rows)
     print_narrative(rows)
     print_ppv_story(rows)
 
-    out_dir = Path("paper/figures")
+    out_dir: Path = Path("paper/figures")
     plot_hop_auroc(rows, out_dir)
     plot_ppv_bars(rows, out_dir)
     plot_per_metric_detail(rows_detail, out_dir)

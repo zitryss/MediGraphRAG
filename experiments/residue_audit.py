@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import json
 import os
+from typing import NotRequired, TypedDict
 
 from experiments.lockin_accounting_analysis import (
+    AccountingDetail,
+    AccountingRow,
     KEY,
     MANIFEST,
     REPO,
@@ -26,7 +29,43 @@ from experiments.lockin_accounting_analysis import (
     seu_flags,
 )
 
-OUT_PATH = os.path.join(REPO, "results", "analyses", "residue_audit.json")
+
+class ResidueDetail(AccountingDetail):
+    question: NotRequired[str]
+    expected: NotRequired[str]
+    kg_response: NotRequired[str]
+
+
+class ResidueConfig(TypedDict):
+    config: dict[str, str]
+    details: list[ResidueDetail]
+
+
+class ResidueDocument(TypedDict):
+    config_results: list[ResidueConfig]
+
+
+class ResidueCase(TypedDict):
+    slug: str
+    question_id: str
+    question: str | None
+    expected: str | None
+    response: str | None
+    sd_uq: float | None
+    seu: float | None
+    gps: float | None
+    route: str
+    route_reason: str
+
+
+class ResidueReport(TypedDict):
+    definition: str
+    caveat: str
+    count: int
+    cases: list[ResidueCase]
+
+
+OUT_PATH: str = os.path.join(REPO, "results", "analyses", "residue_audit.json")
 SLUGS: list[str] = [
     "pubmedqa",
     "realmedqa",
@@ -37,22 +76,22 @@ SLUGS: list[str] = [
 ]
 
 
-def calm_rows_for(slug):
+def calm_rows_for(slug: str) -> list[ResidueCase]:
     """Adaptive-KG fully-calm silent errors, with question/answer text."""
-    path = os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])
-    doc = json.load(open(path))
-    details = next(
+    path: str = os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])
+    doc: ResidueDocument = json.load(open(path))
+    details: list[ResidueDetail] = next(
         cfg["details"]
         for cfg in doc["config_results"]
         if cfg["config"]["name"].startswith("kg_entity_first")
     )
-    gps = gps_cache(slug, "kg", "kg")
-    found = []
+    gps: dict[str, float | None] = gps_cache(slug, "kg", "kg")
+    found: list[ResidueCase] = []
     for r in details:
         if r.get("kg_generation_failed") or r.get("kg_system_skipped"):
             continue
-        qid = str(r["question_id"])
-        row = {
+        qid: str = str(r["question_id"])
+        row: AccountingRow = {
             "qid": qid,
             "policy": "kg",
             "correct": bool(r.get("kg_correct")),
@@ -85,13 +124,13 @@ def calm_rows_for(slug):
 
 
 def main() -> None:
-    residue = []
+    residue: list[ResidueCase] = []
     for slug in SLUGS:
         try:
             residue.extend(calm_rows_for(slug))
         except Exception as exc:  # pragma: no cover
             print(f"skip {slug}: {exc}")
-    out = {
+    out: ResidueReport = {
         "definition": "adaptive-KG wrong & silent (DSE=0, SD-UQ<=1e-9) & route!=empty "
         "& SEU<=0.5 & GPS defined<=0.5",
         "caveat": "retrieved chunk texts not archived; entailment of the wrong "

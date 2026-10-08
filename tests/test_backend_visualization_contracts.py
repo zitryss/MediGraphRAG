@@ -11,11 +11,11 @@ from experiments import visualize_results as visual
 
 
 @pytest.fixture
-def result_blocks() -> list[dict]:
-    metrics = [spec[0] for spec in visual.UNCERTAINTY_METRIC_SPECS]
-    details = []
+def result_blocks() -> list[visual.ResultBlock]:
+    metrics: list[str] = [spec[0] for spec in visual.UNCERTAINTY_METRIC_SPECS]
+    details: list[visual.PlotDetail] = []
     for i in range(8):
-        row = {
+        row: visual.PlotDetail = {
             "question_id": str(i),
             "vanilla_correct": i % 2 == 0,
             "kg_correct": i % 3 == 0,
@@ -24,7 +24,7 @@ def result_blocks() -> list[dict]:
         for prefix in ["vanilla", "kg"]:
             row.update({f"{prefix}_{m}": (i + 1) / 10 for m in metrics})
         details.append(row)
-    config = {
+    config: visual.ConfigResult = {
         "config": {"name": "unit", "similarity_threshold": 0.1, "max_chunks": 2},
         "details": details,
         "vanilla_accuracy": 0.5,
@@ -76,12 +76,14 @@ def result_blocks() -> list[dict]:
     ],
 )
 def test_plots_emit_png_artifacts(
-    function_name: str, result_blocks: list[dict], tmp_path: Path
+    function_name: str, result_blocks: list[visual.ResultBlock], tmp_path: Path
 ) -> None:
-    paths = getattr(visual, function_name)(result_blocks, output_dir=str(tmp_path))
+    paths: list[str] = getattr(visual, function_name)(
+        result_blocks, output_dir=str(tmp_path)
+    )
     assert paths, function_name
     for path in paths:
-        data = Path(path).read_bytes()
+        data: bytes = Path(path).read_bytes()
         assert data.startswith(b"\x89PNG\r\n\x1a\n")
         assert len(data) > 1000
     visual.plt.close("all")
@@ -89,7 +91,7 @@ def test_plots_emit_png_artifacts(
 
 @pytest.mark.parametrize("multi", [False, True])
 def test_legacy_aggregation_means(multi: bool, tmp_path: Path) -> None:
-    rows = [
+    rows: list[visual.ResultBlock] = [
         {
             "config": {"similarity_threshold": 0.1, "max_chunks": 2},
             "evaluation": {
@@ -99,7 +101,7 @@ def test_legacy_aggregation_means(multi: bool, tmp_path: Path) -> None:
         }
         for x in [0.2, 0.6]
     ]
-    results = (
+    results: visual.VisualizationResults = (
         {"per_dataset_results": {"unit": {"results": rows}}}
         if multi
         else {"results": rows}
@@ -107,30 +109,37 @@ def test_legacy_aggregation_means(multi: bool, tmp_path: Path) -> None:
     assert visual.aggregate_by_config(results)["thresh=0.1_chunks=2"]["vanilla_rag"][
         "accuracy"
     ] == pytest.approx(0.4)
-    overall = visual.aggregate_overall(results)
+    overall: visual.OverallMetrics = visual.aggregate_overall(results)
     assert overall["kg_rag"]["accuracy"] == 0.8
     figure = visual.create_overall_comparison_chart(
         overall, ["accuracy"], str(tmp_path / "overall.png")
     )
     assert figure is not None
-    bars = [patch for patch in figure.axes[0].patches if isinstance(patch, Rectangle)]
+    bars: list[Rectangle] = [
+        patch for patch in figure.axes[0].patches if isinstance(patch, Rectangle)
+    ]
     assert len(bars) == 2
     assert [patch.get_height() for patch in bars] == pytest.approx([0.4, 0.8])
     visual.plt.close("all")
 
 
 def test_new_schema_aggregation_and_bar_values(
-    result_blocks: list[dict], tmp_path: Path
+    result_blocks: list[visual.ResultBlock], tmp_path: Path
 ) -> None:
-    results = {"results": result_blocks, "metric_names": ["accuracy"]}
-    aggregated = visual.aggregate_by_config(results)
+    results: visual.VisualizationResults = {
+        "results": result_blocks,
+        "metric_names": ["accuracy"],
+    }
+    aggregated: visual.AggregatedMetrics = visual.aggregate_by_config(results)
     assert aggregated["unit"]["kg_rag"]["accuracy"] == 0.75
     assert visual.aggregate_overall(results)["vanilla_rag"]["accuracy"] == 0.5
     figure = visual.create_comparison_chart(
         aggregated, ["accuracy"], str(tmp_path / "comparison.png")
     )
     assert figure is not None
-    bars = [patch for patch in figure.axes[0].patches if isinstance(patch, Rectangle)]
+    bars: list[Rectangle] = [
+        patch for patch in figure.axes[0].patches if isinstance(patch, Rectangle)
+    ]
     assert len(bars) == 2
     assert [patch.get_height() for patch in bars] == [0.5, 0.75]
     visual.plt.close("all")

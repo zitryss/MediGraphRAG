@@ -9,29 +9,98 @@ generation, judging, or KG construction.
 import json
 import os
 import sys
+from collections.abc import Mapping, Sequence
+from typing import NotRequired, TypedDict
 
 import numpy as np
+from numpy.typing import NDArray
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.certificate_eval import certificate_mask, load_all
-from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS, rows_for
+from experiments.certificate_eval import certificate_mask, load_all, CertificateRow
+from experiments.trust_analysis import (
+    KEY,
+    MANIFEST,
+    REPO,
+    STRICT_RUNS,
+    rows_for,
+    TrustDocument,
+    TrustConfig,
+    TrustDetail,
+    TrustRow,
+    CompleteTrustRow,
+    has_complete_metrics,
+)
 
-RNG = np.random.default_rng(42)
+
+class AnsweredCounts(TypedDict):
+    total: int
+    answered: int
+    failures: int
+    failure_rate: float | None
+
+
+class CompleteCase(TypedDict):
+    adaptive_answered: int
+    strict_answered: int
+    both_answered: int
+
+
+class ContingencyTable(TypedDict):
+    cert_correct: int
+    cert_wrong: int
+    uncert_correct: int
+    uncert_wrong: int
+    n: NotRequired[int]
+    odds_ratio_ha: NotRequired[float]
+
+
+class CertificateEffect(TypedDict):
+    per_dataset_2x2: dict[str, ContingencyTable]
+    pooled_2x2: ContingencyTable
+    mantel_haenszel_or: float | None
+    bootstrap_ci: list[float]
+    bootstrap_B: int
+
+
+class HeadlineEffect(TypedDict):
+    auroc: float
+    rank_biserial_r: float
+    n: int
+
+
+class HeadlineEffects(TypedDict):
+    note: str
+    realmedqa_adaptive_sd: HeadlineEffect
+    realmedqa_strict_sd: HeadlineEffect
+    realmedqa_strict_seu: HeadlineEffect
+
+
+class RobustnessReport(TypedDict):
+    note: str
+    answered_counts: dict[str, dict[str, AnsweredCounts]]
+    realmedqa_adaptive_strict_complete_case: CompleteCase
+    certificate_effect: CertificateEffect
+    headline_effect_sizes: HeadlineEffects
+
+
+RNG: np.random.Generator = np.random.default_rng(42)
 B: int = 5000
 
 
-def answered_counts():
-    out = {}
+def answered_counts() -> dict[str, dict[str, AnsweredCounts]]:
+    out: dict[str, dict[str, AnsweredCounts]] = {}
     for slug, manifest_key in KEY.items():
-        doc = json.load(open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"])))
+        doc: TrustDocument = json.load(
+            open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"]))
+        )
         out[slug] = {}
         for cfg in doc["config_results"]:
-            name = cfg["config"]["name"]
-            prefix = "kg" if name.startswith("kg") else "vanilla"
-            policy = "kg" if prefix == "kg" else "dense"
-            total = len(cfg["details"])
-            failed = sum(
+            name: str = cfg["config"]["name"]
+            prefix: str = "kg" if name.startswith("kg") else "vanilla"
+            policy: str = "kg" if prefix == "kg" else "dense"
+            total: int = len(cfg["details"])
+            failed: int = sum(
                 1 for row in cfg["details"] if row.get(f"{prefix}_generation_failed")
             )
             out[slug][policy] = {
@@ -54,23 +123,25 @@ def answered_counts():
     return out
 
 
-def realmedqa_adaptive_strict_complete_case():
-    adaptive_doc = json.load(
+def realmedqa_adaptive_strict_complete_case() -> CompleteCase:
+    adaptive_doc: TrustDocument = json.load(
         open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"]))
     )
-    strict_doc = json.load(open(os.path.join(REPO, STRICT_RUNS["realmedqa"])))
-    adaptive_rows = next(
+    strict_doc: TrustDocument = json.load(
+        open(os.path.join(REPO, STRICT_RUNS["realmedqa"]))
+    )
+    adaptive_rows: list[TrustDetail] = next(
         cfg["details"]
         for cfg in adaptive_doc["config_results"]
         if cfg["config"]["name"].startswith("kg")
     )
-    strict_rows = strict_doc["config_results"][0]["details"]
-    adaptive_answered = {
+    strict_rows: list[TrustDetail] = strict_doc["config_results"][0]["details"]
+    adaptive_answered: set[str] = {
         str(row["question_id"])
         for row in adaptive_rows
         if not row.get("kg_generation_failed")
     }
-    strict_answered = {
+    strict_answered: set[str] = {
         str(row["question_id"])
         for row in strict_rows
         if not row.get("kg_generation_failed")
@@ -82,16 +153,16 @@ def realmedqa_adaptive_strict_complete_case():
     }
 
 
-def odds_ratio_mh(tables):
+def odds_ratio_mh(tables: Mapping[str, ContingencyTable]) -> float | None:
     """Mantel-Haenszel common odds ratio over per-dataset 2x2 tables."""
-    num = 0.0
-    den = 0.0
+    num: float = 0.0
+    den: float = 0.0
     for table in tables.values():
-        a = table["cert_correct"]
-        b = table["cert_wrong"]
-        c = table["uncert_correct"]
-        d = table["uncert_wrong"]
-        n = a + b + c + d
+        a: int = table["cert_correct"]
+        b: int = table["cert_wrong"]
+        c: int = table["uncert_correct"]
+        d: int = table["uncert_wrong"]
+        n: int = a + b + c + d
         if n:
             num += (a * d) / n
             den += (b * c) / n
@@ -100,14 +171,14 @@ def odds_ratio_mh(tables):
     return num / den
 
 
-def certificate_effect():
-    data = load_all()
-    tables = {}
-    row_cache = {}
+def certificate_effect() -> CertificateEffect:
+    data: dict[str, list[CertificateRow]] = load_all()
+    tables: dict[str, ContingencyTable] = {}
+    row_cache: dict[str, NDArray[np.object_]] = {}
     for slug, rows in data.items():
-        sd_med = float(np.median([sd for sd, _, _, _ in rows]))
-        selected = certificate_mask(rows, sd_med)
-        correct = np.array([c for _, _, _, c in rows], dtype=bool)
+        sd_med: float = float(np.median([sd for sd, _, _, _ in rows]))
+        selected: NDArray[np.bool_ | np.float64] = certificate_mask(rows, sd_med)
+        correct: NDArray[np.bool_] = np.array([c for _, _, _, c in rows], dtype=bool)
         tables[slug] = {
             "n": len(rows),
             "cert_correct": int((selected & correct).sum()),
@@ -120,7 +191,7 @@ def certificate_effect():
             dtype=object,
         )
 
-    pooled = {
+    pooled: ContingencyTable = {
         "cert_correct": sum(t["cert_correct"] for t in tables.values()),
         "cert_wrong": sum(t["cert_wrong"] for t in tables.values()),
         "uncert_correct": sum(t["uncert_correct"] for t in tables.values()),
@@ -131,14 +202,14 @@ def certificate_effect():
         * (pooled["uncert_wrong"] + 0.5)
         / ((pooled["cert_wrong"] + 0.5) * (pooled["uncert_correct"] + 0.5))
     )
-    point = odds_ratio_mh(tables)
+    point: float | None = odds_ratio_mh(tables)
 
-    boots = []
+    boots: list[float] = []
     for _ in range(B):
-        boot_tables = {}
-        for slug, rows in row_cache.items():
-            idx = RNG.integers(0, len(rows), len(rows))
-            sample = rows[idx]
+        boot_tables: dict[str, ContingencyTable] = {}
+        for slug, cached_rows in row_cache.items():
+            idx: NDArray[np.int64] = RNG.integers(0, len(cached_rows), len(cached_rows))
+            sample: NDArray[np.object_] = cached_rows[idx]
             selected = np.array([x[0] for x in sample], dtype=bool)
             correct = np.array([x[1] for x in sample], dtype=bool)
             boot_tables[slug] = {
@@ -147,7 +218,7 @@ def certificate_effect():
                 "uncert_correct": int((~selected & correct).sum()),
                 "uncert_wrong": int((~selected & ~correct).sum()),
             }
-        value = odds_ratio_mh(boot_tables)
+        value: float | None = odds_ratio_mh(boot_tables)
         if value is not None and np.isfinite(value):
             boots.append(value)
 
@@ -163,31 +234,31 @@ def certificate_effect():
     }
 
 
-def auroc(scores, wrong):
+def auroc(scores: Sequence[float], wrong: Sequence[bool]) -> float:
     return float(roc_auc_score([int(x) for x in wrong], scores))
 
 
-def headline_effect_sizes():
-    adaptive = [row for row in rows_for("realmedqa", "kg") if row["sd"] is not None]
-    strict = [
-        row
-        for row in rows_for("realmedqa", "strict")
-        if row["sd"] is not None and row["seu"] is not None
+def headline_effect_sizes() -> HeadlineEffects:
+    adaptive: list[TrustRow] = [
+        row for row in rows_for("realmedqa", "kg") if row["sd"] is not None
     ]
-    adaptive_sd = auroc(
-        [float(row["sd"]) for row in adaptive],
+    strict: list[CompleteTrustRow] = [
+        row for row in rows_for("realmedqa", "strict") if has_complete_metrics(row)
+    ]
+    adaptive_sd: float = auroc(
+        [float(sd) for row in adaptive if (sd := row["sd"]) is not None],
         [not row["correct"] for row in adaptive],
     )
-    strict_sd = auroc(
+    strict_sd: float = auroc(
         [float(row["sd"]) for row in strict],
         [not row["correct"] for row in strict],
     )
-    strict_seu = auroc(
+    strict_seu: float = auroc(
         [float(row["seu"]) for row in strict],
         [not row["correct"] for row in strict],
     )
 
-    def rb(value):
+    def rb(value: float) -> float:
         return 2.0 * value - 1.0
 
     return {
@@ -211,14 +282,14 @@ def headline_effect_sizes():
 
 
 def main() -> None:
-    out = {
+    out: RobustnessReport = {
         "note": "Saved-artifact reporting checks; no KG/retrieval/generation reruns.",
         "answered_counts": answered_counts(),
         "realmedqa_adaptive_strict_complete_case": realmedqa_adaptive_strict_complete_case(),
         "certificate_effect": certificate_effect(),
         "headline_effect_sizes": headline_effect_sizes(),
     }
-    dest = os.path.join(REPO, "results", "analyses", "reporting_robustness.json")
+    dest: str = os.path.join(REPO, "results", "analyses", "reporting_robustness.json")
     json.dump(out, open(dest, "w"), indent=1, default=float)
     print(json.dumps(out, indent=1, default=float))
     print(f"\nwrote {dest}")

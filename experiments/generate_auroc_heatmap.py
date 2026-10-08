@@ -5,7 +5,16 @@ Saves to paper/figures/auroc_heatmap.pdf (and .png for preview).
 
 import json
 import os
+from typing import TYPE_CHECKING, TypedDict
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+    from matplotlib.colors import Colormap
+    from matplotlib.colorbar import Colorbar
+    from matplotlib.cm import ScalarMappable
 import matplotlib
 
 matplotlib.use("Agg")
@@ -14,6 +23,16 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import TwoSlopeNorm
 from pathlib import Path
 import seaborn as sns
+
+
+class HeatmapConfig(TypedDict, total=False):
+    config: dict[str, str]
+    auroc_aurec: dict[str, dict[str, float | None]]
+
+
+class HeatmapDocument(TypedDict, total=False):
+    config_results: list[HeatmapConfig]
+
 
 # ── Data sources ──────────────────────────────────────────────────────────────
 RUNS: dict[str, str] = {
@@ -62,11 +81,11 @@ DATASET_ORDER: list[str] = [
     "HotpotQA",
     "MultiHopRAG",
 ]
-PREFERRED_CONFIG_NAME = os.environ.get("MIRAGE_CONFIG_NAME")
+PREFERRED_CONFIG_NAME: str | None = os.environ.get("MIRAGE_CONFIG_NAME")
 
 
-def _select_config_result(path, results_doc):
-    config_results = results_doc.get("config_results", [])
+def _select_config_result(path: str, results_doc: HeatmapDocument) -> HeatmapConfig:
+    config_results: list[HeatmapConfig] = results_doc.get("config_results", [])
     if not config_results:
         raise ValueError(f"{path} contains no config_results")
     if len(config_results) == 1:
@@ -81,7 +100,7 @@ def _select_config_result(path, results_doc):
         if cfg_res.get("config", {}).get("name") == "default":
             return cfg_res
 
-    config_names = [
+    config_names: list[str] = [
         cfg.get("config", {}).get("name", "<unnamed>") for cfg in config_results
     ]
     raise ValueError(
@@ -90,31 +109,31 @@ def _select_config_result(path, results_doc):
     )
 
 
-def load_auroc(path, system):
+def load_auroc(path: str, system: str) -> dict[str, float | None]:
     """Return {measure_key: auroc_value} for a system ('vanilla_rag' or 'kg_rag')."""
     with open(path) as f:
-        d = json.load(f)
-    cfg = _select_config_result(path, d)
-    auroc_block = cfg.get("auroc_aurec", {}).get(system, {})
-    out = {
+        d: HeatmapDocument = json.load(f)
+    cfg: HeatmapConfig = _select_config_result(path, d)
+    auroc_block: dict[str, float | None] = cfg.get("auroc_aurec", {}).get(system, {})
+    out: dict[str, float | None] = {
         k.replace("_auroc", ""): v
         for k, v in auroc_block.items()
         if k.endswith("_auroc")
     }
     for structural_key in ("graph_path_support", "subgraph_perturbation_stability"):
-        non_null_key = f"{structural_key}_auroc_non_null"
+        non_null_key: str = f"{structural_key}_auroc_non_null"
         if non_null_key in auroc_block:
             out[structural_key] = auroc_block[non_null_key]
     return out
 
 
-def build_matrix(system):
+def build_matrix(system: str) -> NDArray[np.float64]:
     """Build (n_measures × n_datasets) matrix for a given system."""
-    mat = np.full((len(MEASURES), len(DATASET_ORDER)), np.nan)
+    mat: NDArray[np.float64] = np.full((len(MEASURES), len(DATASET_ORDER)), np.nan)
     for j, ds in enumerate(DATASET_ORDER):
-        path = RUNS[ds]
+        path: str = RUNS[ds]
         try:
-            auroc = load_auroc(path, system)
+            auroc: dict[str, float | None] = load_auroc(path, system)
         except Exception:
             continue
         for i, (key, _, family) in enumerate(MEASURES):
@@ -123,18 +142,18 @@ def build_matrix(system):
 
 
 # ── Build matrices ────────────────────────────────────────────────────────────
-mat_v = build_matrix("vanilla_rag")
-mat_k = build_matrix("kg_rag")
+mat_v: NDArray[np.float64] = build_matrix("vanilla_rag")
+mat_k: NDArray[np.float64] = build_matrix("kg_rag")
 
-n_measures = len(MEASURES)
-n_datasets = len(DATASET_ORDER)
-row_labels = [m[1] for m in MEASURES]
-families = [m[2] for m in MEASURES]
+n_measures: int = len(MEASURES)
+n_datasets: int = len(DATASET_ORDER)
+row_labels: list[str] = [m[1] for m in MEASURES]
+families: list[str] = [m[2] for m in MEASURES]
 
 # Tighter range: 0.25–0.95 makes mid-range differences visible
 VMIN, VCENTER, VMAX = 0.25, 0.50, 0.95
-norm = TwoSlopeNorm(vmin=VMIN, vcenter=VCENTER, vmax=VMAX)
-cmap = sns.diverging_palette(10, 130, s=80, l=50, as_cmap=True)  # red→green
+norm: TwoSlopeNorm = TwoSlopeNorm(vmin=VMIN, vcenter=VCENTER, vmax=VMAX)
+cmap: "Colormap" = sns.diverging_palette(10, 130, s=80, l=50, as_cmap=True)  # red→green
 
 # ── Plot ──────────────────────────────────────────────────────────────────────
 sns.set_style("white")
@@ -146,12 +165,14 @@ fig, axes = plt.subplots(
 )
 
 
-def draw_panel(ax, mat, title, show_yticklabels=True):
+def draw_panel(
+    ax: "Axes", mat: NDArray[np.float64], title: str, show_yticklabels: bool = True
+) -> "Axes":
     # Mask for seaborn (NaN → blank)
-    mask = np.isnan(mat)
-    mat_clipped = np.clip(mat, VMIN, VMAX)
+    mask: NDArray[np.bool_] = np.isnan(mat)
+    mat_clipped: NDArray[np.float64] = np.clip(mat, VMIN, VMAX)
 
-    im = sns.heatmap(
+    im: "Axes" = sns.heatmap(
         mat_clipped,
         ax=ax,
         mask=mask,
@@ -169,7 +190,7 @@ def draw_panel(ax, mat, title, show_yticklabels=True):
     # Manual annotations (bold, readable)
     for r in range(n_measures):
         for c in range(n_datasets):
-            val = mat[r, c]
+            val: np.float64 = mat[r, c]
             if np.isnan(val):
                 ax.text(
                     c + 0.5,
@@ -181,8 +202,8 @@ def draw_panel(ax, mat, title, show_yticklabels=True):
                     color="#aaaaaa",
                 )
             else:
-                brightness = abs(val - VCENTER) / (VMAX - VMIN)
-                txt_color = "white" if brightness > 0.30 else "#1a1a1a"
+                brightness: np.float64 = abs(val - VCENTER) / (VMAX - VMIN)
+                txt_color: str = "white" if brightness > 0.30 else "#1a1a1a"
                 ax.text(
                     c + 0.5,
                     r + 0.5,
@@ -211,7 +232,7 @@ draw_panel(axes[0], mat_v, "Vanilla RAG", show_yticklabels=True)
 draw_panel(axes[1], mat_k, "KG-RAG", show_yticklabels=False)
 
 # ── Family row labels in left margin ─────────────────────────────────────────
-family_spans = []
+family_spans: list[tuple[str, int, int]] = []
 current, start = families[0], 0
 for i, f in enumerate(families[1:], 1):
     if f != current:
@@ -219,14 +240,14 @@ for i, f in enumerate(families[1:], 1):
         current, start = f, i
 family_spans.append((current, start, n_measures - 1))
 
-family_display = {
+family_display: dict[str, str] = {
     "output": "Output",
     "structural": "Structural",
     "grounding": "Grounding",
 }
 for family, r0, r1 in family_spans:
-    mid = (r0 + r1) / 2 + 0.5
-    color = FAMILY_COLORS[family]
+    mid: float = (r0 + r1) / 2 + 0.5
+    color: str = FAMILY_COLORS[family]
     axes[0].annotate(
         family_display[family],
         xy=(0, mid),
@@ -253,10 +274,10 @@ for family, r0, r1 in family_spans:
         )
 
 # ── Shared colorbar ───────────────────────────────────────────────────────────
-sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+sm: "ScalarMappable" = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
 sm.set_array([])
-cbar_ax = fig.add_axes([0.92, 0.18, 0.016, 0.65])
-cb = fig.colorbar(sm, cax=cbar_ax)
+cbar_ax: "Axes" = fig.add_axes([0.92, 0.18, 0.016, 0.65])
+cb: "Colorbar" = fig.colorbar(sm, cax=cbar_ax)
 cb.set_label("AUROC", fontsize=8.5)
 cb.ax.tick_params(labelsize=7.5)
 cb.set_ticks([0.25, 0.40, 0.50, 0.65, 0.80, 0.95])
@@ -265,7 +286,7 @@ cb.ax.axhline(
 )
 
 # ── Save ──────────────────────────────────────────────────────────────────────
-out_dir = Path("paper/figures")
+out_dir: Path = Path("paper/figures")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 fig.savefig(out_dir / "auroc_heatmap.pdf", dpi=200, bbox_inches="tight")

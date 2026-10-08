@@ -8,9 +8,16 @@ fields and only draws the phase plot when enough rows are present.
 import json
 import os
 import sys
-from typing import Any
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, TypedDict
+from typing_extensions import ReadOnly
 
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 try:
     import matplotlib
@@ -23,18 +30,79 @@ except Exception:  # pragma: no cover - plotting is optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from experiments.trust_analysis import KEY, MANIFEST, REPO, STRICT_RUNS
-from ontographrag.rag.graph_state import graph_state_diversity
+from ontographrag.rag.graph_state import (
+    graph_state_diversity,
+    GraphStateSample,
+    GraphStateSummary,
+)
 
 
-OUT_JSON = os.path.join(
+class DiversityDetail(TypedDict, total=False):
+    question_id: str | int
+    kg_correct: bool
+    kg_graph_state_traces: list[GraphStateSample | GraphStateSummary | None] | None
+    kg_graph_state_sample_count: int | None
+    kg_subgraph_entropy: float | None
+    kg_path_entropy: float | None
+    kg_seed_entity_entropy: float | None
+    kg_chunk_entropy: float | None
+    kg_subgraph_jaccard: float | None
+    kg_discrete_semantic_entropy: float | None
+    kg_sd_uq: float | None
+
+
+class DiversityConfig(TypedDict):
+    config: dict[str, str]
+    details: list[DiversityDetail]
+
+
+class DiversityDocument(TypedDict):
+    config_results: list[DiversityConfig]
+
+
+class DiversityProjection(TypedDict, total=False):
+    sample_count: ReadOnly[int | None]
+    seed_entity_entropy: ReadOnly[float | None]
+    path_entropy: ReadOnly[float | None]
+    subgraph_entropy: ReadOnly[float | None]
+    chunk_entropy: ReadOnly[float | None]
+    subgraph_jaccard: ReadOnly[float | None]
+
+
+class DiversityRow(TypedDict):
+    dataset: str
+    policy: str
+    question_id: str
+    correct: bool
+    output_discrete_semantic_entropy: float
+    sd_uq: float
+    subgraph_entropy: float
+    path_entropy: float
+    seed_entity_entropy: float
+    subgraph_jaccard: float
+    sample_count: int
+
+
+class DiversityReport(TypedDict):
+    status: str
+    note: str
+    row_count: int
+    rows_by_dataset_policy: dict[str, int]
+    figures: list[str]
+    rows_preview: list[DiversityRow]
+
+
+OUT_JSON: str = os.path.join(
     REPO, "results", "analyses", "graph_state_diversity_analysis.json"
 )
-FIG_DIR = os.path.join(REPO, "paper", "figures")
+FIG_DIR: str = os.path.join(REPO, "paper", "figures")
 
 
-def _iter_result_details():
+def _iter_result_details() -> Iterator[tuple[str, str, list[DiversityDetail]]]:
     for slug, manifest_key in KEY.items():
-        doc = json.load(open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"])))
+        doc: DiversityDocument = json.load(
+            open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"]))
+        )
         for cfg in doc["config_results"]:
             if not cfg["config"]["name"].startswith("kg_entity_first"):
                 continue
@@ -44,7 +112,7 @@ def _iter_result_details():
         yield slug, "strict", doc["config_results"][0]["details"]
 
 
-def _row_diversity(row: dict[str, Any]) -> dict[str, Any]:
+def _row_diversity(row: DiversityDetail) -> DiversityProjection:
     if row.get("kg_graph_state_traces"):
         return graph_state_diversity(row.get("kg_graph_state_traces") or [])
     if row.get("kg_subgraph_entropy") is not None:
@@ -59,14 +127,14 @@ def _row_diversity(row: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def collect_rows() -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def collect_rows() -> list[DiversityRow]:
+    rows: list[DiversityRow] = []
     for dataset, policy, details in _iter_result_details():
         for row in details:
-            diversity = _row_diversity(row)
+            diversity: DiversityProjection = _row_diversity(row)
             if not diversity:
                 continue
-            output_entropy = row.get("kg_discrete_semantic_entropy")
+            output_entropy: float | None = row.get("kg_discrete_semantic_entropy")
             if output_entropy is None:
                 continue
             rows.append(
@@ -89,14 +157,20 @@ def collect_rows() -> list[dict[str, Any]]:
     return rows
 
 
-def plot(rows: list[dict[str, Any]]) -> list[str]:
+def plot(rows: list[DiversityRow]) -> list[str]:
     if plt is None or len(rows) < 5:
         return []
     os.makedirs(FIG_DIR, exist_ok=True)
+    fig: Figure
+    ax: Axes
     fig, ax = plt.subplots(figsize=(4.8, 3.4))
-    x = np.array([r["subgraph_entropy"] for r in rows], dtype=float)
-    y = np.array([r["output_discrete_semantic_entropy"] for r in rows], dtype=float)
-    wrong = np.array([not r["correct"] for r in rows], dtype=bool)
+    x: NDArray[np.float64] = np.array(
+        [r["subgraph_entropy"] for r in rows], dtype=float
+    )
+    y: NDArray[np.float64] = np.array(
+        [r["output_discrete_semantic_entropy"] for r in rows], dtype=float
+    )
+    wrong: NDArray[np.bool_] = np.array([not r["correct"] for r in rows], dtype=bool)
     ax.scatter(x[~wrong], y[~wrong], s=18, c="#4C78A8", alpha=0.55, label="correct")
     ax.scatter(x[wrong], y[wrong], s=22, c="#E45756", alpha=0.72, label="wrong")
     ax.set_xlabel("Graph-state entropy (subgraph signature, bits)")
@@ -104,9 +178,11 @@ def plot(rows: list[dict[str, Any]]) -> list[str]:
     ax.set_title("Graph-State Diversity vs Output Dispersion")
     ax.grid(True, alpha=0.2)
     ax.legend(frameon=False, fontsize=8)
-    outputs = []
+    outputs: list[str] = []
     for ext in ("pdf", "png"):
-        path = os.path.join(FIG_DIR, f"graph_state_entropy_vs_output_entropy.{ext}")
+        path: str = os.path.join(
+            FIG_DIR, f"graph_state_entropy_vs_output_entropy.{ext}"
+        )
         fig.savefig(path, bbox_inches="tight", dpi=180)
         outputs.append(path)
     plt.close(fig)
@@ -114,13 +190,13 @@ def plot(rows: list[dict[str, Any]]) -> list[str]:
 
 
 def main() -> None:
-    rows = collect_rows()
+    rows: list[DiversityRow] = collect_rows()
     by_dataset: dict[str, int] = {}
     for row in rows:
-        key = f"{row['dataset']}:{row['policy']}"
+        key: str = f"{row['dataset']}:{row['policy']}"
         by_dataset[key] = by_dataset.get(key, 0) + 1
-    figures = plot(rows)
-    out = {
+    figures: list[str] = plot(rows)
+    out: DiversityReport = {
         "status": "ok" if rows else "no_graph_state_trace_fields",
         "note": (
             "Requires per-sample kg_graph_state_traces or derived kg_*_entropy "

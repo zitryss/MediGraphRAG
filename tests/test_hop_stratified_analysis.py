@@ -11,13 +11,13 @@ def test_load_details_raises_on_ambiguous_multi_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(hop, "PREFERRED_CONFIG_NAME", None)
-    payload = {
+    payload: hop.HopDocument = {
         "config_results": [
             {"config": {"name": "cfg_a"}, "details": [{"id": 1}]},
             {"config": {"name": "cfg_b"}, "details": [{"id": 2}]},
         ]
     }
-    path = tmp_path / "results.json"
+    path: Path = tmp_path / "results.json"
     path.write_text(json.dumps(payload))
 
     with pytest.raises(ValueError):
@@ -28,16 +28,16 @@ def test_load_details_prefers_default_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(hop, "PREFERRED_CONFIG_NAME", None)
-    payload = {
+    payload: hop.HopDocument = {
         "config_results": [
             {"config": {"name": "sweep"}, "details": [{"id": "wrong"}]},
             {"config": {"name": "default"}, "details": [{"id": "right"}]},
         ]
     }
-    path = tmp_path / "results.json"
+    path: Path = tmp_path / "results.json"
     path.write_text(json.dumps(payload))
 
-    details = hop.load_details(str(path))
+    details: list[hop.HopDetail] = hop.load_details(str(path))
 
     assert details == [{"id": "right"}]
 
@@ -45,7 +45,7 @@ def test_load_details_prefers_default_config(
 def test_compute_stats_excludes_generation_failures_and_uses_sps_as_uncertainty() -> (
     None
 ):
-    details = [
+    details: list[hop.HopDetail] = [
         {
             "kg_correct": True,
             "kg_generation_failed": False,
@@ -78,7 +78,7 @@ def test_compute_stats_excludes_generation_failures_and_uses_sps_as_uncertainty(
         },
     ]
 
-    stats = hop.compute_stats(details, "2-hop", "HotpotQA")
+    stats: hop.HopStats = hop.compute_stats(details, "2-hop", "HotpotQA")
 
     assert stats["n"] == 4
     assert stats["error_rate"] == 0.5
@@ -88,7 +88,7 @@ def test_compute_stats_excludes_generation_failures_and_uses_sps_as_uncertainty(
 
 
 def test_compute_stats_excludes_gps_null_rows() -> None:
-    details = [
+    details: list[hop.HopDetail] = [
         {
             "kg_correct": True,
             "kg_generation_failed": False,
@@ -121,7 +121,7 @@ def test_compute_stats_excludes_gps_null_rows() -> None:
         },
     ]
 
-    stats = hop.compute_stats(details, "2-hop", "HotpotQA")
+    stats: hop.HopStats = hop.compute_stats(details, "2-hop", "HotpotQA")
 
     assert stats["n"] == 5
     assert stats["graph_path_support"]["auroc"] == pytest.approx(1.0)

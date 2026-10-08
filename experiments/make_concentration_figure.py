@@ -10,8 +10,16 @@ CIs, and legible correct points.  Pure log analysis; no reruns.
 import json
 import os
 import sys
+from collections.abc import Iterator, Sequence
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict
 
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
 from scipy.stats import spearmanr
 
 sys.path.insert(
@@ -23,28 +31,59 @@ sys.path.insert(
 import make_figures  # rcParams styling
 import matplotlib.pyplot as plt
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(REPO, "paper", "figures")
+
+class ConcentrationDetail(TypedDict, total=False):
+    kg_retrieval_overlap: float | None
+    vanilla_retrieval_overlap: float | None
+    kg_sd_uq: float | None
+    vanilla_sd_uq: float | None
+    kg_correct: bool | None
+    vanilla_correct: bool | None
+    kg_generation_failed: bool
+    vanilla_generation_failed: bool
+
+
+class ConcentrationConfig(TypedDict):
+    details: list[ConcentrationDetail]
+
+
+class ConcentrationDocument(TypedDict):
+    config_results: list[ConcentrationConfig]
+
+
+BinnedMeans: TypeAlias = tuple[list[float], list[float], list[tuple[float, float]]]
+ConcentrationSources: TypeAlias = list[tuple[str, list[ConcentrationDetail]]]
+
+
+REPO: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT: str = os.path.join(REPO, "paper", "figures")
 FLOOR: float = 1e-12
-RNG = np.random.default_rng(42)
+RNG: np.random.Generator = np.random.default_rng(42)
 C_WRONG, C_OK = "#B2182B", "#888888"
 
 
-def load(path, jsonl=False):
+def load(path: str, jsonl: bool = False) -> list[ConcentrationDetail]:
     if jsonl:
         return [json.loads(l) for l in open(path) if l.strip()]
-    return json.load(open(path))["config_results"][0]["details"]
+    document: ConcentrationDocument = json.load(open(path))
+    return document["config_results"][0]["details"]
 
 
-def points(rows, pre):
+def points(
+    rows: Sequence[ConcentrationDetail], pre: str
+) -> Iterator[NDArray[np.float64]]:
+    ow: list[float]
+    sw: list[np.float64]
+    oc: list[float]
+    sc: list[np.float64]
     ow, sw, oc, sc = [], [], [], []
     for r in rows:
-        o = r.get(f"{pre}_retrieval_overlap")
-        s = r.get(f"{pre}_sd_uq")
-        c = r.get(f"{pre}_correct")
+        o: float | None = r.get(f"{pre}_retrieval_overlap")
+        s: float | None = r.get(f"{pre}_sd_uq")
+        c: bool | None = r.get(f"{pre}_correct")
         if o is None or s is None or c is None or r.get(f"{pre}_generation_failed"):
             continue
-        y = np.log10(max(float(s), 0.0) + FLOOR)
+        y: np.float64 = np.log10(max(float(s), 0.0) + FLOOR)
         if c:
             oc.append(float(o))
             sc.append(y)
@@ -54,26 +93,38 @@ def points(rows, pre):
     return map(np.array, (ow, sw, oc, sc))
 
 
-def binned_means(x, y, n_bins=4, boot=500):
+def binned_means(
+    x: NDArray[np.float64 | np.int64] | list[float],
+    y: NDArray[np.float64 | np.int64] | list[float],
+    n_bins: int = 4,
+    boot: int = 500,
+) -> BinnedMeans:
     if len(x) < 8:
         return [], [], []
-    edges = np.quantile(x, np.linspace(0, 1, n_bins + 1))
+    edges: NDArray[np.float64] = np.quantile(x, np.linspace(0, 1, n_bins + 1))
+    mids: list[float]
+    means: list[float]
+    cis: list[tuple[float, float]]
     mids, means, cis = [], [], []
     for lo, hi in zip(edges[:-1], edges[1:]):
-        m = (x >= lo) & (x <= hi)
+        m: NDArray[np.bool_] = (x >= lo) & (x <= hi)
         if m.sum() < 4:
             continue
-        vals = y[m]
+        vals: NDArray[np.float64 | np.int64] = y[m]
         mids.append(float(x[m].mean()))
         means.append(float(vals.mean()))
-        bs = [np.mean(RNG.choice(vals, len(vals), replace=True)) for _ in range(boot)]
+        bs: list[np.float64] = [
+            np.mean(RNG.choice(vals, len(vals), replace=True)) for _ in range(boot)
+        ]
         cis.append((float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))))
     return mids, means, cis
 
 
-def single_panel(srcs) -> None:
+def single_panel(srcs: ConcentrationSources) -> None:
     """Main-text figure: the 2Wiki KG panel that carries the mechanism."""
     name, rows = srcs[0]
+    fig: Figure
+    ax: Axes
     fig, ax = plt.subplots(figsize=(3.4, 2.7))
     ow, sw, oc, sc = points(rows, "kg")
     ax.scatter(oc, sc, s=10, c=C_OK, alpha=0.5, linewidths=0, zorder=1, label="correct")
@@ -82,8 +133,8 @@ def single_panel(srcs) -> None:
     )
     mids, means, cis = binned_means(ow, sw)
     if mids:
-        lo = [m - c[0] for m, c in zip(means, cis)]
-        hi = [c[1] - m for m, c in zip(means, cis)]
+        lo: list[float] = [m - c[0] for m, c in zip(means, cis)]
+        hi: list[float] = [c[1] - m for m, c in zip(means, cis)]
         ax.errorbar(
             mids,
             means,
@@ -123,14 +174,14 @@ def single_panel(srcs) -> None:
     )
     fig.subplots_adjust(left=0.17, right=0.97, top=0.9, bottom=0.17)
     for ext in ("pdf", "png"):
-        out = os.path.join(OUT, f"concentration_vs_dispersion.{ext}")
+        out: str = os.path.join(OUT, f"concentration_vs_dispersion.{ext}")
         fig.savefig(out, dpi=200 if ext == "png" else None, bbox_inches="tight")
         print("Saved", out)
     plt.close(fig)
 
 
 def main() -> None:
-    srcs = [
+    srcs: ConcentrationSources = [
         (
             "2WikiMHQA",
             load(os.path.join(REPO, "results/mirage_2wikimultihopqa_results.json")),
@@ -149,14 +200,14 @@ def main() -> None:
         [("Entity-first KG", "kg"), ("Dense", "vanilla")]
     ):
         for col, (name, rows) in enumerate(srcs):
-            ax = axes[row, col]
+            ax: Axes = axes[row, col]
             ow, sw, oc, sc = points(rows, pre)
             ax.scatter(oc, sc, s=9, c=C_OK, alpha=0.55, linewidths=0, zorder=1)
             ax.scatter(ow, sw, s=15, c=C_WRONG, alpha=0.8, linewidths=0, zorder=2)
             mids, means, cis = binned_means(ow, sw)
             if mids:
-                lo = [m - c[0] for m, c in zip(means, cis)]
-                hi = [c[1] - m for m, c in zip(means, cis)]
+                lo: list[float] = [m - c[0] for m, c in zip(means, cis)]
+                hi: list[float] = [c[1] - m for m, c in zip(means, cis)]
                 ax.errorbar(
                     mids,
                     means,
@@ -170,7 +221,7 @@ def main() -> None:
                 )
             if len(ow) >= 8 and len(set(ow)) > 1:
                 rho = spearmanr(ow, sw)
-                ptxt = f"p={rho.pvalue:.2f}" if rho.pvalue >= 0.01 else "p<0.01"
+                ptxt: str = f"p={rho.pvalue:.2f}" if rho.pvalue >= 0.01 else "p<0.01"
                 ax.text(
                     0.03,
                     0.05,
@@ -200,7 +251,7 @@ def main() -> None:
                 ax.set_xlabel("Retrieval overlap", fontsize=7.6)
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
-    h = [
+    h: list[Line2D] = [
         plt.Line2D([], [], color=C_WRONG, marker="o", ls="", ms=5, label="wrong"),
         plt.Line2D([], [], color=C_OK, marker="o", ls="", ms=5, label="correct"),
         plt.Line2D(
@@ -226,7 +277,7 @@ def main() -> None:
         left=0.105, right=0.985, top=0.88, bottom=0.11, wspace=0.08, hspace=0.14
     )
     for ext in ("pdf", "png"):
-        p = os.path.join(OUT, f"concentration_facets.{ext}")
+        p: str = os.path.join(OUT, f"concentration_facets.{ext}")
         fig.savefig(p, dpi=200 if ext == "png" else None, bbox_inches="tight")
         print("Saved", p)
     plt.close(fig)

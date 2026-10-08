@@ -9,8 +9,15 @@ collapsing onto the floor.  Pure log analysis; no reruns.
 
 import os
 import sys
+from typing import TYPE_CHECKING
 
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(
@@ -23,47 +30,49 @@ import make_figures  # rcParams styling
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-from experiments.trust_analysis import rows_for
+from experiments.trust_analysis import rows_for, CompleteTrustRow, has_complete_metrics
 
 FLOOR: float = 1e-12
 N_ARROWS: int = 12
-OUT = os.path.join(
+OUT: str = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "paper", "figures"
 )
 C_AD, C_ST = "#4D4D4D", "#B2182B"
 
 
-def wrong_rows(slug, policy):
+def wrong_rows(slug: str, policy: str) -> dict[str, CompleteTrustRow]:
     return {
         r["qid"]: r
         for r in rows_for(slug, policy)
-        if not r["correct"] and r["sd"] is not None and r["seu"] is not None
+        if not r["correct"] and has_complete_metrics(r)
     }
 
 
-def xy(r):
+def xy(r: CompleteTrustRow) -> tuple[np.float64, float]:
     return np.log10(max(r["sd"], 0.0) + FLOOR), r["seu"]
 
 
 def main() -> None:
-    fig = plt.figure(figsize=(4.6, 3.4))
-    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 3.6], hspace=0.06)
-    panels = [("2wikimultihopqa", "2WikiMHQA")]
-    rng = np.random.default_rng(0)
-    axes_main = []
+    fig: Figure = plt.figure(figsize=(4.6, 3.4))
+    gs: gridspec.GridSpec = gridspec.GridSpec(2, 1, height_ratios=[1, 3.6], hspace=0.06)
+    panels: list[tuple[str, str]] = [("2wikimultihopqa", "2WikiMHQA")]
+    rng: np.random.Generator = np.random.default_rng(0)
+    axes_main: list[Axes] = []
     for col, (slug, label) in enumerate(panels):
-        ax_m = fig.add_subplot(gs[0, col])
-        ax = fig.add_subplot(gs[1, col])
+        ax_m: Axes = fig.add_subplot(gs[0, col])
+        ax: Axes = fig.add_subplot(gs[1, col])
         axes_main.append(ax)
-        ad = wrong_rows(slug, "kg")
-        st = wrong_rows(slug, "strict")
+        ad: dict[str, CompleteTrustRow] = wrong_rows(slug, "kg")
+        st: dict[str, CompleteTrustRow] = wrong_rows(slug, "strict")
 
         # connecting segments for a uniformly random sample of questions
         # wrong under both policies; drawn only on the 2Wiki panel, where
         # the migration is visually strongest
         if col == 0:
-            shared = sorted(set(ad) & set(st))
-            sample = list(rng.choice(shared, min(N_ARROWS, len(shared)), replace=False))
+            shared: list[str] = sorted(set(ad) & set(st))
+            sample: list[np.str_] = list(
+                rng.choice(shared, min(N_ARROWS, len(shared)), replace=False)
+            )
             for q in sample:
                 x0, y0 = xy(ad[q])
                 x1, y1 = xy(st[q])
@@ -86,8 +95,8 @@ def main() -> None:
             (ad, C_AD, "o", "Adaptive KG (wrong)"),
             (st, C_ST, "^", "Strict KG (wrong)"),
         ]:
-            pts = np.array([xy(r) for r in rows.values()])
-            jy = pts[:, 1] + rng.normal(0, 0.012, len(pts))
+            pts: NDArray[np.float64] = np.array([xy(r) for r in rows.values()])
+            jy: NDArray[np.float64] = pts[:, 1] + rng.normal(0, 0.012, len(pts))
             ax.scatter(
                 pts[:, 0],
                 jy,
@@ -117,7 +126,7 @@ def main() -> None:
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     axes_main[0].set_ylabel("SEU (evidence-state\nuncertainty)", fontsize=8)
-    handles = [
+    handles: list[Line2D] = [
         plt.Line2D(
             [0],
             [0],
@@ -155,7 +164,7 @@ def main() -> None:
     )
     fig.subplots_adjust(left=0.14, right=0.97, top=0.78, bottom=0.15)
     for ext in ("pdf", "png"):
-        path = os.path.join(OUT, f"lockin_migration.{ext}")
+        path: str = os.path.join(OUT, f"lockin_migration.{ext}")
         fig.savefig(path, dpi=200 if ext == "png" else None, bbox_inches="tight")
         print("Saved", path)
 

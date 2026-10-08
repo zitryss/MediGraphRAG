@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 from unittest.mock import Mock
 
 import numpy as np
@@ -15,13 +15,27 @@ import pytest
 
 if TYPE_CHECKING:
     from experiments.verbalized_confidence import ConfidenceDocument
+    from experiments.gps_v2_replay import ReplayQuestion, ReplayStore
+    from experiments.lockin_accounting_analysis import AccountingRow
+
+
+class CorpusOptions(TypedDict):
+    hotpot_file: Path
+    output: Path
+    selection_output: Path
+    dataset_name: str
+    num_samples: int | None
+    subset_seed: int
+    overwrite: bool
 
 
 @pytest.mark.parametrize("name", ["gps_v2_paper_numbers", "gps_v3_depth_matched"])
 def test_auroc_bootstrap_and_rejection_integral(
-    analysis_import, monkeypatch: pytest.MonkeyPatch, name: str
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
 ) -> None:
-    module = analysis_import(name)
+    module: ModuleType = analysis_import(name)
     monkeypatch.setattr(module, "B", 30)
     monkeypatch.setattr(module, "RNG", np.random.default_rng(9))
     assert module.auroc_ci([0, 1], [False, True]) == (1, 1, 1)
@@ -43,28 +57,33 @@ def test_auroc_bootstrap_and_rejection_integral(
     ],
 )
 def test_depth_matched_score(
-    analysis_import, store: dict | None, expected: float, reason: str | None
+    analysis_import: Callable[[str], ModuleType],
+    store: ReplayStore | None,
+    expected: float,
+    reason: str | None,
 ) -> None:
-    module = analysis_import("gps_v3_depth_matched")
+    module: ModuleType = analysis_import("gps_v3_depth_matched")
     result = module.score_from_store_depth_matched(store, 2)
     assert result["score"] == pytest.approx(expected)
     assert result["null_reason"] == reason
 
 
 def test_depth_replay_files_and_null_denominators(
-    analysis_import, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    module = analysis_import("gps_v3_depth_matched")
+    module: ModuleType = analysis_import("gps_v3_depth_matched")
     monkeypatch.setattr(module, "REPO", str(tmp_path))
     monkeypatch.setattr(module, "RUNS", str(tmp_path))
-    run = tmp_path / "run"
+    run: Path = tmp_path / "run"
     run.mkdir()
     (tmp_path / "result.json").write_text(
         json.dumps(
             {"config_results": [{"details": [{"question_id": "q1", "hop_count": 3}]}]}
         )
     )
-    questions: list[dict[str, Any]] = [
+    questions: list[ReplayQuestion] = [
         {
             "question_id": "q1",
             "kg_correct": True,
@@ -87,8 +106,10 @@ def test_depth_replay_files_and_null_denominators(
     assert module.expected_hop("unknown", None) == 1
 
 
-def test_trust_silent_failure_and_selective_risk(analysis_import) -> None:
-    module = analysis_import("trust_analysis")
+def test_trust_silent_failure_and_selective_risk(
+    analysis_import: Callable[[str], ModuleType],
+) -> None:
+    module: ModuleType = analysis_import("trust_analysis")
     assert module.silent_rate([]) == (None, 0)
     rows = [
         {"correct": False, "dse": 0, "sd": 0},
@@ -109,13 +130,13 @@ def test_trust_silent_failure_and_selective_risk(analysis_import) -> None:
     [("correct", True), ("INCORRECT", False), ("unclear", None), (None, None)],
 )
 def test_independent_judge_parsing_and_retry(
-    analysis_import,
+    analysis_import: Callable[[str], ModuleType],
     monkeypatch: pytest.MonkeyPatch,
     word: str | None,
     expected: bool | None,
 ) -> None:
-    module = analysis_import("rejudge_independent")
-    client = Mock()
+    module: ModuleType = analysis_import("rejudge_independent")
+    client: Mock = Mock()
     client.chat.completions.create.return_value = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=word))]
     )
@@ -125,7 +146,7 @@ def test_independent_judge_parsing_and_retry(
     )
     assert client.chat.completions.create.call_args.kwargs["temperature"] == 0
     client.chat.completions.create.side_effect = RuntimeError("timeout")
-    sleep = Mock()
+    sleep: Mock = Mock()
     monkeypatch.setattr(module.time, "sleep", sleep)
     assert module.judge_one(client, "q", "a", "b", retries=2) is None
     assert [c.args[0] for c in sleep.call_args_list] == [2, 4]
@@ -135,10 +156,10 @@ def test_independent_judge_parsing_and_retry(
     "text,expected", [("0.75", 0.75), ("80%", 0.8), ("101", None), ("", None), ("0", 0)]
 )
 def test_verbal_confidence_parser(
-    analysis_import, text: str, expected: float | None
+    analysis_import: Callable[[str], ModuleType], text: str, expected: float | None
 ) -> None:
-    module = analysis_import("verbalized_confidence")
-    client = Mock()
+    module: ModuleType = analysis_import("verbalized_confidence")
+    client: Mock = Mock()
     client.chat.completions.create.return_value = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=text))]
     )
@@ -146,9 +167,11 @@ def test_verbal_confidence_parser(
 
 
 def test_certificate_mask_and_artifact(
-    analysis_import, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    module = analysis_import("certificate_eval")
+    module: ModuleType = analysis_import("certificate_eval")
     rows = [
         (0.1, 0.2, 0.3, True),
         (0.2, 0.3, 0.4, True),
@@ -176,9 +199,11 @@ def test_certificate_mask_and_artifact(
 
 
 def test_graph_diversity_analysis_artifacts(
-    analysis_import, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    module = analysis_import("graph_state_diversity_analysis")
+    module: ModuleType = analysis_import("graph_state_diversity_analysis")
     details = [
         {
             "question_id": str(i),
@@ -205,13 +230,15 @@ def test_graph_diversity_analysis_artifacts(
 
 
 def test_fullwiki_corpus_deduplicates_and_persists_selection(
-    analysis_import, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from experiments import subset_selection
 
     monkeypatch.setitem(sys.modules, "subset_selection", subset_selection)
-    module = analysis_import("prepare_hotpotqa_fullwiki_corpus")
-    path = tmp_path / "raw.json"
+    module: ModuleType = analysis_import("prepare_hotpotqa_fullwiki_corpus")
+    path: Path = tmp_path / "raw.json"
     path.write_text(
         json.dumps(
             [
@@ -224,7 +251,7 @@ def test_fullwiki_corpus_deduplicates_and_persists_selection(
             ]
         )
     )
-    opts: dict[str, Any] = {
+    opts: CorpusOptions = {
         "hotpot_file": path,
         "output": tmp_path / "corpus.jsonl",
         "selection_output": tmp_path / "selection.json",
@@ -263,8 +290,10 @@ def test_fullwiki_corpus_deduplicates_and_persists_selection(
         ({}, "silent_all_families_calm"),
     ],
 )
-def test_lockin_partition(analysis_import, changes: dict, bucket: str) -> None:
-    module = analysis_import("lockin_accounting_analysis")
+def test_lockin_partition(
+    analysis_import: Callable[[str], ModuleType], changes: AccountingRow, bucket: str
+) -> None:
+    module: ModuleType = analysis_import("lockin_accounting_analysis")
     row = {
         "correct": False,
         "dse": 0,
@@ -285,10 +314,12 @@ def test_lockin_partition(analysis_import, changes: dict, bucket: str) -> None:
 
 
 def test_diversity_analysis_numeric_output(
-    analysis_import, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    module = analysis_import("diversity_run_analysis")
-    path = tmp_path / "results.json"
+    module: ModuleType = analysis_import("diversity_run_analysis")
+    path: Path = tmp_path / "results.json"
     rows = [
         {
             "kg_graph_state_sample_count": 2,
@@ -323,10 +354,10 @@ def test_diversity_analysis_numeric_output(
 
 
 def test_concentration_points_and_bootstrap(
-    analysis_import, monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setitem(sys.modules, "make_figures", ModuleType("make_figures"))
-    module = analysis_import("make_concentration_figure")
+    module: ModuleType = analysis_import("make_concentration_figure")
     rows = [
         {"kg_retrieval_overlap": 0.5, "kg_sd_uq": 0, "kg_correct": False},
         {"kg_retrieval_overlap": 0.8, "kg_sd_uq": 0.1, "kg_correct": True},
@@ -346,10 +377,12 @@ def test_concentration_points_and_bootstrap(
 
 
 def test_anchor_mask_candidate_filters_and_scoping(
-    analysis_import, experiment_module, monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType],
+    experiment_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "experiments.experiment", experiment_module)
-    module = analysis_import("anchor_masking_intervention")
+    module: ModuleType = analysis_import("anchor_masking_intervention")
     base = {
         "question_id": "q",
         "kg_sd_uq": 0,
@@ -377,17 +410,17 @@ def test_anchor_mask_candidate_filters_and_scoping(
     assert [r["question_id"] for r in selected] == ["q"]
     assert module._question_id_for_scope("hotpotqa", "q") == "q"
     assert module._question_id_for_scope("realmedqa", "q") is None
-    factory = Mock()
+    factory: Mock = Mock()
     monkeypatch.setattr(module, "EnhancedRAGSystem", factory)
     module._make_kg_system("strict")
     assert factory.call_args.kwargs["allow_vector_fallback"] is False
 
 
 def test_sensitivity_replay_skips_unusable_and_scores(
-    analysis_import, monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    module = analysis_import("gps_sensitivity")
-    questions: list[dict[str, Any]] = [
+    module: ModuleType = analysis_import("gps_sensitivity")
+    questions: list[ReplayQuestion] = [
         {
             "question_id": "a",
             "kg_correct": True,
@@ -413,9 +446,9 @@ def test_sensitivity_replay_skips_unusable_and_scores(
 
 
 def test_wave1_wilson_and_silent_counts(
-    analysis_import, monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    module = analysis_import("wave1_analysis")
+    module: ModuleType = analysis_import("wave1_analysis")
     assert module.wilson_ci(0, 0) is None
     lo, hi = module.wilson_ci(5, 10)
     assert lo == pytest.approx(1 - hi)
@@ -437,9 +470,11 @@ def test_wave1_wilson_and_silent_counts(
 
 
 def test_reporting_odds_ratio_and_answered_denominators(
-    analysis_import, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    module = analysis_import("reporting_robustness")
+    module: ModuleType = analysis_import("reporting_robustness")
     assert module.odds_ratio_mh({}) is None
     assert module.odds_ratio_mh(
         {
@@ -484,9 +519,9 @@ def test_reporting_odds_ratio_and_answered_denominators(
 
 
 def test_rejudge_metric_denominators(
-    analysis_import, monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    module = analysis_import("rejudge_wave1")
+    module: ModuleType = analysis_import("rejudge_wave1")
     rows = [{"qid": str(i), "sd": i / 12, "seu": i / 12} for i in range(12)]
     monkeypatch.setattr(module, "rows_for", lambda *a: rows)
     monkeypatch.setattr(
@@ -498,9 +533,11 @@ def test_rejudge_metric_denominators(
 
 
 def test_residue_audit_filter_and_artifact(
-    analysis_import, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    module = analysis_import("residue_audit")
+    module: ModuleType = analysis_import("residue_audit")
     monkeypatch.setattr(module, "REPO", str(tmp_path))
     monkeypatch.setattr(module, "KEY", {"unit": "Unit"})
     monkeypatch.setattr(module, "MANIFEST", {"Unit": {"result_path": "result.json"}})
@@ -541,10 +578,12 @@ def test_residue_audit_filter_and_artifact(
 
 
 def test_migration_figure_artifacts(
-    analysis_import, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setitem(sys.modules, "make_figures", ModuleType("make_figures"))
-    module = analysis_import("make_migration_figure")
+    module: ModuleType = analysis_import("make_migration_figure")
     monkeypatch.setattr(module, "OUT", str(tmp_path))
     monkeypatch.setattr(
         module,

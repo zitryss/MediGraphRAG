@@ -10,7 +10,18 @@ import argparse
 from pathlib import Path
 from collections import defaultdict
 from math import ceil
+from collections.abc import Callable
+from typing import TYPE_CHECKING, TypeAlias, TypedDict
 import numpy as np
+from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+    from matplotlib.container import BarContainer
+    from matplotlib.colors import Colormap
+    from matplotlib.image import AxesImage
+    from matplotlib.colorbar import Colorbar
 
 # Try to import matplotlib and wandb
 try:
@@ -18,7 +29,7 @@ try:
     import matplotlib
 
     matplotlib.use("Agg")  # Non-interactive backend
-    HAS_MATPLOTLIB = True
+    HAS_MATPLOTLIB: bool = True
 except ImportError:
     HAS_MATPLOTLIB = False
     print("Warning: matplotlib not installed. Will skip local plotting.")
@@ -26,10 +37,160 @@ except ImportError:
 try:
     import wandb
 
-    HAS_WANDB = True
+    HAS_WANDB: bool = True
 except ImportError:
     HAS_WANDB = False
     print("Warning: wandb not installed. Will skip wandb logging.")
+
+
+MetricValues: TypeAlias = dict[str, float]
+SystemMetrics: TypeAlias = dict[str, MetricValues]
+AggregatedMetrics: TypeAlias = dict[str, dict[str, dict[str, float | np.float64]]]
+OverallMetrics: TypeAlias = dict[str, dict[str, float | np.float64]]
+
+
+class PlotConfig(TypedDict, total=False):
+    name: str
+    similarity_threshold: float
+    max_chunks: int
+
+
+class PlotDetail(TypedDict, total=False):
+    question_id: str | int
+    kg_correct: bool
+    kg_generation_failed: bool
+    kg_semantic_entropy: float | str | None
+    kg_discrete_semantic_entropy: float | str | None
+    kg_sre_uq: float | str | None
+    kg_p_true: float | str | None
+    kg_selfcheckgpt: float | str | None
+    kg_vn_entropy: float | str | None
+    kg_sd_uq: float | str | None
+    kg_graph_path_support: float | str | None
+    kg_graph_path_disagreement: float | str | None
+    kg_competing_answer_alternatives: float | str | None
+    kg_evidence_vn_entropy: float | str | None
+    kg_subgraph_informativeness: float | str | None
+    kg_subgraph_perturbation_stability: float | str | None
+    kg_support_entailment_uncertainty: float | str | None
+    kg_evidence_conflict_uncertainty: float | str | None
+    kg_graph_path_support_null_reason: str | None
+    kg_subgraph_perturbation_stability_null_reason: str | None
+    vanilla_correct: bool
+    vanilla_generation_failed: bool
+    vanilla_semantic_entropy: float | str | None
+    vanilla_discrete_semantic_entropy: float | str | None
+    vanilla_sre_uq: float | str | None
+    vanilla_p_true: float | str | None
+    vanilla_selfcheckgpt: float | str | None
+    vanilla_vn_entropy: float | str | None
+    vanilla_sd_uq: float | str | None
+    vanilla_graph_path_support: float | str | None
+    vanilla_graph_path_disagreement: float | str | None
+    vanilla_competing_answer_alternatives: float | str | None
+    vanilla_evidence_vn_entropy: float | str | None
+    vanilla_subgraph_informativeness: float | str | None
+    vanilla_subgraph_perturbation_stability: float | str | None
+    vanilla_support_entailment_uncertainty: float | str | None
+    vanilla_evidence_conflict_uncertainty: float | str | None
+    vanilla_graph_path_support_null_reason: str | None
+    vanilla_subgraph_perturbation_stability_null_reason: str | None
+
+
+class TaskTypeMetrics(TypedDict, total=False):
+    n: int
+    vanilla_accuracy: float
+    kg_accuracy: float
+    auroc_aurec: SystemMetrics
+
+
+class ConfigResult(TypedDict, total=False):
+    config: PlotConfig
+    details: list[PlotDetail]
+    metrics_by_approach: SystemMetrics
+    auroc_aurec: SystemMetrics
+    vanilla_avg_compute_times: MetricValues
+    kg_avg_compute_times: MetricValues
+    accuracy_by_task_type: dict[str, TaskTypeMetrics]
+    complementarity: MetricValues
+    vanilla_accuracy: float
+    kg_accuracy: float
+    kg_avg_semantic_entropy: float | None
+    kg_avg_discrete_semantic_entropy: float | None
+    kg_avg_sre_uq: float | None
+    kg_avg_p_true: float | None
+    kg_avg_selfcheckgpt: float | None
+    kg_avg_vn_entropy: float | None
+    kg_avg_sd_uq: float | None
+    kg_avg_graph_path_support: float | None
+    kg_avg_graph_path_disagreement: float | None
+    kg_avg_competing_answer_alternatives: float | None
+    kg_avg_evidence_vn_entropy: float | None
+    kg_avg_subgraph_informativeness: float | None
+    kg_avg_subgraph_perturbation_stability: float | None
+    kg_avg_support_entailment_uncertainty: float | None
+    kg_avg_evidence_conflict_uncertainty: float | None
+    vanilla_avg_semantic_entropy: float | None
+    vanilla_avg_discrete_semantic_entropy: float | None
+    vanilla_avg_sre_uq: float | None
+    vanilla_avg_p_true: float | None
+    vanilla_avg_selfcheckgpt: float | None
+    vanilla_avg_vn_entropy: float | None
+    vanilla_avg_sd_uq: float | None
+    vanilla_avg_graph_path_support: float | None
+    vanilla_avg_graph_path_disagreement: float | None
+    vanilla_avg_competing_answer_alternatives: float | None
+    vanilla_avg_evidence_vn_entropy: float | None
+    vanilla_avg_subgraph_informativeness: float | None
+    vanilla_avg_subgraph_perturbation_stability: float | None
+    vanilla_avg_support_entailment_uncertainty: float | None
+    vanilla_avg_evidence_conflict_uncertainty: float | None
+
+
+class ResultBlock(TypedDict, total=False):
+    dataset: str
+    config_results: list[ConfigResult]
+    config: PlotConfig
+    evaluation: SystemMetrics
+
+
+class DatasetAnalysis(TypedDict, total=False):
+    vanilla_rag_stats: MetricValues
+    kg_rag_stats: MetricValues
+    comparisons: dict[str, int]
+    total_experiments: int
+
+
+class LegacyDataset(TypedDict, total=False):
+    results: list[ResultBlock]
+    analysis: DatasetAnalysis
+
+
+class CombinedAnalysis(TypedDict, total=False):
+    per_dataset: dict[str, DatasetAnalysis]
+    overall_vanilla_rag: MetricValues
+    overall_kg_rag: MetricValues
+    total_experiments: int
+
+
+class VisualizationResults(TypedDict, total=False):
+    results: list[ResultBlock]
+    metric_names: list[str]
+    per_dataset_results: dict[str, LegacyDataset]
+    combined_analysis: CombinedAnalysis
+    analysis: DatasetAnalysis
+    experiment_id: str
+
+
+class BarPanel(TypedDict):
+    labels: list[str]
+    vanilla: list[float]
+    kg: list[float]
+
+
+class ReliabilityData(TypedDict):
+    scores: list[float]
+    errors: list[int]
 
 
 UNCERTAINTY_METRIC_SPECS: list[tuple[str, str, str, bool]] = [
@@ -54,74 +215,79 @@ UNCERTAINTY_METRIC_SPECS: list[tuple[str, str, str, bool]] = [
     ("support_entailment_uncertainty", "Support Entailment Uncertainty", "SEU", True),
     ("evidence_conflict_uncertainty", "Evidence Conflict Uncertainty", "ECU", True),
 ]
-DEFAULT_UNCERTAINTY_METRICS = [name for name, _, _, _ in UNCERTAINTY_METRIC_SPECS]
-METRIC_DISPLAY_NAMES = {
+DEFAULT_UNCERTAINTY_METRICS: list[str] = [
+    name for name, _, _, _ in UNCERTAINTY_METRIC_SPECS
+]
+METRIC_DISPLAY_NAMES: dict[str, str] = {
     name: display for name, display, _, _ in UNCERTAINTY_METRIC_SPECS
 }
-METRIC_SHORT_LABELS = {name: short for name, _, short, _ in UNCERTAINTY_METRIC_SPECS}
-METRIC_LOWER_IS_BETTER = {
+METRIC_SHORT_LABELS: dict[str, str] = {
+    name: short for name, _, short, _ in UNCERTAINTY_METRIC_SPECS
+}
+METRIC_LOWER_IS_BETTER: dict[str, bool] = {
     name: lower_is_better for name, _, _, lower_is_better in UNCERTAINTY_METRIC_SPECS
 }
 
 
-def _has_new_summary_schema(results: dict) -> bool:
+def _has_new_summary_schema(results: VisualizationResults) -> bool:
     """Detect strict summary schema written by experiments/experiment.py."""
     try:
-        dataset_blocks = results.get("results", [])
+        dataset_blocks: list[ResultBlock] = results.get("results", [])
         if not dataset_blocks:
             return False
-        first_block = dataset_blocks[0]
-        first_cfg = first_block.get("config_results", [])[0]
+        first_block: ResultBlock = dataset_blocks[0]
+        first_cfg: ConfigResult = first_block.get("config_results", [])[0]
         return isinstance(first_cfg.get("metrics_by_approach", None), dict)
     except Exception:
         return False
 
 
-def _get_metric_names(results: dict) -> list:
-    metric_names = results.get("metric_names", [])
+def _get_metric_names(results: VisualizationResults) -> list[str]:
+    metric_names: list[str] = results.get("metric_names", [])
     if metric_names and isinstance(metric_names, list):
         return metric_names
     return DEFAULT_UNCERTAINTY_METRICS
 
 
-def load_results(results_path: str) -> dict:
+def load_results(results_path: str) -> VisualizationResults:
     """Load experiment results from JSON file."""
     with open(results_path, "r") as f:
-        return json.load(f)
+        data: VisualizationResults = json.load(f)
+        return data
 
 
-def aggregate_by_config(results: dict) -> dict:
+def aggregate_by_config(results: VisualizationResults) -> AggregatedMetrics:
     """Aggregate metrics by configuration (similarity_threshold, max_chunks)."""
-    config_metrics = defaultdict(
+    config_metrics: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(
         lambda: {"vanilla_rag": defaultdict(list), "kg_rag": defaultdict(list)}
     )
-    metric_names = _get_metric_names(results)
+    metric_names: list[str] = _get_metric_names(results)
 
     if _has_new_summary_schema(results):
         # New strict summary schema
         for dataset_block in results.get("results", []):
             for cfg in dataset_block.get("config_results", []):
-                config = cfg.get("config", {})
-                config_name = (
+                config: PlotConfig = cfg.get("config", {})
+                config_name: str = (
                     config.get("name")
                     or f"thresh={config.get('similarity_threshold', 'unknown')}_chunks={config.get('max_chunks', 'unknown')}"
                 )
-                metric_groups = cfg.get("metrics_by_approach", {})
+                metric_groups: SystemMetrics = cfg.get("metrics_by_approach", {})
 
                 for system_key in ("vanilla_rag", "kg_rag"):
-                    system_metrics = metric_groups.get(system_key, {})
+                    system_metrics: MetricValues = metric_groups.get(system_key, {})
                     for metric_name in metric_names:
                         config_metrics[config_name][system_key][metric_name].append(
                             float(system_metrics.get(metric_name, 0.0))
                         )
 
-        aggregated = {}
+        aggregated: AggregatedMetrics = {}
         for config_key, systems in config_metrics.items():
             aggregated[config_key] = {}
-            for system, metrics in systems.items():
+            for system, samples_by_metric in systems.items():
                 aggregated[config_key][system] = {
                     metric: np.mean(values) if values else 0
-                    for metric, values in metrics.items()
+                    for metric, values in samples_by_metric.items()
                 }
         return aggregated
 
@@ -131,14 +297,14 @@ def aggregate_by_config(results: dict) -> dict:
         for dataset_data in results.get("per_dataset_results", {}).values():
             for result in dataset_data.get("results", []):
                 config = result.get("config", {})
-                threshold = config.get("similarity_threshold", "unknown")
-                max_chunks = config.get("max_chunks", "unknown")
+                threshold: float | str = config.get("similarity_threshold", "unknown")
+                max_chunks: int | str = config.get("max_chunks", "unknown")
 
                 config_key = f"thresh={threshold}_chunks={max_chunks}"
 
                 # Vanilla RAG metrics
                 if "vanilla_rag_metrics" in result.get("evaluation", {}):
-                    metrics = result["evaluation"]["vanilla_rag_metrics"]
+                    metrics: MetricValues = result["evaluation"]["vanilla_rag_metrics"]
                     for metric_name, value in metrics.items():
                         config_metrics[config_key]["vanilla_rag"][metric_name].append(
                             value
@@ -174,26 +340,29 @@ def aggregate_by_config(results: dict) -> dict:
     aggregated = {}
     for config_key, systems in config_metrics.items():
         aggregated[config_key] = {}
-        for system, metrics in systems.items():
+        for system, samples_by_metric in systems.items():
             aggregated[config_key][system] = {
                 metric: np.mean(values) if values else 0
-                for metric, values in metrics.items()
+                for metric, values in samples_by_metric.items()
             }
 
     return aggregated
 
 
-def aggregate_overall(results: dict) -> dict:
+def aggregate_overall(results: VisualizationResults) -> OverallMetrics:
     """Aggregate overall metrics across all configurations."""
-    overall = {"vanilla_rag": defaultdict(list), "kg_rag": defaultdict(list)}
-    metric_names = _get_metric_names(results)
+    overall: dict[str, dict[str, list[float]]] = {
+        "vanilla_rag": defaultdict(list),
+        "kg_rag": defaultdict(list),
+    }
+    metric_names: list[str] = _get_metric_names(results)
 
     if _has_new_summary_schema(results):
         for dataset_block in results.get("results", []):
             for cfg in dataset_block.get("config_results", []):
-                metric_groups = cfg.get("metrics_by_approach", {})
+                metric_groups: SystemMetrics = cfg.get("metrics_by_approach", {})
                 for system_key in ("vanilla_rag", "kg_rag"):
-                    system_metrics = metric_groups.get(system_key, {})
+                    system_metrics: MetricValues = metric_groups.get(system_key, {})
                     for metric_name in metric_names:
                         overall[system_key][metric_name].append(
                             float(system_metrics.get(metric_name, 0.0))
@@ -213,10 +382,10 @@ def aggregate_overall(results: dict) -> dict:
     # Check if this is a multi-dataset result
     if "per_dataset_results" in results:
         # Multi-dataset format - use combined_analysis if available
-        combined = results.get("combined_analysis", {})
+        combined: CombinedAnalysis = results.get("combined_analysis", {})
         if combined:
-            overall_vanilla = combined.get("overall_vanilla_rag", {})
-            overall_kg = combined.get("overall_kg_rag", {})
+            overall_vanilla: MetricValues = combined.get("overall_vanilla_rag", {})
+            overall_kg: MetricValues = combined.get("overall_kg_rag", {})
             return {"vanilla_rag": overall_vanilla, "kg_rag": overall_kg}
 
         # Otherwise aggregate manually
@@ -224,7 +393,7 @@ def aggregate_overall(results: dict) -> dict:
             for result in dataset_data.get("results", []):
                 # Vanilla RAG metrics
                 if "vanilla_rag_metrics" in result.get("evaluation", {}):
-                    metrics = result["evaluation"]["vanilla_rag_metrics"]
+                    metrics: MetricValues = result["evaluation"]["vanilla_rag_metrics"]
                     for metric_name, value in metrics.items():
                         overall["vanilla_rag"][metric_name].append(value)
 
@@ -261,18 +430,20 @@ def aggregate_overall(results: dict) -> dict:
     }
 
 
-def print_per_dataset_summary(results: dict) -> None:
+def print_per_dataset_summary(results: VisualizationResults) -> None:
     """Print summary per dataset for multi-dataset results."""
     if "per_dataset_results" not in results:
         return
 
     print("\n=== Per Dataset Summary ===")
-    per_dataset = results.get("combined_analysis", {}).get("per_dataset", {})
+    per_dataset: dict[str, DatasetAnalysis] = results.get("combined_analysis", {}).get(
+        "per_dataset", {}
+    )
 
     for dataset_name, analysis in per_dataset.items():
         print(f"\n{dataset_name}:")
-        vanilla_stats = analysis.get("vanilla_rag_stats", {})
-        kg_stats = analysis.get("kg_rag_stats", {})
+        vanilla_stats: MetricValues = analysis.get("vanilla_rag_stats", {})
+        kg_stats: MetricValues = analysis.get("kg_rag_stats", {})
 
         print("  Vanilla RAG:")
         for metric, value in vanilla_stats.items():
@@ -282,7 +453,7 @@ def print_per_dataset_summary(results: dict) -> None:
         for metric, value in kg_stats.items():
             print(f"    {metric}: {value:.2f}")
 
-        comparisons = analysis.get("comparisons", {})
+        comparisons: dict[str, int] = analysis.get("comparisons", {})
         print(
             f"  Comparisons: vanilla_better={comparisons.get('vanilla_better', 0)}, "
             f"kg_better={comparisons.get('kg_better', 0)}, "
@@ -291,40 +462,46 @@ def print_per_dataset_summary(results: dict) -> None:
 
 
 def create_comparison_chart(
-    aggregated: dict, metric_names: list, output_path: str | None = None
-):
+    aggregated: AggregatedMetrics,
+    metric_names: list[str],
+    output_path: str | None = None,
+) -> "Figure | None":
     """Create grouped bar chart comparing Vanilla RAG vs KG-RAG by config."""
     if not HAS_MATPLOTLIB:
         print("Skipping chart creation (matplotlib not available)")
-        return
+        return None
 
-    configs = sorted(aggregated.keys())
-    metrics = metric_names
+    configs: list[str] = sorted(aggregated.keys())
+    metrics: list[str] = metric_names
 
-    n_configs = len(configs)
-    n_metrics = len(metrics)
+    n_configs: int = len(configs)
+    n_metrics: int = len(metrics)
 
     if n_metrics == 0:
         print("No metrics found for charting.")
-        return
+        return None
 
-    n_cols = min(4, n_metrics)
-    n_rows = ceil(n_metrics / n_cols)
+    n_cols: int = min(4, n_metrics)
+    n_rows: int = ceil(n_metrics / n_cols)
 
     # Create figure
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows))
     axes = np.array(axes).reshape(-1)
 
-    x = np.arange(n_configs)
+    x: NDArray[np.int64] = np.arange(n_configs)
     width: float = 0.35
 
-    colors = {"vanilla_rag": "#1f77b4", "kg_rag": "#ff7f0e"}
+    colors: dict[str, str] = {"vanilla_rag": "#1f77b4", "kg_rag": "#ff7f0e"}
 
     for idx, metric in enumerate(metrics):
-        ax = axes[idx]
+        ax: Axes = axes[idx]
 
-        vanilla_values = [aggregated[c]["vanilla_rag"].get(metric, 0) for c in configs]
-        kg_values = [aggregated[c]["kg_rag"].get(metric, 0) for c in configs]
+        vanilla_values: list[float | np.float64] = [
+            aggregated[c]["vanilla_rag"].get(metric, 0) for c in configs
+        ]
+        kg_values: list[float | np.float64] = [
+            aggregated[c]["kg_rag"].get(metric, 0) for c in configs
+        ]
 
         ax.bar(
             x - width / 2,
@@ -359,27 +536,31 @@ def create_comparison_chart(
 
 
 def create_overall_comparison_chart(
-    overall: dict, metric_names: list, output_path: str | None = None
-):
+    overall: OverallMetrics, metric_names: list[str], output_path: str | None = None
+) -> "Figure | None":
     """Create overall comparison bar chart."""
     if not HAS_MATPLOTLIB:
         print("Skipping chart creation (matplotlib not available)")
-        return
+        return None
 
-    metrics = metric_names
+    metrics: list[str] = metric_names
 
-    vanilla_values = [overall["vanilla_rag"].get(m, 0) for m in metrics]
-    kg_values = [overall["kg_rag"].get(m, 0) for m in metrics]
+    vanilla_values: list[float | np.float64] = [
+        overall["vanilla_rag"].get(m, 0) for m in metrics
+    ]
+    kg_values: list[float | np.float64] = [overall["kg_rag"].get(m, 0) for m in metrics]
 
-    x = np.arange(len(metrics))
+    x: NDArray[np.int64] = np.arange(len(metrics))
     width: float = 0.35
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    bars1 = ax.bar(
+    bars1: BarContainer = ax.bar(
         x - width / 2, vanilla_values, width, label="Vanilla RAG", color="#1f77b4"
     )
-    bars2 = ax.bar(x + width / 2, kg_values, width, label="KG-RAG", color="#ff7f0e")
+    bars2: BarContainer = ax.bar(
+        x + width / 2, kg_values, width, label="KG-RAG", color="#ff7f0e"
+    )
 
     ax.set_xlabel("Metric")
     ax.set_ylabel("Value")
@@ -391,7 +572,7 @@ def create_overall_comparison_chart(
 
     # Add value labels on bars
     for bar in bars1:
-        height = bar.get_height()
+        height: float = bar.get_height()
         ax.annotate(
             f"{height:.2f}",
             xy=(bar.get_x() + bar.get_width() / 2, height),
@@ -424,10 +605,10 @@ def create_overall_comparison_chart(
 
 
 def plot_metric_bar_charts(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-) -> list:
+) -> list[str]:
     """Bar charts: Vanilla RAG vs KG-RAG on accuracy + all live uncertainty metrics.
 
     Layout: dynamic grid. Each panel shows one metric with one grouped
@@ -438,7 +619,9 @@ def plot_metric_bar_charts(
         print("Skipping bar charts (matplotlib not available)")
         return []
 
-    panels = [("Accuracy", "vanilla_accuracy", "kg_accuracy", False)]
+    panels: list[tuple[str, str, str, bool]] = [
+        ("Accuracy", "vanilla_accuracy", "kg_accuracy", False)
+    ]
     for metric_name, display_name, _, lower_is_better in UNCERTAINTY_METRIC_SPECS:
         panels.append(
             (
@@ -452,13 +635,15 @@ def plot_metric_bar_charts(
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # Collect (label, vanilla_val, kg_val) per panel
-    bar_data = {title: {"labels": [], "vanilla": [], "kg": []} for title, *_ in panels}
+    bar_data: dict[str, BarPanel] = {
+        title: {"labels": [], "vanilla": [], "kg": []} for title, *_ in panels
+    }
 
     for dataset_block in all_results:
-        dataset_name = dataset_block.get("dataset", "unknown")
+        dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
-            cfg_name = cfg_res.get("config", {}).get("name", "default")
-            label = f"{dataset_name} / {cfg_name}"
+            cfg_name: str = cfg_res.get("config", {}).get("name", "default")
+            label: str = f"{dataset_name} / {cfg_name}"
             for title, v_key, k_key, _ in panels:
                 vanilla_val = cfg_res.get(v_key)
                 kg_val = cfg_res.get(k_key)
@@ -471,7 +656,7 @@ def plot_metric_bar_charts(
                 )
 
     n_cols: int = 4
-    n_rows = ceil(len(panels) / n_cols)
+    n_rows: int = ceil(len(panels) / n_cols)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, max(10, n_rows * 3.2)))
     axes = np.atleast_1d(axes).flatten()
 
@@ -483,18 +668,18 @@ def plot_metric_bar_charts(
     fig.subplots_adjust(top=0.93, hspace=0.55, wspace=0.35)
 
     width: float = 0.35
-    colors = {"vanilla": "#4C72B0", "kg": "#DD8452"}
+    colors: dict[str, str] = {"vanilla": "#4C72B0", "kg": "#DD8452"}
 
     for idx, (title, v_key, k_key, lower_is_better) in enumerate(panels):
-        ax = axes[idx]
-        data = bar_data[title]
-        labels = data["labels"]
-        vanilla_vals = data["vanilla"]
-        kg_vals = data["kg"]
-        n = len(labels)
-        x = np.arange(n)
+        ax: Axes = axes[idx]
+        data: BarPanel = bar_data[title]
+        labels: list[str] = data["labels"]
+        vanilla_vals: list[float] = data["vanilla"]
+        kg_vals: list[float] = data["kg"]
+        n: int = len(labels)
+        x: NDArray[np.int64] = np.arange(n)
 
-        b_v = ax.bar(
+        b_v: BarContainer = ax.bar(
             x - width / 2,
             vanilla_vals,
             width,
@@ -502,7 +687,7 @@ def plot_metric_bar_charts(
             color=colors["vanilla"],
             alpha=0.85,
         )
-        b_k = ax.bar(
+        b_k: BarContainer = ax.bar(
             x + width / 2,
             kg_vals,
             width,
@@ -513,7 +698,7 @@ def plot_metric_bar_charts(
 
         # Annotate bars with values
         for bar in list(b_v) + list(b_k):
-            h = bar.get_height()
+            h: float = bar.get_height()
             if not np.isnan(h) and h > 0:
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
@@ -524,7 +709,7 @@ def plot_metric_bar_charts(
                     fontsize=7,
                 )
 
-        direction = "↓ better" if lower_is_better else "↑ better"
+        direction: str = "↓ better" if lower_is_better else "↑ better"
         ax.set_title(f"{title}\n({direction})", fontsize=9, fontweight="bold")
         ax.set_xticks(x)
         ax.set_xticklabels(labels, fontsize=7, rotation=20, ha="right")
@@ -538,7 +723,7 @@ def plot_metric_bar_charts(
     for ax in axes[len(panels) :]:
         ax.set_visible(False)
 
-    out_path = str(Path(output_dir) / "metric_bar_charts.png")
+    out_path: str = str(Path(output_dir) / "metric_bar_charts.png")
     fig.savefig(out_path, dpi=100)
     print(f"Saved metric bar charts → {out_path}")
 
@@ -555,10 +740,10 @@ def plot_metric_bar_charts(
 
 
 def plot_auroc_aurec_heatmaps(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-) -> list:
+) -> list[str]:
     """Plot AUROC and AUREC as side-by-side 2D heatmaps (metrics × systems).
 
     Layout
@@ -576,30 +761,30 @@ def plot_auroc_aurec_heatmaps(
         print("Skipping heatmap (matplotlib not available)")
         return []
 
-    metric_order = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    saved_paths = []
+    saved_paths: list[str] = []
 
     # ── Collect columns ───────────────────────────────────────────────────
     # Each column = one (dataset, config, system) triplet.
     # We pair vanilla/kg side by side within each dataset×config group.
-    col_labels = []  # x-axis tick labels
-    col_groups = []  # group label for separator lines (dataset/config)
-    auroc_cols = []  # list of {metric: value} per column
-    aurec_cols = []
+    col_labels: list[str] = []  # x-axis tick labels
+    col_groups: list[str] = []  # group label for separator lines (dataset/config)
+    auroc_cols: list[MetricValues] = []  # list of {metric: value} per column
+    aurec_cols: list[MetricValues] = []
 
     for dataset_block in all_results:
-        dataset_name = dataset_block.get("dataset", "unknown")
+        dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
-            cfg_name = cfg_res.get("config", {}).get("name", "default")
-            auroc_aurec = cfg_res.get("auroc_aurec", {})
-            group = f"{dataset_name}\n{cfg_name}"
+            cfg_name: str = cfg_res.get("config", {}).get("name", "default")
+            auroc_aurec: SystemMetrics = cfg_res.get("auroc_aurec", {})
+            group: str = f"{dataset_name}\n{cfg_name}"
             for system_key, sys_label in (
                 ("vanilla_rag", "Vanilla"),
                 ("kg_rag", "KG-RAG"),
             ):
-                sys_data = auroc_aurec.get(system_key, {})
+                sys_data: MetricValues = auroc_aurec.get(system_key, {})
                 col_labels.append(sys_label)
                 col_groups.append(group)
                 auroc_cols.append(
@@ -618,18 +803,18 @@ def plot_auroc_aurec_heatmaps(
     if not col_labels:
         return []
 
-    n_metrics = len(metric_order)
-    n_cols = len(col_labels)
+    n_metrics: int = len(metric_order)
+    n_cols: int = len(col_labels)
 
-    def _build_matrix(col_dicts):
-        mat = np.full((n_metrics, n_cols), np.nan)
+    def _build_matrix(col_dicts: list[MetricValues]) -> NDArray[np.float64]:
+        mat: NDArray[np.float64] = np.full((n_metrics, n_cols), np.nan)
         for c, col in enumerate(col_dicts):
             for r, m in enumerate(metric_order):
                 mat[r, c] = col.get(m, np.nan)
         return mat
 
-    auroc_mat = _build_matrix(auroc_cols)
-    aurec_mat = _build_matrix(aurec_cols)
+    auroc_mat: NDArray[np.float64] = _build_matrix(auroc_cols)
+    aurec_mat: NDArray[np.float64] = _build_matrix(aurec_cols)
 
     # ── Plot ──────────────────────────────────────────────────────────────
     fig, axes = plt.subplots(
@@ -642,9 +827,9 @@ def plot_auroc_aurec_heatmaps(
         y=1.01,
     )
 
-    row_labels = [METRIC_SHORT_LABELS[m] for m in metric_order]
+    row_labels: list[str] = [METRIC_SHORT_LABELS[m] for m in metric_order]
     # Build combined x-axis labels showing group above system label
-    xtick_labels = []
+    xtick_labels: list[str] = []
     for i, (lbl, grp) in enumerate(zip(col_labels, col_groups)):
         # Only show group label on the first column of each group pair
         if i == 0 or col_groups[i] != col_groups[i - 1]:
@@ -652,12 +837,21 @@ def plot_auroc_aurec_heatmaps(
         else:
             xtick_labels.append(lbl)
 
-    def _draw_heatmap(ax, mat, title, cmap, vmin, vmax, fmt_fn, cbar_label) -> None:
-        masked = np.ma.array(mat, mask=np.isnan(mat))
-        cmap_obj = plt.get_cmap(cmap).copy()
+    def _draw_heatmap(
+        ax: "Axes",
+        mat: NDArray[np.float64],
+        title: str,
+        cmap: str,
+        vmin: float,
+        vmax: float,
+        fmt_fn: Callable[[np.float64], str],
+        cbar_label: str,
+    ) -> None:
+        masked: NDArray[np.float64] = np.ma.array(mat, mask=np.isnan(mat))
+        cmap_obj: Colormap = plt.get_cmap(cmap).copy()
         cmap_obj.set_bad(color="#cccccc")
 
-        im = ax.imshow(
+        im: AxesImage = ax.imshow(
             masked,
             aspect="auto",
             cmap=cmap_obj,
@@ -669,9 +863,9 @@ def plot_auroc_aurec_heatmaps(
         # Annotate cells
         for r in range(n_metrics):
             for c in range(n_cols):
-                val = mat[r, c]
+                val: np.float64 = mat[r, c]
                 if not np.isnan(val):
-                    text_color = (
+                    text_color: str = (
                         "white"
                         if abs(val - (vmin + vmax) / 2) > (vmax - vmin) * 0.3
                         else "black"
@@ -698,7 +892,7 @@ def plot_auroc_aurec_heatmaps(
                     )
 
         # Draw separator lines between dataset×config groups
-        prev_group = None
+        prev_group: str | None = None
         for c, grp in enumerate(col_groups):
             if prev_group is not None and grp != prev_group:
                 ax.axvline(c - 0.5, color="white", linewidth=2)
@@ -710,7 +904,7 @@ def plot_auroc_aurec_heatmaps(
         ax.set_yticklabels(row_labels, fontsize=9)
         ax.set_title(title, fontsize=11, fontweight="bold", pad=10)
 
-        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar: Colorbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         cbar.set_label(cbar_label, fontsize=8)
         cbar.ax.tick_params(labelsize=7)
 
@@ -737,7 +931,7 @@ def plot_auroc_aurec_heatmaps(
 
     plt.tight_layout()
 
-    out_path = str(Path(output_dir) / "auroc_aurec_heatmap.png")
+    out_path: str = str(Path(output_dir) / "auroc_aurec_heatmap.png")
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     saved_paths.append(out_path)
     print(f"Saved AUROC/AUREC heatmap → {out_path}")
@@ -755,10 +949,10 @@ def plot_auroc_aurec_heatmaps(
 
 
 def plot_metric_correlation_matrix(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-) -> list:
+) -> list[str]:
     """Spearman correlation heatmap between all live uncertainty metrics.
 
     Collects per-question uncertainty scores from both Vanilla and KG systems
@@ -769,10 +963,10 @@ def plot_metric_correlation_matrix(
     if not HAS_MATPLOTLIB:
         return []
 
-    metric_order = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
 
     # Collect per-question scores (combine both systems for more data points)
-    scores: dict = {m: [] for m in metric_order}
+    scores: dict[str, list[float]] = {m: [] for m in metric_order}
     for dataset_block in all_results:
         for cfg_res in dataset_block.get("config_results", []):
             for detail in cfg_res.get("details", []):
@@ -783,12 +977,12 @@ def plot_metric_correlation_matrix(
                             scores[m].append(float(val))
 
     # Need at least 2 data points per metric
-    n = min(len(v) for v in scores.values())
+    n: int = min(len(v) for v in scores.values())
     if n < 2:
         return []
 
     # Trim all series to the same length (zip-shortest)
-    arr = np.array([scores[m][:n] for m in metric_order])
+    arr: NDArray[np.float64] = np.array([scores[m][:n] for m in metric_order])
 
     # Compute Spearman correlation matrix
     try:
@@ -803,17 +997,17 @@ def plot_metric_correlation_matrix(
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    n_m = len(metric_order)
-    labels = [METRIC_SHORT_LABELS[m] for m in metric_order]
+    n_m: int = len(metric_order)
+    labels: list[str] = [METRIC_SHORT_LABELS[m] for m in metric_order]
 
     fig, ax = plt.subplots(figsize=(max(9, n_m * 0.6), max(8, n_m * 0.55)))
-    im = ax.imshow(corr_mat, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+    im: AxesImage = ax.imshow(corr_mat, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
 
     # Annotate cells
     for r in range(n_m):
         for c in range(n_m):
             val = corr_mat[r, c]
-            text_color = "white" if abs(val) > 0.6 else "black"
+            text_color: str = "white" if abs(val) > 0.6 else "black"
             ax.text(
                 c,
                 r,
@@ -834,12 +1028,12 @@ def plot_metric_correlation_matrix(
         fontweight="bold",
     )
 
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar: Colorbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label("Spearman \u03c1", fontsize=9)
 
     plt.tight_layout()
 
-    out_path = str(Path(output_dir) / "metric_correlation_matrix.png")
+    out_path: str = str(Path(output_dir) / "metric_correlation_matrix.png")
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved metric correlation matrix -> {out_path}")
 
@@ -856,10 +1050,10 @@ def plot_metric_correlation_matrix(
 
 
 def plot_reliability_diagrams(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-) -> list:
+) -> list[str]:
     """Reliability (calibration) diagrams for all live uncertainty metrics.
 
     For each metric, questions are binned into 5 equal-frequency bins by
@@ -871,10 +1065,12 @@ def plot_reliability_diagrams(
     if not HAS_MATPLOTLIB:
         return []
 
-    metric_order = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
 
     # Collect per-question (uncertainty, is_incorrect) pairs — combine both systems
-    data: dict = {m: {"scores": [], "errors": []} for m in metric_order}
+    data: dict[str, ReliabilityData] = {
+        m: {"scores": [], "errors": []} for m in metric_order
+    }
     for dataset_block in all_results:
         for cfg_res in dataset_block.get("config_results", []):
             for detail in cfg_res.get("details", []):
@@ -882,7 +1078,7 @@ def plot_reliability_diagrams(
                     ("vanilla", "vanilla_correct"),
                     ("kg", "kg_correct"),
                 ):
-                    is_incorrect = 0 if detail.get(correct_key, False) else 1
+                    is_incorrect: int = 0 if detail.get(correct_key, False) else 1
                     for m in metric_order:
                         val = detail.get(f"{prefix}_{m}")
                         if val is not None:
@@ -890,7 +1086,7 @@ def plot_reliability_diagrams(
                             data[m]["errors"].append(is_incorrect)
 
     # Need at least 5 data points to bin
-    has_data = any(len(v["scores"]) >= 5 for v in data.values())
+    has_data: bool = any(len(v["scores"]) >= 5 for v in data.values())
     if not has_data:
         return []
 
@@ -898,7 +1094,7 @@ def plot_reliability_diagrams(
 
     n_bins: int = 5
     n_cols: int = 4
-    n_rows = ceil(len(metric_order) / n_cols)
+    n_rows: int = ceil(len(metric_order) / n_cols)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, max(10, n_rows * 3.0)))
     axes = np.atleast_1d(axes).flatten()
     fig.suptitle(
@@ -906,9 +1102,9 @@ def plot_reliability_diagrams(
     )
 
     for idx, m in enumerate(metric_order):
-        ax = axes[idx]
-        scores = np.array(data[m]["scores"])
-        errors = np.array(data[m]["errors"])
+        ax: Axes = axes[idx]
+        scores: NDArray[np.float64] = np.array(data[m]["scores"])
+        errors: NDArray[np.int64] = np.array(data[m]["errors"])
 
         if len(scores) < 5:
             ax.set_title(METRIC_SHORT_LABELS[m], fontsize=9)
@@ -926,14 +1122,14 @@ def plot_reliability_diagrams(
             continue
 
         # Equal-frequency binning
-        sorted_idx = np.argsort(scores)
-        bin_size = len(scores) // n_bins
-        bin_means = []
-        bin_error_rates = []
+        sorted_idx: NDArray[np.intp] = np.argsort(scores)
+        bin_size: int = len(scores) // n_bins
+        bin_means: list[float] = []
+        bin_error_rates: list[float] = []
         for b in range(n_bins):
-            start = b * bin_size
-            end = (b + 1) * bin_size if b < n_bins - 1 else len(scores)
-            bin_idx = sorted_idx[start:end]
+            start: int = b * bin_size
+            end: int = (b + 1) * bin_size if b < n_bins - 1 else len(scores)
+            bin_idx: NDArray[np.intp] = sorted_idx[start:end]
             bin_means.append(float(np.mean(scores[bin_idx])))
             bin_error_rates.append(float(np.mean(errors[bin_idx])))
 
@@ -946,7 +1142,7 @@ def plot_reliability_diagrams(
             label="Observed",
         )
         # Perfect calibration diagonal
-        all_vals = [0.0] + bin_means + [1.0]
+        all_vals: list[float] = [0.0] + bin_means + [1.0]
         diag_min, diag_max = min(all_vals), max(all_vals)
         ax.plot(
             [diag_min, diag_max],
@@ -968,7 +1164,7 @@ def plot_reliability_diagrams(
 
     plt.tight_layout()
 
-    out_path = str(Path(output_dir) / "reliability_diagrams.png")
+    out_path: str = str(Path(output_dir) / "reliability_diagrams.png")
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved reliability diagrams -> {out_path}")
 
@@ -985,10 +1181,10 @@ def plot_reliability_diagrams(
 
 
 def plot_compute_time_chart(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-) -> list:
+) -> list[str]:
     """Horizontal bar chart of per-metric computation time (log scale).
 
     Averages vanilla_avg_compute_times and kg_avg_compute_times across all
@@ -999,13 +1195,13 @@ def plot_compute_time_chart(
     if not HAS_MATPLOTLIB:
         return []
 
-    metric_order = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
 
     # Collect times across datasets/configs
     from collections import defaultdict as _dd
 
-    vanilla_times: dict = _dd(list)
-    kg_times: dict = _dd(list)
+    vanilla_times: dict[str, list[float]] = _dd(list)
+    kg_times: dict[str, list[float]] = _dd(list)
 
     for dataset_block in all_results:
         for cfg_res in dataset_block.get("config_results", []):
@@ -1015,33 +1211,33 @@ def plot_compute_time_chart(
                 kg_times[m].append(float(t))
 
     # Need at least one metric
-    all_metrics = set(vanilla_times.keys()) | set(kg_times.keys())
+    all_metrics: set[str] = set(vanilla_times.keys()) | set(kg_times.keys())
     if not all_metrics:
         return []
 
     # Average across configs/datasets
-    vanilla_avg = {
+    vanilla_avg: dict[str, float] = {
         m: (sum(vanilla_times[m]) / len(vanilla_times[m])) if vanilla_times[m] else 0.0
         for m in metric_order
         if m in all_metrics
     }
-    kg_avg = {
+    kg_avg: dict[str, float] = {
         m: (sum(kg_times[m]) / len(kg_times[m])) if kg_times[m] else 0.0
         for m in metric_order
         if m in all_metrics
     }
 
     # Sort by average time (slowest first)
-    metrics_present = [m for m in metric_order if m in all_metrics]
-    metrics_sorted = sorted(
+    metrics_present: list[str] = [m for m in metric_order if m in all_metrics]
+    metrics_sorted: list[str] = sorted(
         metrics_present,
         key=lambda m: (vanilla_avg.get(m, 0) + kg_avg.get(m, 0)) / 2,
         reverse=True,
     )
 
-    labels = [METRIC_DISPLAY_NAMES.get(m, m) for m in metrics_sorted]
-    v_vals = [vanilla_avg.get(m, 1e-9) for m in metrics_sorted]
-    k_vals = [kg_avg.get(m, 1e-9) for m in metrics_sorted]
+    labels: list[str] = [METRIC_DISPLAY_NAMES.get(m, m) for m in metrics_sorted]
+    v_vals: list[float] = [vanilla_avg.get(m, 1e-9) for m in metrics_sorted]
+    k_vals: list[float] = [kg_avg.get(m, 1e-9) for m in metrics_sorted]
 
     # Clamp to a tiny minimum to avoid log(0)
     v_vals = [max(v, 1e-9) for v in v_vals]
@@ -1049,13 +1245,13 @@ def plot_compute_time_chart(
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    n = len(labels)
+    n: int = len(labels)
     fig, ax = plt.subplots(figsize=(11, max(4, n * 0.65 + 1.5)))
 
     bar_height: float = 0.35
-    y = np.arange(n)
+    y: NDArray[np.int64] = np.arange(n)
 
-    bars_v = ax.barh(
+    bars_v: BarContainer = ax.barh(
         y + bar_height / 2,
         v_vals,
         bar_height,
@@ -1063,7 +1259,7 @@ def plot_compute_time_chart(
         color="#4C72B0",
         alpha=0.85,
     )
-    bars_k = ax.barh(
+    bars_k: BarContainer = ax.barh(
         y - bar_height / 2,
         k_vals,
         bar_height,
@@ -1074,7 +1270,7 @@ def plot_compute_time_chart(
 
     # Annotate with value in ms
     for bar, val in zip(list(bars_v) + list(bars_k), v_vals + k_vals):
-        w = bar.get_width()
+        w: float = bar.get_width()
         ax.text(
             w * 1.05,
             bar.get_y() + bar.get_height() / 2,
@@ -1097,7 +1293,7 @@ def plot_compute_time_chart(
 
     plt.tight_layout()
 
-    out_path = str(Path(output_dir) / "compute_time_chart.png")
+    out_path: str = str(Path(output_dir) / "compute_time_chart.png")
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved compute time chart -> {out_path}")
 
@@ -1114,10 +1310,10 @@ def plot_compute_time_chart(
 
 
 def plot_auroc_vs_compute_time(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-) -> list:
+) -> list[str]:
     """Scatter plot of AUROC vs log10(compute time) with Pareto frontier.
 
     For each metric x system, collects the average compute time and average AUROC,
@@ -1129,26 +1325,26 @@ def plot_auroc_vs_compute_time(
     if not HAS_MATPLOTLIB:
         return []
 
-    metric_order = DEFAULT_UNCERTAINTY_METRICS
+    metric_order: list[str] = DEFAULT_UNCERTAINTY_METRICS
 
     from collections import defaultdict as _dd
 
     # Collect (compute_time, auroc) per metric x system across datasets/configs
-    vanilla_times: dict = _dd(list)
-    kg_times: dict = _dd(list)
-    vanilla_auroc: dict = _dd(list)
-    kg_auroc: dict = _dd(list)
+    vanilla_times: dict[str, list[float]] = _dd(list)
+    kg_times: dict[str, list[float]] = _dd(list)
+    vanilla_auroc: dict[str, list[float]] = _dd(list)
+    kg_auroc: dict[str, list[float]] = _dd(list)
 
     for dataset_block in all_results:
         for cfg_res in dataset_block.get("config_results", []):
-            auroc_aurec = cfg_res.get("auroc_aurec", {})
+            auroc_aurec: SystemMetrics = cfg_res.get("auroc_aurec", {})
             for m in metric_order:
-                v_t = cfg_res.get("vanilla_avg_compute_times", {}).get(m)
-                k_t = cfg_res.get("kg_avg_compute_times", {}).get(m)
-                v_auroc = _display_eval_metric_value(
+                v_t: float | None = cfg_res.get("vanilla_avg_compute_times", {}).get(m)
+                k_t: float | None = cfg_res.get("kg_avg_compute_times", {}).get(m)
+                v_auroc: float = _display_eval_metric_value(
                     auroc_aurec.get("vanilla_rag", {}), m, "auroc"
                 )
-                k_auroc = _display_eval_metric_value(
+                k_auroc: float = _display_eval_metric_value(
                     auroc_aurec.get("kg_rag", {}), m, "auroc"
                 )
                 if (
@@ -1167,12 +1363,12 @@ def plot_auroc_vs_compute_time(
                     kg_auroc[m].append(float(k_auroc))
 
     # Build list of (log10_time, auroc, label, system) points
-    points = []
+    points: list[tuple[float, float, str, str]] = []
     for m in metric_order:
-        label = METRIC_SHORT_LABELS.get(m, m)
+        label: str = METRIC_SHORT_LABELS.get(m, m)
         if vanilla_times[m]:
-            avg_t = sum(vanilla_times[m]) / len(vanilla_times[m])
-            avg_a = sum(vanilla_auroc[m]) / len(vanilla_auroc[m])
+            avg_t: float = sum(vanilla_times[m]) / len(vanilla_times[m])
+            avg_a: float = sum(vanilla_auroc[m]) / len(vanilla_auroc[m])
             points.append((np.log10(max(avg_t, 1e-9)), avg_a, label, "vanilla"))
         if kg_times[m]:
             avg_t = sum(kg_times[m]) / len(kg_times[m])
@@ -1186,12 +1382,12 @@ def plot_auroc_vs_compute_time(
 
     fig, ax = plt.subplots(figsize=(10, 7))
 
-    colors = {"vanilla": "#4C72B0", "kg": "#DD8452"}
-    markers = {"vanilla": "o", "kg": "s"}
-    plotted_systems: set = set()
+    colors: dict[str, str] = {"vanilla": "#4C72B0", "kg": "#DD8452"}
+    markers: dict[str, str] = {"vanilla": "o", "kg": "s"}
+    plotted_systems: set[str] = set()
 
     for log_t, auroc, label, system in points:
-        lbl = (
+        lbl: str | None = (
             ("Vanilla RAG" if system == "vanilla" else "KG-RAG")
             if system not in plotted_systems
             else None
@@ -1212,10 +1408,10 @@ def plot_auroc_vs_compute_time(
         )
 
     # Pareto frontier: points where no other point has both lower log_t AND higher auroc
-    all_log_t = np.array([p[0] for p in points])
-    all_auroc = np.array([p[1] for p in points])
+    all_log_t: NDArray[np.float64] = np.array([p[0] for p in points])
+    all_auroc: NDArray[np.float64] = np.array([p[1] for p in points])
 
-    pareto_mask = np.ones(len(points), dtype=bool)
+    pareto_mask: NDArray[np.bool_] = np.ones(len(points), dtype=bool)
     for i in range(len(points)):
         for j in range(len(points)):
             if i == j:
@@ -1225,11 +1421,13 @@ def plot_auroc_vs_compute_time(
                 pareto_mask[i] = False
                 break
 
-    pareto_pts = [
+    pareto_pts: list[tuple[np.float64, np.float64]] = [
         (all_log_t[i], all_auroc[i]) for i in range(len(points)) if pareto_mask[i]
     ]
     if pareto_pts:
-        pareto_pts_sorted = sorted(pareto_pts, key=lambda p: p[0])
+        pareto_pts_sorted: list[tuple[np.float64, np.float64]] = sorted(
+            pareto_pts, key=lambda p: p[0]
+        )
         px, py = zip(*pareto_pts_sorted)
         ax.step(
             px,
@@ -1255,7 +1453,7 @@ def plot_auroc_vs_compute_time(
 
     plt.tight_layout()
 
-    out_path = str(Path(output_dir) / "auroc_vs_compute_time.png")
+    out_path: str = str(Path(output_dir) / "auroc_vs_compute_time.png")
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved AUROC vs compute time chart -> {out_path}")
 
@@ -1272,10 +1470,10 @@ def plot_auroc_vs_compute_time(
 
 
 def plot_complementarity_matrix(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-):
+) -> list[str]:
     """
     Plot a 2×2 complementarity matrix per dataset (Zhang et al. 2025 methodology).
 
@@ -1290,28 +1488,33 @@ def plot_complementarity_matrix(
     if not HAS_MATPLOTLIB:
         return []
 
-    out_dir = Path(output_dir)
+    out_dir: Path = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    saved = []
+    saved: list[str] = []
 
     for dataset_block in all_results:
-        dataset_name = dataset_block.get("dataset", "unknown")
+        dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
-            comp = cfg_res.get("complementarity")
+            comp: MetricValues | None = cfg_res.get("complementarity")
             if not comp:
                 continue
 
-            labels = ["Both\ncorrect", "Vanilla\nonly", "KG\nonly", "Neither"]
-            values = [
+            labels: list[str] = [
+                "Both\ncorrect",
+                "Vanilla\nonly",
+                "KG\nonly",
+                "Neither",
+            ]
+            values: list[float] = [
                 comp.get("both_correct_pct", 0),
                 comp.get("vanilla_only_pct", 0),
                 comp.get("kg_only_pct", 0),
                 comp.get("neither_correct_pct", 0),
             ]
-            colors = ["#2ca02c", "#1f77b4", "#ff7f0e", "#d62728"]
+            colors: list[str] = ["#2ca02c", "#1f77b4", "#ff7f0e", "#d62728"]
 
             fig, ax = plt.subplots(figsize=(6, 4))
-            bars = ax.bar(
+            bars: BarContainer = ax.bar(
                 labels, values, color=colors, edgecolor="white", linewidth=1.2
             )
             for bar, pct in zip(bars, values):
@@ -1324,14 +1527,14 @@ def plot_complementarity_matrix(
                     fontsize=11,
                     fontweight="bold",
                 )
-            cfg_name = cfg_res.get("config", {}).get("name", "default")
+            cfg_name: str = cfg_res.get("config", {}).get("name", "default")
             ax.set_title(f"Complementarity — {dataset_name} ({cfg_name})", fontsize=13)
             ax.set_ylabel("% of questions", fontsize=11)
             ax.set_ylim(0, max(values) * 1.25 + 5)
             ax.grid(axis="y", alpha=0.3)
             plt.tight_layout()
 
-            fname = out_dir / f"complementarity_{dataset_name}_{cfg_name}.png"
+            fname: Path = out_dir / f"complementarity_{dataset_name}_{cfg_name}.png"
             fig.savefig(fname, dpi=150, bbox_inches="tight")
             saved.append(str(fname))
             if wandb_run:
@@ -1350,10 +1553,10 @@ def plot_complementarity_matrix(
 
 
 def plot_query_type_stratification(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-):
+) -> list[str]:
     """
     Plot accuracy and best-metric AUROC broken down by task_type per dataset.
 
@@ -1366,36 +1569,46 @@ def plot_query_type_stratification(
     if not HAS_MATPLOTLIB:
         return []
 
-    out_dir = Path(output_dir)
+    out_dir: Path = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    saved = []
+    saved: list[str] = []
 
     _AUROC_METRIC: str = (
         "semantic_entropy"  # representative metric for stratification plot
     )
 
     for dataset_block in all_results:
-        dataset_name = dataset_block.get("dataset", "unknown")
+        dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
-            by_type = cfg_res.get("accuracy_by_task_type")
+            by_type: dict[str, TaskTypeMetrics] | None = cfg_res.get(
+                "accuracy_by_task_type"
+            )
             if not by_type or len(by_type) < 2:
                 # Only one task type — nothing interesting to stratify
                 continue
 
-            cfg_name = cfg_res.get("config", {}).get("name", "default")
+            cfg_name: str = cfg_res.get("config", {}).get("name", "default")
             # Sort types by descending n so most common come first
-            sorted_types = sorted(by_type.keys(), key=lambda t: -by_type[t].get("n", 0))
+            sorted_types: list[str] = sorted(
+                by_type.keys(), key=lambda t: -by_type[t].get("n", 0)
+            )
 
-            x = list(range(len(sorted_types)))
+            x: list[int] = list(range(len(sorted_types)))
             width: float = 0.38
-            v_acc = [by_type[t].get("vanilla_accuracy", 0) * 100 for t in sorted_types]
-            k_acc = [by_type[t].get("kg_accuracy", 0) * 100 for t in sorted_types]
-            n_labels = [f"{t}\n(n={by_type[t].get('n', 0)})" for t in sorted_types]
+            v_acc: list[float] = [
+                by_type[t].get("vanilla_accuracy", 0) * 100 for t in sorted_types
+            ]
+            k_acc: list[float] = [
+                by_type[t].get("kg_accuracy", 0) * 100 for t in sorted_types
+            ]
+            n_labels: list[str] = [
+                f"{t}\n(n={by_type[t].get('n', 0)})" for t in sorted_types
+            ]
 
             # Accuracy panel
             fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-            ax = axes[0]
+            ax: Axes = axes[0]
             ax.bar(
                 [p - width / 2 for p in x],
                 v_acc,
@@ -1421,9 +1634,11 @@ def plot_query_type_stratification(
             ax.legend()
 
             # AUROC panel (semantic_entropy as representative)
+            v_auroc: list[float]
+            k_auroc: list[float]
             v_auroc, k_auroc = [], []
             for t in sorted_types:
-                auroc_data = by_type[t].get("auroc_aurec", {})
+                auroc_data: SystemMetrics = by_type[t].get("auroc_aurec", {})
                 v_auroc.append(
                     _display_eval_metric_value(
                         auroc_data.get("vanilla_rag", {}), _AUROC_METRIC, "auroc"
@@ -1437,7 +1652,7 @@ def plot_query_type_stratification(
                     or 0
                 )
 
-            ax2 = axes[1]
+            ax2: Axes = axes[1]
             ax2.bar(
                 [p - width / 2 for p in x],
                 v_auroc,
@@ -1468,7 +1683,9 @@ def plot_query_type_stratification(
             plt.suptitle(f"{dataset_name} / {cfg_name}", fontsize=13, y=1.02)
             plt.tight_layout()
 
-            fname = out_dir / f"query_type_stratification_{dataset_name}_{cfg_name}.png"
+            fname: Path = (
+                out_dir / f"query_type_stratification_{dataset_name}_{cfg_name}.png"
+            )
             fig.savefig(fname, dpi=150, bbox_inches="tight")
             saved.append(str(fname))
             if wandb_run:
@@ -1487,10 +1704,10 @@ def plot_query_type_stratification(
 
 
 def log_to_wandb(
-    results: dict,
-    aggregated: dict,
-    overall: dict,
-    metric_names: list,
+    results: VisualizationResults,
+    aggregated: AggregatedMetrics,
+    overall: OverallMetrics,
+    metric_names: list[str],
     project_name: str = "kg-rag-evaluation",
 ) -> None:
     """Log results to Weights & Biases."""
@@ -1506,9 +1723,9 @@ def log_to_wandb(
         columns=["Metric", "Vanilla RAG", "KG-RAG", "Difference"]
     )
     for metric in metric_names:
-        v = overall["vanilla_rag"].get(metric, 0)
-        k = overall["kg_rag"].get(metric, 0)
-        diff = v - k
+        v: float | np.float64 = overall["vanilla_rag"].get(metric, 0)
+        k: float | np.float64 = overall["kg_rag"].get(metric, 0)
+        diff: float | np.float64 = v - k
         metrics_table.add_data(
             metric.replace("_", " ").title(), f"{v:.2f}", f"{k:.2f}", f"{diff:+.2f}"
         )
@@ -1517,7 +1734,7 @@ def log_to_wandb(
 
     # Log aggregated metrics by config
     for config, systems in aggregated.items():
-        payload = {}
+        payload: dict[str, float | np.float64] = {}
         for metric in metric_names:
             payload[f"config/{config}/vanilla_rag_{metric}"] = systems[
                 "vanilla_rag"
@@ -1530,7 +1747,7 @@ def log_to_wandb(
     # Log per-dataset metrics
     if "per_dataset_results" in results:
         for dataset_name, dataset_data in results["per_dataset_results"].items():
-            analysis = dataset_data.get("analysis", {})
+            analysis: DatasetAnalysis = dataset_data.get("analysis", {})
             for metric, value in analysis.get("vanilla_rag_stats", {}).items():
                 wandb.log({f"dataset/{dataset_name}/vanilla_rag_{metric}": value})
             for metric, value in analysis.get("kg_rag_stats", {}).items():
@@ -1538,11 +1755,11 @@ def log_to_wandb(
 
     # Log comparison chart
     if HAS_MATPLOTLIB:
-        fig = create_overall_comparison_chart(overall, metric_names)
+        fig: Figure | None = create_overall_comparison_chart(overall, metric_names)
         wandb.log({"overall_comparison": wandb.Image(fig)})
         plt.close(fig)
 
-        fig2 = create_comparison_chart(aggregated, metric_names)
+        fig2: Figure | None = create_comparison_chart(aggregated, metric_names)
         wandb.log({"comparison_by_config": wandb.Image(fig2)})
         plt.close(fig2)
 
@@ -1562,7 +1779,9 @@ def log_to_wandb(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Visualize RAG experiment results")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Visualize RAG experiment results"
+    )
     parser.add_argument(
         "--results", type=str, required=True, help="Path to results JSON file"
     )
@@ -1577,20 +1796,20 @@ def main() -> None:
     )
     parser.add_argument("--no-wandb", action="store_true", help="Skip wandb logging")
 
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
     # Load results
     print(f"Loading results from {args.results}...")
-    results = load_results(args.results)
+    results: VisualizationResults = load_results(args.results)
 
     # Check if multi-dataset
-    is_multi_dataset = "per_dataset_results" in results
+    is_multi_dataset: bool = "per_dataset_results" in results
 
     # Aggregate results
     print("Aggregating results by configuration...")
-    metric_names = _get_metric_names(results)
-    aggregated = aggregate_by_config(results)
-    overall = aggregate_overall(results)
+    metric_names: list[str] = _get_metric_names(results)
+    aggregated: AggregatedMetrics = aggregate_by_config(results)
+    overall: OverallMetrics = aggregate_overall(results)
 
     # Print summary
     print("\n=== Overall Results ===")
@@ -1604,24 +1823,24 @@ def main() -> None:
     print("\n=== By Configuration ===")
     for config, systems in sorted(aggregated.items()):
         print(f"\n{config}:")
-        vanilla_preview = ", ".join(
+        vanilla_preview: str = ", ".join(
             [f"{m}={systems['vanilla_rag'].get(m, 0):.4f}" for m in metric_names[:3]]
         )
-        kg_preview = ", ".join(
+        kg_preview: str = ", ".join(
             [f"{m}={systems['kg_rag'].get(m, 0):.4f}" for m in metric_names[:3]]
         )
         print(f"  Vanilla RAG: {vanilla_preview}")
         print(f"  KG-RAG:      {kg_preview}")
 
     # Create output directory
-    output_dir = Path(args.output_dir)
+    output_dir: Path = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate charts
     if HAS_MATPLOTLIB:
         print("\nGenerating charts...")
-        overall_chart_path = output_dir / "overall_comparison.png"
-        config_chart_path = output_dir / "comparison_by_config.png"
+        overall_chart_path: Path = output_dir / "overall_comparison.png"
+        config_chart_path: Path = output_dir / "comparison_by_config.png"
 
         create_overall_comparison_chart(overall, metric_names, str(overall_chart_path))
         create_comparison_chart(aggregated, metric_names, str(config_chart_path))
@@ -1684,24 +1903,24 @@ _FAMILY_COLOR: dict[str, str] = {
 
 
 def _display_eval_metric_value(
-    system_metrics: dict,
+    system_metrics: MetricValues,
     metric_name: str,
     suffix: str,
-):
+) -> float:
     """Return the display value for an evaluation metric, preferring conditional structural variants."""
     if metric_name in {"graph_path_support", "subgraph_perturbation_stability"}:
-        non_null_key = f"{metric_name}_{suffix}_non_null"
+        non_null_key: str = f"{metric_name}_{suffix}_non_null"
         if non_null_key in system_metrics:
             return system_metrics.get(non_null_key, float("nan"))
     return system_metrics.get(f"{metric_name}_{suffix}", float("nan"))
 
 
 def _metric_score_for_correlation(
-    detail: dict,
+    detail: PlotDetail,
     *,
     prefix: str,
     metric_name: str,
-):
+) -> float:
     """Return a score suitable for cross-metric correlation analysis."""
     if bool(detail.get(f"{prefix}_generation_failed", False)):
         return float("nan")
@@ -1709,7 +1928,7 @@ def _metric_score_for_correlation(
         if str(detail.get(f"{prefix}_graph_path_support_null_reason", "")):
             return float("nan")
     if metric_name == "subgraph_perturbation_stability":
-        null_key = f"{prefix}_subgraph_perturbation_stability_null_reason"
+        null_key: str = f"{prefix}_subgraph_perturbation_stability_null_reason"
         if str(detail.get(null_key, "")):
             return float("nan")
         if null_key not in detail:
@@ -1725,7 +1944,7 @@ def _metric_score_for_correlation(
     if value is None:
         return float("nan")
     try:
-        score = float(value)
+        score: float = float(value)
     except (TypeError, ValueError):
         return float("nan")
     if metric_name == "p_true":
@@ -1734,10 +1953,10 @@ def _metric_score_for_correlation(
 
 
 def plot_per_system_auroc_comparison(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-) -> list:
+) -> list[str]:
     """Grouped bar chart: AUROC per metric, Vanilla vs KG-RAG side-by-side.
 
     This is the central paper figure showing that structural metrics (GPS, CAA, SI)
@@ -1751,26 +1970,26 @@ def plot_per_system_auroc_comparison(
 
     import matplotlib.ticker as mticker
 
-    out_dir = Path(output_dir)
+    out_dir: Path = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    saved = []
+    saved: list[str] = []
 
-    metric_order = [m for m in _ALL_METRIC_LABELS if m in _METRIC_FAMILY]
+    metric_order: list[str] = [m for m in _ALL_METRIC_LABELS if m in _METRIC_FAMILY]
 
     for dataset_block in all_results:
-        dataset_name = dataset_block.get("dataset", "unknown")
+        dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
-            auroc_data = cfg_res.get("auroc_aurec", {})
+            auroc_data: SystemMetrics = cfg_res.get("auroc_aurec", {})
             if not auroc_data:
                 continue
 
-            cfg_name = cfg_res.get("config", {}).get("name", "default")
+            cfg_name: str = cfg_res.get("config", {}).get("name", "default")
 
-            v_data = auroc_data.get("vanilla_rag", {})
-            k_data = auroc_data.get("kg_rag", {})
+            v_data: MetricValues = auroc_data.get("vanilla_rag", {})
+            k_data: MetricValues = auroc_data.get("kg_rag", {})
 
             # Only keep metrics present in at least one system
-            present = [
+            present: list[str] = [
                 m
                 for m in metric_order
                 if not (
@@ -1781,17 +2000,21 @@ def plot_per_system_auroc_comparison(
             if not present:
                 continue
 
-            n = len(present)
-            x = np.arange(n)
+            n: int = len(present)
+            x: NDArray[np.int64] = np.arange(n)
             bar_w: float = 0.35
 
             fig, ax = plt.subplots(figsize=(max(10, n * 0.85 + 2), 5))
 
             for xi, metric in enumerate(present):
-                v_val = float(_display_eval_metric_value(v_data, metric, "auroc"))
-                k_val = float(_display_eval_metric_value(k_data, metric, "auroc"))
-                family = _METRIC_FAMILY.get(metric, "output")
-                fc = _FAMILY_COLOR[family]
+                v_val: float = float(
+                    _display_eval_metric_value(v_data, metric, "auroc")
+                )
+                k_val: float = float(
+                    _display_eval_metric_value(k_data, metric, "auroc")
+                )
+                family: str = _METRIC_FAMILY.get(metric, "output")
+                fc: str = _FAMILY_COLOR[family]
 
                 if not np.isnan(v_val):
                     ax.bar(
@@ -1843,7 +2066,7 @@ def plot_per_system_auroc_comparison(
             # Family legend patches
             import matplotlib.patches as mpatches
 
-            legend_handles = [
+            legend_handles: list[mpatches.Patch] = [
                 mpatches.Patch(color=_FAMILY_COLOR["output"], label="Output"),
                 mpatches.Patch(color=_FAMILY_COLOR["structural"], label="Structural"),
                 mpatches.Patch(color=_FAMILY_COLOR["grounding"], label="Grounding"),
@@ -1853,7 +2076,7 @@ def plot_per_system_auroc_comparison(
             ax.legend(handles=legend_handles, fontsize=8, loc="upper right", ncol=2)
 
             plt.tight_layout()
-            fname = out_dir / f"per_system_auroc_{dataset_name}_{cfg_name}.png"
+            fname: Path = out_dir / f"per_system_auroc_{dataset_name}_{cfg_name}.png"
             fig.savefig(fname, dpi=150, bbox_inches="tight")
             saved.append(str(fname))
             if wandb_run:
@@ -1868,10 +2091,10 @@ def plot_per_system_auroc_comparison(
 
 
 def plot_metric_spearman_matrix(
-    all_results: list,
+    all_results: list[ResultBlock],
     output_dir: str = "results/visualizations",
     wandb_run=None,
-) -> list:
+) -> list[str]:
     """Pairwise Spearman ρ heatmap across all uncertainty metrics.
 
     Justifies claiming 15 "complementary" metrics by showing which pairs are
@@ -1893,13 +2116,13 @@ def plot_metric_spearman_matrix(
     except ImportError:
         return []
 
-    metric_order = list(_ALL_METRIC_LABELS.keys())
-    labels = [_ALL_METRIC_LABELS[m] for m in metric_order]
+    metric_order: list[str] = list(_ALL_METRIC_LABELS.keys())
+    labels: list[str] = [_ALL_METRIC_LABELS[m] for m in metric_order]
 
     # Collect pooled, row-aligned score vectors so pairwise correlations are
     # computed on the same question rows after per-metric validity filtering.
-    vanilla_rows = []
-    kg_rows = []
+    vanilla_rows: list[MetricValues] = []
+    kg_rows: list[MetricValues] = []
     for dataset_block in all_results:
         for cfg_res in dataset_block.get("config_results", []):
             for detail in cfg_res.get("details", []):
@@ -1920,24 +2143,24 @@ def plot_metric_spearman_matrix(
                     }
                 )
 
-    n_metrics = len(metric_order)
-    out_dir = Path(output_dir)
+    n_metrics: int = len(metric_order)
+    out_dir: Path = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    saved = []
+    saved: list[str] = []
 
-    def _spearman_matrix(rows: list) -> np.ndarray:
-        mat = np.full((n_metrics, n_metrics), float("nan"))
+    def _spearman_matrix(rows: list[MetricValues]) -> NDArray[np.float64]:
+        mat: NDArray[np.float64] = np.full((n_metrics, n_metrics), float("nan"))
         if not rows:
             return mat
-        per_metric = {
+        per_metric: dict[str, NDArray[np.float64]] = {
             metric_name: np.array([row[metric_name] for row in rows], dtype=float)
             for metric_name in metric_order
         }
         for i, mi in enumerate(metric_order):
             for j, mj in enumerate(metric_order):
-                xi = per_metric[mi]
-                xj = per_metric[mj]
-                mask = (~np.isnan(xi)) & (~np.isnan(xj))
+                xi: NDArray[np.float64] = per_metric[mi]
+                xj: NDArray[np.float64] = per_metric[mj]
+                mask: NDArray[np.bool_] = (~np.isnan(xi)) & (~np.isnan(xj))
                 if int(mask.sum()) < 10:
                     continue
                 try:
@@ -1947,21 +2170,25 @@ def plot_metric_spearman_matrix(
                     pass
         return mat
 
-    v_mat = _spearman_matrix(vanilla_rows)
-    k_mat = _spearman_matrix(kg_rows)
-    diff_mat = k_mat - v_mat
+    v_mat: NDArray[np.float64] = _spearman_matrix(vanilla_rows)
+    k_mat: NDArray[np.float64] = _spearman_matrix(kg_rows)
+    diff_mat: NDArray[np.float64] = k_mat - v_mat
 
     fig, axes = plt.subplots(1, 3, figsize=(22, 7))
-    titles = ["Vanilla RAG — Spearman ρ", "KG-RAG — Spearman ρ", "Δ ρ  (KG − Vanilla)"]
-    matrices = [v_mat, k_mat, diff_mat]
-    cmaps = ["RdYlGn", "RdYlGn", "RdBu"]
-    vmins = [-1.0, -1.0, -0.5]
-    vmaxs = [1.0, 1.0, 0.5]
+    titles: list[str] = [
+        "Vanilla RAG — Spearman ρ",
+        "KG-RAG — Spearman ρ",
+        "Δ ρ  (KG − Vanilla)",
+    ]
+    matrices: list[NDArray[np.float64]] = [v_mat, k_mat, diff_mat]
+    cmaps: list[str] = ["RdYlGn", "RdYlGn", "RdBu"]
+    vmins: list[float] = [-1.0, -1.0, -0.5]
+    vmaxs: list[float] = [1.0, 1.0, 0.5]
 
-    family_sep_positions = []
-    prev_family = None
+    family_sep_positions: list[float] = []
+    prev_family: str | None = None
     for idx, m in enumerate(metric_order):
-        fam = _METRIC_FAMILY.get(m, "output")
+        fam: str = _METRIC_FAMILY.get(m, "output")
         if prev_family is not None and fam != prev_family:
             family_sep_positions.append(idx)
         prev_family = fam
@@ -1969,13 +2196,13 @@ def plot_metric_spearman_matrix(
     for ax, mat, title, cmap, vmin, vmax in zip(
         axes, matrices, titles, cmaps, vmins, vmaxs
     ):
-        im = ax.imshow(mat, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto")
+        im: AxesImage = ax.imshow(mat, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto")
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
         # Annotate cells
         for i in range(n_metrics):
             for j in range(n_metrics):
-                v = mat[i, j]
+                v: np.float64 = mat[i, j]
                 if not np.isnan(v):
                     ax.text(
                         j,
@@ -2006,7 +2233,7 @@ def plot_metric_spearman_matrix(
     )
     plt.tight_layout()
 
-    fname = out_dir / "metric_spearman_matrix.png"
+    fname: Path = out_dir / "metric_spearman_matrix.png"
     fig.savefig(fname, dpi=150, bbox_inches="tight")
     saved.append(str(fname))
     if wandb_run:
