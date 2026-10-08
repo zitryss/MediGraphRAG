@@ -1,7 +1,7 @@
 import re
 import hashlib
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeAlias, TypedDict
 import os
 import logging
 
@@ -17,6 +17,52 @@ except ImportError:
     logging.warning("CSV processors not available - bulk CSV operations disabled")
     MedicalReportCSVProcessor = None
     DocumentCSVProcessor = None
+
+
+if TYPE_CHECKING:
+    from ontographrag.providers.model_providers import ModelProvider
+
+
+PatientDemographics: TypeAlias = dict[str, str]
+
+
+class MedicalCondition(TypedDict):
+    condition: str
+    category: str
+    status: str
+
+
+class Medication(TypedDict):
+    medication: str
+    timing: str
+    status: str
+
+
+SocialHistory: TypeAlias = dict[str, str]
+
+
+class LaboratoryValue(TypedDict):
+    test: str
+    value: str
+    abnormal: bool
+
+
+class PatientEntity(TypedDict):
+    id: str
+    type: str
+    properties: dict[str, str | bool]
+
+
+class PatientRelationship(TypedDict):
+    source: str
+    target: str
+    type: str
+    properties: dict[str, str | bool]
+
+
+class PatientExtraction(TypedDict):
+    entities: list[PatientEntity]
+    relationships: list[PatientRelationship]
 
 
 class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
@@ -115,53 +161,65 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         # Set max_chunks for testing
         self._test_max_chunks = max_chunks
 
-    def _extract_patient_demographics(self, text: str) -> dict[str, Any]:
+    def _extract_patient_demographics(self, text: str) -> PatientDemographics:
         """Extract patient demographics from text"""
-        patient_info = {}
+        patient_info: PatientDemographics = {}
 
-        name_match = re.search(r"Name:\s*([^\n\r]+)", text, re.IGNORECASE)
+        name_match: re.Match[str] | None = re.search(
+            r"Name:\s*([^\n\r]+)", text, re.IGNORECASE
+        )
         if name_match:
             patient_info["name"] = name_match.group(1).strip()
 
-        unit_match = re.search(r"Unit No:\s*([^\n\r]+)", text, re.IGNORECASE)
+        unit_match: re.Match[str] | None = re.search(
+            r"Unit No:\s*([^\n\r]+)", text, re.IGNORECASE
+        )
         if unit_match:
             patient_info["unit_no"] = unit_match.group(1).strip()
 
-        dob_match = re.search(r"Date of Birth:\s*([^\n\r]+)", text, re.IGNORECASE)
+        dob_match: re.Match[str] | None = re.search(
+            r"Date of Birth:\s*([^\n\r]+)", text, re.IGNORECASE
+        )
         if dob_match:
             patient_info["date_of_birth"] = dob_match.group(1).strip()
 
-        admission_match = re.search(
+        admission_match: re.Match[str] | None = re.search(
             r"Admission Date:\s*([^\n\r]+)", text, re.IGNORECASE
         )
         if admission_match:
             patient_info["admission_date"] = admission_match.group(1).strip()
 
-        discharge_match = re.search(
+        discharge_match: re.Match[str] | None = re.search(
             r"Discharge Date:\s*([^\n\r]+)", text, re.IGNORECASE
         )
         if discharge_match:
             patient_info["discharge_date"] = discharge_match.group(1).strip()
 
-        sex_match = re.search(r"Sex:\s*([^\n\r]+)", text, re.IGNORECASE)
+        sex_match: re.Match[str] | None = re.search(
+            r"Sex:\s*([^\n\r]+)", text, re.IGNORECASE
+        )
         if sex_match:
             patient_info["sex"] = sex_match.group(1).strip()
 
-        service_match = re.search(r"Service:\s*([^\n\r]+)", text, re.IGNORECASE)
+        service_match: re.Match[str] | None = re.search(
+            r"Service:\s*([^\n\r]+)", text, re.IGNORECASE
+        )
         if service_match:
             patient_info["service"] = service_match.group(1).strip()
 
-        attending_match = re.search(r"Attending:\s*([^\n\r]+)", text, re.IGNORECASE)
+        attending_match: re.Match[str] | None = re.search(
+            r"Attending:\s*([^\n\r]+)", text, re.IGNORECASE
+        )
         if attending_match:
             patient_info["attending"] = attending_match.group(1).strip()
 
         return patient_info
 
-    def _extract_medical_conditions(self, text: str) -> list[dict[str, Any]]:
+    def _extract_medical_conditions(self, text: str) -> list[MedicalCondition]:
         """Extract medical conditions from various sections"""
-        conditions = []
+        conditions: list[MedicalCondition] = []
 
-        pmh_section = self._extract_section(text, "Past Medical History")
+        pmh_section: str = self._extract_section(text, "Past Medical History")
         if pmh_section:
             condition_matches = re.findall(
                 r"\d+\.\s*([^.\n]+)", pmh_section, re.MULTILINE
@@ -181,7 +239,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         }
                     )
 
-            pmh_conditions = [
+            pmh_conditions: list[str] = [
                 "cirrhosis",
                 "HIV",
                 "IVDU",
@@ -202,7 +260,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         }
                     )
 
-        hopi_section = self._extract_section(text, "History of Present Illness")
+        hopi_section: str = self._extract_section(text, "History of Present Illness")
         if hopi_section:
             condition_matches = re.findall(
                 r"(?:c/b|complicated by|due to|secondary to)\s+([^.,;]+)",
@@ -229,7 +287,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                     }
                 )
 
-        chief_complaint_section = self._extract_section(text, "Chief Complaint")
+        chief_complaint_section: str = self._extract_section(text, "Chief Complaint")
         if chief_complaint_section:
             complaint_text = chief_complaint_section.strip()
             if complaint_text.startswith("-"):
@@ -256,7 +314,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         }
                     )
 
-        discharge_dx_section = self._extract_section(text, "Discharge Diagnosis")
+        discharge_dx_section: str = self._extract_section(text, "Discharge Diagnosis")
         if discharge_dx_section:
             if "ascites" in discharge_dx_section.lower():
                 conditions.append(
@@ -267,8 +325,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                     }
                 )
 
-        seen = set()
-        unique_conditions = []
+        seen: set[str] = set()
+        unique_conditions: list[MedicalCondition] = []
         for condition in conditions:
             key = condition["condition"].lower().strip()
             if key not in seen:
@@ -277,11 +335,13 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
         return unique_conditions
 
-    def _extract_medications(self, text: str) -> list[dict[str, Any]]:
+    def _extract_medications(self, text: str) -> list[Medication]:
         """Extract medications from admission and discharge sections"""
-        medications = []
+        medications: list[Medication] = []
 
-        admission_meds_section = self._extract_section(text, "Medications on Admission")
+        admission_meds_section: str = self._extract_section(
+            text, "Medications on Admission"
+        )
         if admission_meds_section:
             med_lines = [
                 line.strip("- ").strip()
@@ -294,7 +354,9 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         {"medication": med, "timing": "admission", "status": "chronic"}
                     )
 
-        discharge_meds_section = self._extract_section(text, "Discharge Medications")
+        discharge_meds_section: str = self._extract_section(
+            text, "Discharge Medications"
+        )
         if discharge_meds_section:
             med_lines = [
                 line.strip("- ").strip()
@@ -311,7 +373,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         }
                     )
 
-        hospital_course = self._extract_section(text, "Brief Hospital Course")
+        hospital_course: str = self._extract_section(text, "Brief Hospital Course")
         if hospital_course:
             med_changes = re.findall(
                 r"(?:Furosemide|Lasix|Spironolactone|Aldactone|metoprolol|atorvastatin|simvastatin|omeprazole|lisinopril|enalapril)\s+\d+(?:\s*mg)?",
@@ -329,11 +391,11 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
         return medications
 
-    def _extract_social_history(self, text: str) -> dict[str, Any]:
+    def _extract_social_history(self, text: str) -> SocialHistory:
         """Extract social history information"""
-        social_info = {}
+        social_info: SocialHistory = {}
 
-        social_section = self._extract_section(text, "Social History")
+        social_section: str = self._extract_section(text, "Social History")
         if social_section:
             if (
                 "smoking" in social_section.lower()
@@ -374,15 +436,17 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
         return social_info
 
-    def _extract_lab_values(self, text: str) -> list[dict[str, Any]]:
+    def _extract_lab_values(self, text: str) -> list[LaboratoryValue]:
         """Extract laboratory values and results"""
-        lab_values = []
-        lab_patterns = [
+        lab_values: list[LaboratoryValue] = []
+        lab_patterns: list[str] = [
             r"(\w+)\s*[:-]\s*(\d+(?:\.\d+)?)\*?",
             r"(\w+)\((\w+)\)\s*[:-]\s*(\d+(?:\.\d+)?)\*?",
         ]
 
-        pertinent_results_section = self._extract_section(text, "Pertinent Results")
+        pertinent_results_section: str = self._extract_section(
+            text, "Pertinent Results"
+        )
         if pertinent_results_section:
             for pattern in lab_patterns:
                 matches = re.findall(pattern, pertinent_results_section)
@@ -410,27 +474,33 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
     def _extract_section(self, text: str, section_name: str) -> str:
         """Extract a specific section from the patient report"""
-        section_match = re.search(rf"{section_name}[:\s]*", text, re.IGNORECASE)
+        section_match: re.Match[str] | None = re.search(
+            rf"{section_name}[:\s]*", text, re.IGNORECASE
+        )
         if not section_match:
             return ""
 
-        start_pos = section_match.end()
-        next_section_patterns = [
+        start_pos: int = section_match.end()
+        next_section_patterns: list[str] = [
             r"\n(?:Admission|Discharge|Physical|History|Brief|Medications|Pertinent|Social|Family)\s+(?:Medical\s+)?History[:\(\s]",
             r"\n[A-Z][A-Z\s]+:\s*",
         ]
 
-        text_remaining = text[start_pos:]
-        min_end_pos = len(text)
+        text_remaining: str = text[start_pos:]
+        min_end_pos: int = len(text)
         for pattern in next_section_patterns:
-            next_match = re.search(pattern, text_remaining)
+            next_match: re.Match[str] | None = re.search(pattern, text_remaining)
             if next_match:
                 min_end_pos = min(min_end_pos, next_match.start())
 
         return text_remaining[:min_end_pos].strip()
 
     def bulk_process_medical_reports(
-        self, csv_path: str, start_row: int = 0, batch_size: int = 50, llm=None
+        self,
+        csv_path: str,
+        start_row: int = 0,
+        batch_size: int = 50,
+        llm: "ModelProvider | None" = None,
     ) -> dict[str, Any]:
         """Process multiple medical reports in bulk from a pipe-delimited CSV file."""
         logging.info(f"Starting bulk processing of medical reports from {csv_path}")
@@ -515,7 +585,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         id_column: str | None = None,
         start_row: int = 0,
         batch_size: int = 50,
-        llm=None,
+        llm: "ModelProvider | None" = None,
         max_chunks: int | None = None,
         kg_name: str | None = None,
     ) -> dict[str, Any]:
@@ -639,14 +709,14 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
 
     def _extract_entities_and_relationships_for_patients(
         self, text: str
-    ) -> dict[str, Any]:
+    ) -> PatientExtraction:
         """Extract patient-specific entities and relationships using hybrid approach."""
-        entities = []
-        relationships = []
+        entities: list[PatientEntity] = []
+        relationships: list[PatientRelationship] = []
 
-        patient_info = self._extract_patient_demographics(text)
+        patient_info: PatientDemographics = self._extract_patient_demographics(text)
         if patient_info:
-            patient_id = (
+            patient_id: str = (
                 f"Patient_{hashlib.md5(str(patient_info).encode()).hexdigest()[:8]}"
             )
             entities.append(
@@ -662,9 +732,9 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                 }
             )
 
-        conditions = self._extract_medical_conditions(text)
+        conditions: list[MedicalCondition] = self._extract_medical_conditions(text)
         for condition in conditions:
-            cid = f"Condition_{hashlib.md5(condition['condition'].encode()).hexdigest()[:8]}"
+            cid: str = f"Condition_{hashlib.md5(condition['condition'].encode()).hexdigest()[:8]}"
             entities.append(
                 {
                     "id": cid,
@@ -693,7 +763,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                 )
 
         for medication in self._extract_medications(text):
-            mid = f"Medication_{hashlib.md5(medication['medication'].encode()).hexdigest()[:8]}"
+            mid: str = f"Medication_{hashlib.md5(medication['medication'].encode()).hexdigest()[:8]}"
             entities.append(
                 {
                     "id": mid,
@@ -722,7 +792,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                 )
 
         for lab in self._extract_lab_values(text):
-            lid = f"Lab_{hashlib.md5(lab['test'].encode()).hexdigest()[:8]}"
+            lid: str = f"Lab_{hashlib.md5(lab['test'].encode()).hexdigest()[:8]}"
             entities.append(
                 {
                     "id": lid,
@@ -751,7 +821,9 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                 )
 
         for key, value in self._extract_social_history(text).items():
-            sid = f"Social_{key}_{hashlib.md5(str(value).encode()).hexdigest()[:8]}"
+            sid: str = (
+                f"Social_{key}_{hashlib.md5(str(value).encode()).hexdigest()[:8]}"
+            )
             entities.append(
                 {
                     "id": sid,
@@ -784,7 +856,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
     def generate_patient_knowledge_graph(
         self,
         text: str,
-        llm=None,
+        llm: "ModelProvider | None" = None,
         file_name: str | None = None,
         max_chunks: int | None = None,
     ) -> dict[str, Any]:

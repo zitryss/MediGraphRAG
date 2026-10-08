@@ -5,7 +5,7 @@ import difflib
 import importlib
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
 from collections import defaultdict, Counter
 import os
 import logging
@@ -29,6 +29,18 @@ from ontographrag.kg.builders._evaluation import EvaluationMixin
 from ontographrag.kg.builders._extraction import ExtractionMixin
 from ontographrag.kg.builders._ontology import OntologySchemaMixin
 from ontographrag.kg.builders._storage import StorageMixin
+
+
+if TYPE_CHECKING:
+    from ontographrag.providers.model_providers import ModelProvider
+
+
+class SectionSegment(TypedDict):
+    index: int
+    name: str
+    start_pos: int
+    end_pos: int
+    text: str
 
 
 class OntologyGuidedKGCreator(
@@ -118,8 +130,8 @@ class OntologyGuidedKGCreator(
         max_summary_entities: int = 6,
         max_summary_relationships: int = 6,
     ) -> None:
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+        self.chunk_size: int = chunk_size
+        self.chunk_overlap: int = chunk_overlap
         env_retrieval_chunk_size = os.getenv("RETRIEVAL_CHUNK_SIZE")
         env_retrieval_chunk_overlap = os.getenv("RETRIEVAL_CHUNK_OVERLAP")
         resolved_retrieval_chunk_size = retrieval_chunk_size
@@ -140,49 +152,51 @@ class OntologyGuidedKGCreator(
                     "Invalid RETRIEVAL_CHUNK_OVERLAP=%r; falling back to 64",
                     env_retrieval_chunk_overlap,
                 )
-        self.retrieval_chunk_size = max(64, int(resolved_retrieval_chunk_size or 256))
+        self.retrieval_chunk_size: int = max(
+            64, int(resolved_retrieval_chunk_size or 256)
+        )
         default_retrieval_overlap = resolved_retrieval_chunk_overlap
         if default_retrieval_overlap is None:
             default_retrieval_overlap = min(64, max(16, self.retrieval_chunk_size // 4))
-        self.retrieval_chunk_overlap = max(
+        self.retrieval_chunk_overlap: int = max(
             0,
             min(int(default_retrieval_overlap), self.retrieval_chunk_size - 1),
         )
-        self.cross_chunk_relation_window = max(
+        self.cross_chunk_relation_window: int = max(
             2,
             int(os.getenv("KG_CROSS_CHUNK_RELATION_WINDOW", "3") or 3),
         )
-        self.cross_section_relation_window = max(
+        self.cross_section_relation_window: int = max(
             2,
             int(os.getenv("KG_CROSS_SECTION_RELATION_WINDOW", "2") or 2),
         )
-        self.cross_passage_relation_window = max(
+        self.cross_passage_relation_window: int = max(
             1,
             int(os.getenv("KG_CROSS_PASSAGE_RELATION_WINDOW", "2") or 2),
         )
-        self.max_relationship_prompt_entities = max(
+        self.max_relationship_prompt_entities: int = max(
             8,
             int(os.getenv("KG_RELATION_PROMPT_ENTITY_CAP", "40") or 40),
         )
-        self.enable_coreference_resolution = enable_coreference_resolution
-        self.enable_heuristic_coreference_resolution = (
+        self.enable_coreference_resolution: bool = enable_coreference_resolution
+        self.enable_heuristic_coreference_resolution: bool = (
             enable_heuristic_coreference_resolution
         )
-        self.neo4j_uri = neo4j_uri
-        self.neo4j_user = neo4j_user
-        self.neo4j_password = neo4j_password
-        self.neo4j_database = neo4j_database
-        self.embedding_model = embedding_model
-        self.ontology_path = ontology_path
-        self.strict_ontology = strict_ontology
-        self.self_consistency_n = max(
+        self.neo4j_uri: str = neo4j_uri
+        self.neo4j_user: str = neo4j_user
+        self.neo4j_password: str = neo4j_password
+        self.neo4j_database: str = neo4j_database
+        self.embedding_model: str = embedding_model
+        self.ontology_path: str | None = ontology_path
+        self.strict_ontology: bool = strict_ontology
+        self.self_consistency_n: int = max(
             1,
             int(
                 os.getenv("KG_SELF_CONSISTENCY_N", str(self_consistency_n))
                 or self_consistency_n
             ),
         )
-        self.few_shot_example_count = max(
+        self.few_shot_example_count: int = max(
             0,
             int(
                 os.getenv("KG_FEW_SHOT_EXAMPLE_COUNT", str(few_shot_example_count))
@@ -190,7 +204,7 @@ class OntologyGuidedKGCreator(
             ),
         )
         try:
-            self.min_triple_confidence = max(
+            self.min_triple_confidence: float = max(
                 0.0,
                 min(
                     1.0,
@@ -206,7 +220,7 @@ class OntologyGuidedKGCreator(
         except ValueError:
             self.min_triple_confidence = min_triple_confidence
         try:
-            self.relationship_type_similarity_threshold = max(
+            self.relationship_type_similarity_threshold: float = max(
                 0.0,
                 min(
                     1.0,
@@ -223,12 +237,12 @@ class OntologyGuidedKGCreator(
             self.relationship_type_similarity_threshold = (
                 relationship_type_similarity_threshold
             )
-        self.enable_low_confidence_triple_reverification = _env_flag(
+        self.enable_low_confidence_triple_reverification: bool = _env_flag(
             os.getenv("KG_ENABLE_LOW_CONFIDENCE_TRIPLE_REVERIFY"),
             enable_low_confidence_triple_reverification,
         )
         try:
-            self.low_confidence_reverify_threshold = max(
+            self.low_confidence_reverify_threshold: float = max(
                 0.0,
                 min(
                     1.0,
@@ -243,36 +257,36 @@ class OntologyGuidedKGCreator(
             )
         except ValueError:
             self.low_confidence_reverify_threshold = low_confidence_reverify_threshold
-        self.enable_umls_linking = _env_flag(
+        self.enable_umls_linking: bool = _env_flag(
             os.getenv("KG_ENABLE_UMLS_LINKING"),
             enable_umls_linking,
         )
-        self.umls_spacy_model = (
+        self.umls_spacy_model: str = (
             os.getenv("KG_UMLS_SPACY_MODEL", umls_spacy_model or "en_core_sci_sm")
             or "en_core_sci_sm"
         )
-        self.enable_anchor_constrained_extraction = _env_flag(
+        self.enable_anchor_constrained_extraction: bool = _env_flag(
             os.getenv("KG_ENABLE_ANCHOR_CONSTRAINED_EXTRACTION"),
             enable_anchor_constrained_extraction,
         )
-        self.enable_self_reflection = _env_flag(
+        self.enable_self_reflection: bool = _env_flag(
             os.getenv("KG_ENABLE_SELF_REFLECTION"),
             enable_self_reflection,
         )
-        self.enable_anchor_coverage_supplement = _env_flag(
+        self.enable_anchor_coverage_supplement: bool = _env_flag(
             os.getenv("KG_ENABLE_ANCHOR_COVERAGE_SUPPLEMENT"),
             enable_anchor_coverage_supplement,
         )
-        self.enable_cross_passage_relation_recovery = _env_flag(
+        self.enable_cross_passage_relation_recovery: bool = _env_flag(
             os.getenv("KG_ENABLE_CROSS_PASSAGE_RELATION_RECOVERY"),
             enable_cross_passage_relation_recovery,
         )
-        self.enable_soft_entity_linking = _env_flag(
+        self.enable_soft_entity_linking: bool = _env_flag(
             os.getenv("KG_ENABLE_SOFT_ENTITY_LINKING"),
             enable_soft_entity_linking,
         )
         try:
-            self.soft_entity_similarity_threshold = max(
+            self.soft_entity_similarity_threshold: float = max(
                 0.0,
                 min(
                     1.0,
@@ -287,12 +301,12 @@ class OntologyGuidedKGCreator(
             )
         except ValueError:
             self.soft_entity_similarity_threshold = soft_entity_similarity_threshold
-        self.enable_fragmentation_repair = _env_flag(
+        self.enable_fragmentation_repair: bool = _env_flag(
             os.getenv("KG_ENABLE_FRAGMENTATION_REPAIR"),
             enable_fragmentation_repair,
         )
         try:
-            self.fragmentation_bridge_similarity_threshold = max(
+            self.fragmentation_bridge_similarity_threshold: float = max(
                 0.0,
                 min(
                     1.0,
@@ -310,7 +324,7 @@ class OntologyGuidedKGCreator(
                 fragmentation_bridge_similarity_threshold
             )
         try:
-            self.max_fragmentation_bridges = max(
+            self.max_fragmentation_bridges: int = max(
                 0,
                 int(
                     os.getenv(
@@ -322,16 +336,16 @@ class OntologyGuidedKGCreator(
             )
         except ValueError:
             self.max_fragmentation_bridges = max_fragmentation_bridges
-        self.enable_graph_summaries = _env_flag(
+        self.enable_graph_summaries: bool = _env_flag(
             os.getenv("KG_ENABLE_GRAPH_SUMMARIES"),
             enable_graph_summaries,
         )
-        self.enable_claim_extraction = _env_flag(
+        self.enable_claim_extraction: bool = _env_flag(
             os.getenv("KG_ENABLE_CLAIM_EXTRACTION"),
             enable_claim_extraction,
         )
         try:
-            self.max_summary_entities = max(
+            self.max_summary_entities: int = max(
                 1,
                 int(
                     os.getenv(
@@ -344,7 +358,7 @@ class OntologyGuidedKGCreator(
         except ValueError:
             self.max_summary_entities = max_summary_entities
         try:
-            self.max_summary_relationships = max(
+            self.max_summary_relationships: int = max(
                 1,
                 int(
                     os.getenv(
@@ -356,22 +370,22 @@ class OntologyGuidedKGCreator(
             )
         except ValueError:
             self.max_summary_relationships = max_summary_relationships
-        self._umls_linker_state = "disabled"
+        self._umls_linker_state: str = "disabled"
         self._umls_nlp = None
         self._triple_reverification_cache: dict[str, bool] = {}
-        self._last_schema_enforcement_stats = {
+        self._last_schema_enforcement_stats: dict[str, int] = {
             "dropped_entities": 0,
             "dropped_relationships": 0,
             "kept_entities": 0,
             "kept_relationships": 0,
         }
-        self._last_relationship_harmonization_stats = {
+        self._last_relationship_harmonization_stats: dict[str, int] = {
             "kept": 0,
             "dropped_unmapped": 0,
             "dropped_schema_mismatch": 0,
             "deduped": 0,
         }
-        self._last_relationship_contradiction_stats = {
+        self._last_relationship_contradiction_stats: dict[str, int] = {
             "contradiction_groups": 0,
             "contradiction_edges": 0,
         }
@@ -385,8 +399,8 @@ class OntologyGuidedKGCreator(
         )
 
         # Load ontology if provided
-        self.ontology_classes = []
-        self.ontology_relationships = []
+        self.ontology_classes: list[dict[str, str]] = []
+        self.ontology_relationships: list[dict[str, str]] = []
         self._ontology_schema: OntologySchema | None = None
         if ontology_path and os.path.exists(ontology_path):
             logging.info(
@@ -422,10 +436,10 @@ class OntologyGuidedKGCreator(
 
         # Pre-compute ontology class label embeddings for semantic classification
         self._ontology_class_embeddings: list[
-            tuple[str, Any]
+            tuple[str, list[float]]
         ] = []  # [(class_id, embedding), ...]
         self._ontology_relationship_embeddings: list[
-            tuple[str, str, Any]
+            tuple[str, str, list[float]]
         ] = []  # [(id, label, embedding), ...]
         if self.ontology_classes and self.embedding_function:
             try:
@@ -477,17 +491,21 @@ class OntologyGuidedKGCreator(
                 )
 
     @staticmethod
-    def _boundary_pattern(name: str, *, ignore_case: bool = False) -> re.Pattern:
+    def _boundary_pattern(name: str, *, ignore_case: bool = False) -> re.Pattern[str]:
         """Boundary-aware regex for entity/relation span restoration."""
-        flags = re.IGNORECASE if ignore_case else 0
-        prefix = r"(?<!\w)" if not name[:1].isalnum() and name[:1] != "_" else r"\b"
-        suffix = r"(?!\w)" if not name[-1:].isalnum() and name[-1:] != "_" else r"\b"
+        flags: int = re.IGNORECASE if ignore_case else 0
+        prefix: str = (
+            r"(?<!\w)" if not name[:1].isalnum() and name[:1] != "_" else r"\b"
+        )
+        suffix: str = (
+            r"(?!\w)" if not name[-1:].isalnum() and name[-1:] != "_" else r"\b"
+        )
         return re.compile(prefix + re.escape(name) + suffix, flags)
 
     @staticmethod
-    def _surface_forms(name: str) -> set:
+    def _surface_forms(name: str) -> set[str]:
         """Return underscore/space variants for exact-text restoration."""
-        forms = {name}
+        forms: set[str] = {name}
         forms.add(name.replace("_", " "))
         forms.add(name.replace(" ", "_"))
         return {f for f in forms if isinstance(f, str) and f.strip()}
@@ -506,11 +524,11 @@ class OntologyGuidedKGCreator(
             return []
 
         unique_candidates: list[str] = []
-        seen_candidates = set()
+        seen_candidates: set[str] = set()
         for candidate in candidates or []:
             if not isinstance(candidate, str):
                 continue
-            cleaned = candidate.strip()
+            cleaned: str = candidate.strip()
             if not cleaned or cleaned.lower() in seen_candidates:
                 continue
             seen_candidates.add(cleaned.lower())
@@ -518,10 +536,14 @@ class OntologyGuidedKGCreator(
 
         spans: list[dict[str, Any]] = []
         for candidate in sorted(unique_candidates, key=len, reverse=True):
-            forms = sorted(self._surface_forms(candidate), key=len, reverse=True)
-            candidate_matches = 0
+            forms: list[str] = sorted(
+                self._surface_forms(candidate), key=len, reverse=True
+            )
+            candidate_matches: int = 0
             for form in forms:
-                pattern = self._boundary_pattern(form, ignore_case=True)
+                pattern: re.Pattern[str] = self._boundary_pattern(
+                    form, ignore_case=True
+                )
                 for match in pattern.finditer(text):
                     candidate_matches += 1
                     spans.append(
@@ -548,10 +570,10 @@ class OntologyGuidedKGCreator(
         """
         headers: list[tuple[int, str]] = []
         for m in self._SECTION_HEADER_RE.finditer(text):
-            raw = m.group("header").strip()
+            raw: str = m.group("header").strip()
             # Normalise to title case; collapse "materials and methods" variants
             if re.match(r"materials?\s+and\s+methods?", raw, re.IGNORECASE):
-                normalised = "Methods"
+                normalised: str = "Methods"
             elif re.match(
                 r"experimental\s+(?:procedures?|design)|study\s+design",
                 raw,
@@ -569,7 +591,7 @@ class OntologyGuidedKGCreator(
         self, pos: int, section_headers: list[tuple[int, str]]
     ) -> str | None:
         """Return the section name that covers character position *pos*."""
-        current = None
+        current: str | None = None
         for header_pos, name in section_headers:
             if header_pos <= pos:
                 current = name
@@ -584,7 +606,7 @@ class OntologyGuidedKGCreator(
     @staticmethod
     def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
         """Return cosine similarity for two dense vectors."""
-        denom = (sum(a * a for a in vec_a) ** 0.5 + 1e-9) * (
+        denom: float = (sum(a * a for a in vec_a) ** 0.5 + 1e-9) * (
             sum(b * b for b in vec_b) ** 0.5 + 1e-9
         )
         return float(sum(a * b for a, b in zip(vec_a, vec_b)) / denom)
@@ -603,7 +625,7 @@ class OntologyGuidedKGCreator(
         if not previous_entities or not self._has_coreference_markers(chunk_text):
             return chunk_text
 
-        type_aliases = {
+        type_aliases: dict[str, set[str]] = {
             "disease": {"disease", "condition", "disorder", "illness", "syndrome"},
             "treatment": {"treatment", "therapy", "drug", "medication", "procedure"},
             "gene": {"gene", "mutation", "variant", "allele"},
@@ -623,7 +645,7 @@ class OntologyGuidedKGCreator(
             "location": {"city", "country", "state", "province", "location"},
             "work": {"film", "movie", "book", "song", "album", "series"},
         }
-        type_preferences = {
+        type_preferences: dict[str, tuple[str, ...]] = {
             "disease": ("Disease", "MedicalCondition", "Condition", "Disorder"),
             "treatment": ("Treatment", "Drug", "Medication", "MedicalProcedure"),
             "gene": ("Gene", "Genetic Mutation", "Genetic Variant", "Genetic Disorder"),
@@ -639,16 +661,16 @@ class OntologyGuidedKGCreator(
         }
 
         def _choose_antecedent(category: str) -> str | None:
-            preferred_types = type_preferences.get(category, ())
-            category_aliases = type_aliases.get(category, {category})
+            preferred_types: tuple[str, ...] = type_preferences.get(category, ())
+            category_aliases: set[str] = type_aliases.get(category, {category})
             for entity in reversed(previous_entities):
-                entity_name = str(entity.get("id") or "").strip()
-                entity_type = str(entity.get("type") or "")
+                entity_name: str = str(entity.get("id") or "").strip()
+                entity_type: str = str(entity.get("type") or "")
                 if not entity_name:
                     continue
                 if entity_type in preferred_types:
                     return entity_name
-                entity_desc = str(
+                entity_desc: str = str(
                     (entity.get("properties") or {}).get("description") or ""
                 ).lower()
                 if any(alias in entity_desc for alias in category_aliases):
@@ -659,8 +681,8 @@ class OntologyGuidedKGCreator(
                     return entity_name
             return None
 
-        resolved = chunk_text
-        replacement_patterns = [
+        resolved: str = chunk_text
+        replacement_patterns: list[tuple[str, re.Pattern[str]]] = [
             (
                 "disease",
                 re.compile(
@@ -742,7 +764,7 @@ class OntologyGuidedKGCreator(
         ]
 
         for category, pattern in replacement_patterns:
-            antecedent = _choose_antecedent(category)
+            antecedent: str | None = _choose_antecedent(category)
             if antecedent:
                 resolved = pattern.sub(antecedent, resolved)
 
@@ -753,25 +775,27 @@ class OntologyGuidedKGCreator(
         text: str,
         *,
         section_headers: list[tuple[int, str]] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[SectionSegment]:
         """Return ordered section-aligned text segments for upstream relation recovery."""
-        headers = list(section_headers or self._detect_section_headers(text))
+        headers: list[tuple[int, str]] = list(
+            section_headers or self._detect_section_headers(text)
+        )
         if not text:
             return []
 
-        boundaries = [0]
+        boundaries: list[int] = [0]
         for pos, _ in headers:
             if pos not in boundaries and 0 < pos < len(text):
                 boundaries.append(pos)
         boundaries.append(len(text))
         boundaries = sorted(set(boundaries))
 
-        segments: list[dict[str, Any]] = []
+        segments: list[SectionSegment] = []
         for idx, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
-            segment_text = text[start:end]
+            segment_text: str = text[start:end]
             if not segment_text.strip():
                 continue
-            section_name = self._get_section_for_position(start, headers)
+            section_name: str | None = self._get_section_for_position(start, headers)
             segments.append(
                 {
                     "index": idx,
@@ -2762,7 +2786,7 @@ class OntologyGuidedKGCreator(
     def generate_knowledge_graph(
         self,
         text: str,
-        llm,
+        llm: "ModelProvider | None",
         file_name: str | None = None,
         model_name: str = "openai/gpt-oss-120b:free",
         max_chunks: int | None = None,
@@ -3148,7 +3172,7 @@ class OntologyGuidedKGCreator(
     def generate_knowledge_graph_from_passages(
         self,
         passages,  # List[ContextPassage] — avoids circular import; duck-typed
-        llm,
+        llm: "ModelProvider | None",
         file_name: str | None = None,
         model_name: str = "openai/gpt-oss-120b:free",
         kg_name: str | None = None,

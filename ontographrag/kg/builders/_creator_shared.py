@@ -12,7 +12,7 @@ _ENTITY_MIN_NAME_LENGTH: int = 3
 # the LLM classifies them.  These are generic process/state words that appear
 # in almost every biomedical chunk and, when extracted as entities, become hub
 # nodes fanning out to hundreds of irrelevant chunks during retrieval.
-_GENERIC_HUB_ENTITY_BLOCKLIST: frozenset = frozenset(
+_GENERIC_HUB_ENTITY_BLOCKLIST: frozenset[str] = frozenset(
     {
         "treatment",
         "treatments",
@@ -216,10 +216,10 @@ def _is_valid_entity_name(name: str) -> bool:
     - in the generic hub-entity blocklist (case-insensitive, singular/plural)
     - bare numeric / punctuation fragments without any alphabetic referent
     """
-    stripped = name.strip()
+    stripped: str = name.strip()
     if not stripped:
         return False
-    normalized = stripped.lower()
+    normalized: str = stripped.lower()
     # Reject punctuation-only fragments or bare numeric tokens. Legitimate short
     # biomedical identifiers such as "p53" or "IL-6" include alphabetic
     # characters and therefore bypass this guard.
@@ -246,7 +246,7 @@ def _env_flag(value: str | None, default: bool) -> bool:
     """Parse a boolean-like environment value safely."""
     if value is None:
         return default
-    normalized = str(value).strip().lower()
+    normalized: str = str(value).strip().lower()
     if not normalized:
         return default
     if normalized in {"1", "true", "yes", "on"}:

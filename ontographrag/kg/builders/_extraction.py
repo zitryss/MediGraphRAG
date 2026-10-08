@@ -17,6 +17,8 @@ from ontographrag.schemas.models import (
 )
 
 if TYPE_CHECKING:
+    from ontographrag.schemas.models import OntologySchema
+    from ontographrag.providers.model_providers import ModelProvider
     from langchain_core.embeddings import Embeddings
 
 
@@ -28,6 +30,11 @@ class ExtractionMixin:
     """
 
     if TYPE_CHECKING:
+        _ontology_schema: OntologySchema | None
+        enable_anchor_constrained_extraction: bool
+        enable_coreference_resolution: bool
+        ontology_classes: list[dict[str, str]]
+        ontology_relationships: list[dict[str, str]]
         chunk_size: int
         chunk_overlap: int
         embedding_function: Embeddings
@@ -334,7 +341,7 @@ class ExtractionMixin:
         self,
         chunk_text: str,
         context_text: str,
-        llm,
+        llm: "ModelProvider | None",
         model_name: str,
     ) -> str:
         """Use the LLM to resolve demonstrative coreferences in *chunk_text*
@@ -441,7 +448,7 @@ Rules:
         *,
         previous_entities: list[dict[str, Any]] | None = None,
         previous_texts: list[str] | None = None,
-        llm=None,
+        llm: "ModelProvider | None" = None,
         model_name: str = "openai/gpt-oss-120b:free",
     ) -> str:
         """Resolve cheap coreference first, then optional LLM coref on leftovers."""
@@ -694,7 +701,7 @@ Rules:
     def _extract_entities_and_relationships_with_self_consistency(
         self,
         chunk_text: str,
-        llm,
+        llm: "ModelProvider | None",
         *,
         model_name: str,
         context_header: str | None,
@@ -868,7 +875,7 @@ Rules:
     def _extract_entities_and_relationships_with_llm(
         self,
         chunk_text: str,
-        llm,
+        llm: "ModelProvider | None",
         model_name: str = "openai/gpt-oss-120b:free",
         context_header: str | None = None,
         section_header: str | None = None,
@@ -1401,7 +1408,7 @@ Return ONLY the JSON object.
     def _extract_entities_and_relationships_with_anchor_constraints(
         self,
         chunk_text: str,
-        llm,
+        llm: "ModelProvider | None",
         *,
         model_name: str,
         context_preamble: str,
@@ -1504,7 +1511,7 @@ Return ONLY the JSON object.
         result: dict[str, Any],
         *,
         chunk_text: str,
-        llm,
+        llm: "ModelProvider | None",
         model_name: str,
     ) -> dict[str, Any]:
         """Normalize parsed extraction JSON into entity/relationship records."""
@@ -1804,7 +1811,11 @@ Rules:
         return {"entities": medical_entities, "relationships": medical_relationships}
 
     def _extract_relationships_only(
-        self, combined_text: str, known_entities: list[dict], llm, model_name: str
+        self,
+        combined_text: str,
+        known_entities: list[dict],
+        llm: "ModelProvider | None",
+        model_name: str,
     ) -> list[dict]:
         """
         Given a combined text (two adjacent chunks) and entities already known from those chunks,
@@ -1919,7 +1930,7 @@ Rules:
         segment_texts: list[str],
         segment_entities: dict[int, list[dict[str, Any]]],
         segment_positions: dict[int, list[int]],
-        llm,
+        llm: "ModelProvider | None",
         model_name: str,
         *,
         max_window_size: int,

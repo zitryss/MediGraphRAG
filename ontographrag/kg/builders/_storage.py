@@ -1,11 +1,16 @@
 import json
 import re
 import hashlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from langchain_neo4j import Neo4jGraph
 import os
 import logging
 import math
+
+
+if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
+    from ontographrag.providers.model_providers import ModelProvider
 
 
 class StorageMixin:
@@ -14,6 +19,18 @@ class StorageMixin:
     Mixin for :class:`OntologyGuidedKGCreator`; method bodies are
     unchanged from the original monolithic implementation.
     """
+
+    if TYPE_CHECKING:
+        embedding_dimension: int
+        embedding_function: Embeddings
+        embedding_model: str
+        enable_low_confidence_triple_reverification: bool
+        low_confidence_reverify_threshold: float
+        min_triple_confidence: float
+        neo4j_database: str
+        neo4j_password: str
+        neo4j_uri: str
+        neo4j_user: str
 
     def _create_neo4j_connection(self):
         """Create Neo4j graph connection"""
@@ -315,7 +332,7 @@ class StorageMixin:
         file_name: str,
         doc_metadata: dict | None = None,
         doc_hash: str | None = None,
-        llm=None,
+        llm: "ModelProvider | None" = None,
         model_name: str = "openai/gpt-oss-120b:free",
     ) -> bool:
         """

@@ -4,7 +4,7 @@ import hashlib
 import difflib
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 from collections import defaultdict
 import os
 import logging
@@ -22,6 +22,65 @@ from ontographrag.kg.builders._creator_shared import (
 )
 
 
+if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
+
+
+class SchemaPropertyCard(TypedDict):
+    name: str
+    type: str
+    identifier: bool
+    required: bool
+    enum_values: list[str]
+    unit: str | None
+
+
+class SchemaAttributeCard(TypedDict):
+    name: str
+    type: str
+    unit: str | None
+
+
+class SchemaEntityCard(TypedDict):
+    id: str
+    label: str
+    description: str | None
+    properties: list[SchemaPropertyCard]
+
+
+class SchemaRelationshipCard(TypedDict):
+    id: str
+    label: str
+    description: str | None
+    domain: str | None
+    range: str | None
+    cardinality: str | None
+    attributes: list[SchemaAttributeCard]
+
+
+class SchemaFingerprint(TypedDict):
+    sourceFormat: str
+    classes: list[str]
+    relationships: list[str]
+    entityTypes: list[SchemaEntityCard]
+    relationshipTypes: list[SchemaRelationshipCard]
+
+
+class SchemaCard(TypedDict):
+    ontologyFileHash: str
+    ontologyPath: str
+    sourceFormat: str
+    classes: list[str]
+    relationships: list[str]
+    classCount: int
+    relationshipCount: int
+    builtAt: str
+    entityTypes: NotRequired[list[SchemaEntityCard]]
+    relationshipTypes: NotRequired[list[SchemaRelationshipCard]]
+    schemaVersion: NotRequired[str]
+    schemaHash: NotRequired[str]
+
+
 class OntologySchemaMixin:
     """Ontology loading, schema validation, and type normalisation.
 
@@ -29,10 +88,24 @@ class OntologySchemaMixin:
     unchanged from the original monolithic implementation.
     """
 
+    if TYPE_CHECKING:
+        _ontology_schema: OntologySchema | None
+        ontology_classes: list[dict[str, str]]
+        ontology_relationships: list[dict[str, str]]
+        ontology_path: str | None
+        few_shot_example_count: int
+        embedding_function: Embeddings
+        _ontology_class_embeddings: list[tuple[str, list[float]]]
+        _last_schema_enforcement_stats: dict[str, int]
+
+        def _semantic_relationship_match(
+            self, raw_type: str, candidate_ids: list[str]
+        ) -> tuple[str, float] | None: ...
+
     @staticmethod
     def _prop_type(raw: str) -> PropertyType:
         """Map a raw type string from JSON to a PropertyType enum value."""
-        _map = {
+        _map: dict[str, PropertyType] = {
             "string": PropertyType.STRING,
             "str": PropertyType.STRING,
             "integer": PropertyType.INTEGER,
@@ -218,13 +291,15 @@ class OntologySchemaMixin:
         def _local(uri: str) -> str:
             return uri.split("#")[-1] if "#" in uri else uri.split("/")[-1]
 
-        def _res_local(elem):
+        def _res_local(elem: ET.Element | None) -> str | None:
             if elem is None:
                 return None
             r = elem.get(_rdf_rsrc, "")
             return _local(r) if r else None
 
-        def _child_text_by_local_name(parent, local_name: str) -> str | None:
+        def _child_text_by_local_name(
+            parent: ET.Element | None, local_name: str
+        ) -> str | None:
             if parent is None:
                 return None
             for child in list(parent):
@@ -450,7 +525,7 @@ class OntologySchemaMixin:
 
         schema = self._ontology_schema
         if schema and schema.entity_types:
-            best_match = None
+            best_match: OntEntityType | dict[str, str] | None = None
             best_score = 0.0
             for et in schema.entity_types:
                 candidates = [
@@ -563,7 +638,7 @@ class OntologySchemaMixin:
                 return rel_id.replace(" ", "_").replace("-", "_").upper()
         return None
 
-    def _build_schema_card(self) -> dict:
+    def _build_schema_card(self) -> SchemaCard:
         """Build a versioned snapshot of the ontology for this KG build.
 
         Stored on the Document node so future queries can detect ontology drift.
@@ -577,7 +652,7 @@ class OntologySchemaMixin:
             r.get("id", "") for r in self.ontology_relationships if isinstance(r, dict)
         ]
 
-        ontology_file_hash = None
+        ontology_file_hash: str | None = None
         if self.ontology_path and os.path.exists(self.ontology_path):
             try:
                 with open(self.ontology_path, "rb") as f:
@@ -585,7 +660,7 @@ class OntologySchemaMixin:
             except OSError:
                 pass
 
-        card: dict = {
+        card: SchemaCard = {
             "ontologyFileHash": ontology_file_hash or "",
             "ontologyPath": os.path.basename(self.ontology_path)
             if self.ontology_path
@@ -640,19 +715,19 @@ class OntologySchemaMixin:
                 for rt in schema.relationship_types
             ]
 
-        fingerprint_payload = {
+        fingerprint_payload: SchemaFingerprint = {
             "sourceFormat": card.get("sourceFormat", "unknown"),
             "classes": card.get("classes", []),
             "relationships": card.get("relationships", []),
             "entityTypes": card.get("entityTypes", []),
             "relationshipTypes": card.get("relationshipTypes", []),
         }
-        fingerprint_str = json.dumps(
+        fingerprint_str: str = json.dumps(
             fingerprint_payload,
             sort_keys=True,
             ensure_ascii=False,
         )
-        schema_hash = hashlib.sha256(fingerprint_str.encode("utf-8")).hexdigest()
+        schema_hash: str = hashlib.sha256(fingerprint_str.encode("utf-8")).hexdigest()
         card["schemaVersion"] = schema_hash[:16]
         card["schemaHash"] = schema_hash
 
@@ -1102,6 +1177,7 @@ class OntologySchemaMixin:
 
             # Step 3: fuzzy match with schema-compatibility boost
             compat_ids = {rt.id for rt in candidates}
+            best_match: OntRelType | dict[str, str] | None
             best_match, best_score = None, 0.0
             for rt in schema.relationship_types:
                 cand_label = rt.label.lower().replace(" ", "_")

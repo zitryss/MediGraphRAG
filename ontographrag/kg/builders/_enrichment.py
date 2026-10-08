@@ -4,7 +4,11 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from ontographrag.providers.model_providers import ModelProvider
 
 
 class EnrichmentMixin:
@@ -13,6 +17,9 @@ class EnrichmentMixin:
     Mixin for :class:`OntologyGuidedKGCreator`; method bodies are
     unchanged from the original monolithic implementation.
     """
+
+    if TYPE_CHECKING:
+        _triple_reverification_cache: dict[str, bool]
 
     @classmethod
     def _merge_anchor_spans(cls, *span_groups: Any) -> list[dict[str, Any]]:
@@ -269,7 +276,7 @@ class EnrichmentMixin:
         result: dict[str, Any],
         *,
         chunk_text: str,
-        llm,
+        llm: "ModelProvider | None",
         model_name: str,
         context_preamble: str,
         anchor_inventory: dict[str, list[dict[str, Any]]],
@@ -374,7 +381,7 @@ Return ONLY the JSON object.
         chunks: Sequence[TextChunk | ChunkGroundingInput],
         entities_per_chunk: dict[int, list[dict[str, Any]]],
         section_headers: list[tuple[int, str]],
-        llm,
+        llm: "ModelProvider | None",
         model_name: str,
         scope_label: str,
     ) -> list[dict[str, Any]]:
@@ -590,7 +597,7 @@ Return ONLY the JSON object.
         target_name: str,
         relationship_type: str,
         verification_chunks: list[dict[str, Any]],
-        llm,
+        llm: "ModelProvider | None",
         model_name: str,
     ) -> bool | None:
         """Ask the LLM to verify a low-confidence triple against local text only."""

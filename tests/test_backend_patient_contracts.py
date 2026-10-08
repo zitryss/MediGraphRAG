@@ -8,12 +8,18 @@ from unittest.mock import Mock
 import pytest
 
 from ontographrag.kg.builders import ontology_guided_kg_creator as base
-from ontographrag.kg.builders.enhanced_kg_creator import UnifiedOntologyGuidedKGCreator
+from ontographrag.kg.builders.enhanced_kg_creator import (
+    PatientDemographics,
+    PatientEntity,
+    PatientExtraction,
+    SocialHistory,
+    UnifiedOntologyGuidedKGCreator,
+)
 
 
 @pytest.fixture
 def creator(monkeypatch: pytest.MonkeyPatch) -> UnifiedOntologyGuidedKGCreator:
-    embedding = Mock()
+    embedding: Mock = Mock()
     embedding.embed_documents.side_effect = lambda texts: [
         [1.0, 0.0, 0.0] for _ in texts
     ]
@@ -55,7 +61,7 @@ Alanine(ALT): 45
 SOCIAL HISTORY:
 former smoker quit alcohol and drug use
 """
-    demographics = creator._extract_patient_demographics(text)
+    demographics: PatientDemographics = creator._extract_patient_demographics(text)
     assert demographics == {
         "name": "Synthetic Person",
         "unit_no": "U1",
@@ -66,8 +72,10 @@ former smoker quit alcohol and drug use
         "service": "Unit",
         "attending": "Doctor",
     }
-    result = creator._extract_entities_and_relationships_for_patients(text)
-    types = {e["type"] for e in result["entities"]}
+    result: PatientExtraction = (
+        creator._extract_entities_and_relationships_for_patients(text)
+    )
+    types: set[str] = {e["type"] for e in result["entities"]}
     assert types == {
         "Patient",
         "MedicalCondition",
@@ -81,7 +89,9 @@ former smoker quit alcohol and drug use
         "HAS_LAB_RESULT",
         "HAS_SOCIAL_HISTORY",
     }
-    patient = next(e for e in result["entities"] if e["type"] == "Patient")
+    patient: PatientEntity = next(
+        e for e in result["entities"] if e["type"] == "Patient"
+    )
     assert all(r["source"] == patient["id"] for r in result["relationships"])
     assert creator._extract_entities_and_relationships_for_patients("") == {
         "entities": [],
@@ -101,7 +111,7 @@ former smoker quit alcohol and drug use
 def test_social_history_states(
     creator: UnifiedOntologyGuidedKGCreator, text: str, status: str
 ) -> None:
-    result = creator._extract_social_history("Social History:\n" + text)
+    result: SocialHistory = creator._extract_social_history("Social History:\n" + text)
     assert result["smoking_status"] == status
     if "alcohol" in text:
         assert result["alcohol_use"] == "present"
@@ -127,9 +137,9 @@ def test_bulk_documents_partial_failure_and_batch_accounting(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    path = tmp_path / "docs.csv"
+    path: Path = tmp_path / "docs.csv"
     path.write_text("id,text,source\na,alpha,A\nb,beta,B\nc,gamma,C\n")
-    generate = Mock(
+    generate: Mock = Mock(
         side_effect=[
             {"nodes": [], "relationships": [], "chunks": [{"id": "a"}]},
             RuntimeError("failed document"),
@@ -168,7 +178,7 @@ def test_creator_numeric_configuration_fallbacks(
         "KG_MAX_SUMMARY_RELATIONSHIPS",
     ]:
         monkeypatch.setenv(name, "invalid")
-    configured = UnifiedOntologyGuidedKGCreator()
+    configured: UnifiedOntologyGuidedKGCreator = UnifiedOntologyGuidedKGCreator()
     assert configured.retrieval_chunk_size == 256
     assert configured.retrieval_chunk_overlap == 64
     assert configured.min_triple_confidence == 0.15

@@ -1,6 +1,25 @@
 import re
 from collections import Counter
-from typing import Any
+from typing import Any, NotRequired, TypeVar, TypedDict
+from collections.abc import Hashable
+
+
+EvaluationKey = TypeVar("EvaluationKey", bound=Hashable)
+
+
+class PrecisionRecallReport(TypedDict):
+    true_positives: int
+    false_positives: int
+    false_negatives: int
+    precision: float
+    recall: float
+    f1: float
+    gold_count: NotRequired[int]
+    predicted_count: NotRequired[int]
+    gold_entities: NotRequired[int]
+    predicted_entities: NotRequired[int]
+    gold_triples: NotRequired[int]
+    predicted_triples: NotRequired[int]
 
 
 class EvaluationMixin:
@@ -131,16 +150,16 @@ class EvaluationMixin:
 
     @staticmethod
     def _kg_eval_pr_report(
-        predicted_keys: set,
-        gold_keys: set,
-    ) -> dict[str, Any]:
+        predicted_keys: set[EvaluationKey],
+        gold_keys: set[EvaluationKey],
+    ) -> PrecisionRecallReport:
         """Compute precision / recall / F1 for canonical key sets."""
-        tp = len(predicted_keys & gold_keys)
-        fp = len(predicted_keys - gold_keys)
-        fn = len(gold_keys - predicted_keys)
-        precision = tp / max(1, tp + fp)
-        recall = tp / max(1, tp + fn)
-        f1 = 2 * precision * recall / max(1e-9, precision + recall)
+        tp: int = len(predicted_keys & gold_keys)
+        fp: int = len(predicted_keys - gold_keys)
+        fn: int = len(gold_keys - predicted_keys)
+        precision: float = tp / max(1, tp + fp)
+        recall: float = tp / max(1, tp + fn)
+        f1: float = 2 * precision * recall / max(1e-9, precision + recall)
         return {
             "true_positives": tp,
             "false_positives": fp,
@@ -195,7 +214,7 @@ class EvaluationMixin:
         entity_lookup = self._kg_eval_entity_lookup(nodes)
 
         # ── Entity metrics ─────────────────────────────────────────────────
-        type_counts: dict[str, int] = Counter(
+        type_counts: Counter[str] = Counter(
             str(n.get("label") or n.get("type") or "Unknown") for n in nodes
         )
         anchor_grounded = sum(
@@ -212,7 +231,7 @@ class EvaluationMixin:
         n_entities = len(nodes)
 
         # degree distribution — entities appear as source/target in relationships
-        degree: dict[str, int] = Counter()
+        degree: Counter[str] = Counter()
         for rel in relationships:
             src = rel.get("source") or rel.get("from")
             tgt = rel.get("target") or rel.get("to")
@@ -256,7 +275,7 @@ class EvaluationMixin:
 
         # ── Relationship metrics ────────────────────────────────────────────
         n_rels = len(relationships)
-        rel_type_counts: dict[str, int] = Counter(
+        rel_type_counts: Counter[str] = Counter(
             str(r.get("type") or "UNKNOWN") for r in relationships
         )
         negated_count = sum(1 for r in relationships if r.get("negated"))
@@ -274,7 +293,7 @@ class EvaluationMixin:
         )
 
         # evidence scope distribution
-        scope_counts: dict[str, int] = Counter()
+        scope_counts: Counter[str] = Counter()
         confidence_values: list[float] = []
         for r in relationships:
             props = r.get("properties") or {}
@@ -320,7 +339,7 @@ class EvaluationMixin:
             for r in relationships
             if (r.get("properties") or {}).get("anchor_grounding")
         )
-        section_names: set = {
+        section_names: set[str] = {
             str(c.get("section_name") or "") for c in chunks if c.get("section_name")
         }
 
@@ -356,9 +375,9 @@ class EvaluationMixin:
         rel_pass_rate = n_rels / max(1, raw_rels_approx)
 
         # ── Precision / recall vs. gold ─────────────────────────────────────
-        entity_precision_recall: dict[str, Any] | None = None
-        relationship_precision_recall: dict[str, Any] | None = None
-        qualified_relationship_precision_recall: dict[str, Any] | None = None
+        entity_precision_recall: PrecisionRecallReport | None = None
+        relationship_precision_recall: PrecisionRecallReport | None = None
+        qualified_relationship_precision_recall: PrecisionRecallReport | None = None
         reference_nodes: list[dict[str, Any]] = []
         reference_relationships: list[dict[str, Any]] = []
         if isinstance(reference, dict):

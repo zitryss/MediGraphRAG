@@ -10,8 +10,73 @@ CSV Processors for Knowledge Graph bulk ingestion.
 
 import pandas as pd
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 from pathlib import Path
+
+
+if TYPE_CHECKING:
+    from pandas._typing import Scalar
+
+
+class CSVValidation(TypedDict):
+    is_valid: bool
+    delimiter: str
+    num_columns: int
+    column_names: list[str]
+    validation_errors: list[str]
+
+
+class MedicalCSVValidation(CSVValidation):
+    num_rows: int
+    field_mapping: dict[str, str]
+    error: NotRequired[str]
+
+
+class CSVValidationFailure(TypedDict):
+    is_valid: bool
+    delimiter: str
+    error: str
+    validation_errors: NotRequired[list[str]]
+
+
+class CSVDocument(TypedDict):
+    text: str
+    doc_id: str
+    row_index: int
+    metadata: "dict[str, Scalar]"
+
+
+class DocumentBatchMetadata(TypedDict):
+    total_documents: int
+    start_row: int
+    max_rows: int
+    columns: list[str]
+
+
+class DocumentBatch(TypedDict):
+    documents: list[CSVDocument]
+    metadata: DocumentBatchMetadata
+
+
+class MedicalReport(TypedDict):
+    sections: dict[str, str]
+    metadata: dict[str, str]
+    field_names: dict[str, str]
+    row_index: NotRequired[int]
+
+
+class MedicalBatchMetadata(TypedDict):
+    total_reports: int
+    start_row: int
+    max_rows: int | None
+    columns_processed: list[str]
+    validation_schema: MedicalCSVValidation | None
+
+
+class MedicalReportBatch(TypedDict):
+    reports: list[MedicalReport]
+    metadata: MedicalBatchMetadata
+    schema_info: MedicalCSVValidation | None
 
 
 class DocumentCSVProcessor:
@@ -33,17 +98,19 @@ class DocumentCSVProcessor:
                          is used ("row_0", "row_1", …).
             delimiter:   CSV field delimiter.
         """
-        self.text_column = text_column
-        self.id_column = id_column
-        self.delimiter = delimiter
+        self.text_column: str = text_column
+        self.id_column: str | None = id_column
+        self.delimiter: str = delimiter
 
-    def validate_csv_format(self, file_path: str) -> dict[str, Any]:
+    def validate_csv_format(self, file_path: str) -> CSVValidation:
         if not Path(file_path).exists():
             raise FileNotFoundError(f"CSV file not found: {file_path}")
 
-        df = pd.read_csv(file_path, sep=self.delimiter, nrows=5, encoding="utf-8")
+        df: pd.DataFrame = pd.read_csv(
+            file_path, sep=self.delimiter, nrows=5, encoding="utf-8"
+        )
 
-        errors = []
+        errors: list[str] = []
         if self.text_column not in df.columns:
             errors.append(
                 f"text_column '{self.text_column}' not found in CSV. "
@@ -68,7 +135,7 @@ class DocumentCSVProcessor:
         file_path: str,
         start_row: int = 0,
         max_rows: int = 50,
-    ) -> dict[str, Any]:
+    ) -> DocumentBatch:
         """
         Load a batch of documents from CSV.
 
@@ -91,7 +158,7 @@ class DocumentCSVProcessor:
                 },
             }
         """
-        df = pd.read_csv(
+        df: pd.DataFrame = pd.read_csv(
             file_path,
             sep=self.delimiter,
             skiprows=range(1, start_row + 1) if start_row > 0 else None,
@@ -99,20 +166,20 @@ class DocumentCSVProcessor:
             encoding="utf-8",
         )
 
-        documents = []
+        documents: list[CSVDocument] = []
         for local_idx, row in df.iterrows():
-            row_index = start_row + local_idx
-            text = str(row.get(self.text_column, "") or "")
+            row_index: int = start_row + local_idx
+            text: str = str(row.get(self.text_column, "") or "")
             if not text.strip():
                 continue
 
-            doc_id = (
+            doc_id: str = (
                 str(row[self.id_column])
                 if self.id_column and self.id_column in row
                 else f"row_{row_index}"
             )
 
-            metadata = {
+            metadata: dict[str, Scalar] = {
                 col: row[col]
                 for col in df.columns
                 if col != self.text_column
@@ -146,7 +213,7 @@ class MedicalReportCSVProcessor:
     """
 
     # Expected field names for medical report sections
-    EXPECTED_FIELDS = [
+    EXPECTED_FIELDS: list[str] = [
         "patient_id",
         "full_name",
         "date_of_birth",
@@ -178,10 +245,12 @@ class MedicalReportCSVProcessor:
         Args:
             delimiter: CSV field delimiter (default: '|' for pipe-delimited)
         """
-        self.delimiter = delimiter
-        self.validated_schema = None
+        self.delimiter: str = delimiter
+        self.validated_schema: MedicalCSVValidation | None = None
 
-    def validate_csv_format(self, file_path: str) -> dict[str, Any]:
+    def validate_csv_format(
+        self, file_path: str
+    ) -> MedicalCSVValidation | CSVValidationFailure:
         """
         Validate CSV file format and structure
 
@@ -197,7 +266,7 @@ class MedicalReportCSVProcessor:
                 raise FileNotFoundError(f"CSV file not found: {file_path}")
 
             # Test read with pipe delimiter
-            df_test = pd.read_csv(
+            df_test: pd.DataFrame = pd.read_csv(
                 file_path,
                 sep=self.delimiter,
                 nrows=5,  # Only read first few rows for validation
@@ -208,7 +277,7 @@ class MedicalReportCSVProcessor:
                 raise ValueError("CSV file is empty")
 
             # Check for expected field structure
-            validation_results = {
+            validation_results: MedicalCSVValidation = {
                 "is_valid": True,
                 "delimiter": self.delimiter,
                 "num_columns": len(df_test.columns),
@@ -226,16 +295,22 @@ class MedicalReportCSVProcessor:
 
             # Check if last column likely contains full report text (longer text)
             if len(df_test.columns) > 0:
-                last_col_samples = df_test.iloc[:, -1].astype(str)
-                avg_length = last_col_samples.str.len().mean()
+                last_col_samples: pd.Series[str] = df_test.iloc[:, -1].astype(str)
+                avg_length: float = last_col_samples.str.len().mean()
                 if avg_length < 100:  # Probably not full report text
                     validation_results["validation_errors"].append(
                         "Last column appears too short for full report text"
                     )
 
             # Check for common medical report fields
-            med_fields = ["history", "hospital", "medication", "diagnosis", "complaint"]
-            found_med_fields = [
+            med_fields: list[str] = [
+                "history",
+                "hospital",
+                "medication",
+                "diagnosis",
+                "complaint",
+            ]
+            found_med_fields: list[str] = [
                 col
                 for col in df_test.columns
                 if any(field in col.lower() for field in med_fields)
@@ -249,16 +324,18 @@ class MedicalReportCSVProcessor:
             # Auto-map expected fields to actual columns
             for expected in self.EXPECTED_FIELDS:
                 # Find best match (case-insensitive partial match)
-                best_match = None
-                best_score = 0
+                best_match: str | None = None
+                best_score: float = 0
 
                 for actual in df_test.columns:
                     # Calculate match score
-                    actual_lower = actual.lower().replace("_", "").replace(" ", "")
-                    expected_lower = expected.lower().replace("_", "").replace(" ", "")
+                    actual_lower: str = actual.lower().replace("_", "").replace(" ", "")
+                    expected_lower: str = (
+                        expected.lower().replace("_", "").replace(" ", "")
+                    )
 
                     if expected_lower in actual_lower:
-                        score = len(expected_lower) / len(actual_lower)
+                        score: float = len(expected_lower) / len(actual_lower)
                         if score > best_score:
                             best_score = score
                             best_match = actual
@@ -279,7 +356,7 @@ class MedicalReportCSVProcessor:
 
     def load_reports_bulk(
         self, file_path: str, start_row: int = 0, max_rows: int | None = None
-    ) -> dict[str, Any]:
+    ) -> MedicalReportBatch:
         """
         Load and process medical reports in bulk
 
@@ -293,14 +370,16 @@ class MedicalReportCSVProcessor:
         """
         try:
             if not self.validated_schema:
-                validation = self.validate_csv_format(file_path)
+                validation: MedicalCSVValidation | CSVValidationFailure = (
+                    self.validate_csv_format(file_path)
+                )
                 if not validation["is_valid"]:
                     raise ValueError(
                         f"CSV validation failed: {validation.get('validation_errors', [])}"
                     )
 
             # Load CSV with optimized settings
-            df = pd.read_csv(
+            df: pd.DataFrame = pd.read_csv(
                 file_path,
                 sep=self.delimiter,
                 skiprows=range(1, start_row + 1) if start_row > 0 else None,
@@ -311,16 +390,16 @@ class MedicalReportCSVProcessor:
             ).fillna("")
 
             # Apply field mapping to expected fields
-            mapped_df = df.copy()
+            mapped_df: pd.DataFrame = df.copy()
             if self.validated_schema.get("field_mapping"):
                 for expected, actual in self.validated_schema["field_mapping"].items():
                     if actual in df.columns:
                         mapped_df[expected] = df[actual]
 
             # Process each row into structured report format
-            processed_reports = []
+            processed_reports: list[MedicalReport] = []
             for idx, row in mapped_df.iterrows():
-                report = self._process_single_report(row)
+                report: MedicalReport = self._process_single_report(row)
                 report["row_index"] = idx + start_row
                 processed_reports.append(report)
 
@@ -340,7 +419,7 @@ class MedicalReportCSVProcessor:
             logging.error(f"Bulk processing failed: {e}")
             raise
 
-    def _process_single_report(self, row: pd.Series) -> dict[str, Any]:
+    def _process_single_report(self, row: "pd.Series[str]") -> MedicalReport:
         """
         Process a single report row into structured format
 
@@ -350,7 +429,7 @@ class MedicalReportCSVProcessor:
         Returns:
             Structured report dictionary
         """
-        report = {"sections": {}, "metadata": {}, "field_names": {}}
+        report: MedicalReport = {"sections": {}, "metadata": {}, "field_names": {}}
 
         # Extract demographic information
         report["metadata"] = {
@@ -366,7 +445,7 @@ class MedicalReportCSVProcessor:
         }
 
         # Extract and validate sectioned data
-        sections_mapping = {
+        sections_mapping: dict[str, str] = {
             "chief_complaint": row.get("chief_complaint", ""),
             "history_present_illness_hopi": row.get("history_present_illness_hopi", ""),
             "past_medical_history_pmh": row.get("past_medical_history_pmh", ""),
@@ -389,7 +468,7 @@ class MedicalReportCSVProcessor:
         for section_name, content in sections_mapping.items():
             if content and str(content).strip():
                 # Basic validation - check if content is not just whitespace
-                cleaned_content = str(content).strip()
+                cleaned_content: str = str(content).strip()
                 if len(cleaned_content) > 10:  # Minimum meaningful content length
                     report["sections"][section_name] = cleaned_content
                 else:
@@ -408,11 +487,11 @@ class MedicalReportCSVProcessor:
             num_sample_rows: Number of sample rows to include
         """
         # Create template DataFrame with expected structure
-        template_data = []
-        sample_data = self._generate_sample_data()
+        template_data: list[dict[str, str]] = []
+        sample_data: dict[str, list[str]] = self._generate_sample_data()
 
         for i in range(num_sample_rows):
-            row_data = {}
+            row_data: dict[str, str] = {}
             for field in self.EXPECTED_FIELDS:
                 if field in sample_data:
                     row_data[field] = sample_data[field][i % len(sample_data[field])]
@@ -420,7 +499,7 @@ class MedicalReportCSVProcessor:
                     row_data[field] = f"Sample {field.replace('_', ' ').title()}"
             template_data.append(row_data)
 
-        df_template = pd.DataFrame(template_data)
+        df_template: pd.DataFrame = pd.DataFrame(template_data)
 
         # Write to CSV with pipe delimiter
         df_template.to_csv(
@@ -663,6 +742,8 @@ def create_medical_csv_template(
     processor = MedicalReportCSVProcessor()
     processor.create_csv_template(template_path)
 
+
+processor: MedicalReportCSVProcessor
 
 if __name__ == "__main__":
     # Example usage: create template and validate
