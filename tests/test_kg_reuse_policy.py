@@ -7,28 +7,16 @@ Pure unit tests — no live Neo4j or dataset loading required.
 import os
 import sys
 
-from typing_extensions import TypedDict
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.kg_reuse import assess_dataset_kg_compatibility
+from experiments.kg_reuse import (
+    ExistingKGMetadata,
+    ExpectedKGMetadata,
+    assess_dataset_kg_compatibility,
+)
 
 DATASET_KG_SCOPE_EVALUATION_SUBSET: str = "evaluation_subset"
 DATASET_KG_SCOPE_FULL_DATASET: str = "full_dataset"
-
-
-class ExistingKGMetadata(TypedDict, total=False):
-    uses_global_corpus: bool
-    dataset_kg_scope: str
-    selection_key: str
-    content_hash: str
-
-
-class ExpectedKGMetadata(TypedDict, total=False):
-    usesGlobalCorpus: bool
-    datasetKgScope: str
-    selectionKey: str
-    contentHash: str
 
 
 class TestDatasetKGCompatibility:

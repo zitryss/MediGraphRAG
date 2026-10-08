@@ -16,6 +16,21 @@ if TYPE_CHECKING:
 import pytest
 
 
+class ScopeChunk(TypedDict):
+    chunk_id: str
+    kg_name: str
+    question_id: str
+    document: str
+
+
+class ScopeContext(TypedDict):
+    chunks: list[ScopeChunk]
+
+
+class ScopeResponse(TypedDict):
+    context: ScopeContext
+
+
 class SamplingCall(TypedDict, total=False):
     question: str
     llm: object
@@ -114,7 +129,7 @@ def test_validate_retrieval_scope_rejects_cross_question_chunks(
     experiment_module: ExperimentModule,
 ) -> None:
     benchmark: MIRAGEEvaluationPipeline = _make_benchmark(experiment_module)
-    rag_result: SamplingResponse = {
+    rag_result: ScopeResponse = {
         "context": {
             "chunks": [
                 {
@@ -142,7 +157,7 @@ def test_validate_retrieval_scope_allows_matching_question_scope(
     experiment_module: ExperimentModule,
 ) -> None:
     benchmark: MIRAGEEvaluationPipeline = _make_benchmark(experiment_module)
-    rag_result: SamplingResponse = {
+    rag_result: ScopeResponse = {
         "context": {
             "chunks": [
                 {

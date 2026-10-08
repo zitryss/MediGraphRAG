@@ -2,11 +2,19 @@ import pytest
 
 from experiments import dataset_adapters as dataset_adapters_module
 from experiments.dataset_adapters import (
+    BioASQRecord,
     ContextPassage,
     DatasetCorpusProfile,
     GoldRecord,
+    HopCountRecord,
+    HotpotQARecord,
     InferenceRecord,
+    MedHopRecord,
+    MedQARecord,
+    MultiHopRAGRecord,
+    RealMedQARecord,
     TaskType,
+    TwoWikiRecord,
     adapt_2wikimultihopqa,
     adapt_bioasq,
     adapt_hotpotqa,
@@ -21,8 +29,32 @@ from experiments.dataset_adapters import (
 )
 
 
+class MedHopFixture(MedHopRecord):
+    query: str
+    supports: list[str]
+
+
+class MedQAFixture(MedQARecord):
+    options: dict[str, str]
+
+
+class MultiHopRAGFixture(MultiHopRAGRecord):
+    query: str
+    question_type: str
+
+
+class TwoWikiFixture(TwoWikiRecord):
+    evidences: list[list[str]]
+
+
+class RealMedQAFixture(RealMedQARecord):
+    Question: str
+    Recommendation: str
+    Generator: str
+
+
 def test_adapt_medhop_maps_supports_and_candidates() -> None:
-    raw: dict[str, str | list[str]] = {
+    raw: MedHopFixture = {
         "id": "medhop_1",
         "query": "Which protein mediates the interaction between drug A and drug B?",
         "answer": "Protein X",
@@ -51,7 +83,7 @@ def test_adapt_medhop_maps_supports_and_candidates() -> None:
 
 
 def test_adapt_medqa_handles_letter_answer_idx() -> None:
-    raw: dict[str, str | dict[str, str]] = {
+    raw: MedQAFixture = {
         "question": "Which action is correct?",
         "options": {
             "A": "Option A",
@@ -76,7 +108,7 @@ def test_adapt_medqa_handles_letter_answer_idx() -> None:
 
 
 def test_adapt_multihoprag_maps_query_answer_and_evidence() -> None:
-    raw: dict[str, str | list[dict[str, str]]] = {
+    raw: MultiHopRAGFixture = {
         "query": "Did the Reuters piece come before the AP piece?",
         "answer": "yes",
         "question_type": "temporal_query",
@@ -119,7 +151,7 @@ def test_adapt_multihoprag_maps_query_answer_and_evidence() -> None:
 
 
 def test_adapt_bioasq_factoid_preserves_aliases() -> None:
-    raw: dict[str, str | list[list[str]] | list[dict[str, str]]] = {
+    raw: BioASQRecord = {
         "id": "bioasq_1",
         "body": "What drug is also known as acetylsalicylic acid?",
         "type": "factoid",
@@ -138,7 +170,7 @@ def test_adapt_bioasq_factoid_preserves_aliases() -> None:
 
 
 def test_adapt_2wiki_does_not_infer_aliases_from_evidences() -> None:
-    raw: dict[str, str | list[list[str | list[str]]]] = {
+    raw: TwoWikiFixture = {
         "_id": "2wiki_1",
         "question": "Who is the mother of the director of Polish-Russian War?",
         "answer": "Małgorzata Braunek",
@@ -163,7 +195,7 @@ def test_bioasq_profile_marks_question_contexts_as_gold_evidence() -> None:
 
 
 def test_adapt_realmedqa_uses_question_only_and_recommendation_as_gold() -> None:
-    raw: dict[str, str] = {
+    raw: RealMedQAFixture = {
         "Question": "How should beta-blockers be titrated in heart failure?",
         "Recommendation": "Introduce beta-blockers in a start low, go slow manner and monitor after each titration.",
         "Generator": "LLM",
@@ -284,7 +316,7 @@ def test_realmedqa_shared_corpus_uses_verified_ideal_subset(
 
 
 def test_infer_hop_count_from_raw_uses_question_decomposition_when_present() -> None:
-    raw: dict[str, list[dict[str, str]]] = {
+    raw: HopCountRecord = {
         "question_decomposition": [
             {"q": "step 1"},
             {"q": "step 2"},
@@ -296,20 +328,20 @@ def test_infer_hop_count_from_raw_uses_question_decomposition_when_present() -> 
 
 
 def test_infer_hop_count_from_raw_uses_dataset_specific_evidence_fields() -> None:
-    multihoprag_raw: dict[str, list[dict[str, str]]] = {
+    multihoprag_raw: HopCountRecord = {
         "evidence_list": [
             {"fact": "A"},
             {"fact": "B"},
             {"fact": "C"},
         ]
     }
-    twowiki_raw: dict[str, list[list[str]]] = {
+    twowiki_raw: HopCountRecord = {
         "evidences": [
             ["A", "rel", "B"],
             ["B", "rel", "C"],
         ]
     }
-    hotpot_raw: dict[str, list[list[str | int]]] = {
+    hotpot_raw: HopCountRecord = {
         "supporting_facts": [
             ["Title A", 0],
             ["Title B", 1],
@@ -359,7 +391,7 @@ def test_build_passage_corpus_preserves_question_local_duplicates_when_requested
 
 
 def test_build_passage_corpus_preserves_structured_titles_with_periods() -> None:
-    raw: dict[str, str | list[list[str | list[str]]]] = {
+    raw: HotpotQARecord = {
         "_id": "hp1",
         "question": "Which film starred James Bond?",
         "answer": "dr. no",

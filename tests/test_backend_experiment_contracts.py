@@ -16,11 +16,14 @@ from tests.offline_support import ExperimentModule
 
 if TYPE_CHECKING:
     from experiments.experiment import (
+        CheckpointDetail,
         EvaluationConfig,
+        FreshDetail,
         MIRAGEEvaluationPipeline,
         RoutingDistribution,
         SamplingGenerateOptions,
     )
+    from experiments.experiment import EvaluationOutcome as ProducedEvaluationOutcome
     from ontographrag.rag.graph_state import GraphStateSummary
     from ontographrag.rag.systems._response_records import GenerationResponse
 
@@ -527,7 +530,7 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
         if mode == "kg_only"
         else {"name": "unit"}
     )
-    result: EvaluationOutcome = pipeline._run_evaluation_on_dataset(
+    result: ProducedEvaluationOutcome = pipeline._run_evaluation_on_dataset(
         "pubmedqa",
         config=config,
     )
@@ -536,7 +539,7 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
         kg.generate_response.assert_not_called()
         return
     if mode in {"metrics", "metrics_failed"}:
-        detail: EvaluationDetail = result["details"][0]
+        detail: FreshDetail | CheckpointDetail = result["details"][0]
         assert detail["kg_graph_path_support"] == (
             0.5 if mode == "metrics_failed" else 0.25
         )

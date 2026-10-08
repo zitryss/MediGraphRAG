@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from experiments.prepare_bioasq_corpus import (
+    PubMedAbstract,
     extract_pmid_from_url,
     load_bioasq_pmids,
     parse_pubmed_article_xml,
@@ -58,7 +59,7 @@ def test_parse_pubmed_article_xml_extracts_title_and_abstract() -> None:
     </PubmedArticleSet>
     """.strip()
 
-    records: dict[str, dict[str, str]] = parse_pubmed_article_xml(xml)
+    records: dict[str, PubMedAbstract] = parse_pubmed_article_xml(xml)
     assert records["34022131"]["title"] == "Sample title"
     assert (
         records["34022131"]["abstract"]
