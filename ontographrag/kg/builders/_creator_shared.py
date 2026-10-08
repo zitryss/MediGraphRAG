@@ -1,6 +1,9 @@
 """Shared constants and helpers for the KG creator modules."""
 
 import re
+from typing import Generic, NotRequired, Protocol, TypeAlias, TypedDict, TypeVar
+
+from typing_extensions import ReadOnly
 
 # Minimum character length for an entity name (after stripping whitespace).
 # Single-character or two-character tokens are almost always stop-words or
@@ -254,3 +257,124 @@ def _env_flag(value: str | None, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+AnchorOffset: TypeAlias = int | float | str | None
+
+
+class AnchorSpanInput(TypedDict, total=False):
+    text: ReadOnly[object]
+    start: ReadOnly[AnchorOffset]
+    end: ReadOnly[AnchorOffset]
+    chunk_position: ReadOnly[AnchorOffset]
+    local_start: ReadOnly[AnchorOffset]
+    local_end: ReadOnly[AnchorOffset]
+
+
+class AnchorSpan(TypedDict):
+    text: ReadOnly[str]
+    start: ReadOnly[AnchorOffset]
+    end: ReadOnly[AnchorOffset]
+    chunk_position: ReadOnly[AnchorOffset]
+    local_start: ReadOnly[AnchorOffset]
+    local_end: ReadOnly[AnchorOffset]
+
+
+class ExactAnchorSpan(AnchorSpan):
+    start: ReadOnly[int]
+    end: ReadOnly[int]
+    chunk_position: ReadOnly[int | None]
+    local_start: ReadOnly[int]
+    local_end: ReadOnly[int]
+
+
+AnchorGrounding: TypeAlias = dict[str, list[AnchorSpan]]
+
+
+class RestorationRecord(TypedDict):
+    status: str
+    verified: bool
+    grounded_components: list[str]
+    grounded_count: int
+    anchor_grounding: NotRequired[AnchorGrounding]
+
+
+class EntityAnchor(TypedDict):
+    text: str
+    type: str
+    anchor_spans: list[ExactAnchorSpan]
+
+
+class RelationAnchor(TypedDict):
+    text: str
+    type_hint: str
+    anchor_spans: list[ExactAnchorSpan]
+
+
+class AttributeAnchor(TypedDict):
+    text: str
+    role: str
+    anchor_spans: list[ExactAnchorSpan]
+
+
+class AnchorInventory(TypedDict):
+    entity_anchors: list[EntityAnchor]
+    relation_anchors: list[RelationAnchor]
+    attribute_anchors: list[AttributeAnchor]
+
+
+GroupEntity = TypeVar("GroupEntity")
+
+
+class PassageGroup(TypedDict, Generic[GroupEntity]):
+    group_key: tuple[str, str]
+    texts: list[str]
+    entities: dict[int, list[GroupEntity]]
+    positions: dict[int, list[int]]
+    source_label: str
+
+
+# These aliases describe decoded JSON only, not normalized graph records or
+# arbitrary application properties (which may contain non-JSON Python values).
+DecodedJSONValue: TypeAlias = (
+    str
+    | int
+    | float
+    | bool
+    | None
+    | list["DecodedJSONValue"]
+    | dict[str, "DecodedJSONValue"]
+)
+DecodedJSONObject: TypeAlias = dict[str, DecodedJSONValue]
+
+
+class RetrievalSubchunk(TypedDict):
+    id: str
+    text: str
+    embedding: list[float] | None
+    retrieval_local_index: int
+    start_pos: int
+    end_pos: int
+    position: int
+    source: str | None
+    dataset: str | None
+    question_id: str | None
+    passage_index: int | None
+    chunk_local_index: int
+    parent_chunk_id: str
+
+
+class ContextPassageInput(Protocol):
+    """Core passage fields; optional provenance is accessed through getattr."""
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def dataset(self) -> str: ...
+
+    @property
+    def question_id(self) -> str: ...
+
+    @property
+    def passage_index(self) -> int: ...

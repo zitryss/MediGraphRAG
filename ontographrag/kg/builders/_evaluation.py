@@ -1,7 +1,17 @@
 import re
 from collections import Counter
-from typing import TYPE_CHECKING, Any, NotRequired, TypeVar, TypedDict
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
+from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeVar, cast
+
+if TYPE_CHECKING:
+    from ontographrag.kg.builders.ontology_guided_kg_creator import (
+        EntityNode,
+        GraphChunkInput,
+        GraphMetadata,
+        GraphRelationship,
+        KnowledgeGraphInput,
+        RelationshipRecord,
+    )
 
 
 EvaluationKey = TypeVar("EvaluationKey", bound=Hashable)
@@ -20,6 +30,25 @@ class PrecisionRecallReport(TypedDict):
     predicted_entities: NotRequired[int]
     gold_triples: NotRequired[int]
     predicted_triples: NotRequired[int]
+
+
+class PrecisionRecallMetrics(TypedDict):
+    true_positives: int
+    false_positives: int
+    false_negatives: int
+    precision: float
+    recall: float
+    f1: float
+
+
+class EntityPrecisionRecallReport(PrecisionRecallMetrics):
+    gold_entities: int
+    predicted_entities: int
+
+
+class RelationshipPrecisionRecallReport(PrecisionRecallMetrics):
+    gold_triples: int
+    predicted_triples: int
 
 
 class EvaluationRelationshipRecord(TypedDict):
@@ -117,10 +146,12 @@ class KGEvaluation(TypedDict):
     relationship_metrics: RelationshipMetrics
     grounding_metrics: GroundingMetrics
     pipeline_metrics: PipelineMetrics
-    entity_precision_recall: NotRequired[PrecisionRecallReport]
-    relationship_precision_recall: NotRequired[PrecisionRecallReport]
-    precision_recall: NotRequired[PrecisionRecallReport]
-    qualified_relationship_precision_recall: NotRequired[PrecisionRecallReport]
+    entity_precision_recall: NotRequired[EntityPrecisionRecallReport]
+    relationship_precision_recall: NotRequired[RelationshipPrecisionRecallReport]
+    precision_recall: NotRequired[RelationshipPrecisionRecallReport]
+    qualified_relationship_precision_recall: NotRequired[
+        RelationshipPrecisionRecallReport
+    ]
 
 
 class EvaluationMixin:
@@ -145,17 +176,17 @@ class EvaluationMixin:
     @classmethod
     def _kg_eval_entity_lookup(
         cls,
-        nodes: list[dict[str, Any]],
+        nodes: "Sequence[EntityNode]",
     ) -> dict[str, dict[str, str]]:
         """Return id -> canonical entity metadata for evaluation helpers."""
         lookup: dict[str, dict[str, str]] = {}
         for node in nodes or []:
-            props = node.get("properties") or {}
-            entity_id = str(node.get("id") or props.get("id") or "").strip()
+            props: dict[str, object] = node.get("properties") or {}
+            entity_id: str = str(node.get("id") or props.get("id") or "").strip()
             if not entity_id:
                 continue
-            name = str(props.get("name") or node.get("name") or entity_id).strip()
-            entity_type = str(
+            name: str = str(props.get("name") or node.get("name") or entity_id).strip()
+            entity_type: str = str(
                 node.get("label")
                 or node.get("type")
                 or props.get("type")
@@ -174,12 +205,12 @@ class EvaluationMixin:
     @classmethod
     def _kg_eval_entity_keys(
         cls,
-        nodes: list[dict[str, Any]],
+        nodes: "Sequence[EntityNode]",
     ) -> dict[str, dict[str, str]]:
         """Return canonical entity key -> display metadata."""
         records: dict[str, dict[str, str]] = {}
         for info in cls._kg_eval_entity_lookup(nodes).values():
-            key = f"{info['name_key']}||{info['type_key']}"
+            key: str = f"{info['name_key']}||{info['type_key']}"
             records[key] = {
                 "id": info["id"],
                 "name": info["name"],
@@ -190,19 +221,23 @@ class EvaluationMixin:
     @classmethod
     def _kg_eval_relationship_records(
         cls,
-        relationships: list[dict[str, Any]],
+        relationships: "Sequence[RelationshipRecord]",
         entity_lookup: dict[str, dict[str, str]],
     ) -> list[EvaluationRelationshipRecord]:
         """Return canonical relationship records for evaluation comparisons."""
         records: list[EvaluationRelationshipRecord] = []
         for rel in relationships or []:
-            props = rel.get("properties") or {}
+            props: dict[str, object] = rel.get("properties") or {}
             rel_type: str = str(rel.get("type") or props.get("type") or "").strip()
             if not rel_type:
                 continue
 
-            source_ref = rel.get("source") or rel.get("from") or props.get("source")
-            target_ref = rel.get("target") or rel.get("to") or props.get("target")
+            source_ref: object = (
+                rel.get("source") or rel.get("from") or props.get("source")
+            )
+            target_ref: object = (
+                rel.get("target") or rel.get("to") or props.get("target")
+            )
             source_ref = str(source_ref or "").strip()
             target_ref = str(target_ref or "").strip()
 
@@ -279,10 +314,10 @@ class EvaluationMixin:
 
     def evaluate_knowledge_graph(
         self,
-        kg: dict[str, Any],
+        kg: "KnowledgeGraphInput",
         *,
-        reference: Any | None = None,
-        reference_triples: list[dict[str, Any]] | None = None,
+        reference: "KnowledgeGraphInput | list[GraphRelationship] | None" = None,
+        reference_triples: "list[GraphRelationship] | None" = None,
         print_report: bool = True,
     ) -> KGEvaluation:
         """Compute quality metrics for a built KG and optionally compare to a gold set.
@@ -313,11 +348,11 @@ class EvaluationMixin:
         ``grounding_metrics``, ``pipeline_metrics``, and optionally
         ``entity_precision_recall`` / ``relationship_precision_recall``.
         """
-        nodes = kg.get("nodes") or []
-        relationships = kg.get("relationships") or []
-        chunks = kg.get("chunks") or []
-        meta = kg.get("metadata") or {}
-        entity_lookup = self._kg_eval_entity_lookup(nodes)
+        nodes: Sequence[EntityNode] = kg.get("nodes") or []
+        relationships: Sequence[RelationshipRecord] = kg.get("relationships") or []
+        chunks: Sequence[GraphChunkInput] = kg.get("chunks") or []
+        meta: GraphMetadata = kg.get("metadata") or {}
+        entity_lookup: dict[str, dict[str, str]] = self._kg_eval_entity_lookup(nodes)
 
         # ── Entity metrics ─────────────────────────────────────────────────
         type_counts: Counter[str] = Counter(
@@ -339,8 +374,8 @@ class EvaluationMixin:
         # degree distribution — entities appear as source/target in relationships
         degree: Counter[str] = Counter()
         for rel in relationships:
-            src = rel.get("source") or rel.get("from")
-            tgt = rel.get("target") or rel.get("to")
+            src: str | None = rel.get("source") or rel.get("from")
+            tgt: str | None = rel.get("target") or rel.get("to")
             if src:
                 degree[str(src)] += 1
             if tgt:
@@ -355,7 +390,7 @@ class EvaluationMixin:
         isolated_entities: int = n_entities - len(degree)
         degree_buckets: dict[str, int] = {"0": 0, "1": 0, "2-4": 0, "5-9": 0, "10+": 0}
         for node in nodes:
-            entity_id = str(node.get("id") or "").strip()
+            entity_id: str = str(node.get("id") or "").strip()
             node_degree: int = int(degree.get(entity_id, 0))
             if node_degree <= 0:
                 degree_buckets["0"] += 1
@@ -369,7 +404,7 @@ class EvaluationMixin:
                 degree_buckets["10+"] += 1
         top_hub_entities: list[HubEntity] = []
         for entity_id, node_degree in degree.most_common(10):
-            info = entity_lookup.get(entity_id, {})
+            info: dict[str, str] = entity_lookup.get(entity_id, {})
             top_hub_entities.append(
                 {
                     "id": entity_id,
@@ -402,10 +437,10 @@ class EvaluationMixin:
         scope_counts: Counter[str] = Counter()
         confidence_values: list[float] = []
         for r in relationships:
-            props = r.get("properties") or {}
-            scope = props.get("evidence_scope") or "unknown"
+            props: dict[str, object] = r.get("properties") or {}
+            scope: object = props.get("evidence_scope") or "unknown"
             scope_counts[scope] += 1
-            raw_conf = props.get("confidence")
+            raw_conf: object = props.get("confidence")
             if raw_conf not in (None, "", "null", "NULL"):
                 confidence_values.append(self._confidence_score(raw_conf))
 
@@ -475,7 +510,9 @@ class EvaluationMixin:
         relationships_reverified_rejected: int = meta.get(
             "relationships_reverified_rejected", 0
         )
-        relationship_store_ratio = meta.get("relationship_store_ratio")
+        relationship_store_ratio: float | str | None = meta.get(
+            "relationship_store_ratio"
+        )
 
         raw_entities_approx: int = n_entities + dropped_entities
         entity_pass_rate: float = n_entities / max(1, raw_entities_approx)
@@ -488,8 +525,8 @@ class EvaluationMixin:
         entity_precision_recall: PrecisionRecallReport | None = None
         relationship_precision_recall: PrecisionRecallReport | None = None
         qualified_relationship_precision_recall: PrecisionRecallReport | None = None
-        reference_nodes: list[dict[str, Any]] = []
-        reference_relationships: list[dict[str, Any]] = []
+        reference_nodes: Sequence[EntityNode] = []
+        reference_relationships: Sequence[RelationshipRecord] = []
         if isinstance(reference, dict):
             reference_nodes = list(
                 reference.get("nodes") or reference.get("entities") or []
@@ -519,7 +556,7 @@ class EvaluationMixin:
             )
 
         if reference_relationships:
-            reference_lookup = dict(entity_lookup)
+            reference_lookup: dict[str, dict[str, str]] = dict(entity_lookup)
             reference_lookup.update(self._kg_eval_entity_lookup(reference_nodes))
             pred_relationship_records: list[EvaluationRelationshipRecord] = (
                 self._kg_eval_relationship_records(
@@ -660,15 +697,22 @@ class EvaluationMixin:
             },
         }
         if entity_precision_recall is not None:
-            report["entity_precision_recall"] = entity_precision_recall
+            report["entity_precision_recall"] = cast(
+                EntityPrecisionRecallReport, entity_precision_recall
+            )
         if relationship_precision_recall is not None:
-            report["relationship_precision_recall"] = relationship_precision_recall
+            report["relationship_precision_recall"] = cast(
+                RelationshipPrecisionRecallReport, relationship_precision_recall
+            )
             # Backward-compatible alias for earlier callers that only expected
             # relationship-level precision / recall.
-            report["precision_recall"] = relationship_precision_recall
+            report["precision_recall"] = cast(
+                RelationshipPrecisionRecallReport, relationship_precision_recall
+            )
         if qualified_relationship_precision_recall is not None:
-            report["qualified_relationship_precision_recall"] = (
-                qualified_relationship_precision_recall
+            report["qualified_relationship_precision_recall"] = cast(
+                RelationshipPrecisionRecallReport,
+                qualified_relationship_precision_recall,
             )
 
         if print_report:
@@ -680,11 +724,11 @@ class EvaluationMixin:
     def _print_kg_evaluation_report(report: KGEvaluation) -> None:
         """Print a human-readable KG evaluation report to stdout."""
         sep: str = "─" * 60
-        s = report["summary"]
-        em = report["entity_metrics"]
-        rm = report["relationship_metrics"]
-        gm = report["grounding_metrics"]
-        pm = report["pipeline_metrics"]
+        s: EvaluationSummary = report["summary"]
+        em: EntityMetrics = report["entity_metrics"]
+        rm: RelationshipMetrics = report["relationship_metrics"]
+        gm: GroundingMetrics = report["grounding_metrics"]
+        pm: PipelineMetrics = report["pipeline_metrics"]
 
         lines: list[str] = [
             sep,
@@ -733,7 +777,7 @@ class EvaluationMixin:
         for scope, cnt in sorted(
             rm["evidence_scope_distribution"].items(), key=lambda x: -x[1]
         ):
-            pct = round(100 * cnt / max(1, s["relationships"]), 1)
+            pct: float = round(100 * cnt / max(1, s["relationships"]), 1)
             lines.append(f"    {scope:<25} {cnt}  ({pct}%)")
 
         lines += [
@@ -759,22 +803,22 @@ class EvaluationMixin:
         ]
 
         if "entity_precision_recall" in report:
-            pr = report["entity_precision_recall"]
+            entity_pr: EntityPrecisionRecallReport = report["entity_precision_recall"]
             lines += [
                 "",
                 "── ENTITY PRECISION / RECALL vs. GOLD ──────────────────────",
-                f"  Gold entities   : {pr['gold_entities']}",
-                f"  Predicted       : {pr['predicted_entities']}",
-                f"  True positives  : {pr['true_positives']}",
-                f"  False positives : {pr['false_positives']}",
-                f"  False negatives : {pr['false_negatives']}",
-                f"  Precision       : {pr['precision']}",
-                f"  Recall          : {pr['recall']}",
-                f"  F1              : {pr['f1']}",
+                f"  Gold entities   : {entity_pr['gold_entities']}",
+                f"  Predicted       : {entity_pr['predicted_entities']}",
+                f"  True positives  : {entity_pr['true_positives']}",
+                f"  False positives : {entity_pr['false_positives']}",
+                f"  False negatives : {entity_pr['false_negatives']}",
+                f"  Precision       : {entity_pr['precision']}",
+                f"  Recall          : {entity_pr['recall']}",
+                f"  F1              : {entity_pr['f1']}",
             ]
 
         if "precision_recall" in report:
-            pr = report["precision_recall"]
+            pr: RelationshipPrecisionRecallReport = report["precision_recall"]
             lines += [
                 "",
                 "── PRECISION / RECALL vs. GOLD ──────────────────────────────",

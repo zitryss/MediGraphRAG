@@ -1,14 +1,40 @@
-from collections.abc import Sequence
-from ontographrag.kg.chunking import ChunkGroundingInput, TextChunk
 import hashlib
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, cast
 
+from ontographrag.kg.builders._creator_shared import (
+    AnchorGrounding,
+    AnchorInventory,
+    AnchorOffset,
+    AnchorSpan,
+    AnchorSpanInput,
+    ContextPassageInput,
+    DecodedJSONObject,
+    DecodedJSONValue,
+    EntityAnchor,
+    ExactAnchorSpan,
+    GroupEntity,
+    PassageGroup,
+    RestorationRecord,
+)
+from ontographrag.kg.chunking import ChunkGroundingInput, TextChunk
 
 if TYPE_CHECKING:
-    from ontographrag.providers.model_providers import ModelProvider
+    from ontographrag.kg.builders.ontology_guided_kg_creator import (
+        ClaimRecord,
+        EntityNode,
+        FragmentationBridge,
+        GraphChunkInput,
+        GraphComponent,
+        GraphNode,
+        GraphRelationship,
+        RelationshipRecord,
+        SectionSegment,
+    )
+    from ontographrag.providers.model_providers import ModelOutput, ModelProvider
 
 
 class EnrichmentMixin:
@@ -21,11 +47,79 @@ class EnrichmentMixin:
     if TYPE_CHECKING:
         _triple_reverification_cache: dict[str, bool]
 
+        def _build_section_segments(
+            self,
+            text: str,
+            *,
+            section_headers: list[tuple[int, str]] | None = None,
+        ) -> list[SectionSegment]: ...
+
+        @staticmethod
+        def _confidence_score(value: object) -> float: ...
+
+        @staticmethod
+        def _cosine_similarity(
+            left: Sequence[float | str] | None, right: Sequence[float | str] | None
+        ) -> float: ...
+
+        def _entity_candidate_names(self, entity: "EntityNode") -> list[str]: ...
+
+        def _extract_relationships_for_segment_windows(
+            self,
+            segment_texts: list[str],
+            segment_entities: "dict[int, list[GraphNode]]",
+            segment_positions: dict[int, list[int]],
+            llm: "ModelProvider | None",
+            model_name: str,
+            *,
+            max_window_size: int,
+            scope_label: str,
+            relationship_scope_metadata: Mapping[str, str | int | None] | None = None,
+        ) -> "list[GraphRelationship]": ...
+
+        def _find_exact_text_spans(
+            self,
+            text: str,
+            candidates: list[str],
+            *,
+            start_offset: int = 0,
+            chunk_position: int | None = None,
+            max_matches_per_candidate: int = 12,
+        ) -> list[ExactAnchorSpan]: ...
+
+        def _names_pass_synonym_guard(
+            self, left_name: str, right_name: str
+        ) -> bool: ...
+
+        def _normalize_entity_text(self, text: str) -> str: ...
+
+        def _parse_llm_json_response(
+            self,
+            response: object,
+            *,
+            allow_partial_extraction: bool = False,
+            empty_result: DecodedJSONObject | None = None,
+        ) -> DecodedJSONObject: ...
+
+        def _soft_entity_alias_keys(self, name: str) -> list[str]: ...
+
     @classmethod
-    def _merge_anchor_spans(cls, *span_groups: Any) -> list[dict[str, Any]]:
+    def _merge_anchor_spans(
+        cls,
+        *span_groups: "Sequence[AnchorSpanInput | str | int | float | None] | str | None",
+    ) -> list[AnchorSpan]:
         """Merge and deduplicate anchor span dicts."""
-        merged: list[dict[str, Any]] = []
-        seen = set()
+        merged: list[AnchorSpan] = []
+        seen: set[
+            tuple[
+                AnchorOffset,
+                AnchorOffset,
+                str,
+                AnchorOffset,
+                AnchorOffset,
+                AnchorOffset,
+            ]
+        ] = set()
         for group in span_groups:
             if not group:
                 continue
@@ -39,13 +133,20 @@ class EnrichmentMixin:
             for span in group:
                 if not isinstance(span, dict):
                     continue
-                start = span.get("start")
-                end = span.get("end")
-                text = str(span.get("text") or "").strip()
-                chunk_position = span.get("chunk_position")
-                local_start = span.get("local_start")
-                local_end = span.get("local_end")
-                key = (start, end, text, chunk_position, local_start, local_end)
+                start: AnchorOffset = span.get("start")
+                end: AnchorOffset = span.get("end")
+                text: str = str(span.get("text") or "").strip()
+                chunk_position: AnchorOffset = span.get("chunk_position")
+                local_start: AnchorOffset = span.get("local_start")
+                local_end: AnchorOffset = span.get("local_end")
+                key: tuple[
+                    AnchorOffset,
+                    AnchorOffset,
+                    str,
+                    AnchorOffset,
+                    AnchorOffset,
+                    AnchorOffset,
+                ] = (start, end, text, chunk_position, local_start, local_end)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -59,21 +160,25 @@ class EnrichmentMixin:
                         "local_end": local_end,
                     }
                 )
-        merged.sort(
-            key=lambda span: (
-                float("inf") if span.get("start") is None else int(span.get("start")),
-                float("inf") if span.get("end") is None else int(span.get("end")),
+
+        def span_sort_key(span: AnchorSpan) -> tuple[float, float, str]:
+            start: AnchorOffset = span.get("start")
+            end: AnchorOffset = span.get("end")
+            return (
+                float("inf") if start is None else int(start),
+                float("inf") if end is None else int(end),
                 str(span.get("text") or ""),
             )
-        )
+
+        merged.sort(key=span_sort_key)
         return merged
 
     @classmethod
     def _merge_anchor_grounding(
-        cls, *groundings: Any
-    ) -> dict[str, list[dict[str, Any]]]:
+        cls, *groundings: "Mapping[str, Sequence[AnchorSpanInput]] | str | None"
+    ) -> AnchorGrounding:
         """Merge nested anchor grounding dicts component-wise."""
-        merged: dict[str, list[dict[str, Any]]] = {}
+        merged: AnchorGrounding = {}
         for grounding in groundings:
             if not grounding:
                 continue
@@ -88,10 +193,10 @@ class EnrichmentMixin:
                 merged[key] = cls._merge_anchor_spans(merged.get(key), spans)
         return merged
 
-    def _relationship_anchor_candidates(self, rel: dict[str, Any]) -> list[str]:
+    def _relationship_anchor_candidates(self, rel: "RelationshipRecord") -> list[str]:
         """Best-effort exact text candidates for relation-phrase restoration."""
-        properties = dict(rel.get("properties") or {})
-        relation_type = str(rel.get("type") or "").strip()
+        properties: dict[str, object] = dict(rel.get("properties") or {})
+        relation_type: str = str(rel.get("type") or "").strip()
         candidates: list[str] = []
         for value in (
             properties.get("anchor_text"),
@@ -105,16 +210,16 @@ class EnrichmentMixin:
 
     def _restoration_from_anchor_grounding(
         self,
-        grounding: dict[str, list[dict[str, Any]]],
-    ) -> dict[str, Any]:
+        grounding: AnchorGrounding,
+    ) -> RestorationRecord:
         """Summarize restoration quality from grounded subject/relation/object anchors."""
-        core_components = ("source", "relation", "target")
-        grounded_components = [
+        core_components: tuple[str, str, str] = ("source", "relation", "target")
+        grounded_components: list[str] = [
             component
             for component in core_components
             if self._merge_anchor_spans((grounding or {}).get(component))
         ]
-        grounded_count = len(grounded_components)
+        grounded_count: int = len(grounded_components)
         if grounded_count == 3:
             status: str = "full"
         elif grounded_count >= 2 and {"source", "target"}.issubset(
@@ -134,30 +239,30 @@ class EnrichmentMixin:
 
     def _verify_relationship_restoration(
         self,
-        rel: dict[str, Any],
-        verification_chunks: list[dict[str, Any]],
+        rel: "RelationshipRecord",
+        verification_chunks: "Sequence[GraphChunkInput]",
         *,
         source_name: str,
         target_name: str,
         relation_type: str,
         source_aliases: list[str] | None = None,
         target_aliases: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> RestorationRecord:
         """Restoration-style verification using exact spans across scoped evidence chunks."""
-        properties = dict(rel.get("properties") or {})
-        source_candidates = [source_name] + [
+        properties: dict[str, object] = dict(rel.get("properties") or {})
+        source_candidates: list[str] = [source_name] + [
             alias for alias in (source_aliases or []) if isinstance(alias, str)
         ]
-        target_candidates = [target_name] + [
+        target_candidates: list[str] = [target_name] + [
             alias for alias in (target_aliases or []) if isinstance(alias, str)
         ]
-        relation_candidates = self._relationship_anchor_candidates(
+        relation_candidates: list[str] = self._relationship_anchor_candidates(
             {"type": relation_type, "properties": properties}
         )
-        condition_candidates = [str(properties.get("condition") or "")]
-        quantitative_candidates = [str(properties.get("quantitative") or "")]
+        condition_candidates: list[str] = [str(properties.get("condition") or "")]
+        quantitative_candidates: list[str] = [str(properties.get("quantitative") or "")]
 
-        source_spans = self._merge_anchor_spans(
+        source_spans: list[AnchorSpan] = self._merge_anchor_spans(
             properties.get("source_anchor_spans"),
             *[
                 self._find_exact_text_spans(
@@ -169,7 +274,7 @@ class EnrichmentMixin:
                 for chunk in (verification_chunks or [])
             ],
         )
-        target_spans = self._merge_anchor_spans(
+        target_spans: list[AnchorSpan] = self._merge_anchor_spans(
             properties.get("target_anchor_spans"),
             *[
                 self._find_exact_text_spans(
@@ -181,7 +286,7 @@ class EnrichmentMixin:
                 for chunk in (verification_chunks or [])
             ],
         )
-        relation_spans = self._merge_anchor_spans(
+        relation_spans: list[AnchorSpan] = self._merge_anchor_spans(
             properties.get("relation_anchor_spans"),
             *[
                 self._find_exact_text_spans(
@@ -193,7 +298,7 @@ class EnrichmentMixin:
                 for chunk in (verification_chunks or [])
             ],
         )
-        condition_spans = self._merge_anchor_spans(
+        condition_spans: list[AnchorSpan] = self._merge_anchor_spans(
             properties.get("condition_anchor_spans"),
             *[
                 self._find_exact_text_spans(
@@ -205,7 +310,7 @@ class EnrichmentMixin:
                 for chunk in (verification_chunks or [])
             ],
         )
-        quantitative_spans = self._merge_anchor_spans(
+        quantitative_spans: list[AnchorSpan] = self._merge_anchor_spans(
             properties.get("quantitative_anchor_spans"),
             *[
                 self._find_exact_text_spans(
@@ -218,7 +323,7 @@ class EnrichmentMixin:
             ],
         )
 
-        anchor_grounding = self._merge_anchor_grounding(
+        anchor_grounding: dict[str, list[AnchorSpan]] = self._merge_anchor_grounding(
             properties.get("anchor_grounding"),
             {
                 "source": source_spans,
@@ -228,17 +333,19 @@ class EnrichmentMixin:
                 "quantitative": quantitative_spans,
             },
         )
-        restoration = self._restoration_from_anchor_grounding(anchor_grounding)
+        restoration: RestorationRecord = self._restoration_from_anchor_grounding(
+            anchor_grounding
+        )
         restoration["anchor_grounding"] = anchor_grounding
         return restoration
 
     def _augment_result_with_anchor_entities(
         self,
-        result: dict[str, Any],
-        anchor_inventory: dict[str, list[dict[str, Any]]],
-    ) -> dict[str, Any]:
+        result: DecodedJSONObject,
+        anchor_inventory: AnchorInventory,
+    ) -> DecodedJSONObject:
         """Ensure anchor-discovered entities survive even if the extraction omits them."""
-        merged_entities: dict[str, dict[str, Any]] = {}
+        merged_entities: dict[str, GraphNode] = {}
         for anchor in anchor_inventory.get("entity_anchors", []):
             merged_entities[self._normalize_entity_text(anchor["text"])] = {
                 "id": anchor["text"],
@@ -256,14 +363,14 @@ class EnrichmentMixin:
                 entity = {"id": entity}
             if not isinstance(entity, dict):
                 continue
-            entity_id = str(entity.get("id") or "").strip()
+            entity_id: str = str(entity.get("id") or "").strip()
             if not entity_id:
                 continue
-            key = self._normalize_entity_text(entity_id)
-            merged = dict(merged_entities.get(key) or {})
+            key: str = self._normalize_entity_text(entity_id)
+            merged: GraphNode = cast("GraphNode", dict(merged_entities.get(key) or {}))
             merged["id"] = entity_id
             merged["type"] = entity.get("type") or merged.get("type")
-            merged_props = dict(merged.get("properties") or {})
+            merged_props: dict[str, object] = dict(merged.get("properties") or {})
             merged_props.update(dict(entity.get("properties") or {}))
             merged["properties"] = merged_props
             merged_entities[key] = merged
@@ -273,22 +380,22 @@ class EnrichmentMixin:
 
     def _supplement_relationships_from_unused_anchors(
         self,
-        result: dict[str, Any],
+        result: DecodedJSONObject,
         *,
         chunk_text: str,
         llm: "ModelProvider | None",
         model_name: str,
         context_preamble: str,
-        anchor_inventory: dict[str, list[dict[str, Any]]],
-    ) -> dict[str, Any]:
+        anchor_inventory: AnchorInventory,
+    ) -> DecodedJSONObject:
         """Coverage-aware supplement for entity anchors unused by the first extraction pass."""
         if not getattr(self, "enable_anchor_coverage_supplement", True):
             return result
-        entity_anchors = anchor_inventory.get("entity_anchors", [])
+        entity_anchors: list[EntityAnchor] = anchor_inventory.get("entity_anchors", [])
         if llm is None or len(entity_anchors) < 2:
             return result
 
-        used_anchor_keys = {
+        used_anchor_keys: set[str] = {
             self._normalize_entity_text(rel.get("source", ""))
             for rel in result.get("relationships", []) or []
             if isinstance(rel, dict)
@@ -297,7 +404,7 @@ class EnrichmentMixin:
             for rel in result.get("relationships", []) or []
             if isinstance(rel, dict)
         }
-        unused = [
+        unused: list[str] = [
             anchor["text"]
             for anchor in entity_anchors
             if self._normalize_entity_text(anchor["text"]) not in used_anchor_keys
@@ -305,16 +412,16 @@ class EnrichmentMixin:
         if not unused:
             return result
 
-        all_entity_texts = [anchor["text"] for anchor in entity_anchors]
-        relation_texts = [
+        all_entity_texts: list[str] = [anchor["text"] for anchor in entity_anchors]
+        relation_texts: list[str] = [
             anchor["text"] for anchor in anchor_inventory.get("relation_anchors", [])
         ]
-        attribute_lines = [
+        attribute_lines: list[str] = [
             f"- {anchor['text']} (role: {anchor['role']})"
             for anchor in anchor_inventory.get("attribute_anchors", [])
         ]
 
-        supplement_prompt = f"""
+        supplement_prompt: str = f"""
 You are filling coverage gaps in a grounded knowledge graph extraction.
 
 KNOWN ENTITY ANCHORS:
@@ -362,13 +469,15 @@ Rules:
 
 Return ONLY the JSON object.
 """
-        supplement_response = llm.generate(supplement_prompt, "", model_name)
-        supplement_data = self._parse_llm_json_response(
+        supplement_response: ModelOutput = llm.generate(
+            supplement_prompt, "", model_name
+        )
+        supplement_data: DecodedJSONObject = self._parse_llm_json_response(
             supplement_response,
             allow_partial_extraction=True,
             empty_result={"relationships": []},
         )
-        extra_relationships = supplement_data.get("relationships")
+        extra_relationships: DecodedJSONValue = supplement_data.get("relationships")
         if isinstance(extra_relationships, list) and extra_relationships:
             result.setdefault("relationships", [])
             result["relationships"].extend(extra_relationships)
@@ -379,17 +488,17 @@ Return ONLY the JSON object.
         *,
         text: str,
         chunks: Sequence[TextChunk | ChunkGroundingInput],
-        entities_per_chunk: dict[int, list[dict[str, Any]]],
+        entities_per_chunk: "dict[int, list[GraphNode]]",
         section_headers: list[tuple[int, str]],
         llm: "ModelProvider | None",
         model_name: str,
         scope_label: str,
-    ) -> list[dict[str, Any]]:
+    ) -> "list[GraphRelationship]":
         """Recover relations across section boundaries after section-aware chunking."""
         if llm is None:
             return []
 
-        section_segments = self._build_section_segments(
+        section_segments: list[SectionSegment] = self._build_section_segments(
             text,
             section_headers=section_headers,
         )
@@ -397,15 +506,15 @@ Return ONLY the JSON object.
             return []
 
         section_texts: list[str] = []
-        section_entities: dict[int, list[dict[str, Any]]] = {}
+        section_entities: dict[int, list[GraphNode]] = {}
         section_positions: dict[int, list[int]] = {}
 
         for section_idx, segment in enumerate(section_segments):
             section_texts.append(segment["text"])
             positions: list[int] = []
-            entities: list[dict[str, Any]] = []
+            entities: list[GraphNode] = []
             for chunk_idx, chunk in enumerate(chunks):
-                chunk_start = int(chunk.get("start_pos", 0) or 0)
+                chunk_start: int = int(chunk.get("start_pos", 0) or 0)
                 if not (segment["start_pos"] <= chunk_start < segment["end_pos"]):
                     continue
                 positions.append(int(chunk.get("position", chunk_idx)))
@@ -442,10 +551,10 @@ Return ONLY the JSON object.
 
     def _group_passages_for_cross_passage_recovery(
         self,
-        passages,
-        passage_entities: dict[int, list[dict[str, Any]]],
+        passages: "Sequence[ContextPassageInput]",
+        passage_entities: dict[int, list[GroupEntity]],
         passage_positions: dict[int, list[int]],
-    ) -> list[dict[str, Any]]:
+    ) -> list[PassageGroup[GroupEntity]]:
         """Return contiguous passage groups that may participate in cross-passage recovery.
 
         Question-scoped bundle datasets should only recover relations within a
@@ -453,11 +562,11 @@ Return ONLY the JSON object.
         passage question ids, so this grouping naturally degenerates to
         singletons and skips cross-passage recovery altogether.
         """
-        groups: list[dict[str, Any]] = []
-        current_group: dict[str, Any] | None = None
+        groups: list[PassageGroup[GroupEntity]] = []
+        current_group: PassageGroup[GroupEntity] | None = None
 
         for idx, passage in enumerate(passages):
-            group_key = (
+            group_key: tuple[str, str] = (
                 getattr(passage, "dataset", ""),
                 str(getattr(passage, "question_id", "") or ""),
             )
@@ -471,7 +580,7 @@ Return ONLY the JSON object.
                 }
                 groups.append(current_group)
 
-            local_idx = len(current_group["texts"])
+            local_idx: int = len(current_group["texts"])
             current_group["texts"].append(getattr(passage, "text", "") or "")
             current_group["entities"][local_idx] = passage_entities.get(idx, [])
             current_group["positions"][local_idx] = passage_positions.get(idx, [])
@@ -483,7 +592,7 @@ Return ONLY the JSON object.
         source_name: str,
         target_name: str,
         rel_type: str,
-        chunks: list[dict],
+        chunks: "Sequence[GraphChunkInput]",
         source_aliases: list[str] | None = None,
         target_aliases: list[str] | None = None,
     ) -> float:
@@ -504,32 +613,34 @@ Return ONLY the JSON object.
         if not chunks or not source_name or not target_name:
             return 0.5  # neutral when no evidence to check
 
-        src_lower = source_name.strip().lower()
-        tgt_lower = target_name.strip().lower()
+        src_lower: str = source_name.strip().lower()
+        tgt_lower: str = target_name.strip().lower()
 
         # Build boundary-aware patterns.
         # Use (?<!\w)/(?!\w) lookarounds instead of \b so that entity names that
         # start or end with non-word characters (parentheses, hyphens, dots) are
         # still matched correctly.  e.g. "gleason score (gs)" ends with ')' which
         # is not a word char — \b would fail there, but (?!\w) does not.
-        def _boundary_pattern(name: str) -> re.Pattern:
-            prefix = r"(?<!\w)" if not name[:1].isalnum() and name[:1] != "_" else r"\b"
-            suffix = (
+        def _boundary_pattern(name: str) -> re.Pattern[str]:
+            prefix: str = (
+                r"(?<!\w)" if not name[:1].isalnum() and name[:1] != "_" else r"\b"
+            )
+            suffix: str = (
                 r"(?!\w)" if not name[-1:].isalnum() and name[-1:] != "_" else r"\b"
             )
             return re.compile(prefix + re.escape(name) + suffix)
 
-        def _surface_forms(name: str) -> set:
+        def _surface_forms(name: str) -> set[str]:
             """Return the name plus underscore↔space variants so LLM IDs like
             'United_States' match chunk text 'United States' and vice versa."""
-            forms = {name}
+            forms: set[str] = {name}
             forms.add(name.replace("_", " "))
             forms.add(name.replace(" ", "_"))
             return {f for f in forms if f}
 
         # Build a list of patterns for each entity — canonical name plus all aliases,
         # including underscore/space variants to survive LLM ID normalisation differences.
-        _src_forms = list(
+        _src_forms: list[str] = list(
             _surface_forms(src_lower)
             | {
                 v
@@ -538,7 +649,7 @@ Return ONLY the JSON object.
                 for v in _surface_forms(a.strip().lower())
             }
         )
-        _tgt_forms = list(
+        _tgt_forms: list[str] = list(
             _surface_forms(tgt_lower)
             | {
                 v
@@ -547,19 +658,27 @@ Return ONLY the JSON object.
                 for v in _surface_forms(a.strip().lower())
             }
         )
-        src_pats = [_boundary_pattern(f) for f in _src_forms if f]
-        tgt_pats = [_boundary_pattern(f) for f in _tgt_forms if f]
+        src_pats: list[re.Pattern[str]] = [
+            _boundary_pattern(f) for f in _src_forms if f
+        ]
+        tgt_pats: list[re.Pattern[str]] = [
+            _boundary_pattern(f) for f in _tgt_forms if f
+        ]
 
         # Keep single-pattern aliases for backwards compatibility
-        _src_pat = src_pats[0] if src_pats else _boundary_pattern(src_lower)
-        _tgt_pat = tgt_pats[0] if tgt_pats else _boundary_pattern(tgt_lower)
+        _src_pat: re.Pattern[str] = (
+            src_pats[0] if src_pats else _boundary_pattern(src_lower)
+        )
+        _tgt_pat: re.Pattern[str] = (
+            tgt_pats[0] if tgt_pats else _boundary_pattern(tgt_lower)
+        )
 
         found_src, found_tgt, same_chunk, same_sentence = False, False, False, False
 
         for chunk in chunks:
-            text = chunk.get("text", "").lower()
-            has_src = any(p.search(text) for p in src_pats)
-            has_tgt = any(p.search(text) for p in tgt_pats)
+            text: str = chunk.get("text", "").lower()
+            has_src: bool = any(p.search(text) for p in src_pats)
+            has_tgt: bool = any(p.search(text) for p in tgt_pats)
 
             if has_src:
                 found_src = True
@@ -569,7 +688,7 @@ Return ONLY the JSON object.
             if has_src and has_tgt:
                 # Both entities present in this single chunk — check for sentence co-occurrence
                 same_chunk = True
-                sentences = re.split(r"(?<=[.!?])\s+", text)
+                sentences: list[str] = re.split(r"(?<=[.!?])\s+", text)
                 if any(
                     any(sp.search(s) for sp in src_pats)
                     and any(tp.search(s) for tp in tgt_pats)
@@ -596,7 +715,7 @@ Return ONLY the JSON object.
         source_name: str,
         target_name: str,
         relationship_type: str,
-        verification_chunks: list[dict[str, Any]],
+        verification_chunks: "Sequence[GraphChunkInput]",
         llm: "ModelProvider | None",
         model_name: str,
     ) -> bool | None:
@@ -604,7 +723,7 @@ Return ONLY the JSON object.
         if llm is None:
             return None
 
-        evidence = "\n\n".join(
+        evidence: str = "\n\n".join(
             str(chunk.get("text") or "").strip()
             for chunk in verification_chunks[:4]
             if str(chunk.get("text") or "").strip()
@@ -612,13 +731,13 @@ Return ONLY the JSON object.
         if not evidence:
             return None
 
-        cache_key = hashlib.sha1(
+        cache_key: str = hashlib.sha1(
             f"{source_name}|{relationship_type}|{target_name}|{evidence}".encode()
         ).hexdigest()
         if cache_key in self._triple_reverification_cache:
             return self._triple_reverification_cache[cache_key]
 
-        prompt = f"""You are verifying whether a knowledge-graph relation is directly supported by text.
+        prompt: str = f"""You are verifying whether a knowledge-graph relation is directly supported by text.
 
 CLAIM:
 - Source: {source_name}
@@ -635,7 +754,7 @@ Rules:
 - Return exactly YES or NO.
 """
         try:
-            response = str(llm.generate(prompt, "", model_name)).strip().lower()
+            response: str = str(llm.generate(prompt, "", model_name)).strip().lower()
         except Exception as exc:
             logging.debug("Low-confidence triple reverification failed: %s", exc)
             return None
@@ -650,11 +769,11 @@ Rules:
 
     def _heuristic_component_summary_text(
         self,
-        component: dict[str, Any],
-        node_lookup: dict[str, dict[str, Any]],
+        component: "GraphComponent",
+        node_lookup: "Mapping[str, EntityNode]",
     ) -> str:
         """Produce a deterministic prose summary for one connected component."""
-        entity_labels = [
+        entity_labels: list[str] = [
             str(
                 (node_lookup.get(entity_id, {}).get("properties") or {}).get("name")
                 or entity_id
@@ -663,17 +782,19 @@ Rules:
         ]
         rel_phrases: list[str] = []
         for rel in component.get("relationships") or []:
-            source_id = str(rel.get("source") or rel.get("from") or "").strip()
-            target_id = str(rel.get("target") or rel.get("to") or "").strip()
-            source_name = str(
+            source_id: str = str(rel.get("source") or rel.get("from") or "").strip()
+            target_id: str = str(rel.get("target") or rel.get("to") or "").strip()
+            source_name: str = str(
                 (node_lookup.get(source_id, {}).get("properties") or {}).get("name")
                 or source_id
             )
-            target_name = str(
+            target_name: str = str(
                 (node_lookup.get(target_id, {}).get("properties") or {}).get("name")
                 or target_id
             )
-            relation = str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
+            relation: str = (
+                str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
+            )
             if rel.get("negated"):
                 rel_phrases.append(
                     f"{source_name} is not linked by {relation} to {target_name}"
@@ -681,7 +802,7 @@ Rules:
             else:
                 rel_phrases.append(f"{source_name} {relation} {target_name}")
 
-        summary_lines = [
+        summary_lines: list[str] = [
             f"Component with {component.get('entity_count', 0)} entities and {component.get('relationship_count', 0)} relationships.",
         ]
         if entity_labels:
@@ -702,35 +823,39 @@ Rules:
 
     def _claim_records_from_component(
         self,
-        component: dict[str, Any],
-        node_lookup: dict[str, dict[str, Any]],
+        component: "GraphComponent",
+        node_lookup: "Mapping[str, EntityNode]",
         *,
         component_index: int,
-    ) -> list[dict[str, Any]]:
+    ) -> "list[ClaimRecord]":
         """Synthesize simple claim records from component relations."""
         if not getattr(self, "enable_claim_extraction", False):
             return []
 
-        claims: list[dict[str, Any]] = []
+        claims: list[ClaimRecord] = []
         for rel_index, rel in enumerate(component.get("relationships") or []):
-            source_id = str(rel.get("source") or rel.get("from") or "").strip()
-            target_id = str(rel.get("target") or rel.get("to") or "").strip()
-            source_name = str(
+            source_id: str = str(rel.get("source") or rel.get("from") or "").strip()
+            target_id: str = str(rel.get("target") or rel.get("to") or "").strip()
+            source_name: str = str(
                 (node_lookup.get(source_id, {}).get("properties") or {}).get("name")
                 or source_id
             )
-            target_name = str(
+            target_name: str = str(
                 (node_lookup.get(target_id, {}).get("properties") or {}).get("name")
                 or target_id
             )
-            relation = str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
+            relation: str = (
+                str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
+            )
             if rel.get("negated"):
-                text = f"{source_name} is not supported to {relation} {target_name}."
+                text: str = (
+                    f"{source_name} is not supported to {relation} {target_name}."
+                )
                 polarity: str = "negated"
             else:
                 text = f"{source_name} {relation} {target_name}."
                 polarity = "affirmed"
-            claim_id = hashlib.sha1(
+            claim_id: str = hashlib.sha1(
                 f"{component_index}:{source_id}:{relation}:{target_id}:{polarity}".encode()
             ).hexdigest()
             claims.append(
@@ -753,30 +878,30 @@ Rules:
 
     def _propose_fragmentation_bridges(
         self,
-        components: list[dict[str, Any]],
-        node_lookup: dict[str, dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+        components: "list[GraphComponent]",
+        node_lookup: "Mapping[str, EntityNode]",
+    ) -> "list[FragmentationBridge]":
         """Propose conservative synthetic bridge edges across disconnected components."""
         if not getattr(self, "enable_fragmentation_repair", False):
             return []
         if len(components) < 2:
             return []
 
-        candidate_bridges: list[dict[str, Any]] = []
-        generic_types = {"concept", "entity", "unknown", "other", ""}
+        candidate_bridges: list[FragmentationBridge] = []
+        generic_types: set[str] = {"concept", "entity", "unknown", "other", ""}
 
         for left_index, left_component in enumerate(components):
             for right_index, right_component in enumerate(
                 components[left_index + 1 :], start=left_index + 1
             ):
-                best_bridge = None
+                best_bridge: FragmentationBridge | None = None
                 for left_entity_id in left_component.get("top_entities") or []:
-                    left_node = node_lookup.get(left_entity_id, {})
-                    left_name = str(
+                    left_node: EntityNode = node_lookup.get(left_entity_id, {})
+                    left_name: str = str(
                         (left_node.get("properties") or {}).get("name")
                         or left_entity_id
                     )
-                    left_type = (
+                    left_type: str = (
                         str(
                             (left_node.get("properties") or {}).get("type")
                             or left_node.get("label")
@@ -785,18 +910,18 @@ Rules:
                         .strip()
                         .lower()
                     )
-                    left_alias_keys = {
+                    left_alias_keys: set[str] = {
                         key
                         for candidate in self._entity_candidate_names(left_node)
                         for key in self._soft_entity_alias_keys(candidate)
                     }
                     for right_entity_id in right_component.get("top_entities") or []:
-                        right_node = node_lookup.get(right_entity_id, {})
-                        right_name = str(
+                        right_node: EntityNode = node_lookup.get(right_entity_id, {})
+                        right_name: str = str(
                             (right_node.get("properties") or {}).get("name")
                             or right_entity_id
                         )
-                        right_type = (
+                        right_type: str = (
                             str(
                                 (right_node.get("properties") or {}).get("type")
                                 or right_node.get("label")
@@ -805,13 +930,15 @@ Rules:
                             .strip()
                             .lower()
                         )
-                        right_alias_keys = {
+                        right_alias_keys: set[str] = {
                             key
                             for candidate in self._entity_candidate_names(right_node)
                             for key in self._soft_entity_alias_keys(candidate)
                         }
-                        alias_overlap = sorted(left_alias_keys & right_alias_keys)
-                        lexical_guard = bool(
+                        alias_overlap: list[str] = sorted(
+                            left_alias_keys & right_alias_keys
+                        )
+                        lexical_guard: bool = bool(
                             alias_overlap
                         ) or self._names_pass_synonym_guard(
                             left_name,
@@ -829,7 +956,7 @@ Rules:
                             # so remaining matches are more useful as bridge hints than duplicate merges.
                             pass
 
-                        similarity = self._cosine_similarity(
+                        similarity: float = self._cosine_similarity(
                             left_node.get("embedding"),
                             right_node.get("embedding"),
                         )
@@ -839,8 +966,10 @@ Rules:
                             0.92,
                         ):
                             continue
-                        confidence = max(similarity, 0.95 if alias_overlap else 0.75)
-                        bridge = {
+                        confidence: float = max(
+                            similarity, 0.95 if alias_overlap else 0.75
+                        )
+                        bridge: FragmentationBridge = {
                             "source_id": left_entity_id,
                             "target_id": right_entity_id,
                             "source_name": left_name,

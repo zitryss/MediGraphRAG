@@ -38,8 +38,8 @@ class TextChunk(TypedDict):
     question_id: NotRequired[str]
     passage_index: NotRequired[int]
     chunk_local_index: NotRequired[int]
-    source_title: NotRequired[str]
-    source_scope_key: NotRequired[str]
+    source_title: NotRequired[str | None]
+    source_scope_key: NotRequired[str | None]
 
 
 class ChunkGroundingInput(TypedDict, total=False):
@@ -52,8 +52,8 @@ class ChunkGroundingInput(TypedDict, total=False):
     question_id: str
     passage_index: int
     source: str
-    source_title: str
-    source_scope_key: str
+    source_title: str | None
+    source_scope_key: str | None
 
 
 class ChunkingHost(Protocol):
