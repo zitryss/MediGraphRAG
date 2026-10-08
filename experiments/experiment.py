@@ -23,11 +23,15 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from neo4j import Driver
 
 try:
     import matplotlib
@@ -57,12 +61,17 @@ from ontographrag.providers.model_providers import (
     get_provider as get_model_provider,
     LangChainRunnableAdapter,
     TemperatureLockedProvider,
+    ModelProvider,
 )
 from ontographrag.kg.builders.enhanced_kg_creator import UnifiedOntologyGuidedKGCreator
 from neo4j import GraphDatabase
 
 from experiments.dataset_adapters import (
     normalize_dataset,
+    InferenceRecord,
+    GoldRecord,
+    ContextPassage,
+    DatasetCorpusProfile,
     load_raw_dataset,
     build_passage_corpus,
     build_global_corpus_passages,
@@ -72,6 +81,7 @@ from experiments.dataset_adapters import (
 )
 from experiments.subset_selection import (
     resolve_question_subset,
+    SubsetPayload,
     selection_file_path,
 )
 from experiments.answer_formatting import (
@@ -476,29 +486,33 @@ class MIRAGEEvaluationPipeline:
                 f"Unsupported kg_builder_profile='{kg_builder_profile}'. "
                 f"Choose one of: {sorted(self.KG_BUILDER_PROFILES)}"
             )
-        self.num_samples = num_samples  # None means use all questions
-        self.subset_seed = int(subset_seed)
-        self.entropy_samples = max(1, min(entropy_samples, 20))  # safety cap
-        self.llm_provider_name = llm_provider
-        self.llm_model = llm_model
-        self.temperature = temperature
-        self.rebuild_kg = rebuild_kg  # Force rebuild even if KG exists
-        self.use_llm_judge = use_llm_judge
-        self.evaluation_mode = evaluation_mode
-        self.compute_metrics = evaluation_mode == self.EVALUATION_MODE_FULL_METRICS
-        self.multi_temperature = bool(multi_temperature and self.compute_metrics)
-        self.dataset_kg_scope = dataset_kg_scope
-        self.allow_gold_evidence_contexts = bool(allow_gold_evidence_contexts)
-        self.retrieval_study = str(retrieval_study or "").strip()
-        self.kg_builder_profile = kg_builder_profile
+        self.num_samples: int | None = num_samples  # None means use all questions
+        self.subset_seed: int = int(subset_seed)
+        self.entropy_samples: int = max(1, min(entropy_samples, 20))  # safety cap
+        self.llm_provider_name: str = llm_provider
+        self.llm_model: str = llm_model
+        self.temperature: float = temperature
+        self.rebuild_kg: bool = rebuild_kg  # Force rebuild even if KG exists
+        self.use_llm_judge: bool = use_llm_judge
+        self.evaluation_mode: str = evaluation_mode
+        self.compute_metrics: bool = (
+            evaluation_mode == self.EVALUATION_MODE_FULL_METRICS
+        )
+        self.multi_temperature: bool = bool(multi_temperature and self.compute_metrics)
+        self.dataset_kg_scope: str = dataset_kg_scope
+        self.allow_gold_evidence_contexts: bool = bool(allow_gold_evidence_contexts)
+        self.retrieval_study: str = str(retrieval_study or "").strip()
+        self.kg_builder_profile: str = kg_builder_profile
         self._llm_judge_cache: dict[
             str, bool
         ] = {}  # cache by (question, expected, response)
-        self.max_kg_contexts = max_kg_contexts  # Cap context passages fed into KG build
+        self.max_kg_contexts: int | None = (
+            max_kg_contexts  # Cap context passages fed into KG build
+        )
         # Judge can be a different model/provider from the generation model to avoid
         # circular evaluation where the same model judges its own outputs.
-        self.judge_provider_name = judge_provider or llm_provider
-        self.judge_model = judge_model or llm_model
+        self.judge_provider_name: str = judge_provider or llm_provider
+        self.judge_model: str = judge_model or llm_model
 
         # Retrieval/eval configurations (supports per-config comparisons)
         self.eval_configs = eval_configs or [
@@ -510,17 +524,21 @@ class MIRAGEEvaluationPipeline:
         ]
 
         # Initialize generation LLM
-        provider = get_model_provider(self.llm_provider_name, model=self.llm_model)
-        self._base_llm_provider = provider
-        self.llm = LangChainRunnableAdapter(
+        provider: ModelProvider = get_model_provider(
+            self.llm_provider_name, model=self.llm_model
+        )
+        self._base_llm_provider: ModelProvider = provider
+        self.llm: LangChainRunnableAdapter = LangChainRunnableAdapter(
             provider, model=self.llm_model, temperature=self.temperature
         )
         # Keep KG extraction deterministic so graph quality is stable across runs.
-        self.kg_llm_provider = TemperatureLockedProvider(provider, temperature=0.0)
+        self.kg_llm_provider: TemperatureLockedProvider = TemperatureLockedProvider(
+            provider, temperature=0.0
+        )
         # Accuracy measurement uses temperature=0.0 so correctness labels are
         # reproducible across runs regardless of the sampling temperature used
         # for uncertainty estimation.
-        self.accuracy_llm = LangChainRunnableAdapter(
+        self.accuracy_llm: LangChainRunnableAdapter = LangChainRunnableAdapter(
             provider, model=self.llm_model, temperature=0.0
         )
         # Judge uses a potentially different provider/model to avoid circular evaluation
@@ -528,30 +546,36 @@ class MIRAGEEvaluationPipeline:
             self.judge_provider_name == self.llm_provider_name
             and self.judge_model == self.llm_model
         ):
-            self.judge_llm_provider = provider
+            self.judge_llm_provider: ModelProvider = provider
         else:
             self.judge_llm_provider = get_model_provider(
                 self.judge_provider_name, model=self.judge_model
             )
 
         # Get embedding provider for consistent use across all components
-        self.embedding_provider = os.getenv(
+        self.embedding_provider: str = os.getenv(
             "EMBEDDING_PROVIDER", "sentence_transformers"
         )
 
         # RAG systems - use explicit embedding model for consistency
-        self.vanilla_rag = VanillaRAGSystem(embedding_model=self.embedding_provider)
-        self.kg_rag = EnhancedRAGSystem(embedding_model=self.embedding_provider)
+        self.vanilla_rag: VanillaRAGSystem = VanillaRAGSystem(
+            embedding_model=self.embedding_provider
+        )
+        self.kg_rag: EnhancedRAGSystem = EnhancedRAGSystem(
+            embedding_model=self.embedding_provider
+        )
 
         # Neo4j connection
-        self.neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        self.neo4j_user = os.getenv("NEO4J_USERNAME", "neo4j")
-        self.neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
+        self.neo4j_uri: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        self.neo4j_user: str = os.getenv("NEO4J_USERNAME", "neo4j")
+        self.neo4j_password: str = os.getenv("NEO4J_PASSWORD", "password")
 
         # W&B run
         self.wandb_run = None
-        self._dataset_cache: dict[str, tuple[list[Any], list[Any]]] = {}
-        self._selection_cache: dict[str, dict[str, Any]] = {}
+        self._dataset_cache: dict[
+            str, tuple[list[InferenceRecord], list[GoldRecord], bool]
+        ] = {}
+        self._selection_cache: dict[str, SubsetPayload] = {}
 
     @staticmethod
     def _env_bool(enabled: bool) -> str:
@@ -621,7 +645,7 @@ class MIRAGEEvaluationPipeline:
 
     @staticmethod
     @contextmanager
-    def _temporary_env(overrides: dict[str, Any]):
+    def _temporary_env(overrides: Mapping[str, object] | None) -> Iterator[None]:
         restore: dict[str, str | None] = {}
         for key, value in (overrides or {}).items():
             restore[key] = os.environ.get(key)
@@ -871,7 +895,9 @@ class MIRAGEEvaluationPipeline:
             return coverage >= 0.75
         return coverage >= 0.85
 
-    def _get_normalized_dataset(self, dataset_name: str):
+    def _get_normalized_dataset(
+        self, dataset_name: str
+    ) -> tuple[list[InferenceRecord], list[GoldRecord], bool]:
         """Load dataset through adapters and cache normalized records.
 
         Returns (inference_records, gold_records, leakage_detected).
@@ -883,9 +909,11 @@ class MIRAGEEvaluationPipeline:
             return self._dataset_cache[dataset_name]
 
         inference_records, gold_records = normalize_dataset(dataset_name)
-        profile = self._dataset_corpus_profile(dataset_name)
-        shared_passages = build_global_corpus_passages(dataset_name)
-        shared_corpus_overrides_gold_evidence = (
+        profile: DatasetCorpusProfile = self._dataset_corpus_profile(dataset_name)
+        shared_passages: list[ContextPassage] | None = build_global_corpus_passages(
+            dataset_name
+        )
+        shared_corpus_overrides_gold_evidence: bool = (
             profile.get("question_context_role") == "gold_evidence"
             and shared_passages is not None
         )
@@ -979,11 +1007,11 @@ class MIRAGEEvaluationPipeline:
             subset_seed=self.subset_seed,
         )
 
-    def _subset_metadata(self, dataset_name: str) -> dict[str, Any]:
+    def _subset_metadata(self, dataset_name: str) -> SubsetPayload:
         """Return cached subset metadata for a dataset, if already resolved."""
         return self._selection_cache.get(dataset_name, {})
 
-    def _dataset_corpus_profile(self, dataset_name: str) -> dict[str, Any]:
+    def _dataset_corpus_profile(self, dataset_name: str) -> DatasetCorpusProfile:
         """Return static corpus metadata describing what a dataset's contexts mean."""
         return get_dataset_corpus_profile(dataset_name)
 
@@ -2114,7 +2142,7 @@ class MIRAGEEvaluationPipeline:
                 count += 1
         return total / count if count > 0 else 0.0
 
-    def _llm_for_temperature(self, temperature: float):
+    def _llm_for_temperature(self, temperature: float) -> LangChainRunnableAdapter:
         """Return a LangChainRunnableAdapter for a specific temperature (shared provider)."""
         return LangChainRunnableAdapter(
             self._base_llm_provider, model=self.llm_model, temperature=temperature
@@ -2216,7 +2244,7 @@ class MIRAGEEvaluationPipeline:
             return responses, retrieved_chunk_texts, mean_jaccard, graph_state_traces
         return responses, retrieved_chunk_texts, mean_jaccard
 
-    def _get_neo4j_driver(self):
+    def _get_neo4j_driver(self) -> "Driver":
         """Get Neo4j driver"""
         return GraphDatabase.driver(
             self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password)
