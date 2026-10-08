@@ -8,11 +8,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ontographrag.kg.utils import common_functions as common_mod
 
 
-def test_openai_loader_uses_current_default_model(monkeypatch):
-    captured = {}
+def test_openai_loader_uses_current_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, dict[str, str | int]] = {}
 
     class FakeOpenAIEmbeddings:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs: str | int) -> None:
             captured["kwargs"] = kwargs
 
     monkeypatch.setattr(common_mod, "OpenAIEmbeddings", FakeOpenAIEmbeddings)
@@ -26,11 +28,13 @@ def test_openai_loader_uses_current_default_model(monkeypatch):
     assert dimension == 1536
 
 
-def test_openai_loader_accepts_explicit_model_name(monkeypatch):
-    captured = {}
+def test_openai_loader_accepts_explicit_model_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, dict[str, str | int]] = {}
 
     class FakeOpenAIEmbeddings:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs: str | int) -> None:
             captured["kwargs"] = kwargs
 
     monkeypatch.setattr(common_mod, "OpenAIEmbeddings", FakeOpenAIEmbeddings)
@@ -42,14 +46,16 @@ def test_openai_loader_accepts_explicit_model_name(monkeypatch):
     assert dimension == 3072
 
 
-def test_huggingface_loader_accepts_explicit_model_name(monkeypatch):
-    captured = {}
+def test_huggingface_loader_accepts_explicit_model_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str] = {}
 
     class FakeHuggingFaceEmbeddings:
-        def __init__(self, *, model_name, **kwargs):
+        def __init__(self, *, model_name: str, **kwargs: str | int) -> None:
             captured["model_name"] = model_name
 
-        def embed_query(self, text):
+        def embed_query(self, text: str) -> list[float]:
             return [0.0] * 7
 
     monkeypatch.setattr(common_mod, "HuggingFaceEmbeddings", FakeHuggingFaceEmbeddings)
@@ -61,14 +67,16 @@ def test_huggingface_loader_accepts_explicit_model_name(monkeypatch):
     assert dimension == 7
 
 
-def test_huggingface_loader_uses_accuracy_profile_default(monkeypatch):
-    captured = {}
+def test_huggingface_loader_uses_accuracy_profile_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str] = {}
 
     class FakeHuggingFaceEmbeddings:
-        def __init__(self, *, model_name, **kwargs):
+        def __init__(self, *, model_name: str, **kwargs: str | int) -> None:
             captured["model_name"] = model_name
 
-        def embed_query(self, text):
+        def embed_query(self, text: str) -> list[float]:
             return [0.0] * 5
 
     monkeypatch.setattr(common_mod, "HuggingFaceEmbeddings", FakeHuggingFaceEmbeddings)

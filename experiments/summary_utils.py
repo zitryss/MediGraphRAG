@@ -7,10 +7,30 @@ can be imported freely in unit tests without the full experiment stack.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from typing_extensions import TypedDict
 
-def compute_accuracy_breakdown(details: list[dict[str, Any]]) -> dict[str, Any]:
+
+class AccuracyBreakdown(TypedDict):
+    total_questions: int
+    num_generation_failures_vanilla: int
+    num_generation_failures_kg: int
+    vanilla_answered_questions: int
+    kg_answered_questions: int
+    shared_answered_questions: int
+    vanilla_accuracy: float
+    kg_accuracy: float
+    vanilla_accuracy_excluding_errors: float
+    kg_accuracy_excluding_errors: float
+    vanilla_accuracy_shared_clean: float
+    kg_accuracy_shared_clean: float
+
+
+def compute_accuracy_breakdown(
+    details: Sequence[Mapping[str, object]],
+) -> AccuracyBreakdown:
     """
     Compute raw and generation-failure-adjusted accuracy from per-question rows.
 
@@ -22,50 +42,50 @@ def compute_accuracy_breakdown(details: list[dict[str, Any]]) -> dict[str, Any]:
       - each system's own answered subset
       - the shared subset where neither system failed
     """
-    total = len(details)
+    total: int = len(details)
 
-    vanilla_failures = sum(
+    vanilla_failures: int = sum(
         1 for row in details if bool(row.get("vanilla_generation_failed", False))
     )
-    kg_failures = sum(
+    kg_failures: int = sum(
         1 for row in details if bool(row.get("kg_generation_failed", False))
     )
 
-    vanilla_answered = total - vanilla_failures
-    kg_answered = total - kg_failures
-    shared_answered = sum(
+    vanilla_answered: int = total - vanilla_failures
+    kg_answered: int = total - kg_failures
+    shared_answered: int = sum(
         1
         for row in details
         if not bool(row.get("vanilla_generation_failed", False))
         and not bool(row.get("kg_generation_failed", False))
     )
 
-    vanilla_correct = sum(
+    vanilla_correct: int = sum(
         1 for row in details if bool(row.get("vanilla_correct", False))
     )
-    kg_correct = sum(1 for row in details if bool(row.get("kg_correct", False)))
+    kg_correct: int = sum(1 for row in details if bool(row.get("kg_correct", False)))
 
-    vanilla_correct_clean = sum(
+    vanilla_correct_clean: int = sum(
         1
         for row in details
         if not bool(row.get("vanilla_generation_failed", False))
         and bool(row.get("vanilla_correct", False))
     )
-    kg_correct_clean = sum(
+    kg_correct_clean: int = sum(
         1
         for row in details
         if not bool(row.get("kg_generation_failed", False))
         and bool(row.get("kg_correct", False))
     )
 
-    vanilla_correct_shared = sum(
+    vanilla_correct_shared: int = sum(
         1
         for row in details
         if not bool(row.get("vanilla_generation_failed", False))
         and not bool(row.get("kg_generation_failed", False))
         and bool(row.get("vanilla_correct", False))
     )
-    kg_correct_shared = sum(
+    kg_correct_shared: int = sum(
         1
         for row in details
         if not bool(row.get("vanilla_generation_failed", False))
