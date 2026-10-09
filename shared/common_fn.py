@@ -1,11 +1,9 @@
 import logging
 import os
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Protocol, TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
-if TYPE_CHECKING:
-    from langchain_core.embeddings import Embeddings
-
+from langchain_core.embeddings import Embeddings
 
 LLM = TypeVar("LLM")
 
