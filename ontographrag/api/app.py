@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from ontographrag.kg.csv_processor import CSVValidationFailure, MedicalCSVValidation
     from ontographrag.kg.loaders.graph_db_access import RawGraphRow
     from ontographrag.kg.loaders.kg_loader import ImportedGraph, LoaderFailure
+    from shared.graph_types import Neo4jISOValue, Neo4jPropertyValue
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ from ontographrag.api.runtime_helpers import (
     NodeWithProperties,
     NodeWithId,
     CountRow,
+    CSVValidationReport,
     OptionalCountRow,
     SharedEntityCountRow,
     GeminiProbeAPI,
@@ -1044,9 +1046,14 @@ async def load_kg_from_file(
                 {"kg_name": _kg_name},
             ):
                 node: Node = record["n"]
+                raw_props: dict[str, Neo4jPropertyValue] = dict(node)
                 props: dict[str, object] = {
-                    k: (v.isoformat() if hasattr(v, "isoformat") else v)
-                    for k, v in dict(node).items()
+                    k: (
+                        cast("Neo4jISOValue", v).isoformat()
+                        if hasattr(v, "isoformat")
+                        else v
+                    )
+                    for k, v in raw_props.items()
                 }
                 nodes.append(
                     {
@@ -1062,9 +1069,14 @@ async def load_kg_from_file(
                 {"kg_name": _kg_name},
             ):
                 rel: Relationship = record["r"]
+                raw_props = dict(rel)
                 props = {
-                    k: (v.isoformat() if hasattr(v, "isoformat") else v)
-                    for k, v in dict(rel).items()
+                    k: (
+                        cast("Neo4jISOValue", v).isoformat()
+                        if hasattr(v, "isoformat")
+                        else v
+                    )
+                    for k, v in raw_props.items()
                 }
                 relationships.append(
                     {
@@ -2137,11 +2149,15 @@ async def load_kg_from_neo4j(
                 session.run("MATCH ()-[r]->() RETURN count(r) AS c").single(),
             )["c"]
 
-            def _serialize_props(raw_props: dict[str, object]) -> dict[str, object]:
+            def _serialize_props(
+                raw_props: "dict[str, Neo4jPropertyValue]",
+            ) -> dict[str, object]:
                 props: dict[str, object] = {}
                 for k, v in raw_props.items():
                     if hasattr(v, "isoformat"):
-                        props[k] = v.isoformat()
+                        # Hydrated graph properties expose this alias only on
+                        # Neo4j Date, Time, and DateTime (driver 5.28.2).
+                        props[k] = cast("Neo4jISOValue", v).isoformat()
                     else:
                         props[k] = v
                 return props
@@ -2382,20 +2398,19 @@ async def validate_csv(csv_file: UploadFile = File(...)) -> JSONResponse:
             MedicalCSVValidation | CSVValidationFailure
         ) = await asyncio.to_thread(processor.validate_csv_format, csv_path)
 
-        return JSONResponse(
-            content={
-                "is_valid": validation_result.get("is_valid", False),
-                "delimiter": validation_result.get("delimiter", "|"),
-                "num_columns": validation_result.get("num_columns", 0),
-                "num_rows": validation_result.get("num_rows", 0),
-                "field_mappings_count": len(
-                    validation_result.get("field_mappings", {}),
-                ),
-                "columns": validation_result.get("columns", []),
-                "field_mappings": validation_result.get("field_mappings", {}),
-                "errors": validation_result.get("validation_errors", []),
-            },
-        )
+        content: CSVValidationReport = {
+            "is_valid": validation_result.get("is_valid", False),
+            "delimiter": validation_result.get("delimiter", "|"),
+            "num_columns": validation_result.get("num_columns", 0),
+            "num_rows": validation_result.get("num_rows", 0),
+            "field_mappings_count": len(
+                validation_result.get("field_mappings", {}),
+            ),
+            "columns": validation_result.get("columns", []),
+            "field_mappings": validation_result.get("field_mappings", {}),
+            "errors": validation_result.get("validation_errors", []),
+        }
+        return JSONResponse(content=content)
 
     except HTTPException:
         raise
@@ -2588,7 +2603,8 @@ def _probe_openai_models() -> str:
         timeout=8.0,
     )
     response.raise_for_status()
-    data: list[object] = response.json().get("data", [])
+    payload: JSONValue = response.json()
+    data: JSONValue = payload.get("data", [])
     return f"reachable ({len(data)} models visible)"
 
 
@@ -2602,7 +2618,8 @@ def _probe_openrouter_models() -> str:
         timeout=8.0,
     )
     response.raise_for_status()
-    data: list[object] = response.json().get("data", [])
+    payload: JSONValue = response.json()
+    data: JSONValue = payload.get("data", [])
     return f"reachable ({len(data)} models visible)"
 
 
@@ -2616,7 +2633,8 @@ def _probe_deepseek_models() -> str:
         timeout=8.0,
     )
     response.raise_for_status()
-    data: list[object] = response.json().get("data", [])
+    payload: JSONValue = response.json()
+    data: JSONValue = payload.get("data", [])
     return f"reachable ({len(data)} models visible)"
 
 

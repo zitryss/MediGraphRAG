@@ -105,6 +105,17 @@ class DoctorReport(TypedDict):
     checks: list[DoctorCheck]
 
 
+class CSVValidationReport(TypedDict):
+    is_valid: bool
+    delimiter: str
+    num_columns: int
+    num_rows: int
+    field_mappings_count: int
+    columns: list[str]
+    field_mappings: dict[str, str]
+    errors: list[str]
+
+
 class CountRow(TypedDict):
     c: int
 
