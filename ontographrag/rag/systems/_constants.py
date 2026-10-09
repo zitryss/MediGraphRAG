@@ -30,3 +30,21 @@ RAG_CONFIG: dict[str, RetrievalConfiguration] = {
         "default_threshold": 0.08,
     },
 }
+
+
+class StatisticalRetrievalConfiguration(TypedDict):
+    default_max_chunks: int
+    threshold_floor: float
+    threshold_factor: float
+
+
+class SemanticRetrievalConfiguration(TypedDict):
+    default_max_chunks: int
+    threshold_floor: float
+    threshold_ceiling: float
+    threshold_boost: float
+
+
+class GenericRetrievalConfiguration(TypedDict):
+    default_max_chunks: int
+    default_threshold: float

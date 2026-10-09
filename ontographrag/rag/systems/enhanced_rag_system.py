@@ -1,23 +1,62 @@
-import os
 import logging
+import os
 import re
-from typing import Any
-from langchain_core.prompts import ChatPromptTemplate
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, cast
+
+from ontographrag.rag.systems._records import (
+    CompleteRetrievedChunk,
+    ContextT,
+    GraphRetrievalContext,
+    ProducedGraphRetrievalContext,
+    RetrievalContext,
+    RetrievedChunk,
+    RetrievedEntity,
+    RetrievedRelationship,
+    StoredGraphValue,
+)
+from ontographrag.rag.systems._response_records import (
+    EntityDetails,
+    EntitySearchHit,
+    EntitySearchProjection,
+    ErrorPayload,
+    GenerationResponse,
+    GuardrailMetadata,
+    KnowledgeGraphStats,
+    KnowledgeGraphStatsProjection,
+    ReasoningEdge,
+    UsedChunk,
+    UsedEntity,
+    UsedEvidence,
+)
+
+if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
+    from langchain_core.prompt_values import PromptValue
+    from langchain_core.runnables import Runnable
+
+    from ontographrag.rag.answer_guardrails import GuardrailVerdict
+    from ontographrag.rag.systems._query_planning import (
+        AdaptiveRetrievalParameters,
+        QuestionType,
+    )
+    from shared.common_fn import GraphQuery
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_neo4j import Neo4jGraph
+
 from ontographrag.kg.utils.common_functions import load_embedding_model
 from ontographrag.rag.answer_guardrails import (
     RUNTIME_GUARDRAIL_ABSTENTION,
     evaluate_runtime_answer_guardrail,
 )
 from ontographrag.rag.graph_state import summarize_context_graph_state
-from ontographrag.rag.retrieval_sampling import compute_candidate_limit
 from ontographrag.rag.reranking import (
     late_interaction_rescore_chunks_for_query,
     rerank_chunks_for_query,
 )
-
-from ontographrag.rag.systems._constants import RAG_CONFIG  # noqa: F401  (re-exported)
+from ontographrag.rag.retrieval_sampling import compute_candidate_limit
+from ontographrag.rag.systems._constants import RAG_CONFIG as RAG_CONFIG
 from ontographrag.rag.systems._context_assembly import ContextAssemblyMixin
 from ontographrag.rag.systems._graph_search import GraphSearchMixin
 from ontographrag.rag.systems._iterative import IterativeRetrievalMixin
@@ -98,16 +137,16 @@ class EnhancedRAGSystem(
         "performed",
         "performer",
     }
-    _MAX_ENTITY_SEEDS = 12
-    _ENTITY_LOOKUP_LIMIT = 40
-    _MAX_EXTRACTED_QUERY_ENTITIES = 8
-    _ITERATIVE_SUBQUESTION_MAX_HOPS = 3
-    _HYBRID_SUPPLEMENT_LIMIT = 5
-    _WEAK_GRAPH_GROUNDING_THRESHOLD = 0.5
-    _ANCHOR_LATER_HOP_RETRIEVAL_MIN = 12
-    _ANCHOR_LATER_HOP_BRIDGE_PASSAGE_LIMIT = 8
-    _GRAPH_TRAVERSAL_SEED_LIMIT = 24
-    _GRAPH_TRAVERSAL_NEIGHBOR_LIMIT = 30
+    _MAX_ENTITY_SEEDS: int = 12
+    _ENTITY_LOOKUP_LIMIT: int = 40
+    _MAX_EXTRACTED_QUERY_ENTITIES: int = 8
+    _ITERATIVE_SUBQUESTION_MAX_HOPS: int = 3
+    _HYBRID_SUPPLEMENT_LIMIT: int = 5
+    _WEAK_GRAPH_GROUNDING_THRESHOLD: float = 0.5
+    _ANCHOR_LATER_HOP_RETRIEVAL_MIN: int = 12
+    _ANCHOR_LATER_HOP_BRIDGE_PASSAGE_LIMIT: int = 8
+    _GRAPH_TRAVERSAL_SEED_LIMIT: int = 24
+    _GRAPH_TRAVERSAL_NEIGHBOR_LIMIT: int = 30
     _GRAPH_TRAVERSAL_MAX_HOPS_BY_KG: dict[str, int] = {
         # Shared-corpus MultihopRAG graphs get dense very quickly under open-ended
         # expansion; keep graph traversal supplemental rather than exhaustive.
@@ -138,16 +177,18 @@ class EnhancedRAGSystem(
         "pubmedqa": 0.30,
         "realmedqa": 0.30,
     }
-    _PASSAGE_ONLY_ANSWER_KGS = frozenset(
+    _PASSAGE_ONLY_ANSWER_KGS: frozenset[str] = frozenset(
         {
             "pubmedqa",
             "realmedqa",
         }
     )
-    _QUERY_FUSION_MAX_VARIANTS = 3
-    _QUERY_FUSION_RRF_K = 60
-    RETRIEVAL_MODES = frozenset({"hybrid_auto", "entity_first", "rfge", "vector_only"})
-    _STRUCTURAL_REL_TYPES: frozenset = frozenset(
+    _QUERY_FUSION_MAX_VARIANTS: int = 3
+    _QUERY_FUSION_RRF_K: int = 60
+    RETRIEVAL_MODES: frozenset[str] = frozenset(
+        {"hybrid_auto", "entity_first", "rfge", "vector_only"}
+    )
+    _STRUCTURAL_REL_TYPES: frozenset[str] = frozenset(
         {
             "HAS_ENTITY",
             "FROM_CHUNK",
@@ -157,14 +198,14 @@ class EnhancedRAGSystem(
             "QUALIFIES",
         }
     )
-    _HOP_SCORE = {0: 1.0, 1: 0.8, 2: 0.6}
-    _HOP_SCORE_DEFAULT = 0.5  # for hops > 2
+    _HOP_SCORE: dict[int, float] = {0: 1.0, 1: 0.8, 2: 0.6}
+    _HOP_SCORE_DEFAULT: float = 0.5  # for hops > 2
     _MAX_CHUNKS_PER_PASSAGE: int = 2
     _TRAVERSAL_CHUNK_MIN_SIM: float = 0.30
-    _PPR_ALPHA = 0.85
-    _PPR_STEPS = 5
-    _RFGE_VECTOR_THRESHOLD = 0.20
-    _RFGE_MIN_PPR_SCORE = 0.005
+    _PPR_ALPHA: float = 0.85
+    _PPR_STEPS: int = 5
+    _RFGE_VECTOR_THRESHOLD: float = 0.20
+    _RFGE_MIN_PPR_SCORE: float = 0.005
 
     def __init__(
         self,
@@ -195,16 +236,20 @@ class EnhancedRAGSystem(
         | None = None,  # min query-chunk cosine for hop-1+ chunks
     ) -> None:
         # Load Neo4j credentials from environment variables if not provided
-        self.neo4j_uri = neo4j_uri if neo4j_uri is not None else os.getenv("NEO4J_URI")
-        self.neo4j_user = (
+        self.neo4j_uri: str | None = (
+            neo4j_uri if neo4j_uri is not None else os.getenv("NEO4J_URI")
+        )
+        self.neo4j_user: str | None = (
             neo4j_user if neo4j_user is not None else os.getenv("NEO4J_USERNAME")
         )
-        self.neo4j_password = (
+        self.neo4j_password: str | None = (
             neo4j_password
             if neo4j_password is not None
             else os.getenv("NEO4J_PASSWORD")
         )
-        self.neo4j_database = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
+        self.neo4j_database: str | None = neo4j_database or os.getenv(
+            "NEO4J_DATABASE", "neo4j"
+        )
 
         if not self.neo4j_uri or not self.neo4j_user or not self.neo4j_password:
             raise ValueError(
@@ -213,36 +258,44 @@ class EnhancedRAGSystem(
 
         self._vector_index_available: bool | None = None  # cached after first check
         self._active_vector_index_name: str | None = None
-        self._graph: object | None = None  # shared Neo4j connection
-        self._embedding_cache: dict = {}  # query text → embedding vector
-        self._entity_extraction_cache: dict = {}  # (query, model_key) → entity strings
-        self._late_interaction_corpus_cache: dict = {}  # scoped corpus rows for LI retrieval
+        self._graph: Neo4jGraph | None = None  # shared Neo4j connection
+        self._embedding_cache: dict[
+            str, list[float]
+        ] = {}  # query text → embedding vector
+        self._entity_extraction_cache: dict[
+            tuple[str, str], list[str]
+        ] = {}  # (query, model_key) → entity strings
+        self._late_interaction_corpus_cache: dict[
+            tuple[str, tuple[str, ...], str, bool], list[CompleteRetrievedChunk]
+        ] = {}  # scoped corpus rows for LI retrieval
 
         if retrieval_mode not in self.RETRIEVAL_MODES:
             raise ValueError(
                 f"retrieval_mode must be one of {sorted(self.RETRIEVAL_MODES)}, got {retrieval_mode!r}"
             )
-        self.retrieval_mode = retrieval_mode
-        self.use_per_entity_ann = use_per_entity_ann
-        self.use_node_specificity = use_node_specificity
-        self.use_ppr_scoring = use_ppr_scoring
-        self.use_rfge = use_rfge
-        self.use_evidence_block = use_evidence_block
-        self.use_rog_path_planning = use_rog_path_planning
-        self.allow_vector_augmentation = allow_vector_augmentation
-        self.allow_vector_fallback = allow_vector_fallback
+        self.retrieval_mode: str = retrieval_mode
+        self.use_per_entity_ann: bool = use_per_entity_ann
+        self.use_node_specificity: bool = use_node_specificity
+        self.use_ppr_scoring: bool = use_ppr_scoring
+        self.use_rfge: bool = use_rfge
+        self.use_evidence_block: bool = use_evidence_block
+        self.use_rog_path_planning: bool = use_rog_path_planning
+        self.allow_vector_augmentation: bool = allow_vector_augmentation
+        self.allow_vector_fallback: bool = allow_vector_fallback
         if max_chunks_per_passage is not None:
-            self._MAX_CHUNKS_PER_PASSAGE = max_chunks_per_passage
+            self._MAX_CHUNKS_PER_PASSAGE: int = max_chunks_per_passage
         if traversal_chunk_min_sim is not None:
-            self._TRAVERSAL_CHUNK_MIN_SIM = traversal_chunk_min_sim
+            self._TRAVERSAL_CHUNK_MIN_SIM: float = traversal_chunk_min_sim
 
         # Initialize embeddings through the shared loader so KG construction and
         # query-time retrieval use the same backend/model defaults.
-        embedding_provider = (
+        embedding_provider: str | None = (
             embedding_model
             or os.getenv("EMBEDDING_PROVIDER")
             or os.getenv("EMBEDDING_MODEL", "sentence_transformers")
         )
+        self.embedding_model: Embeddings
+        self.embedding_dimension: int
         self.embedding_model, self.embedding_dimension = load_embedding_model(
             embedding_provider
         )
@@ -256,7 +309,7 @@ class EnhancedRAGSystem(
         # Evidence is pre-organized into reasoning chains (graph paths + their
         # supporting passages) before generation, making multi-hop evidence explicit
         # and reducing the chance the LLM invents bridge steps.
-        self.rag_prompt = ChatPromptTemplate.from_messages(
+        self.rag_prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
@@ -304,7 +357,7 @@ Question: {question}""",
             ]
         )
 
-    def _create_neo4j_connection(self):
+    def _create_neo4j_connection(self) -> "GraphQuery":
         """Return the shared Neo4j connection, creating it once on first call."""
         if self._graph is None:
             self._graph = Neo4jGraph(
@@ -338,10 +391,10 @@ Question: {question}""",
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
-        llm=None,
+        llm: "Runnable[PromptValue, object] | None" = None,
         anchor_mask_entity_ids: list[str] | None = None,
         anchor_mask_entity_names: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> ProducedGraphRetrievalContext:
         """
         Get comprehensive RAG context including chunks, entities, and relationships using vector search.
 
@@ -357,13 +410,13 @@ Question: {question}""",
                 (source_document and retrieval_bundle corpus contracts).
         """
         try:
-            graph = self._create_neo4j_connection()
-            candidate_chunk_limit = compute_candidate_limit(
+            graph: GraphQuery = self._create_neo4j_connection()
+            candidate_chunk_limit: int = compute_candidate_limit(
                 max_chunks,
                 retrieval_temperature,
                 retrieval_shortlist_factor,
             )
-            hybrid_secondary_limit = max(
+            hybrid_secondary_limit: int = max(
                 3,
                 min(
                     self._HYBRID_SUPPLEMENT_LIMIT
@@ -379,7 +432,9 @@ Question: {question}""",
                 MATCH (d:Document {kgName: $kg_name})<-[:PART_OF]-(c:Chunk)
                 RETURN count(c) as chunk_count
                 """
-                check_result = graph.query(check_query, {"kg_name": kg_name})
+                check_result: list[dict[str, object]] = graph.query(
+                    check_query, {"kg_name": kg_name}
+                )
 
                 if not check_result or check_result[0]["chunk_count"] == 0:
                     logging.warning(f"No chunks found in KG '{kg_name}'")
@@ -421,13 +476,15 @@ Question: {question}""",
             # Skipped when retrieval_mode is 'rfge' or 'vector_only', and also
             # for comparison questions — those need parallel branch vector retrieval,
             # not graph traversal which tends to pollute context via shared entities.
-            _qtype = self.classify_question_type(query)
-            _skip_graph_for_comparison = _qtype == "comparison"
+            _qtype: QuestionType = self.classify_question_type(query)
+            _skip_graph_for_comparison: bool = _qtype == "comparison"
             if _skip_graph_for_comparison:
                 logging.info(
                     "Comparison question detected — bypassing entity-first graph traversal"
                 )
-            entity_context = None
+            entity_context: (
+                GraphRetrievalContext | ProducedGraphRetrievalContext | None
+            ) = None
             if (
                 getattr(self, "retrieval_mode", "hybrid_auto")
                 not in ("rfge", "vector_only")
@@ -457,19 +514,21 @@ Question: {question}""",
                     or self._first_stage_late_interaction_enabled()
                 ):
                     try:
-                        vec_ctx = self._semantic_similarity_search(
-                            graph,
-                            query,
-                            document_names,
-                            similarity_threshold,
-                            candidate_chunk_limit,
-                            kg_name,
-                            max_hops=max_hops,
-                            question_id=question_id,
-                            allow_first_stage_late_interaction=getattr(
-                                self, "retrieval_mode", "hybrid_auto"
+                        vec_ctx: GraphRetrievalContext = (
+                            self._semantic_similarity_search(
+                                graph,
+                                query,
+                                document_names,
+                                similarity_threshold,
+                                candidate_chunk_limit,
+                                kg_name,
+                                max_hops=max_hops,
+                                question_id=question_id,
+                                allow_first_stage_late_interaction=getattr(
+                                    self, "retrieval_mode", "hybrid_auto"
+                                )
+                                != "entity_first",
                             )
-                            != "entity_first",
                         )
                         if vec_ctx and vec_ctx.get("chunks"):
                             if self._graph_context_is_meaningful(query, entity_context):
@@ -518,7 +577,7 @@ Question: {question}""",
             # Second path: retriever-first graph expansion.
             # Skipped when retrieval_mode is 'entity_first' or 'vector_only',
             # use_rfge toggle is False, or for comparison questions (same reason as above).
-            rfge_ctx = None
+            rfge_ctx: ProducedGraphRetrievalContext | None = None
             if (
                 getattr(self, "retrieval_mode", "hybrid_auto")
                 not in ("entity_first", "vector_only")
@@ -558,7 +617,7 @@ Question: {question}""",
 
             # Final fallback: pure vector similarity (no graph).
             # grounding_quality=0 signals to callers that structural metrics are unreliable.
-            has_semantic_backend = (
+            has_semantic_backend: bool = (
                 self.check_vector_index()
                 or self._first_stage_late_interaction_enabled()
             )
@@ -600,7 +659,7 @@ Question: {question}""",
                         getattr(self, "retrieval_mode", "hybrid_auto") == "entity_first"
                         and self.check_vector_index()
                     ):
-                        context = self._vector_similarity_search(
+                        context: GraphRetrievalContext = self._vector_similarity_search(
                             graph,
                             query,
                             document_names,
@@ -625,7 +684,7 @@ Question: {question}""",
                         logging.warning(
                             "Semantic search returned no results, falling back to text search"
                         )
-                        ctx = self._text_similarity_search(
+                        ctx: GraphRetrievalContext = self._text_similarity_search(
                             graph,
                             query,
                             document_names,
@@ -781,7 +840,7 @@ Question: {question}""",
         }
 
     def _runtime_answer_guardrail_mode(self, runtime_guardrail_mode: str | None) -> str:
-        mode = (
+        mode: str = (
             str(
                 runtime_guardrail_mode
                 or os.getenv(
@@ -799,8 +858,8 @@ Question: {question}""",
         self,
         *,
         question: str,
-        llm,
-        context: dict[str, Any],
+        llm: "Runnable[PromptValue, object]",
+        context: RetrievalContext,
         answer_instructions: str = "",
         extra_context_texts: list[str] | None = None,
         kg_name: str | None = None,
@@ -813,16 +872,16 @@ Question: {question}""",
         elif not self.use_evidence_block:
             # Flat-format fallback for ablation: just concatenated chunk texts,
             # optionally followed by graph paths for lightweight structure.
-            chunk_texts = []
+            chunk_texts: list[str] = []
             for i, chunk in enumerate(context.get("chunks", []), 1):
                 chunk_texts.append(f"[{i}] {chunk.get('text', '').strip()}")
-            flat_passages = "\n\n".join(chunk_texts) or "(No passages retrieved)"
+            flat_passages: str = "\n\n".join(chunk_texts) or "(No passages retrieved)"
             evidence_block = f"PASSAGES:\n{flat_passages}"
             if formatted_paths and "No graph" not in formatted_paths:
                 evidence_block += f"\n\nGRAPH PATHS:\n{formatted_paths}"
 
         if extra_context_texts:
-            extra_block = "\n\n".join(
+            extra_block: str = "\n\n".join(
                 f"Provided Context {i + 1}:\n{t}"
                 for i, t in enumerate(extra_context_texts)
                 if t.strip()
@@ -834,7 +893,10 @@ Question: {question}""",
                 f"Prepended {len(extra_context_texts)} extra context(s) to prompt"
             )
 
-        chain = self.rag_prompt | llm | StrOutputParser()
+        chain: Runnable[dict[str, str | int], str] = cast(
+            "Runnable[dict[str, str | int], str]",
+            self.rag_prompt | llm | StrOutputParser(),
+        )
         return chain.invoke(
             {
                 "evidence_block": evidence_block,
@@ -848,13 +910,14 @@ Question: {question}""",
         self,
         *,
         question: str,
-        llm,
+        llm: "Runnable[PromptValue, object]",
         response: str,
-        context: dict[str, Any],
+        context: ContextT,
         runtime_guardrail: bool | None,
         runtime_guardrail_mode: str | None,
-        retry_factory=None,
-    ) -> tuple:
+        retry_factory: Callable[[], tuple[str, ContextT] | None] | None = None,
+    ) -> tuple[str, ContextT, GuardrailMetadata]:
+        context_view: RetrievalContext = context
         if not self._runtime_answer_guardrail_enabled(runtime_guardrail):
             return (
                 response,
@@ -865,14 +928,14 @@ Question: {question}""",
                 },
             )
 
-        mode = self._runtime_answer_guardrail_mode(runtime_guardrail_mode)
-        verdict = evaluate_runtime_answer_guardrail(
+        mode: str = self._runtime_answer_guardrail_mode(runtime_guardrail_mode)
+        verdict: GuardrailVerdict = evaluate_runtime_answer_guardrail(
             question=question,
             answer=response,
-            chunks=context.get("chunks", []),
+            chunks=context_view.get("chunks", []),
             llm=llm,
         )
-        metadata: dict[str, Any] = {
+        metadata: GuardrailMetadata = {
             "enabled": True,
             "mode": mode,
             "initial_verdict": verdict,
@@ -887,13 +950,14 @@ Question: {question}""",
             and verdict["decision"] == "retry"
             and retry_factory is not None
         ):
-            retry_result = retry_factory()
+            retry_result: tuple[str, ContextT] | None = retry_factory()
             if retry_result:
                 retry_response, retry_context = retry_result
-                retry_verdict = evaluate_runtime_answer_guardrail(
+                retry_context_view: RetrievalContext = retry_context
+                retry_verdict: GuardrailVerdict = evaluate_runtime_answer_guardrail(
                     question=question,
                     answer=retry_response,
-                    chunks=retry_context.get("chunks", []),
+                    chunks=retry_context_view.get("chunks", []),
                     llm=llm,
                 )
                 metadata["retried"] = True
@@ -910,7 +974,7 @@ Question: {question}""",
     def generate_response(
         self,
         question: str,
-        llm,
+        llm: "Runnable[PromptValue, object]",
         document_names: list[str] | None = None,
         similarity_threshold: float | None = None,
         max_chunks: int | None = None,
@@ -928,7 +992,7 @@ Question: {question}""",
         retrieval_sample_id: int = 0,
         anchor_mask_entity_ids: list[str] | None = None,
         anchor_mask_entity_names: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> GenerationResponse:
         """
         Generate a RAG response using the knowledge graph with adaptive retrieval.
 
@@ -942,7 +1006,9 @@ Question: {question}""",
 
             # Use adaptive retrieval parameters if not explicitly provided
             if similarity_threshold is None or max_chunks is None:
-                retrieval_params = self.get_adaptive_retrieval_params(question)
+                retrieval_params: AdaptiveRetrievalParameters = (
+                    self.get_adaptive_retrieval_params(question)
+                )
                 similarity_threshold = (
                     similarity_threshold or retrieval_params["similarity_threshold"]
                 )
@@ -951,28 +1017,32 @@ Question: {question}""",
             # IRCoT / StepChain-style iterative multi-hop retrieval when max_hops >= 2.
             # Decompose first so we can skip the redundant full baseline retrieval when
             # the question genuinely decomposes into multiple hops.
-            context = None
+            context: ProducedGraphRetrievalContext | None = None
             if max_hops >= 2 and allow_decomposition:
-                sub_questions = self._decompose_question(question, llm, max_hops)
+                sub_questions: list[str] = self._decompose_question(
+                    question, llm, max_hops
+                )
                 if len(sub_questions) > 1:
-                    graph = self._create_neo4j_connection()
-                    mh_ctx = self._iterative_hop_retrieval(
-                        graph=graph,
-                        question=question,
-                        sub_questions=sub_questions,
-                        max_chunks=compute_candidate_limit(
-                            max_chunks,
-                            retrieval_temperature,
-                            retrieval_shortlist_factor,
-                        ),
-                        kg_name=kg_name,
-                        max_hops=max_hops,
-                        llm=llm,
-                        similarity_threshold=similarity_threshold,
-                        document_names=document_names or [],
-                        question_id=question_id,
-                        anchor_mask_entity_ids=anchor_mask_entity_ids,
-                        anchor_mask_entity_names=anchor_mask_entity_names,
+                    graph: GraphQuery = self._create_neo4j_connection()
+                    mh_ctx: ProducedGraphRetrievalContext | None = (
+                        self._iterative_hop_retrieval(
+                            graph=graph,
+                            question=question,
+                            sub_questions=sub_questions,
+                            max_chunks=compute_candidate_limit(
+                                max_chunks,
+                                retrieval_temperature,
+                                retrieval_shortlist_factor,
+                            ),
+                            kg_name=kg_name,
+                            max_hops=max_hops,
+                            llm=llm,
+                            similarity_threshold=similarity_threshold,
+                            document_names=document_names or [],
+                            question_id=question_id,
+                            anchor_mask_entity_ids=anchor_mask_entity_ids,
+                            anchor_mask_entity_names=anchor_mask_entity_names,
+                        )
                     )
                     if mh_ctx and mh_ctx.get("chunks"):
                         context = mh_ctx
@@ -1005,26 +1075,28 @@ Question: {question}""",
                 )
 
             if self._should_run_query_fusion(question, context, max_hops=max_hops):
-                variant_queries = self._generate_query_variants(
+                variant_queries: list[str] = self._generate_query_variants(
                     question, llm, max_hops=max_hops
                 )
-                variant_contexts: list[dict[str, Any]] = [context]
+                variant_contexts: list[ProducedGraphRetrievalContext] = [context]
                 for variant_query in variant_queries:
                     try:
-                        alt_context = self.get_rag_context(
-                            variant_query,
-                            document_names=document_names,
-                            similarity_threshold=similarity_threshold,
-                            max_chunks=max_chunks,
-                            kg_name=kg_name,
-                            max_hops=max_hops,
-                            question_id=question_id,
-                            retrieval_temperature=retrieval_temperature,
-                            retrieval_shortlist_factor=retrieval_shortlist_factor,
-                            retrieval_sample_id=retrieval_sample_id,
-                            llm=llm,
-                            anchor_mask_entity_ids=anchor_mask_entity_ids,
-                            anchor_mask_entity_names=anchor_mask_entity_names,
+                        alt_context: ProducedGraphRetrievalContext = (
+                            self.get_rag_context(
+                                variant_query,
+                                document_names=document_names,
+                                similarity_threshold=similarity_threshold,
+                                max_chunks=max_chunks,
+                                kg_name=kg_name,
+                                max_hops=max_hops,
+                                question_id=question_id,
+                                retrieval_temperature=retrieval_temperature,
+                                retrieval_shortlist_factor=retrieval_shortlist_factor,
+                                retrieval_sample_id=retrieval_sample_id,
+                                llm=llm,
+                                anchor_mask_entity_ids=anchor_mask_entity_ids,
+                                anchor_mask_entity_names=anchor_mask_entity_names,
+                            )
                         )
                     except Exception as fusion_exc:
                         logging.debug(
@@ -1035,16 +1107,18 @@ Question: {question}""",
                         continue
                     if alt_context and alt_context.get("chunks"):
                         variant_contexts.append(alt_context)
-                fused_context = self._fuse_contexts_with_rrf(
-                    query=question,
-                    contexts=variant_contexts,
-                    max_chunks=max_chunks,
-                    kg_name=kg_name,
-                    retrieval_temperature=retrieval_temperature,
-                    retrieval_shortlist_factor=retrieval_shortlist_factor,
-                    retrieval_sample_id=retrieval_sample_id,
-                    search_method="query_fusion_"
-                    + str(context.get("search_method") or "hybrid"),
+                fused_context: ProducedGraphRetrievalContext | None = (
+                    self._fuse_contexts_with_rrf(
+                        query=question,
+                        contexts=variant_contexts,
+                        max_chunks=max_chunks,
+                        kg_name=kg_name,
+                        retrieval_temperature=retrieval_temperature,
+                        retrieval_shortlist_factor=retrieval_shortlist_factor,
+                        retrieval_sample_id=retrieval_sample_id,
+                        search_method="query_fusion_"
+                        + str(context.get("search_method") or "hybrid"),
+                    )
                 )
                 if fused_context and fused_context.get("chunks"):
                     context = fused_context
@@ -1099,7 +1173,7 @@ Question: {question}""",
                     f"Found Version entity in context: {context['entities']['Version']}"
                 )
 
-            response = self._invoke_answer_chain(
+            response: str = self._invoke_answer_chain(
                 question=question,
                 llm=llm,
                 context=context,
@@ -1108,23 +1182,29 @@ Question: {question}""",
                 kg_name=kg_name,
             )
 
-            def _retry_with_vector_only():
-                if self._is_pure_vector_search_method(context.get("search_method")):
+            def _retry_with_vector_only() -> (
+                tuple[str, ProducedGraphRetrievalContext] | None
+            ):
+                if self._is_pure_vector_search_method(
+                    cast(RetrievalContext, context).get("search_method")
+                ):
                     return None
-                retry_graph = self._create_neo4j_connection()
-                retry_context = self._vector_similarity_search(
-                    retry_graph,
-                    question,
-                    document_names or [],
-                    similarity_threshold,
-                    compute_candidate_limit(
-                        max_chunks,
-                        retrieval_temperature,
-                        retrieval_shortlist_factor,
-                    ),
-                    kg_name,
-                    max_hops=max_hops,
-                    question_id=question_id,
+                retry_graph: GraphQuery = self._create_neo4j_connection()
+                retry_context: GraphRetrievalContext | ProducedGraphRetrievalContext = (
+                    self._vector_similarity_search(
+                        retry_graph,
+                        question,
+                        document_names or [],
+                        similarity_threshold,
+                        compute_candidate_limit(
+                            max_chunks,
+                            retrieval_temperature,
+                            retrieval_shortlist_factor,
+                        ),
+                        kg_name,
+                        max_hops=max_hops,
+                        question_id=question_id,
+                    )
                 )
                 retry_context = self._apply_final_chunk_selection(
                     query=question,
@@ -1170,7 +1250,7 @@ Question: {question}""",
                 retry_context["reranker"] = retry_reranker_meta
                 if not retry_context.get("chunks") and not extra_context_texts:
                     return None
-                retry_response = self._invoke_answer_chain(
+                retry_response: str = self._invoke_answer_chain(
                     question=question,
                     llm=llm,
                     context=retry_context,
@@ -1196,12 +1276,16 @@ Question: {question}""",
             if (
                 getattr(self, "allow_vector_fallback", True)
                 and "insufficient information" in response.lower()
-                and not self._is_pure_vector_search_method(context.get("search_method"))
+                and not self._is_pure_vector_search_method(
+                    cast(RetrievalContext, context).get("search_method")
+                )
             ):
                 logging.info(
                     "Insufficient-info response from graph-first path; retrying with vector-only"
                 )
-                _vec_retry = _retry_with_vector_only()
+                _vec_retry: tuple[str, ProducedGraphRetrievalContext] | None = (
+                    _retry_with_vector_only()
+                )
                 if _vec_retry:
                     _retry_response, _retry_context = _vec_retry
                     if "insufficient information" not in _retry_response.lower():
@@ -1210,18 +1294,20 @@ Question: {question}""",
                         guardrail["retried_insufficient_info"] = True
 
             # Extract entities and chunks actually mentioned in the response, plus reasoning edges
-            extracted_info = self._extract_used_entities_and_chunks(response, context)
-            used_entities = extracted_info["used_entities"]
-            used_chunks = extracted_info["used_chunks"]
-            reasoning_edges = extracted_info["reasoning_edges"]
+            extracted_info: UsedEvidence = self._extract_used_entities_and_chunks(
+                response, context
+            )
+            used_entities: list[UsedEntity] = extracted_info["used_entities"]
+            used_chunks: list[UsedChunk] = extracted_info["used_chunks"]
+            reasoning_edges: list[ReasoningEdge] = extracted_info["reasoning_edges"]
 
             # Calculate confidence based on similarity scores
-            avg_score = (
+            avg_score: float = (
                 context["total_score"] / len(context["chunks"])
                 if context["chunks"]
                 else 0
             )
-            confidence = max(
+            confidence: float = max(
                 0.0, min((avg_score - 0.05) / 0.95, 1.0)
             )  # Scale similarity score to 0-1
             # Penalize when multiple entities were retrieved but no graph relationships connected them
@@ -1277,12 +1363,12 @@ Question: {question}""",
                 "error": str(e),
             }
 
-    def get_entity_details(self, entity_id: str) -> dict[str, Any]:
+    def get_entity_details(self, entity_id: str) -> EntityDetails | ErrorPayload:
         """
         Get detailed information about a specific entity
         """
         try:
-            graph = self._create_neo4j_connection()
+            graph: GraphQuery = self._create_neo4j_connection()
 
             query: str = """
             MATCH (e:__Entity__ {id: $entity_id})
@@ -1305,12 +1391,14 @@ Question: {question}""",
                 }) AS mentions
             """
 
-            results = graph.query(query, {"entity_id": entity_id})
+            results: list[EntityDetails] = cast(
+                list[EntityDetails], graph.query(query, {"entity_id": entity_id})
+            )
 
             if not results:
                 return {"error": f"Entity {entity_id} not found"}
 
-            result = results[0]
+            result: EntityDetails = results[0]
             return {
                 "id": result["id"],
                 "type": result["type"],
@@ -1324,12 +1412,12 @@ Question: {question}""",
             logging.error(f"Error getting entity details: {e}")
             return {"error": str(e)}
 
-    def get_knowledge_graph_stats(self) -> dict[str, Any]:
+    def get_knowledge_graph_stats(self) -> KnowledgeGraphStats | ErrorPayload:
         """
         Get statistics about the knowledge graph
         """
         try:
-            graph = self._create_neo4j_connection()
+            graph: GraphQuery = self._create_neo4j_connection()
 
             stats_query: str = """
             MATCH (d:Document)
@@ -1344,10 +1432,12 @@ Question: {question}""",
                 collect(DISTINCT d.fileName) AS document_names
             """
 
-            results = graph.query(stats_query)
+            results: list[KnowledgeGraphStatsProjection] = cast(
+                list[KnowledgeGraphStatsProjection], graph.query(stats_query)
+            )
 
             if results:
-                result = results[0]
+                result: KnowledgeGraphStatsProjection = results[0]
                 return {
                     "documents": result["documents"],
                     "chunks": result["chunks"],
@@ -1370,12 +1460,12 @@ Question: {question}""",
             logging.error(f"Error getting KG stats: {e}")
             return {"error": str(e)}
 
-    def search_entities(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
+    def search_entities(self, query: str, top_k: int = 10) -> list[EntitySearchHit]:
         """
         Search for entities using text-based matching
         """
         try:
-            graph = self._create_neo4j_connection()
+            graph: GraphQuery = self._create_neo4j_connection()
 
             search_query: str = """
             MATCH (e:__Entity__)
@@ -1392,7 +1482,10 @@ Question: {question}""",
             LIMIT $top_k
             """
 
-            results = graph.query(search_query, {"query": query, "top_k": top_k})
+            results: list[EntitySearchProjection] = cast(
+                list[EntitySearchProjection],
+                graph.query(search_query, {"query": query, "top_k": top_k}),
+            )
 
             return [
                 {
@@ -1413,24 +1506,26 @@ Question: {question}""",
             return []
 
     def _extract_used_entities_and_chunks(
-        self, response: str, context: dict[str, Any]
-    ) -> dict[str, Any]:
+        self, response: str, context: RetrievalContext
+    ) -> UsedEvidence:
         """
         Extract entities and chunks that are actually mentioned in the RAG answer,
         using multiple fallback strategies to ensure filtering works
         """
-        used_entities = []
-        used_chunks = []
-        reasoning_edges = []
+        used_entities: list[UsedEntity] = []
+        used_chunks: list[UsedChunk] = []
+        reasoning_edges: list[ReasoningEdge] = []
 
         try:
-            context_entities = context.get("entities", {})
-            context_chunks = context.get("chunks", [])
-            context_relationships = context.get("relationships", [])
+            context_entities: dict[str, RetrievedEntity] = context.get("entities", {})
+            context_chunks: Sequence[RetrievedChunk] = context.get("chunks", [])
+            context_relationships: list[RetrievedRelationship] = context.get(
+                "relationships", []
+            )
 
-            response_lower = response.lower()
-            mentioned_entity_names = set()
-            mentioned_chunk_ids = set()
+            response_lower: str = response.lower()
+            mentioned_entity_names: set[str] = set()
+            mentioned_chunk_ids: set[str | None] = set()
 
             # Match entities by name: use description (= n.name, human-readable) as primary
             # key, falling back to id only if description is absent.
@@ -1438,7 +1533,7 @@ Question: {question}""",
             # for text matching against the LLM response.
             for entity_key, entity_info in context_entities.items():
                 # description = coalesce(entity.name, '') from Cypher — the readable name
-                entity_name = (
+                entity_name: str = (
                     (entity_info.get("description") or entity_info.get("id") or "")
                     .lower()
                     .replace("_", " ")
@@ -1466,9 +1561,9 @@ Question: {question}""",
             # Map chunk ordinal references ("chunk 2") back to actual chunk IDs
             for chunk_num in re.findall(r"\bchunk\s*(\d+)\b", response, re.IGNORECASE):
                 try:
-                    chunk_index = int(chunk_num) - 1
+                    chunk_index: int = int(chunk_num) - 1
                     if 0 <= chunk_index < len(context_chunks):
-                        matched_chunk = context_chunks[chunk_index]
+                        matched_chunk: RetrievedChunk = context_chunks[chunk_index]
                         if matched_chunk.get("chunk_id"):
                             mentioned_chunk_ids.add(matched_chunk["chunk_id"])
                         if matched_chunk.get("chunk_element_id"):
@@ -1491,28 +1586,30 @@ Question: {question}""",
                     )
 
             # Strategy 4: Include chunks that contain mentioned entities (semantic linking)
-            relevant_chunk_ids = set()
+            relevant_chunk_ids: set[str | None] = set()
             for entity_id in {e["id"] for e in used_entities}:
                 for chunk in context_chunks:
-                    chunk_entities = chunk.get("entities", [])
+                    chunk_entities: Sequence[RetrievedEntity] = chunk.get(
+                        "entities", []
+                    )
                     if any(ce.get("id") == entity_id for ce in chunk_entities):
                         relevant_chunk_ids.add(chunk.get("chunk_id"))
                         relevant_chunk_ids.add(chunk.get("chunk_element_id"))
 
             # Include explicitly mentioned chunks
             for chunk in context_chunks:
-                chunk_id = chunk.get("chunk_id", "")
-                chunk_element_id = chunk.get("chunk_element_id", "")
-                is_direct = (
+                chunk_id: str | None = chunk.get("chunk_id", "")
+                chunk_element_id: str | None = chunk.get("chunk_element_id", "")
+                is_direct: bool = (
                     chunk_id in mentioned_chunk_ids
                     or chunk_element_id in mentioned_chunk_ids
                 )
-                has_relevant_entity = (
+                has_relevant_entity: bool = (
                     chunk_id in relevant_chunk_ids
                     or chunk_element_id in relevant_chunk_ids
                 )
                 if is_direct or has_relevant_entity:
-                    text = chunk.get("text", "")
+                    text: str = chunk.get("text", "")
                     used_chunks.append(
                         {
                             "id": chunk_id,
@@ -1529,38 +1626,38 @@ Question: {question}""",
                 used_entities
             ):  # Only look for relationships if we have filtered entities
                 # Build lookup: element_id or id → human-readable name
-                entity_name_lookup = {}
+                entity_name_lookup: dict[str | None, StoredGraphValue] = {}
                 for e in used_entities:
-                    name = e.get("description") or e.get("id", "")
+                    name: StoredGraphValue = e.get("description") or e.get("id", "")
                     if e.get("element_id"):
                         entity_name_lookup[e["element_id"]] = name
                     if e.get("id"):
                         entity_name_lookup[e["id"]] = name
 
-                used_entity_element_ids = {
+                used_entity_element_ids: set[str | None] = {
                     e["element_id"] for e in used_entities if e["element_id"]
                 }
-                used_entity_ids = {e["id"] for e in used_entities}
+                used_entity_ids: set[str] = {e["id"] for e in used_entities}
 
                 for rel in context_relationships:
-                    source_id = rel.get("source", "")
-                    target_id = rel.get("target", "")
-                    source_element_id = rel.get("source_element_id", "")
-                    target_element_id = rel.get("target_element_id", "")
+                    source_id: str = rel.get("source", "")
+                    target_id: str = rel.get("target", "")
+                    source_element_id: str | None = rel.get("source_element_id", "")
+                    target_element_id: str | None = rel.get("target_element_id", "")
 
                     # Include edge if both connected entities are in our filtered set
-                    source_in_set = (
+                    source_in_set: bool = (
                         source_id in used_entity_ids
                         or source_element_id in used_entity_element_ids
                     )
-                    target_in_set = (
+                    target_in_set: bool = (
                         target_id in used_entity_ids
                         or target_element_id in used_entity_element_ids
                     )
 
                     if source_in_set and target_in_set:
-                        src_key = source_element_id or source_id
-                        tgt_key = target_element_id or target_id
+                        src_key: str = source_element_id or source_id
+                        tgt_key: str = target_element_id or target_id
                         reasoning_edges.append(
                             {
                                 "from": src_key,

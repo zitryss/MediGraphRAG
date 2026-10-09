@@ -1,14 +1,29 @@
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, cast, overload
 
 from ontographrag.rag.systems._records import (
+    ChunkProjection,
+    ChunkT,
+    ContextT,
+    CountedGraphRetrievalContext,
+    EntityProjection,
     EvidencePath,
     FusedChunkRecord,
+    GraphPrimitive,
+    GraphRetrievalContext,
+    PartialRetrievalContext,
+    ProducedGraphRetrievalContext,
     RetrievalContext,
+    RetrievalProvenance,
     RetrievedChunk,
     RetrievedEntity,
     RetrievedRelationship,
-    RetrievalProvenance,
+    ScoredCompleteRetrievalContext,
+    ScoredRetrievedChunk,
+    StoredGraphProperty,
+    StoredGraphValue,
+    StrongContextT,
     TraversalPath,
 )
 
@@ -29,7 +44,7 @@ class ContextAssemblyMixin:
     """
 
     if TYPE_CHECKING:
-        _PASSAGE_ONLY_ANSWER_KGS: set[str]
+        _PASSAGE_ONLY_ANSWER_KGS: frozenset[str]
         _WEAK_GRAPH_GROUNDING_THRESHOLD: float
         _QUERY_FUSION_RRF_K: int
         _MAX_CHUNKS_PER_PASSAGE: int
@@ -49,7 +64,7 @@ class ContextAssemblyMixin:
 
         @classmethod
         def _comparison_branch_coverage(
-            cls, query: str, chunks: list[RetrievedChunk]
+            cls, query: str, chunks: Sequence[RetrievedChunk]
         ) -> int: ...
 
     @staticmethod
@@ -94,25 +109,25 @@ class ContextAssemblyMixin:
 
     @classmethod
     def _sort_chunks_for_query(
-        cls, query: str, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]:
+        cls, query: str, chunks: Sequence[ChunkT]
+    ) -> list[ChunkT]:
         branches: list[str] = cls._comparison_branches(query)
         return sorted(
             chunks,
             key=lambda c: (
                 -cls._comparison_branch_match_count(query, c) if branches else 0,
                 -cls._lexical_query_overlap_count(query, c),
-                -int(c.get("linked_entity_count", 0)),
-                -float(c.get("score", 0.0)),
-                1 if c.get("adjacent") else 0,
-                int(c.get("position") or 0),
+                -int(cast(RetrievedChunk, c).get("linked_entity_count", 0)),
+                -float(cast(RetrievedChunk, c).get("score", 0.0)),
+                1 if cast(RetrievedChunk, c).get("adjacent") else 0,
+                int(cast(RetrievedChunk, c).get("position") or 0),
             ),
         )
 
     @classmethod
     def _retained_entity_ids_from_chunks(cls, chunks: list[RetrievedChunk]) -> set[str]:
         retained_eids: set[str] = set()
-        eid: str | None
+        eid: StoredGraphProperty
         for chunk in chunks:
             for eid in chunk.get("linked_entity_ids") or []:
                 if eid:
@@ -187,6 +202,21 @@ class ContextAssemblyMixin:
             selected_passage_keys=selected_passage_keys,
         )
 
+    @overload
+    @classmethod
+    def _apply_final_chunk_selection(
+        cls,
+        *,
+        query: str,
+        context: GraphRetrievalContext | ProducedGraphRetrievalContext,
+        max_chunks: int,
+        retrieval_temperature: float,
+        retrieval_shortlist_factor: int,
+        retrieval_sample_id: int,
+        kg_name: str | None,
+    ) -> ProducedGraphRetrievalContext: ...
+
+    @overload
     @classmethod
     def _apply_final_chunk_selection(
         cls,
@@ -198,7 +228,20 @@ class ContextAssemblyMixin:
         retrieval_shortlist_factor: int,
         retrieval_sample_id: int,
         kg_name: str | None,
-    ) -> RetrievalContext:
+    ) -> CountedGraphRetrievalContext | ProducedGraphRetrievalContext: ...
+
+    @classmethod
+    def _apply_final_chunk_selection(
+        cls,
+        *,
+        query: str,
+        context: RetrievalContext,
+        max_chunks: int,
+        retrieval_temperature: float,
+        retrieval_shortlist_factor: int,
+        retrieval_sample_id: int,
+        kg_name: str | None,
+    ) -> CountedGraphRetrievalContext | ProducedGraphRetrievalContext:
         chunks: list[RetrievedChunk] = cls._sort_chunks_for_query(
             query, list(context.get("chunks", []))
         )
@@ -212,7 +255,7 @@ class ContextAssemblyMixin:
             score_getter=lambda chunk: float(chunk.get("score", 0.0)),
         )
 
-        pruned: RetrievalContext = context.copy()
+        pruned: PartialRetrievalContext = cast(PartialRetrievalContext, dict(context))
         pruned["chunks"] = selected_chunks
         retained_eids: set[str] = cls._retained_entity_ids_from_chunks(selected_chunks)
 
@@ -303,7 +346,7 @@ class ContextAssemblyMixin:
             ),
         }
         pruned["graph_state"] = summarize_context_graph_state(pruned)
-        return pruned
+        return cast(CountedGraphRetrievalContext, pruned)
 
     @classmethod
     def _graph_context_is_meaningful(
@@ -344,20 +387,21 @@ class ContextAssemblyMixin:
     def _append_adjacent_chunks_to_context(
         cls,
         graph: "GraphQuery",
-        context: RetrievalContext,
+        context: ContextT,
         *,
         kg_name: str | None,
         question_id: str | None,
         document_names: list[str] | None,
         max_adjacent: int,
-    ) -> RetrievalContext:
+    ) -> ContextT:
         """Append position-adjacent chunks so answer spans split across boundaries survive.
 
         Vanilla retrieval already recovers adjacent chunks from the same local passage.
         Apply the same recovery here so graph-first and vector-first KG retrieval paths
         do not lose answer-bearing sentences simply because the retriever hit a nearby span.
         """
-        chunks: list[RetrievedChunk] = list(context.get("chunks") or [])
+        context_view: RetrievalContext = context
+        chunks: list[RetrievedChunk] = list(context_view.get("chunks") or [])
         if not chunks:
             return context
 
@@ -445,7 +489,9 @@ class ContextAssemblyMixin:
         LIMIT $max_adjacent
         """
         try:
-            adj_results = graph.query(adj_query, params) or []
+            adj_results: list[ChunkProjection] = (
+                cast(list[ChunkProjection], graph.query(adj_query, params)) or []
+            )
         except Exception as adj_err:
             logging.debug(
                 "Enhanced adjacent chunk expansion failed (non-fatal): %s", adj_err
@@ -455,43 +501,71 @@ class ContextAssemblyMixin:
         if not adj_results:
             return context
 
-        updated: RetrievalContext = context.copy()
+        updated: PartialRetrievalContext = cast(PartialRetrievalContext, dict(context))
         updated_chunks: list[RetrievedChunk] = list(chunks)
-        documents: set[str | None] = set(context.get("documents") or [])
+        documents: set[StoredGraphProperty] = set(context_view.get("documents") or [])
         for result in adj_results:
-            chunk_element_id = result.get("chunk_element_id")
+            chunk_element_id: str | None = result.get("chunk_element_id")
             if not chunk_element_id or str(chunk_element_id) in seen_ids:
                 continue
-            entities = result.get("entities") or []
-            updated_chunks.append(
-                {
-                    "text": result["text"],
-                    "chunk_id": result["chunk_id"],
-                    "chunk_element_id": chunk_element_id,
-                    "position": result.get("position"),
-                    "source": result.get("source"),
-                    "question_id": result.get("question_id"),
-                    "passage_index": result.get("passage_index"),
-                    "chunk_local_index": result.get("chunk_local_index"),
-                    "score": 0.0,
-                    "document": result["document"],
-                    "kg_name": result.get("kg_name"),
-                    "entities": entities,
-                    "linked_entity_ids": [
-                        entity.get("id")
-                        for entity in entities
-                        if isinstance(entity, dict) and entity.get("id")
-                    ],
-                    "linked_entity_count": len(entities),
-                    "adjacent": True,
-                }
-            )
+            entities: list[EntityProjection] = result.get("entities") or []
+            adjacent_chunk: ScoredRetrievedChunk = {
+                "text": result["text"],
+                "chunk_id": result["chunk_id"],
+                "chunk_element_id": chunk_element_id,
+                "position": result.get("position"),
+                "source": result.get("source"),
+                "question_id": result.get("question_id"),
+                "passage_index": result.get("passage_index"),
+                "chunk_local_index": result.get("chunk_local_index"),
+                "score": 0.0,
+                "document": result["document"],
+                "kg_name": result.get("kg_name"),
+                "entities": entities,
+                "linked_entity_ids": [
+                    entity.get("id")
+                    for entity in entities
+                    if isinstance(entity, dict) and entity.get("id")
+                ],
+                "linked_entity_count": len(entities),
+                "adjacent": True,
+            }
+            updated_chunks.append(adjacent_chunk)
             documents.add(result["document"])
             seen_ids.add(str(chunk_element_id))
 
         updated["chunks"] = updated_chunks
         updated["documents"] = list(documents)
-        return updated
+        return cast(ContextT, updated)
+
+    @overload
+    @classmethod
+    def _merge_retrieval_contexts(
+        cls,
+        primary: StrongContextT,
+        secondary: GraphRetrievalContext
+        | ProducedGraphRetrievalContext
+        | ScoredCompleteRetrievalContext
+        | None,
+        *,
+        max_chunks: int,
+        search_method: str,
+        secondary_limit: int | None = None,
+        min_secondary_score: float | None = None,
+    ) -> StrongContextT: ...
+
+    @overload
+    @classmethod
+    def _merge_retrieval_contexts(
+        cls,
+        primary: RetrievalContext,
+        secondary: RetrievalContext | None,
+        *,
+        max_chunks: int,
+        search_method: str,
+        secondary_limit: int | None = None,
+        min_secondary_score: float | None = None,
+    ) -> RetrievalContext: ...
 
     @classmethod
     def _merge_retrieval_contexts(
@@ -505,17 +579,23 @@ class ContextAssemblyMixin:
         min_secondary_score: float | None = None,
     ) -> RetrievalContext:
         """Merge two retrieval contexts while keeping primary chunks dominant."""
+        primary_view: RetrievalContext = primary
         if not secondary or not secondary.get("chunks"):
-            merged: RetrievalContext = primary.copy()
+            merged: PartialRetrievalContext = cast(
+                PartialRetrievalContext, dict(primary)
+            )
             merged["search_method"] = search_method
             return merged
 
-        merged = primary.copy()
-        merged["chunks"] = [chunk.copy() for chunk in primary.get("chunks", [])]
-        merged["entities"] = dict(primary.get("entities", {}))
-        merged["relationships"] = list(primary.get("relationships", []))
-        merged["graph_neighbors"] = dict(primary.get("graph_neighbors", {}))
-        merged["traversal_paths"] = list(primary.get("traversal_paths", []))
+        merged = cast(PartialRetrievalContext, dict(primary))
+        merged["chunks"] = [
+            cast(RetrievedChunk, dict(chunk))
+            for chunk in primary_view.get("chunks", [])
+        ]
+        merged["entities"] = dict(primary_view.get("entities", {}))
+        merged["relationships"] = list(primary_view.get("relationships", []))
+        merged["graph_neighbors"] = dict(primary_view.get("graph_neighbors", {}))
+        merged["traversal_paths"] = list(primary_view.get("traversal_paths", []))
 
         existing_chunk_ids: set[str] = set()
         for chunk in merged["chunks"]:
@@ -536,7 +616,7 @@ class ContextAssemblyMixin:
             existing_chunk_ids.add(str(cid))
             if parent_cid:
                 existing_chunk_ids.add(str(parent_cid))
-            candidate: RetrievedChunk = chunk.copy()
+            candidate: RetrievedChunk = cast(RetrievedChunk, dict(chunk))
             if min_secondary_score is not None:
                 candidate["score"] = max(
                     float(candidate.get("score", 0.0)), min_secondary_score
@@ -547,7 +627,7 @@ class ContextAssemblyMixin:
 
         merged["chunks"].extend(new_chunks)
         merged["chunks"] = cls._sort_chunks_for_query(
-            primary.get("query", ""), merged["chunks"]
+            primary_view.get("query", ""), merged["chunks"]
         )
         merged["chunks"] = merged["chunks"][:max_chunks]
 
@@ -578,7 +658,7 @@ class ContextAssemblyMixin:
 
         merged["documents"] = list(
             {
-                *(primary.get("documents") or []),
+                *(primary_view.get("documents") or []),
                 *(secondary.get("documents") or []),
                 *(
                     chunk.get("document")
@@ -596,22 +676,67 @@ class ContextAssemblyMixin:
         # Always preserve the highest grounding_quality seen across both contexts
         # so that a weak-graph fallback to vector doesn't erase genuine entity grounding.
         gq: float = max(
-            primary.get("grounding_quality") or 0.0,
+            primary_view.get("grounding_quality") or 0.0,
             (secondary.get("grounding_quality") if secondary else None) or 0.0,
         )
         merged["grounding_quality"] = gq
         merged["seed_entity_count"] = max(
-            int(primary.get("seed_entity_count") or 0),
+            int(primary_view.get("seed_entity_count") or 0),
             int((secondary or {}).get("seed_entity_count") or 0),
         )
         return merged
+
+    @overload
+    @classmethod
+    def _fuse_contexts_with_rrf(
+        cls,
+        *,
+        query: str,
+        contexts: Sequence[ProducedGraphRetrievalContext],
+        max_chunks: int,
+        kg_name: str | None,
+        retrieval_temperature: float,
+        retrieval_shortlist_factor: int,
+        retrieval_sample_id: int,
+        search_method: str,
+    ) -> ProducedGraphRetrievalContext | None: ...
+
+    @overload
+    @classmethod
+    def _fuse_contexts_with_rrf(
+        cls,
+        *,
+        query: str,
+        contexts: Sequence[CountedGraphRetrievalContext],
+        max_chunks: int,
+        kg_name: str | None,
+        retrieval_temperature: float,
+        retrieval_shortlist_factor: int,
+        retrieval_sample_id: int,
+        search_method: str,
+    ) -> CountedGraphRetrievalContext | ProducedGraphRetrievalContext | None: ...
+
+    @overload
+    @classmethod
+    def _fuse_contexts_with_rrf(
+        cls,
+        *,
+        query: str,
+        contexts: Sequence[RetrievalContext],
+        max_chunks: int,
+        kg_name: str | None,
+        retrieval_temperature: float,
+        retrieval_shortlist_factor: int,
+        retrieval_sample_id: int,
+        search_method: str,
+    ) -> RetrievalContext | None: ...
 
     @classmethod
     def _fuse_contexts_with_rrf(
         cls,
         *,
         query: str,
-        contexts: list[RetrievalContext],
+        contexts: Sequence[RetrievalContext],
         max_chunks: int,
         kg_name: str | None,
         retrieval_temperature: float,
@@ -627,7 +752,7 @@ class ContextAssemblyMixin:
         if len(usable_contexts) == 1:
             return usable_contexts[0]
 
-        merged: RetrievalContext = {
+        merged: CountedGraphRetrievalContext = {
             "query": query,
             "chunks": [],
             "entities": {},
@@ -661,7 +786,7 @@ class ContextAssemblyMixin:
                 record: FusedChunkRecord | None = chunk_records.get(chunk_key)
                 if record is None:
                     record = {
-                        "chunk": chunk.copy(),
+                        "chunk": cast(RetrievedChunk, dict(chunk)),
                         "rrf": 0.0,
                         "support_count": 0,
                         "best_score": float(chunk.get("score", 0.0)),
@@ -671,7 +796,7 @@ class ContextAssemblyMixin:
                 record["support_count"] += 1
                 current_score: float = float(chunk.get("score", 0.0))
                 if current_score >= record["best_score"]:
-                    record["chunk"] = chunk.copy()
+                    record["chunk"] = cast(RetrievedChunk, dict(chunk))
                     record["best_score"] = current_score
 
             for entity_id, entity_info in (context.get("entities") or {}).items():
@@ -703,7 +828,7 @@ class ContextAssemblyMixin:
 
         fused_chunks: list[RetrievedChunk] = []
         for record in chunk_records.values():
-            chunk = record["chunk"].copy()
+            chunk = cast(RetrievedChunk, dict(record["chunk"]))
             chunk["rrf_score"] = record["rrf"]
             chunk["retrieval_support_count"] = record["support_count"]
             chunk["score"] = (
@@ -744,25 +869,24 @@ class ContextAssemblyMixin:
             int(chunk.get("position") or 0),
         )
 
-    def _apply_per_passage_chunk_cap(
-        self, chunks: list[RetrievedChunk]
-    ) -> list[RetrievedChunk]:
+    def _apply_per_passage_chunk_cap(self, chunks: list[ChunkT]) -> list[ChunkT]:
         """Keep the highest-ranked chunks from each source passage."""
         _passage_cap: int = self._MAX_CHUNKS_PER_PASSAGE
         if _passage_cap <= 0:
             return list(chunks)
 
-        ranked_chunks: list[RetrievedChunk] = sorted(chunks, key=self._chunk_rank_key)
+        ranked_chunks: list[ChunkT] = sorted(chunks, key=self._chunk_rank_key)
         passage_counts: dict[str | int, int] = {}
-        capped_chunks: list[RetrievedChunk] = []
+        capped_chunks: list[ChunkT] = []
         pkey: str | int
         for chunk in ranked_chunks:
-            qid_val: str = chunk.get("question_id") or ""
-            pidx_val: int | None = chunk.get("passage_index")
+            chunk_view: RetrievedChunk = chunk
+            qid_val: str = chunk_view.get("question_id") or ""
+            pidx_val: int | None = chunk_view.get("passage_index")
             if pidx_val is not None and qid_val:
                 pkey = f"{qid_val}::p{pidx_val}"
             else:
-                pkey = chunk.get("chunk_id") or id(chunk)
+                pkey = chunk_view.get("chunk_id") or id(chunk)
             count: int = passage_counts.get(pkey, 0)
             if count < _passage_cap:
                 capped_chunks.append(chunk)
@@ -784,7 +908,7 @@ class ContextAssemblyMixin:
         "Additional Evidence".  This makes multi-hop reasoning chains explicit
         to the LLM and reduces the chance of hallucinated bridge steps.
         """
-        chunks: list[RetrievedChunk] = context.get("chunks", [])
+        chunks: Sequence[RetrievedChunk] = context.get("chunks", [])
         traversal_paths: list[TraversalPath] = context.get("traversal_paths", [])
         relationships: list[RetrievedRelationship] = context.get("relationships", [])
         entities: dict[str, RetrievedEntity] = context.get("entities", {})
@@ -819,12 +943,14 @@ class ContextAssemblyMixin:
             if path_passage_keys and chunk_passage_key is not None:
                 return chunk_passage_key in path_passage_keys
 
-            chunk_entity_ids: set[str] = set(chunk.get("linked_entity_ids") or [])
+            chunk_entity_ids: set[StoredGraphProperty] = set(
+                chunk.get("linked_entity_ids") or []
+            )
             path_nodes: set[str] = set(path_info.get("node_ids") or [])
             if not chunk_entity_ids or not path_nodes:
                 return False
 
-            overlap: set[str] = chunk_entity_ids & path_nodes
+            overlap: set[StoredGraphProperty] = chunk_entity_ids & path_nodes
             # When provenance metadata is absent, require at least two path
             # entities for a chunk to count as chain support. This avoids
             # treating a passage that merely mentions one endpoint as evidence
@@ -850,14 +976,18 @@ class ContextAssemblyMixin:
                     "passage_keys": list(p.get("passage_keys") or []),
                 }
             )
-        entity_name_lookup: dict[str, str] = {
+        entity_name_lookup: dict[str, StoredGraphValue] = {
             eid: (info.get("name") or info.get("description") or eid)
             for eid, info in entities.items()
         }
         MAX_REL_PATHS: int = max(0, 25 - len(all_paths))
         for rel in relationships[:MAX_REL_PATHS]:
-            src: str = entity_name_lookup.get(rel["source"], rel["source"])[:50]
-            tgt: str = entity_name_lookup.get(rel["target"], rel["target"])[:50]
+            src: str | list[GraphPrimitive] = entity_name_lookup.get(
+                rel["source"], rel["source"]
+            )[:50]
+            tgt: str | list[GraphPrimitive] = entity_name_lookup.get(
+                rel["target"], rel["target"]
+            )[:50]
             rel_label: str = self._format_relationship_label(rel)
             all_paths.append(
                 {
@@ -932,7 +1062,7 @@ class ContextAssemblyMixin:
         return "\n\n".join(sections)
 
     def _build_passages_only_evidence_block(self, context: RetrievalContext) -> str:
-        chunks: list[RetrievedChunk] = context.get("chunks", []) or []
+        chunks: Sequence[RetrievedChunk] = context.get("chunks", []) or []
         if not chunks:
             return "(No passages retrieved)"
         lines: list[str] = []
@@ -959,8 +1089,8 @@ class ContextAssemblyMixin:
 
         # --- legacy: flat chunk list (for callers that use formatted_context directly) ---
         chunk_texts: list[str] = []
-        for i, chunk in enumerate(context["chunks"], 1):
-            doc: str = chunk.get("document", "unknown")
+        for _i, chunk in enumerate(context["chunks"], 1):
+            doc: StoredGraphValue = chunk.get("document", "unknown")
             chunk_text: str = f"[Source: {doc}]\n{chunk['text']}\n"
             chunk_texts.append(chunk_text)
         _formatted_context: str = "\n".join(chunk_texts)
@@ -973,14 +1103,18 @@ class ContextAssemblyMixin:
                 traversal_paths, key=lambda p: p.get("hops", 99)
             )
             path_lines.extend([f"  {p['path']}" for p in sorted_paths])
-        entity_name_lookup: dict[str, str] = {
+        entity_name_lookup: dict[str, StoredGraphValue] = {
             eid: (info.get("description") or eid)
             for eid, info in context.get("entities", {}).items()
         }
         MAX_RELATIONSHIPS: int = 25
         for rel in context.get("relationships", [])[:MAX_RELATIONSHIPS]:
-            src_name: str = entity_name_lookup.get(rel["source"], rel["source"])[:50]
-            tgt_name: str = entity_name_lookup.get(rel["target"], rel["target"])[:50]
+            src_name: str | list[GraphPrimitive] = entity_name_lookup.get(
+                rel["source"], rel["source"]
+            )[:50]
+            tgt_name: str | list[GraphPrimitive] = entity_name_lookup.get(
+                rel["target"], rel["target"]
+            )[:50]
             rel_type: str = self._format_relationship_label(rel)
             path_lines.append(f"  {src_name} --{rel_type}--> {tgt_name}")
         formatted_paths: str = (
@@ -1006,10 +1140,10 @@ class ContextAssemblyMixin:
         if seed_entities:
             entity_texts.append("Seed entities (directly from retrieved chunks):")
             for entity_id, info in list(seed_entities.items())[:MAX_SEED_ENTITIES]:
-                eid: str = info.get("id") or entity_id or "Unknown"
+                eid: StoredGraphValue = info.get("id") or entity_id or "Unknown"
                 etype: str = info.get("type") or "Unknown"
                 line: str = f"  - {eid} | Type: {etype}"
-                desc: str | None = info.get("description")
+                desc: StoredGraphProperty = info.get("description")
                 if desc and desc != eid:
                     line += f" | {desc}"
                 entity_texts.append(line)

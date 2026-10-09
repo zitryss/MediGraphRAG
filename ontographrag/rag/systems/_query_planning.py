@@ -1,18 +1,27 @@
-import os
 import json
 import logging
+import os
 import re
-from typing import TYPE_CHECKING, Literal, TypedDict
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict, cast
 
-from ontographrag.rag.systems._records import RetrievalContext, RetrievedChunk
+from ontographrag.rag.systems._records import (
+    DecodedJSON,
+    RetrievalContext,
+    RetrievedChunk,
+    StoredGraphProperty,
+)
 
 if TYPE_CHECKING:
-    from langchain_core.language_models import LanguageModelLike
+    from langchain_core.prompt_values import PromptValue
     from langchain_core.runnables import Runnable
+
     from ontographrag.rag.systems._constants import RetrievalConfiguration
 
 
-QuestionType = Literal["comparison", "bridge", "statistical", "semantic", "generic"]
+QuestionType: TypeAlias = Literal[
+    "comparison", "bridge", "statistical", "semantic", "generic"
+]
 
 
 class AdaptiveRetrievalParameters(TypedDict):
@@ -21,10 +30,15 @@ class AdaptiveRetrievalParameters(TypedDict):
     max_chunks: int
 
 
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 
-from ontographrag.rag.systems._constants import RAG_CONFIG
+from ontographrag.rag.systems._constants import (
+    RAG_CONFIG,
+    GenericRetrievalConfiguration,
+    SemanticRetrievalConfiguration,
+    StatisticalRetrievalConfiguration,
+)
 
 
 class QueryPlanningMixin:
@@ -63,7 +77,7 @@ class QueryPlanningMixin:
 
     @classmethod
     def _comparison_branch_coverage(
-        cls, query: str, chunks: list[RetrievedChunk]
+        cls, query: str, chunks: Sequence[RetrievedChunk]
     ) -> int:
         branches: list[str] = cls._comparison_branches(query)
         if not branches:
@@ -160,7 +174,7 @@ class QueryPlanningMixin:
     def _generate_query_variants(
         self,
         question: str,
-        llm: "LanguageModelLike | None",
+        llm: "Runnable[PromptValue, object] | None",
         *,
         max_hops: int,
     ) -> list[str]:
@@ -211,13 +225,13 @@ class QueryPlanningMixin:
             ]
         )
         try:
-            chain: "Runnable[dict[str, str | int], str]" = (
-                prompt | llm | StrOutputParser()
+            chain: Runnable[dict[str, str | int], str] = cast(
+                "Runnable[dict[str, str | int], str]", prompt | llm | StrOutputParser()
             )
             raw: str = chain.invoke({"question": question, "n": remaining})
             match: re.Match[str] | None = re.search(r"\[.*\]", str(raw), re.DOTALL)
             if match:
-                parsed: object = json.loads(match.group(0))
+                parsed: DecodedJSON = json.loads(match.group(0))
                 if isinstance(parsed, list):
                     for item in parsed:
                         candidate: str = self._normalize_retrieval_query(str(item))
@@ -377,27 +391,34 @@ class QueryPlanningMixin:
         Calculate dynamic similarity threshold based on question type and context
         """
         question_type: QuestionType = self.classify_question_type(query)
-        config: "RetrievalConfiguration" = RAG_CONFIG.get(
+        config: RetrievalConfiguration = RAG_CONFIG.get(
             question_type, RAG_CONFIG["generic"]
         )
 
         if question_type == "statistical":
             # Lower threshold for statistical queries to catch more data
             base_threshold: float = max(
-                config["threshold_floor"],
-                0.08 - (entity_count * config["threshold_factor"]),
+                cast(StatisticalRetrievalConfiguration, config)["threshold_floor"],
+                0.08
+                - (
+                    entity_count
+                    * cast(StatisticalRetrievalConfiguration, config)[
+                        "threshold_factor"
+                    ]
+                ),
             )
             return min(base_threshold, 0.15)
 
         elif question_type == "semantic":
             # Slightly higher threshold for focused semantic questions
             base_threshold = min(
-                config["threshold_ceiling"], 0.08 + config["threshold_boost"]
+                cast(SemanticRetrievalConfiguration, config)["threshold_ceiling"],
+                0.08 + cast(SemanticRetrievalConfiguration, config)["threshold_boost"],
             )
             return max(base_threshold, 0.06)
 
         else:  # generic
-            return config["default_threshold"]
+            return cast(GenericRetrievalConfiguration, config)["default_threshold"]
 
     def get_adaptive_retrieval_params(self, query: str) -> AdaptiveRetrievalParameters:
         """
@@ -440,7 +461,9 @@ class QueryPlanningMixin:
         return tokens
 
     @classmethod
-    def _count_matched_query_tokens(cls, query: str, entity_names: list[str]) -> int:
+    def _count_matched_query_tokens(
+        cls, query: str, entity_names: Sequence[StoredGraphProperty]
+    ) -> int:
         """Count how many distinct content tokens from the query are covered by entity names."""
         query_tokens: list[str] = cls._content_query_tokens(query)
         if not query_tokens:
@@ -478,7 +501,7 @@ class QueryPlanningMixin:
         return min(1.0, matched_query_token_count / len(content_words))
 
     def _extract_query_entities(
-        self, query: str, llm: "LanguageModelLike"
+        self, query: str, llm: "Runnable[PromptValue, object]"
     ) -> list[str]:
         """
         Extract named entity mentions from a question using the LLM.
@@ -509,8 +532,8 @@ class QueryPlanningMixin:
             ]
         )
         try:
-            chain: "Runnable[dict[str, str | int], str]" = (
-                prompt | llm | StrOutputParser()
+            chain: Runnable[dict[str, str | int], str] = cast(
+                "Runnable[dict[str, str | int], str]", prompt | llm | StrOutputParser()
             )
             raw: str = chain.invoke({"question": query})
             raw = raw.strip()
@@ -518,12 +541,12 @@ class QueryPlanningMixin:
             if raw.startswith("```"):
                 raw = re.sub(r"^```[a-z]*\n?", "", raw)
                 raw = re.sub(r"\n?```$", "", raw.strip())
-            entities: object = json.loads(raw)
-            if not isinstance(entities, list):
-                entities = []
+            parsed_entities: DecodedJSON = json.loads(raw)
+            if not isinstance(parsed_entities, list):
+                parsed_entities = []
             cleaned_entities: list[str] = []
             seen_entities: set[str] = set()
-            for entity in entities:
+            for entity in parsed_entities:
                 normalized: str = re.sub(r"\s+", " ", str(entity).strip())
                 if not normalized:
                     continue
@@ -534,7 +557,7 @@ class QueryPlanningMixin:
                 cleaned_entities.append(normalized)
                 if len(cleaned_entities) >= self._MAX_EXTRACTED_QUERY_ENTITIES:
                     break
-            entities = cleaned_entities
+            entities: list[str] = cleaned_entities
         except Exception as exc:
             logging.debug(
                 "Query entity extraction failed (%s); falling back to raw query embedding.",
@@ -546,7 +569,10 @@ class QueryPlanningMixin:
         return entities
 
     def _decompose_question(
-        self, question: str, llm: "LanguageModelLike", max_hops: int = 2
+        self,
+        question: str,
+        llm: "Runnable[PromptValue, object]",
+        max_hops: int = 2,
     ) -> list[str]:
         """
         Decompose a multi-hop question into an ordered list of sub-questions.
@@ -581,22 +607,26 @@ class QueryPlanningMixin:
             ]
         )
         try:
-            chain: "Runnable[dict[str, str | int], str]" = (
-                prompt | llm | StrOutputParser()
+            chain: Runnable[dict[str, str | int], str] = cast(
+                "Runnable[dict[str, str | int], str]", prompt | llm | StrOutputParser()
             )
             raw: str = chain.invoke({"question": question, "n": n_hops})
             # Extract JSON array from response (tolerate surrounding text)
             m: re.Match[str] | None = re.search(r"\[.*\]", raw, re.DOTALL)
             if m:
-                sub_qs: object = json.loads(m.group(0))
+                sub_qs: DecodedJSON = json.loads(m.group(0))
                 if isinstance(sub_qs, list) and len(sub_qs) >= 2:
                     # Hard-cap to n_hops so a verbose LLM can't silently exceed max_hops
                     sub_qs = sub_qs[:n_hops]
-                    sub_qs = [str(q).strip() for q in sub_qs if str(q).strip()]
+                    cleaned_subquestions: list[str] = [
+                        str(q).strip() for q in sub_qs if str(q).strip()
+                    ]
                     logging.info(
-                        "Decomposed into %d sub-questions: %s", len(sub_qs), sub_qs
+                        "Decomposed into %d sub-questions: %s",
+                        len(cleaned_subquestions),
+                        cleaned_subquestions,
                     )
-                    return sub_qs
+                    return cleaned_subquestions
         except Exception as e:
             logging.warning("Question decomposition failed: %s", e)
         return [question]

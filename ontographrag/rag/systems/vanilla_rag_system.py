@@ -1,27 +1,57 @@
-import os
 import json
 import logging
+import os
 import re
-from typing import Any
-from datetime import datetime
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, cast, overload
 
-import numpy as np
-from langchain_core.prompts import ChatPromptTemplate
+from ontographrag.rag.systems._records import (
+    ChunkProjection,
+    CompleteRetrievedChunk,
+    DecodedJSON,
+    FloatListConvertible,
+    FusedChunkRecord,
+    QueryEncoder,
+    RetrievalContext,
+    RetrievalWorkingContext,
+    RetrievedChunk,
+    ScoredChunkProjection,
+    ScoredCompleteRetrievalContext,
+    ScoredRetrievedChunk,
+    StoredGraphProperty,
+)
+from ontographrag.rag.systems._response_records import (
+    GenerationResponse,
+    GuardrailMetadata,
+)
+
+if TYPE_CHECKING:
+    import numpy as np
+    from langchain_core.embeddings import Embeddings
+    from langchain_core.prompt_values import PromptValue
+    from langchain_core.runnables import Runnable
+    from numpy.typing import NDArray
+
+    from ontographrag.rag.answer_guardrails import GuardrailVerdict
+    from shared.common_fn import GraphQuery
+
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_neo4j import Neo4jGraph
+
 from ontographrag.kg.utils.common_functions import load_embedding_model
 from ontographrag.rag.answer_guardrails import (
     RUNTIME_GUARDRAIL_ABSTENTION,
     evaluate_runtime_answer_guardrail,
 )
-from ontographrag.rag.retrieval_sampling import (
-    compute_candidate_limit,
-    select_ranked_subset,
-)
 from ontographrag.rag.reranking import (
     late_interaction_enabled,
     late_interaction_rescore_chunks_for_query,
     rerank_chunks_for_query,
+)
+from ontographrag.rag.retrieval_sampling import (
+    compute_candidate_limit,
+    select_ranked_subset,
 )
 
 
@@ -70,8 +100,8 @@ class VanillaRAGSystem:
         "answer",
         "answers",
     }
-    _QUERY_FUSION_MAX_VARIANTS = 3
-    _QUERY_FUSION_RRF_K = 60
+    _QUERY_FUSION_MAX_VARIANTS: int = 3
+    _QUERY_FUSION_RRF_K: int = 60
 
     def __init__(
         self,
@@ -82,16 +112,20 @@ class VanillaRAGSystem:
         embedding_model: str | None = None,  # Use environment variable if not provided
     ) -> None:
         # Load Neo4j credentials from environment variables if not provided
-        self.neo4j_uri = neo4j_uri if neo4j_uri is not None else os.getenv("NEO4J_URI")
-        self.neo4j_user = (
+        self.neo4j_uri: str | None = (
+            neo4j_uri if neo4j_uri is not None else os.getenv("NEO4J_URI")
+        )
+        self.neo4j_user: str | None = (
             neo4j_user if neo4j_user is not None else os.getenv("NEO4J_USERNAME")
         )
-        self.neo4j_password = (
+        self.neo4j_password: str | None = (
             neo4j_password
             if neo4j_password is not None
             else os.getenv("NEO4J_PASSWORD")
         )
-        self.neo4j_database = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
+        self.neo4j_database: str | None = neo4j_database or os.getenv(
+            "NEO4J_DATABASE", "neo4j"
+        )
 
         if not self.neo4j_uri or not self.neo4j_user or not self.neo4j_password:
             raise ValueError(
@@ -100,11 +134,13 @@ class VanillaRAGSystem:
 
         # Initialize embeddings through the shared loader so KG construction and
         # vanilla retrieval use the same backend/model defaults.
-        embedding_provider = (
+        embedding_provider: str | None = (
             embedding_model
             or os.getenv("EMBEDDING_PROVIDER")
             or os.getenv("EMBEDDING_MODEL", "sentence_transformers")
         )
+        self.embedding_model: Embeddings
+        self.embedding_dimension: int
         self.embedding_model, self.embedding_dimension = load_embedding_model(
             embedding_provider
         )
@@ -114,10 +150,12 @@ class VanillaRAGSystem:
             self.embedding_dimension,
         )
         self._vector_index_name: str | None = None
-        self._late_interaction_corpus_cache: dict = {}
+        self._late_interaction_corpus_cache: dict[
+            tuple[str, tuple[str, ...], str], list[CompleteRetrievedChunk]
+        ] = {}
 
         # Simple RAG prompt template (no KG traversal instructions)
-        self.rag_prompt = ChatPromptTemplate.from_messages(
+        self.rag_prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
@@ -150,7 +188,7 @@ User Query: {question}""",
             ]
         )
 
-    def _create_neo4j_connection(self):
+    def _create_neo4j_connection(self) -> "GraphQuery":
         """Create Neo4j graph connection"""
         return Neo4jGraph(
             url=self.neo4j_uri,
@@ -172,22 +210,26 @@ User Query: {question}""",
             return self.embedding_model.embed_query(query)
 
         if hasattr(self.embedding_model, "encode"):
-            embedding = self.embedding_model.encode(query, convert_to_numpy=True)
+            embedding: NDArray[np.float32] | list[float] = cast(
+                QueryEncoder, self.embedding_model
+            ).encode(query, convert_to_numpy=True)
             return (
-                embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+                cast(FloatListConvertible, embedding).tolist()
+                if hasattr(embedding, "tolist")
+                else list(embedding)
             )
 
         raise ValueError(
             "Unsupported embedding model interface. Expected embed_query or encode."
         )
 
-    def _resolve_vector_index_name(self, graph) -> str | None:
+    def _resolve_vector_index_name(self, graph: "GraphQuery") -> str | None:
         """Prefer retrieval-span vectors when available, else fall back to Chunk vectors."""
         if self._vector_index_name is not None:
             return self._vector_index_name
 
         try:
-            index_rows = (
+            index_rows: list[dict[str, object]] = (
                 graph.query(
                     "SHOW INDEXES YIELD name, type, state WHERE type = 'VECTOR' RETURN name, state"
                 )
@@ -197,12 +239,12 @@ User Query: {question}""",
             logging.warning("Could not inspect Neo4j vector indexes: %s", exc)
             return None
 
-        online_indexes = {
+        online_indexes: dict[str, str] = {
             str(row.get("name")): str(row.get("state") or "").upper()
             for row in index_rows
             if str(row.get("state") or "").upper() in {"", "ONLINE"}
         }
-        probe_embedding = self._generate_query_embedding("test")
+        probe_embedding: list[float] = self._generate_query_embedding("test")
         for candidate in ("retrieval_vector", "vector"):
             if candidate not in online_indexes:
                 continue
@@ -232,7 +274,7 @@ User Query: {question}""",
         )
 
     def _first_stage_late_interaction_enabled(self) -> bool:
-        explicit = (
+        explicit: str = (
             str(os.getenv("ONTOGRAPHRAG_FIRST_STAGE_LATE_INTERACTION", ""))
             .strip()
             .lower()
@@ -247,7 +289,7 @@ User Query: {question}""",
         kg_name: str | None,
         document_names: list[str] | None,
         question_id: str | None,
-    ) -> tuple:
+    ) -> tuple[str, tuple[str, ...], str]:
         return (
             kg_name or "",
             tuple(sorted(document_names or [])),
@@ -275,7 +317,7 @@ User Query: {question}""",
         query = str(query or "").strip().rstrip("?")
         if not query or " or " not in query.lower():
             return []
-        parts = re.split(r"\bor\b", query, maxsplit=1, flags=re.IGNORECASE)
+        parts: list[str] = re.split(r"\bor\b", query, maxsplit=1, flags=re.IGNORECASE)
         if len(parts) != 2:
             return []
         left, right = parts[0].strip(), parts[1].strip()
@@ -287,15 +329,15 @@ User Query: {question}""",
             left,
             flags=re.IGNORECASE,
         ).strip()
-        branches = [branch.strip(" ,.;:") for branch in (left, right)]
+        branches: list[str] = [branch.strip(" ,.;:") for branch in (left, right)]
         return [branch for branch in branches if len(branch) >= 4]
 
     @classmethod
-    def _comparison_branch_match_count(cls, query: str, chunk: dict[str, Any]) -> int:
-        branches = cls._comparison_branches(query)
+    def _comparison_branch_match_count(cls, query: str, chunk: RetrievedChunk) -> int:
+        branches: list[str] = cls._comparison_branches(query)
         if not branches:
             return 0
-        haystack = " ".join(
+        haystack: str = " ".join(
             filter(
                 None,
                 [
@@ -308,14 +350,14 @@ User Query: {question}""",
 
     @classmethod
     def _comparison_branch_coverage(
-        cls, query: str, chunks: list[dict[str, Any]]
+        cls, query: str, chunks: list[RetrievedChunk]
     ) -> int:
-        branches = cls._comparison_branches(query)
+        branches: list[str] = cls._comparison_branches(query)
         if not branches:
             return 0
-        covered = 0
+        covered: int = 0
         for branch in branches:
-            branch_norm = branch.lower()
+            branch_norm: str = branch.lower()
             if any(
                 branch_norm in str(chunk.get("text", "")).lower()
                 or branch_norm in str(chunk.get("document", "")).lower()
@@ -325,11 +367,11 @@ User Query: {question}""",
         return covered
 
     @classmethod
-    def _lexical_query_overlap_count(cls, query: str, chunk: dict[str, Any]) -> int:
-        tokens = cls._content_query_tokens(query)
+    def _lexical_query_overlap_count(cls, query: str, chunk: RetrievedChunk) -> int:
+        tokens: list[str] = cls._content_query_tokens(query)
         if not tokens:
             return 0
-        haystack = " ".join(
+        haystack: str = " ".join(
             filter(
                 None,
                 [
@@ -342,9 +384,9 @@ User Query: {question}""",
 
     @classmethod
     def _sort_chunks_for_query(
-        cls, query: str, chunks: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        branches = cls._comparison_branches(query)
+        cls, query: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
+        branches: list[str] = cls._comparison_branches(query)
         return sorted(
             chunks,
             key=lambda chunk: (
@@ -367,32 +409,34 @@ User Query: {question}""",
 
     @classmethod
     def _should_run_query_fusion(
-        cls, question: str, context: dict[str, Any] | None
+        cls, question: str, context: RetrievalContext | None
     ) -> bool:
         if not cls._query_fusion_enabled():
             return False
-        branches = cls._comparison_branches(question)
+        branches: list[str] = cls._comparison_branches(question)
         if branches:
-            coverage = cls._comparison_branch_coverage(
+            coverage: int = cls._comparison_branch_coverage(
                 question, list((context or {}).get("chunks", []))
             )
             if coverage < len(branches):
                 return True
-        content_tokens = cls._content_query_tokens(question)
+        content_tokens: list[str] = cls._content_query_tokens(question)
         return (
             len(content_tokens) >= 8
             and len(list((context or {}).get("chunks", []))) < 4
         )
 
-    def _generate_query_variants(self, question: str, llm) -> list[str]:
+    def _generate_query_variants(
+        self, question: str, llm: "Runnable[PromptValue, object] | None"
+    ) -> list[str]:
         variants: list[str] = []
         seen: set[str] = {self._normalize_retrieval_query(question).lower()}
 
         for branch in self._comparison_branches(question):
-            branch_query = self._normalize_retrieval_query(
+            branch_query: str = self._normalize_retrieval_query(
                 f"Focus on {branch}. Original question: {question}"
             )
-            branch_key = branch_query.lower()
+            branch_key: str = branch_query.lower()
             if branch_query and branch_key not in seen:
                 seen.add(branch_key)
                 variants.append(branch_query)
@@ -400,18 +444,18 @@ User Query: {question}""",
         if llm is None:
             return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-        remaining = self._QUERY_FUSION_MAX_VARIANTS - len(variants)
+        remaining: int = self._QUERY_FUSION_MAX_VARIANTS - len(variants)
         if remaining <= 0:
             return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-        is_complex = (
+        is_complex: bool = (
             bool(self._comparison_branches(question))
             or len(self._content_query_tokens(question)) >= 8
         )
         if not is_complex:
             return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-        prompt = ChatPromptTemplate.from_messages(
+        prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
@@ -431,15 +475,17 @@ User Query: {question}""",
             ]
         )
         try:
-            chain = prompt | llm | StrOutputParser()
-            raw = chain.invoke({"question": question, "n": remaining})
-            match = re.search(r"\[.*\]", str(raw), re.DOTALL)
+            chain: Runnable[dict[str, str | int], str] = cast(
+                "Runnable[dict[str, str | int], str]", prompt | llm | StrOutputParser()
+            )
+            raw: str = chain.invoke({"question": question, "n": remaining})
+            match: re.Match[str] | None = re.search(r"\[.*\]", str(raw), re.DOTALL)
             if match:
-                parsed = json.loads(match.group(0))
+                parsed: DecodedJSON = json.loads(match.group(0))
                 if isinstance(parsed, list):
                     for item in parsed:
-                        candidate = self._normalize_retrieval_query(str(item))
-                        candidate_key = candidate.lower()
+                        candidate: str = self._normalize_retrieval_query(str(item))
+                        candidate_key: str = candidate.lower()
                         if (
                             not candidate
                             or candidate_key in seen
@@ -457,37 +503,61 @@ User Query: {question}""",
 
         return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
+    @overload
     @classmethod
     def _fuse_contexts_with_rrf(
         cls,
         *,
         query: str,
-        contexts: list[dict[str, Any]],
+        contexts: Sequence[ScoredCompleteRetrievalContext],
         max_chunks: int,
         search_method: str,
-    ) -> dict[str, Any] | None:
-        usable_contexts = [ctx for ctx in contexts if ctx and ctx.get("chunks")]
+    ) -> ScoredCompleteRetrievalContext | None: ...
+
+    @overload
+    @classmethod
+    def _fuse_contexts_with_rrf(
+        cls,
+        *,
+        query: str,
+        contexts: Sequence[RetrievalContext],
+        max_chunks: int,
+        search_method: str,
+    ) -> RetrievalContext | None: ...
+
+    @classmethod
+    def _fuse_contexts_with_rrf(
+        cls,
+        *,
+        query: str,
+        contexts: Sequence[RetrievalContext],
+        max_chunks: int,
+        search_method: str,
+    ) -> RetrievalContext | None:
+        usable_contexts: list[RetrievalContext] = [
+            ctx for ctx in contexts if ctx and ctx.get("chunks")
+        ]
         if not usable_contexts:
             return None
         if len(usable_contexts) == 1:
             return usable_contexts[0]
 
-        chunk_records: dict[str, dict[str, Any]] = {}
+        chunk_records: dict[str, FusedChunkRecord] = {}
         for context in usable_contexts:
-            ranked_chunks = cls._sort_chunks_for_query(
+            ranked_chunks: list[RetrievedChunk] = cls._sort_chunks_for_query(
                 query, list(context.get("chunks", []))
             )
             for rank, chunk in enumerate(ranked_chunks, 1):
-                chunk_key = str(
+                chunk_key: str = str(
                     chunk.get("parent_chunk_id")
                     or chunk.get("chunk_id")
                     or chunk.get("chunk_element_id")
                     or str(chunk.get("text", ""))[:120]
                 )
-                record = chunk_records.get(chunk_key)
+                record: FusedChunkRecord | None = chunk_records.get(chunk_key)
                 if record is None:
                     record = {
-                        "chunk": dict(chunk),
+                        "chunk": cast(RetrievedChunk, dict(chunk)),
                         "rrf": 0.0,
                         "support_count": 0,
                         "best_score": float(chunk.get("score", 0.0)),
@@ -495,14 +565,14 @@ User Query: {question}""",
                     chunk_records[chunk_key] = record
                 record["rrf"] += 1.0 / float(cls._QUERY_FUSION_RRF_K + rank)
                 record["support_count"] += 1
-                current_score = float(chunk.get("score", 0.0))
+                current_score: float = float(chunk.get("score", 0.0))
                 if current_score >= record["best_score"]:
-                    record["chunk"] = dict(chunk)
+                    record["chunk"] = cast(RetrievedChunk, dict(chunk))
                     record["best_score"] = current_score
 
-        fused_chunks: list[dict[str, Any]] = []
+        fused_chunks: list[RetrievedChunk] = []
         for record in chunk_records.values():
-            chunk = dict(record["chunk"])
+            chunk = cast(RetrievedChunk, dict(record["chunk"]))
             chunk["rrf_score"] = record["rrf"]
             chunk["retrieval_support_count"] = record["support_count"]
             chunk["score"] = (
@@ -531,26 +601,28 @@ User Query: {question}""",
 
     def _late_interaction_corpus_rows(
         self,
-        graph,
+        graph: "GraphQuery",
         *,
         kg_name: str | None,
         document_names: list[str] | None,
         question_id: str | None,
-    ) -> list[dict[str, Any]]:
-        cache = getattr(self, "_late_interaction_corpus_cache", None)
+    ) -> list[CompleteRetrievedChunk]:
+        cache: (
+            dict[tuple[str, tuple[str, ...], str], list[CompleteRetrievedChunk]] | None
+        ) = getattr(self, "_late_interaction_corpus_cache", None)
         if cache is None:
             cache = {}
             self._late_interaction_corpus_cache = cache
 
-        scope_key = self._late_interaction_scope_key(
+        scope_key: tuple[str, tuple[str, ...], str] = self._late_interaction_scope_key(
             kg_name=kg_name,
             document_names=document_names,
             question_id=question_id,
         )
         if scope_key in cache:
-            return [dict(row) for row in cache[scope_key]]
+            return [cast(CompleteRetrievedChunk, dict(row)) for row in cache[scope_key]]
 
-        params: dict[str, Any] = {"corpus_cap": self._late_interaction_corpus_cap()}
+        params: dict[str, object] = {"corpus_cap": self._late_interaction_corpus_cap()}
         filters: list[str] = []
         if kg_name:
             filters.append("d.kgName = $kg_name")
@@ -563,9 +635,9 @@ User Query: {question}""",
                 "coalesce(retrieval.questionId, chunk.questionId) = $question_id"
             )
             params["question_id"] = question_id
-        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+        where_clause: str = "WHERE " + " AND ".join(filters) if filters else ""
 
-        retrieval_query = f"""
+        retrieval_query: str = f"""
         MATCH (retrieval:RetrievalChunk)-[:RETRIEVES_FROM]->(chunk:Chunk)-[:PART_OF]->(d:Document)
         {where_clause}
         RETURN
@@ -589,7 +661,9 @@ User Query: {question}""",
                  chunk.position ASC
         LIMIT $corpus_cap
         """
-        rows = graph.query(retrieval_query, params) or []
+        rows: list[ChunkProjection] = (
+            cast(list[ChunkProjection], graph.query(retrieval_query, params)) or []
+        )
         if not rows:
             chunk_filters: list[str] = []
             if kg_name:
@@ -598,10 +672,10 @@ User Query: {question}""",
                 chunk_filters.append("d.fileName IN $document_names")
             if question_id:
                 chunk_filters.append("chunk.questionId = $question_id")
-            chunk_where = (
+            chunk_where: str = (
                 "WHERE " + " AND ".join(chunk_filters) if chunk_filters else ""
             )
-            chunk_query = f"""
+            chunk_query: str = f"""
             MATCH (chunk:Chunk)-[:PART_OF]->(d:Document)
             {chunk_where}
             RETURN
@@ -622,14 +696,14 @@ User Query: {question}""",
                      chunk.position ASC
             LIMIT $corpus_cap
             """
-            rows = graph.query(chunk_query, params) or []
+            rows = cast(list[ChunkProjection], graph.query(chunk_query, params)) or []
 
-        cache[scope_key] = [dict(row) for row in rows]
-        return [dict(row) for row in rows]
+        cache[scope_key] = [cast(CompleteRetrievedChunk, dict(row)) for row in rows]
+        return [cast(CompleteRetrievedChunk, dict(row)) for row in rows]
 
     def _late_interaction_search(
         self,
-        graph,
+        graph: "GraphQuery",
         query: str,
         document_names: list[str] | None = None,
         max_chunks: int = 20,
@@ -638,13 +712,13 @@ User Query: {question}""",
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
-    ) -> dict[str, Any]:
-        scope_key = self._late_interaction_scope_key(
+    ) -> ScoredCompleteRetrievalContext:
+        scope_key: tuple[str, tuple[str, ...], str] = self._late_interaction_scope_key(
             kg_name=kg_name,
             document_names=document_names,
             question_id=question_id,
         )
-        rows = self._late_interaction_corpus_rows(
+        rows: list[CompleteRetrievedChunk] = self._late_interaction_corpus_rows(
             graph,
             kg_name=kg_name,
             document_names=document_names,
@@ -659,13 +733,13 @@ User Query: {question}""",
                 "search_method": "vanilla_late_interaction_unavailable",
             }
 
-        candidate_limit = compute_candidate_limit(
+        candidate_limit: int = compute_candidate_limit(
             max_chunks,
             retrieval_temperature,
             retrieval_shortlist_factor,
             hard_cap=500,
         )
-        candidate_rows = []
+        candidate_rows: list[ScoredRetrievedChunk] = []
         for row in rows:
             candidate_rows.append(
                 {
@@ -702,7 +776,7 @@ User Query: {question}""",
                 "late_interaction_stage": li_meta,
             }
 
-        score_values = [
+        score_values: list[float] = [
             abs(float(row.get("late_interaction_score", row.get("score", 0.0)) or 0.0))
             for row in reranked_rows[:candidate_limit]
         ]
@@ -719,7 +793,7 @@ User Query: {question}""",
                     "reason": "no_score_signal",
                 },
             }
-        selected_results = select_ranked_subset(
+        selected_results: list[ScoredRetrievedChunk] = select_ranked_subset(
             reranked_rows,
             max_items=max_chunks,
             retrieval_temperature=retrieval_temperature,
@@ -734,7 +808,7 @@ User Query: {question}""",
             score_getter=lambda row: float(row.get("score", 0.0)),
         )
 
-        context = {
+        context: RetrievalWorkingContext = {
             "query": query,
             "chunks": [],
             "documents": set(),
@@ -749,9 +823,9 @@ User Query: {question}""",
             "late_interaction_stage": li_meta,
         }
 
-        seen_ids = set()
+        seen_ids: set[str | None] = set()
         for result in selected_results:
-            chunk_info = {
+            chunk_info: ScoredRetrievedChunk = {
                 "text": result["text"],
                 "chunk_id": result["chunk_id"],
                 "chunk_element_id": result["chunk_element_id"],
@@ -769,22 +843,22 @@ User Query: {question}""",
                 "late_interaction_score": result.get("late_interaction_score"),
             }
             context["chunks"].append(chunk_info)
-            context["documents"].add(result["document"])
+            cast(set[StoredGraphProperty], context["documents"]).add(result["document"])
             context["total_score"] += float(result["score"])
             seen_ids.add(result["chunk_element_id"])
 
         if selected_results:
-            seed_element_ids = [
+            seed_element_ids: list[str | None] = [
                 r.get("parent_chunk_element_id") or r["chunk_element_id"]
                 for r in selected_results
             ]
-            adj_params = {
+            adj_params: dict[str, object] = {
                 "element_ids": seed_element_ids,
                 "kg_name": kg_name,
                 "max_adjacent": max_chunks,
             }
-            kg_filter = "AND d.kgName = $kg_name" if kg_name else ""
-            adj_query = f"""
+            kg_filter: str = "AND d.kgName = $kg_name" if kg_name else ""
+            adj_query: str = f"""
             UNWIND $element_ids AS eid
             MATCH (seed:Chunk)-[:PART_OF]->(d:Document)
             WHERE elementId(seed) = eid
@@ -823,27 +897,33 @@ User Query: {question}""",
             LIMIT $max_adjacent
             """
             try:
-                adj_results = graph.query(adj_query, adj_params)
-                for result in adj_results:
-                    if result["chunk_element_id"] not in seen_ids:
+                adj_results: list[ChunkProjection] = cast(
+                    list[ChunkProjection], graph.query(adj_query, adj_params)
+                )
+                for adj_result in adj_results:
+                    if adj_result["chunk_element_id"] not in seen_ids:
                         context["chunks"].append(
                             {
-                                "text": result["text"],
-                                "chunk_id": result["chunk_id"],
-                                "chunk_element_id": result["chunk_element_id"],
-                                "position": result.get("position"),
-                                "source": result.get("source"),
-                                "question_id": result.get("question_id"),
-                                "passage_index": result.get("passage_index"),
-                                "chunk_local_index": result.get("chunk_local_index"),
+                                "text": adj_result["text"],
+                                "chunk_id": adj_result["chunk_id"],
+                                "chunk_element_id": adj_result["chunk_element_id"],
+                                "position": adj_result.get("position"),
+                                "source": adj_result.get("source"),
+                                "question_id": adj_result.get("question_id"),
+                                "passage_index": adj_result.get("passage_index"),
+                                "chunk_local_index": adj_result.get(
+                                    "chunk_local_index"
+                                ),
                                 "score": 0.0,
-                                "document": result["document"],
-                                "kg_name": result.get("kg_name"),
+                                "document": adj_result["document"],
+                                "kg_name": adj_result.get("kg_name"),
                                 "adjacent": True,
                             }
                         )
-                        context["documents"].add(result["document"])
-                        seen_ids.add(result["chunk_element_id"])
+                        cast(set[StoredGraphProperty], context["documents"]).add(
+                            adj_result["document"]
+                        )
+                        seen_ids.add(adj_result["chunk_element_id"])
             except Exception as adj_err:
                 logging.debug(
                     "Adjacent chunk expansion failed (non-fatal): %s", adj_err
@@ -851,7 +931,7 @@ User Query: {question}""",
 
         context["chunks"] = self._sort_chunks_for_query(query, context["chunks"])
         context["documents"] = list(context["documents"])
-        return context
+        return cast(ScoredCompleteRetrievalContext, context)
 
     def get_vanilla_rag_context(
         self,
@@ -864,7 +944,7 @@ User Query: {question}""",
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
-    ) -> dict[str, Any]:
+    ) -> ScoredCompleteRetrievalContext:
         """
         Get vanilla RAG context using direct vector similarity search on chunks.
 
@@ -876,7 +956,7 @@ User Query: {question}""",
             kg_name: Optional KG name to filter retrieval to a specific named KG
         """
         try:
-            graph = self._create_neo4j_connection()
+            graph: GraphQuery = self._create_neo4j_connection()
 
             # Check if we have data - optionally filter by kg_name
             if kg_name:
@@ -884,7 +964,9 @@ User Query: {question}""",
                 MATCH (c:Chunk)-[:PART_OF]->(d:Document {kgName: $kg_name})
                 RETURN count(c) as chunk_count LIMIT 1
                 """
-                check_result = graph.query(check_query, {"kg_name": kg_name})
+                check_result: list[dict[str, object]] = graph.query(
+                    check_query, {"kg_name": kg_name}
+                )
             else:
                 check_query = "MATCH (c:Chunk) RETURN count(c) as chunk_count LIMIT 1"
                 check_result = graph.query(check_query)
@@ -900,23 +982,25 @@ User Query: {question}""",
                 }
 
             if self._first_stage_late_interaction_enabled():
-                li_context = self._late_interaction_search(
-                    graph,
-                    query,
-                    document_names=document_names,
-                    max_chunks=max_chunks,
-                    kg_name=kg_name,
-                    question_id=question_id,
-                    retrieval_temperature=retrieval_temperature,
-                    retrieval_shortlist_factor=retrieval_shortlist_factor,
-                    retrieval_sample_id=retrieval_sample_id,
+                li_context: ScoredCompleteRetrievalContext = (
+                    self._late_interaction_search(
+                        graph,
+                        query,
+                        document_names=document_names,
+                        max_chunks=max_chunks,
+                        kg_name=kg_name,
+                        question_id=question_id,
+                        retrieval_temperature=retrieval_temperature,
+                        retrieval_shortlist_factor=retrieval_shortlist_factor,
+                        retrieval_sample_id=retrieval_sample_id,
+                    )
                 )
                 if li_context.get("chunks"):
                     return li_context
 
             # Generate query embedding
-            query_embedding = self._generate_query_embedding(query)
-            vector_index_name = self._resolve_vector_index_name(graph)
+            query_embedding: list[float] = self._generate_query_embedding(query)
+            vector_index_name: str | None = self._resolve_vector_index_name(graph)
             if not vector_index_name:
                 logging.warning("No usable vector index found for vanilla retrieval")
                 return {
@@ -928,8 +1012,8 @@ User Query: {question}""",
                 }
 
             # Vector search query - direct retrieval from chunks with optional filtering
-            where_clauses = []
-            params = {
+            where_clauses: list[str] = []
+            params: dict[str, object] = {
                 "query_vector": query_embedding,
                 "similarity_threshold": similarity_threshold,
             }
@@ -948,7 +1032,7 @@ User Query: {question}""",
 
             # Build the complete WHERE clause
             if where_clauses:
-                where_clause = (
+                where_clause: str = (
                     "WHERE "
                     + " AND ".join(where_clauses)
                     + " AND score >= $similarity_threshold"
@@ -956,13 +1040,13 @@ User Query: {question}""",
             else:
                 where_clause = "WHERE score >= $similarity_threshold"
 
-            candidate_limit = compute_candidate_limit(
+            candidate_limit: int = compute_candidate_limit(
                 max_chunks,
                 retrieval_temperature,
                 retrieval_shortlist_factor,
                 hard_cap=500,
             )
-            retrieval_count = (
+            retrieval_count: int = (
                 min(candidate_limit * 20, 500)
                 if (kg_name or document_names or question_id)
                 else candidate_limit
@@ -974,7 +1058,7 @@ User Query: {question}""",
                         "chunk.questionId = $question_id",
                         "coalesce(retrieval.questionId, chunk.questionId) = $question_id",
                     )
-                search_query = f"""
+                search_query: str = f"""
                 CALL db.index.vector.queryNodes('{vector_index_name}', {retrieval_count}, $query_vector)
                 YIELD node AS retrieval, score
                 MATCH (retrieval:RetrievalChunk)-[:RETRIEVES_FROM]->(chunk:Chunk)-[:PART_OF]->(d:Document)
@@ -1020,8 +1104,10 @@ User Query: {question}""",
                 """
             params["max_chunks"] = candidate_limit
 
-            results = graph.query(search_query, params)
-            selected_results = select_ranked_subset(
+            results: list[ScoredChunkProjection] = cast(
+                list[ScoredChunkProjection], graph.query(search_query, params)
+            )
+            selected_results: list[ScoredChunkProjection] = select_ranked_subset(
                 results,
                 max_items=max_chunks,
                 retrieval_temperature=retrieval_temperature,
@@ -1047,11 +1133,11 @@ User Query: {question}""",
                     kg_name,
                     question_id,
                 )
-                fallback_where_clause = where_clause.replace(
+                fallback_where_clause: str = where_clause.replace(
                     "coalesce(retrieval.questionId, chunk.questionId) = $question_id",
                     "chunk.questionId = $question_id",
                 )
-                fallback_query = f"""
+                fallback_query: str = f"""
                 CALL db.index.vector.queryNodes('vector', {retrieval_count}, $query_vector)
                 YIELD node AS chunk, score
                 MATCH (chunk)-[:PART_OF]->(d:Document)
@@ -1072,7 +1158,9 @@ User Query: {question}""",
                 LIMIT $max_chunks
                 """
                 try:
-                    fallback_results = graph.query(fallback_query, params)
+                    fallback_results: list[ScoredChunkProjection] = cast(
+                        list[ScoredChunkProjection], graph.query(fallback_query, params)
+                    )
                 except Exception as fallback_exc:
                     logging.warning(
                         "Chunk-vector fallback failed for kg=%s question_id=%s: %s",
@@ -1081,26 +1169,28 @@ User Query: {question}""",
                         fallback_exc,
                     )
                 else:
-                    fallback_selected = select_ranked_subset(
-                        fallback_results,
-                        max_items=max_chunks,
-                        retrieval_temperature=retrieval_temperature,
-                        shortlist_factor=retrieval_shortlist_factor,
-                        sample_id=retrieval_sample_id,
-                        seed_parts=(
-                            "vanilla",
-                            kg_name,
-                            tuple(document_names or []),
-                            query,
-                            "fallback_vector",
-                        ),
-                        score_getter=lambda row: float(row.get("score", 0.0)),
+                    fallback_selected: list[ScoredChunkProjection] = (
+                        select_ranked_subset(
+                            fallback_results,
+                            max_items=max_chunks,
+                            retrieval_temperature=retrieval_temperature,
+                            shortlist_factor=retrieval_shortlist_factor,
+                            sample_id=retrieval_sample_id,
+                            seed_parts=(
+                                "vanilla",
+                                kg_name,
+                                tuple(document_names or []),
+                                query,
+                                "fallback_vector",
+                            ),
+                            score_getter=lambda row: float(row.get("score", 0.0)),
+                        )
                     )
                     if fallback_selected:
                         selected_results = fallback_selected
                         vector_index_name = "vector"
 
-            context = {
+            context: RetrievalWorkingContext = {
                 "query": query,
                 "chunks": [],
                 "documents": set(),
@@ -1118,9 +1208,9 @@ User Query: {question}""",
                 },
             }
 
-            seen_ids = set()
+            seen_ids: set[str | None] = set()
             for result in selected_results:
-                chunk_info = {
+                chunk_info: ScoredRetrievedChunk = {
                     "text": result["text"],
                     "chunk_id": result["chunk_id"],
                     "chunk_element_id": result["chunk_element_id"],
@@ -1137,7 +1227,9 @@ User Query: {question}""",
                     "kg_name": result.get("kg_name"),
                 }
                 context["chunks"].append(chunk_info)
-                context["documents"].add(result["document"])
+                cast(set[StoredGraphProperty], context["documents"]).add(
+                    result["document"]
+                )
                 context["total_score"] += result["score"]
                 seen_ids.add(result["chunk_element_id"])
 
@@ -1147,17 +1239,17 @@ User Query: {question}""",
             # element id; use parent_chunk_element_id (the Chunk node) instead so
             # the adjacency query correctly matches Chunk nodes.
             if selected_results:
-                seed_element_ids = [
+                seed_element_ids: list[str | None] = [
                     r.get("parent_chunk_element_id") or r["chunk_element_id"]
                     for r in selected_results
                 ]
-                adj_params = {
+                adj_params: dict[str, object] = {
                     "element_ids": seed_element_ids,
                     "kg_name": kg_name,
                     "max_adjacent": max_chunks,
                 }
-                kg_filter = "AND d.kgName = $kg_name" if kg_name else ""
-                adj_query = f"""
+                kg_filter: str = "AND d.kgName = $kg_name" if kg_name else ""
+                adj_query: str = f"""
                 UNWIND $element_ids AS eid
                 MATCH (seed:Chunk)-[:PART_OF]->(d:Document)
                 WHERE elementId(seed) = eid
@@ -1196,29 +1288,33 @@ User Query: {question}""",
                 LIMIT $max_adjacent
                 """
                 try:
-                    adj_results = graph.query(adj_query, adj_params)
-                    for result in adj_results:
-                        if result["chunk_element_id"] not in seen_ids:
+                    adj_results: list[ChunkProjection] = cast(
+                        list[ChunkProjection], graph.query(adj_query, adj_params)
+                    )
+                    for adj_result in adj_results:
+                        if adj_result["chunk_element_id"] not in seen_ids:
                             context["chunks"].append(
                                 {
-                                    "text": result["text"],
-                                    "chunk_id": result["chunk_id"],
-                                    "chunk_element_id": result["chunk_element_id"],
-                                    "position": result.get("position"),
-                                    "source": result.get("source"),
-                                    "question_id": result.get("question_id"),
-                                    "passage_index": result.get("passage_index"),
-                                    "chunk_local_index": result.get(
+                                    "text": adj_result["text"],
+                                    "chunk_id": adj_result["chunk_id"],
+                                    "chunk_element_id": adj_result["chunk_element_id"],
+                                    "position": adj_result.get("position"),
+                                    "source": adj_result.get("source"),
+                                    "question_id": adj_result.get("question_id"),
+                                    "passage_index": adj_result.get("passage_index"),
+                                    "chunk_local_index": adj_result.get(
                                         "chunk_local_index"
                                     ),
                                     "score": 0.0,
-                                    "document": result["document"],
-                                    "kg_name": result.get("kg_name"),
+                                    "document": adj_result["document"],
+                                    "kg_name": adj_result.get("kg_name"),
                                     "adjacent": True,
                                 }
                             )
-                            context["documents"].add(result["document"])
-                            seen_ids.add(result["chunk_element_id"])
+                            cast(set[StoredGraphProperty], context["documents"]).add(
+                                adj_result["document"]
+                            )
+                            seen_ids.add(adj_result["chunk_element_id"])
                 except Exception as adj_err:
                     logging.debug(
                         "Adjacent chunk expansion failed (non-fatal): %s", adj_err
@@ -1227,7 +1323,7 @@ User Query: {question}""",
             context["chunks"] = self._sort_chunks_for_query(query, context["chunks"])
             context["documents"] = list(context["documents"])
 
-            return context
+            return cast(ScoredCompleteRetrievalContext, context)
 
         except Exception as e:
             logging.error(f"Error getting vanilla RAG context: {e}")
@@ -1239,17 +1335,17 @@ User Query: {question}""",
                 "error": str(e),
             }
 
-    def format_context_for_llm(self, context: dict[str, Any]) -> str:
+    def format_context_for_llm(self, context: RetrievalContext) -> str:
         """
         Format the context for the LLM prompt (simplified, no entities)
         """
         # Format chunks with scores
-        chunk_texts = []
+        chunk_texts: list[str] = []
         for i, chunk in enumerate(context["chunks"], 1):
-            chunk_text = f"Chunk {i} (Similarity Score: {chunk['score']:.3f}):\n{chunk['text']}\n"
+            chunk_text: str = f"Chunk {i} (Similarity Score: {chunk['score']:.3f}):\n{chunk['text']}\n"
             chunk_texts.append(chunk_text)
 
-        formatted_context = "\n".join(chunk_texts)
+        formatted_context: str = "\n".join(chunk_texts)
         return formatted_context
 
     def _runtime_answer_guardrail_enabled(self, runtime_guardrail: bool | None) -> bool:
@@ -1265,7 +1361,7 @@ User Query: {question}""",
         }
 
     def _runtime_answer_guardrail_mode(self, runtime_guardrail_mode: str | None) -> str:
-        mode = (
+        mode: str = (
             str(
                 runtime_guardrail_mode
                 or os.getenv(
@@ -1283,15 +1379,15 @@ User Query: {question}""",
         self,
         *,
         question: str,
-        llm,
-        context: dict[str, Any],
+        llm: "Runnable[PromptValue, object]",
+        context: RetrievalContext,
         answer_instructions: str = "",
         extra_context_texts: list[str] | None = None,
     ) -> str:
-        formatted_context = self.format_context_for_llm(context)
+        formatted_context: str = self.format_context_for_llm(context)
 
         if extra_context_texts:
-            extra_block = "\n\n".join(
+            extra_block: str = "\n\n".join(
                 f"Provided Context {i + 1}:\n{t}"
                 for i, t in enumerate(extra_context_texts)
                 if t.strip()
@@ -1305,7 +1401,10 @@ User Query: {question}""",
                 f"Prepended {len(extra_context_texts)} extra context(s) to prompt"
             )
 
-        chain = self.rag_prompt | llm | StrOutputParser()
+        chain: Runnable[dict[str, str | int], str] = cast(
+            "Runnable[dict[str, str | int], str]",
+            self.rag_prompt | llm | StrOutputParser(),
+        )
         return chain.invoke(
             {
                 "context": formatted_context,
@@ -1319,26 +1418,26 @@ User Query: {question}""",
         self,
         *,
         question: str,
-        llm,
+        llm: "Runnable[PromptValue, object]",
         response: str,
-        context: dict[str, Any],
+        context: RetrievalContext,
         runtime_guardrail: bool | None,
         runtime_guardrail_mode: str | None,
-    ) -> tuple:
+    ) -> tuple[str, GuardrailMetadata]:
         if not self._runtime_answer_guardrail_enabled(runtime_guardrail):
             return response, {
                 "enabled": False,
                 "mode": self._runtime_answer_guardrail_mode(runtime_guardrail_mode),
             }
 
-        mode = self._runtime_answer_guardrail_mode(runtime_guardrail_mode)
-        verdict = evaluate_runtime_answer_guardrail(
+        mode: str = self._runtime_answer_guardrail_mode(runtime_guardrail_mode)
+        verdict: GuardrailVerdict = evaluate_runtime_answer_guardrail(
             question=question,
             answer=response,
             chunks=context.get("chunks", []),
             llm=llm,
         )
-        metadata: dict[str, Any] = {
+        metadata: GuardrailMetadata = {
             "enabled": True,
             "mode": mode,
             "initial_verdict": verdict,
@@ -1353,7 +1452,7 @@ User Query: {question}""",
     def generate_response(
         self,
         question: str,
-        llm,
+        llm: "Runnable[PromptValue, object]",
         document_names: list[str] | None = None,
         similarity_threshold: float = 0.1,
         max_chunks: int = 20,
@@ -1366,7 +1465,7 @@ User Query: {question}""",
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         retrieval_sample_id: int = 0,
-    ) -> dict[str, Any]:
+    ) -> GenerationResponse:
         """
         Generate a vanilla RAG response using direct vector retrieval.
 
@@ -1386,7 +1485,7 @@ User Query: {question}""",
             )
 
             # Get context using vanilla vector retrieval
-            context = self.get_vanilla_rag_context(
+            context: ScoredCompleteRetrievalContext = self.get_vanilla_rag_context(
                 question,
                 document_names=document_names,
                 similarity_threshold=similarity_threshold,
@@ -1400,20 +1499,24 @@ User Query: {question}""",
             logging.info(f"Got context with {len(context.get('chunks', []))} chunks")
 
             if self._should_run_query_fusion(question, context):
-                variant_queries = self._generate_query_variants(question, llm)
-                variant_contexts: list[dict[str, Any]] = [context]
+                variant_queries: list[str] = self._generate_query_variants(
+                    question, llm
+                )
+                variant_contexts: list[ScoredCompleteRetrievalContext] = [context]
                 for variant_query in variant_queries:
                     try:
-                        alt_context = self.get_vanilla_rag_context(
-                            variant_query,
-                            document_names=document_names,
-                            similarity_threshold=similarity_threshold,
-                            max_chunks=max_chunks,
-                            kg_name=kg_name,
-                            question_id=question_id,
-                            retrieval_temperature=retrieval_temperature,
-                            retrieval_shortlist_factor=retrieval_shortlist_factor,
-                            retrieval_sample_id=retrieval_sample_id,
+                        alt_context: ScoredCompleteRetrievalContext = (
+                            self.get_vanilla_rag_context(
+                                variant_query,
+                                document_names=document_names,
+                                similarity_threshold=similarity_threshold,
+                                max_chunks=max_chunks,
+                                kg_name=kg_name,
+                                question_id=question_id,
+                                retrieval_temperature=retrieval_temperature,
+                                retrieval_shortlist_factor=retrieval_shortlist_factor,
+                                retrieval_sample_id=retrieval_sample_id,
+                            )
                         )
                     except Exception as fusion_exc:
                         logging.debug(
@@ -1424,12 +1527,16 @@ User Query: {question}""",
                         continue
                     if alt_context and alt_context.get("chunks"):
                         variant_contexts.append(alt_context)
-                fused_context = self._fuse_contexts_with_rrf(
-                    query=question,
-                    contexts=variant_contexts,
-                    max_chunks=max_chunks,
-                    search_method="query_fusion_"
-                    + str(context.get("search_method") or "vanilla_vector_similarity"),
+                fused_context: ScoredCompleteRetrievalContext | None = (
+                    self._fuse_contexts_with_rrf(
+                        query=question,
+                        contexts=variant_contexts,
+                        max_chunks=max_chunks,
+                        search_method="query_fusion_"
+                        + str(
+                            context.get("search_method") or "vanilla_vector_similarity"
+                        ),
+                    )
                 )
                 if fused_context and fused_context.get("chunks"):
                     context = fused_context
@@ -1460,7 +1567,7 @@ User Query: {question}""",
                     "confidence": 0.0,
                 }
 
-            response = self._invoke_answer_chain(
+            response: str = self._invoke_answer_chain(
                 question=question,
                 llm=llm,
                 context=context,
@@ -1477,12 +1584,12 @@ User Query: {question}""",
             )
 
             # Retrieval scores are already cosine similarities in [0, 1].
-            avg_score = (
+            avg_score: float = (
                 context["total_score"] / len(context["chunks"])
                 if context["chunks"]
                 else 0
             )
-            confidence = avg_score
+            confidence: float = avg_score
             if guardrail.get("enabled") and guardrail.get("final_decision") != "keep":
                 confidence = 0.0
 

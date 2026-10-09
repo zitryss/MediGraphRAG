@@ -1,7 +1,30 @@
-import os
 import logging
+import os
 import re
-from typing import Any
+from typing import TYPE_CHECKING, cast
+
+from ontographrag.rag.systems._records import (
+    ChunkProjection,
+    CompleteRetrievedChunk,
+    EntityProjection,
+    FloatListConvertible,
+    GraphExpansion,
+    GraphRetrievalContext,
+    GraphWorkingContext,
+    QueryEncoder,
+    RelationshipRow,
+    RetrievedEntity,
+    ScoredChunkProjection,
+    ScoredRetrievedChunk,
+    StoredGraphProperty,
+)
+
+if TYPE_CHECKING:
+    import numpy as np
+    from langchain_core.embeddings import Embeddings
+    from numpy.typing import NDArray
+
+    from shared.common_fn import GraphQuery
 from ontographrag.rag.reranking import (
     late_interaction_enabled,
     late_interaction_rescore_chunks_for_query,
@@ -14,6 +37,42 @@ class VectorSearchMixin:
     Mixin for :class:`EnhancedRAGSystem`; method bodies are unchanged
     from the original monolithic implementation.
     """
+
+    if TYPE_CHECKING:
+        _late_interaction_corpus_cache: dict[
+            tuple[str, tuple[str, ...], str, bool], list[CompleteRetrievedChunk]
+        ]
+        _GRAPH_TRAVERSAL_SEED_LIMIT: int
+        _active_vector_index_name: str | None
+
+        def _create_neo4j_connection(self) -> "GraphQuery": ...
+
+        _embedding_cache: dict[str, list[float]]
+
+        def _expand_entities_via_graph(
+            self,
+            graph: "GraphQuery",
+            seed_entity_ids: list[str],
+            kg_name: str | None = None,
+            max_hops: int = 2,
+            max_neighbors: int = 30,
+            question_id: str | None = None,
+            document_names: list[str] | None = None,
+            allowed_rel_types: list[str] | None = None,
+            excluded_entity_ids: set[str] | None = None,
+        ) -> GraphExpansion: ...
+        def _fetch_relationships_for_entity_ids(
+            self,
+            graph: "GraphQuery",
+            entity_ids: list[str],
+            *,
+            kg_name: str | None = None,
+            question_id: str | None = None,
+            document_names: list[str] | None = None,
+        ) -> list[RelationshipRow]: ...
+
+        _vector_index_available: bool | None
+        embedding_model: "Embeddings"
 
     @staticmethod
     def _is_pure_vector_search_method(search_method: str | None) -> bool:
@@ -34,7 +93,7 @@ class VectorSearchMixin:
         )
 
     def _first_stage_late_interaction_enabled(self) -> bool:
-        explicit = (
+        explicit: str = (
             str(os.getenv("ONTOGRAPHRAG_FIRST_STAGE_LATE_INTERACTION", ""))
             .strip()
             .lower()
@@ -50,7 +109,7 @@ class VectorSearchMixin:
         document_names: list[str] | None,
         question_id: str | None,
         include_entities: bool,
-    ) -> tuple:
+    ) -> tuple[str, tuple[str, ...], str, bool]:
         return (
             kg_name or "",
             tuple(sorted(document_names or [])),
@@ -64,10 +123,16 @@ class VectorSearchMixin:
             return self._embedding_cache[query]
 
         if hasattr(self.embedding_model, "embed_query"):
-            embedding = self.embedding_model.embed_query(query)
+            embedding: list[float] = self.embedding_model.embed_query(query)
         elif hasattr(self.embedding_model, "encode"):
-            raw = self.embedding_model.encode(query, convert_to_numpy=True)
-            embedding = raw.tolist() if hasattr(raw, "tolist") else list(raw)
+            raw: NDArray[np.float32] | list[float] = cast(
+                QueryEncoder, self.embedding_model
+            ).encode(query, convert_to_numpy=True)
+            embedding = (
+                cast(FloatListConvertible, raw).tolist()
+                if hasattr(raw, "tolist")
+                else list(raw)
+            )
         else:
             raise ValueError(
                 "Unsupported embedding model interface. Expected embed_query or encode."
@@ -81,28 +146,33 @@ class VectorSearchMixin:
 
     def _late_interaction_corpus_rows(
         self,
-        graph,
+        graph: "GraphQuery",
         *,
         kg_name: str | None,
         document_names: list[str] | None,
         question_id: str | None,
         include_entities: bool,
-    ) -> list[dict[str, Any]]:
-        cache = getattr(self, "_late_interaction_corpus_cache", None)
+    ) -> list[CompleteRetrievedChunk]:
+        cache: (
+            dict[tuple[str, tuple[str, ...], str, bool], list[CompleteRetrievedChunk]]
+            | None
+        ) = getattr(self, "_late_interaction_corpus_cache", None)
         if cache is None:
             cache = {}
             self._late_interaction_corpus_cache = cache
 
-        scope_key = self._late_interaction_scope_key(
-            kg_name=kg_name,
-            document_names=document_names,
-            question_id=question_id,
-            include_entities=include_entities,
+        scope_key: tuple[str, tuple[str, ...], str, bool] = (
+            self._late_interaction_scope_key(
+                kg_name=kg_name,
+                document_names=document_names,
+                question_id=question_id,
+                include_entities=include_entities,
+            )
         )
         if scope_key in cache:
-            return [dict(row) for row in cache[scope_key]]
+            return [cast(CompleteRetrievedChunk, dict(row)) for row in cache[scope_key]]
 
-        params: dict[str, Any] = {"corpus_cap": self._late_interaction_corpus_cap()}
+        params: dict[str, object] = {"corpus_cap": self._late_interaction_corpus_cap()}
         filters: list[str] = []
         if kg_name:
             filters.append("d.kgName = $kg_name")
@@ -115,7 +185,7 @@ class VectorSearchMixin:
                 "coalesce(retrieval.questionId, chunk.questionId) = $question_id"
             )
             params["question_id"] = question_id
-        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+        where_clause: str = "WHERE " + " AND ".join(filters) if filters else ""
 
         entity_match: str = ""
         with_clause: str = "WITH retrieval, chunk, d"
@@ -132,7 +202,7 @@ class VectorSearchMixin:
                 description: coalesce(entity.name, '')
             }] AS entities"""
 
-        retrieval_query = f"""
+        retrieval_query: str = f"""
         MATCH (retrieval:RetrievalChunk)-[:RETRIEVES_FROM]->(chunk:Chunk)-[:PART_OF]->(d:Document)
         {where_clause}
         {entity_match}
@@ -159,7 +229,9 @@ class VectorSearchMixin:
                  chunk.position ASC
         LIMIT $corpus_cap
         """
-        rows = graph.query(retrieval_query, params) or []
+        rows: list[ChunkProjection] = (
+            cast(list[ChunkProjection], graph.query(retrieval_query, params)) or []
+        )
 
         if not rows:
             chunk_filters: list[str] = []
@@ -169,7 +241,7 @@ class VectorSearchMixin:
                 chunk_filters.append("d.fileName IN $document_names")
             if question_id:
                 chunk_filters.append("chunk.questionId = $question_id")
-            chunk_where = (
+            chunk_where: str = (
                 "WHERE " + " AND ".join(chunk_filters) if chunk_filters else ""
             )
 
@@ -190,7 +262,7 @@ class VectorSearchMixin:
                     description: coalesce(entity.name, '')
                 }] AS entities"""
 
-            chunk_query = f"""
+            chunk_query: str = f"""
             MATCH (chunk:Chunk)-[:PART_OF]->(d:Document)
             {chunk_where}
             {entity_match}
@@ -214,29 +286,31 @@ class VectorSearchMixin:
                      chunk.position ASC
             LIMIT $corpus_cap
             """
-            rows = graph.query(chunk_query, params) or []
+            rows = cast(list[ChunkProjection], graph.query(chunk_query, params)) or []
 
-        cache[scope_key] = [dict(row) for row in rows]
-        return [dict(row) for row in rows]
+        cache[scope_key] = [cast(CompleteRetrievedChunk, dict(row)) for row in rows]
+        return [cast(CompleteRetrievedChunk, dict(row)) for row in rows]
 
     def _late_interaction_search(
         self,
-        graph,
+        graph: "GraphQuery",
         query: str,
         document_names: list[str] | None = None,
         max_chunks: int = 20,
         kg_name: str | None = None,
         max_hops: int = 2,
         question_id: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> GraphRetrievalContext:
         try:
-            scope_key = self._late_interaction_scope_key(
-                kg_name=kg_name,
-                document_names=document_names,
-                question_id=question_id,
-                include_entities=True,
+            scope_key: tuple[str, tuple[str, ...], str, bool] = (
+                self._late_interaction_scope_key(
+                    kg_name=kg_name,
+                    document_names=document_names,
+                    question_id=question_id,
+                    include_entities=True,
+                )
             )
-            rows = self._late_interaction_corpus_rows(
+            rows: list[CompleteRetrievedChunk] = self._late_interaction_corpus_rows(
                 graph,
                 kg_name=kg_name,
                 document_names=document_names,
@@ -256,9 +330,11 @@ class VectorSearchMixin:
                     "search_method": "late_interaction_unavailable",
                 }
 
-            candidate_rows: list[dict[str, Any]] = []
+            candidate_rows: list[ScoredRetrievedChunk] = []
             for row in rows:
-                entities = row.get("entities") or []
+                entities: list[RetrievedEntity] | list[EntityProjection] = (
+                    row.get("entities") or []
+                )
                 candidate_rows.append(
                     {
                         "text": row["text"],
@@ -292,7 +368,7 @@ class VectorSearchMixin:
                 replace_score=True,
                 index_key=scope_key,
             )
-            selected_rows = reranked_rows[:max_chunks]
+            selected_rows: list[ScoredRetrievedChunk] = reranked_rows[:max_chunks]
             if not li_meta.get("applied"):
                 return {
                     "query": query,
@@ -307,7 +383,7 @@ class VectorSearchMixin:
                     "late_interaction_stage": li_meta,
                 }
 
-            score_values = [
+            score_values: list[float] = [
                 abs(
                     float(
                         row.get("late_interaction_score", row.get("score", 0.0)) or 0.0
@@ -333,7 +409,7 @@ class VectorSearchMixin:
                     },
                 }
 
-            context = {
+            context: GraphRetrievalContext = {
                 "query": query,
                 "chunks": selected_rows,
                 "entities": {},
@@ -355,9 +431,9 @@ class VectorSearchMixin:
             }
 
             all_entity_ids: list[str] = []
-            for row in selected_rows:
-                for entity in row.get("entities", []):
-                    entity_id = entity.get("id")
+            for selected_row in selected_rows:
+                for entity in selected_row.get("entities", []):
+                    entity_id: str | None = entity.get("id")
                     if not entity_id:
                         continue
                     if entity_id not in context["entities"]:
@@ -366,17 +442,17 @@ class VectorSearchMixin:
                             "element_id": entity.get("element_id"),
                             "type": entity.get("type"),
                             "description": entity.get("description"),
-                            "mentioned_in_chunks": [row["chunk_id"]],
+                            "mentioned_in_chunks": [selected_row["chunk_id"]],
                             "source": "late_interaction",
                         }
                         all_entity_ids.append(entity_id)
                     else:
                         context["entities"][entity_id].setdefault(
                             "mentioned_in_chunks", []
-                        ).append(row["chunk_id"])
+                        ).append(selected_row["chunk_id"])
 
             if all_entity_ids:
-                expansion = self._expand_entities_via_graph(
+                expansion: GraphExpansion = self._expand_entities_via_graph(
                     graph,
                     all_entity_ids[: self._GRAPH_TRAVERSAL_SEED_LIMIT],
                     kg_name=kg_name,
@@ -384,17 +460,21 @@ class VectorSearchMixin:
                     question_id=question_id,
                     document_names=document_names,
                 )
-                context["graph_neighbors"] = expansion["neighbors"]
+                context["graph_neighbors"] = cast(
+                    dict[str, RetrievedEntity], expansion["neighbors"]
+                )
                 context["traversal_paths"] = expansion["paths"]
-                rel_results = self._fetch_relationships_for_entity_ids(
-                    graph,
-                    all_entity_ids[:40],
-                    kg_name=kg_name,
-                    question_id=question_id,
-                    document_names=document_names,
+                rel_results: list[RelationshipRow] = (
+                    self._fetch_relationships_for_entity_ids(
+                        graph,
+                        all_entity_ids[:40],
+                        kg_name=kg_name,
+                        question_id=question_id,
+                        document_names=document_names,
+                    )
                 )
                 for rel in rel_results:
-                    rel_key = (
+                    rel_key: str = (
                         rel.get("relationship_element_id")
                         or f"{rel['source']}-{rel['relationship_type']}-{rel['target']}"
                         f"-negated={bool(rel.get('negated', False))}"
@@ -441,7 +521,7 @@ class VectorSearchMixin:
 
     def _semantic_similarity_search(
         self,
-        graph,
+        graph: "GraphQuery",
         query: str,
         document_names: list[str] | None = None,
         similarity_threshold: float = 0.08,
@@ -450,12 +530,12 @@ class VectorSearchMixin:
         max_hops: int = 2,
         question_id: str | None = None,
         allow_first_stage_late_interaction: bool = True,
-    ) -> dict[str, Any]:
+    ) -> GraphRetrievalContext:
         if (
             allow_first_stage_late_interaction
             and self._first_stage_late_interaction_enabled()
         ):
-            context = self._late_interaction_search(
+            context: GraphRetrievalContext = self._late_interaction_search(
                 graph,
                 query,
                 document_names=document_names,
@@ -484,16 +564,16 @@ class VectorSearchMixin:
         if self._vector_index_available is not None:
             return self._vector_index_available
         try:
-            graph = self._create_neo4j_connection()
-            result = graph.query(
+            graph: GraphQuery = self._create_neo4j_connection()
+            result: list[dict[str, object]] = graph.query(
                 "SHOW INDEXES YIELD name, type, state, options WHERE type = 'VECTOR'"
             )
             if not result:
                 logging.warning("No vector index found - falling back to text search")
                 self._vector_index_available = False
                 return False
-            probe_embedding = self._generate_query_embedding("test")
-            online_indexes = {
+            probe_embedding: list[float] = self._generate_query_embedding("test")
+            online_indexes: dict[str, dict[str, object]] = {
                 str(row.get("name")): row
                 for row in result
                 if str(row.get("state") or "").upper() in {"", "ONLINE"}
@@ -534,14 +614,14 @@ class VectorSearchMixin:
 
     def _text_similarity_search(
         self,
-        graph,
+        graph: "GraphQuery",
         query: str,
         document_names: list[str] | None = None,
         max_chunks: int = 20,
         kg_name: str | None = None,
         max_hops: int = 2,
         question_id: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> GraphRetrievalContext:
         """
         Text-based similarity search as fallback when vector search fails
         """
@@ -551,10 +631,10 @@ class VectorSearchMixin:
             )
 
             # Build WHERE clause based on filters and text match
-            where_conditions = [
+            where_conditions: list[str] = [
                 "ANY(term IN $search_terms WHERE toLower(c.text) CONTAINS term)"
             ]
-            params = {}
+            params: dict[str, object] = {}
 
             if kg_name:
                 where_conditions.append("d.kgName = $kg_name")
@@ -569,10 +649,10 @@ class VectorSearchMixin:
                 params["document_names"] = document_names
 
             # Build a single WHERE clause to avoid duplicate WHERE errors
-            where_clause = "WHERE " + " AND ".join(where_conditions)
+            where_clause: str = "WHERE " + " AND ".join(where_conditions)
 
             # Text similarity search: score by number of query terms matched in chunk text
-            search_query = f"""
+            search_query: str = f"""
             MATCH (c:Chunk)-[:PART_OF]->(d:Document)
             {where_clause}
             WITH c, d,
@@ -600,16 +680,20 @@ class VectorSearchMixin:
             """
 
             # Tokenized fallback matching is more robust than a single 3-word phrase.
-            raw_terms = [t.lower() for t in re.findall(r"[A-Za-z0-9]+", query)]
-            search_terms = [t for t in raw_terms if len(t) >= 3][:8]
+            raw_terms: list[str] = [
+                t.lower() for t in re.findall(r"[A-Za-z0-9]+", query)
+            ]
+            search_terms: list[str] = [t for t in raw_terms if len(t) >= 3][:8]
             if not search_terms:
                 search_terms = [query.lower().strip()]
 
             params.update({"search_terms": search_terms, "max_chunks": max_chunks})
 
-            results = graph.query(search_query, params)
+            results: list[ScoredChunkProjection] = cast(
+                list[ScoredChunkProjection], graph.query(search_query, params)
+            )
 
-            context = {
+            context: GraphWorkingContext = {
                 "query": query,
                 "chunks": [],
                 "entities": {},
@@ -620,8 +704,8 @@ class VectorSearchMixin:
             }
 
             for result in results:
-                _result_entities = result.get("entities") or []
-                chunk_info = {
+                _result_entities: list[EntityProjection] = result.get("entities") or []
+                chunk_info: ScoredRetrievedChunk = {
                     "text": result["text"],
                     "chunk_id": result["chunk_id"],
                     "chunk_element_id": result["chunk_element_id"],
@@ -634,12 +718,14 @@ class VectorSearchMixin:
                     "entities": result.get("entities") or [],
                 }
                 context["chunks"].append(chunk_info)
-                context["documents"].add(result["document"])
+                cast(set[StoredGraphProperty], context["documents"]).add(
+                    result["document"]
+                )
                 context["total_score"] += result["score"]
 
                 # Collect unique entities
                 for entity in result.get("entities") or []:
-                    entity_id = entity["id"]
+                    entity_id: str = entity["id"]
                     if entity_id not in context["entities"]:
                         context["entities"][entity_id] = {
                             "id": entity_id,
@@ -654,8 +740,8 @@ class VectorSearchMixin:
                         )
 
             # Multi-hop graph traversal from seed entities
-            seed_ids = list(context["entities"].keys())
-            expansion = self._expand_entities_via_graph(
+            seed_ids: list[str] = list(context["entities"].keys())
+            expansion: GraphExpansion = self._expand_entities_via_graph(
                 graph,
                 seed_ids,
                 kg_name=kg_name,
@@ -663,7 +749,9 @@ class VectorSearchMixin:
                 question_id=question_id,
                 document_names=document_names,
             )
-            context["graph_neighbors"] = expansion["neighbors"]
+            context["graph_neighbors"] = cast(
+                dict[str, RetrievedEntity], expansion["neighbors"]
+            )
             context["traversal_paths"] = expansion["paths"]
 
             # Merge neighbor entities into the entity dict (tagged so they're
@@ -681,17 +769,19 @@ class VectorSearchMixin:
                     }
 
             # Relationships between ALL entities (seeds + neighbors)
-            all_entity_ids = list(context["entities"].keys())
+            all_entity_ids: list[str] = list(context["entities"].keys())
             if all_entity_ids:
-                relationship_results = self._fetch_relationships_for_entity_ids(
-                    graph,
-                    all_entity_ids,
-                    kg_name=kg_name,
-                    question_id=question_id,
-                    document_names=document_names,
+                relationship_results: list[RelationshipRow] = (
+                    self._fetch_relationships_for_entity_ids(
+                        graph,
+                        all_entity_ids,
+                        kg_name=kg_name,
+                        question_id=question_id,
+                        document_names=document_names,
+                    )
                 )
                 for rel_result in relationship_results:
-                    rel_key = (
+                    rel_key: str = (
                         rel_result.get("relationship_element_id")
                         or f"{rel_result['source']}-{rel_result['relationship_type']}-{rel_result['target']}"
                         f"-negated={bool(rel_result.get('negated', False))}"
@@ -725,7 +815,7 @@ class VectorSearchMixin:
             context["entity_count"] = len(context["entities"])
             context["relationship_count"] = len(context["relationships"])
 
-            return context
+            return cast(GraphRetrievalContext, context)
 
         except Exception as e:
             logging.error(f"Error in text similarity search: {e}")
@@ -744,7 +834,7 @@ class VectorSearchMixin:
 
     def _vector_similarity_search(
         self,
-        graph,
+        graph: "GraphQuery",
         query: str,
         document_names: list[str] | None = None,
         similarity_threshold: float = 0.08,
@@ -752,7 +842,7 @@ class VectorSearchMixin:
         kg_name: str | None = None,
         max_hops: int = 2,
         question_id: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> GraphRetrievalContext:
         """
         Vector similarity search using real sentence transformer embeddings.
 
@@ -769,7 +859,7 @@ class VectorSearchMixin:
                 f"Using vector similarity search with real embeddings (kg_name: {kg_name})"
             )
 
-            query_embedding = self._generate_query_embedding(query)
+            query_embedding: list[float] = self._generate_query_embedding(query)
             logging.info(
                 f"Generated query embedding with shape: {len(query_embedding)}"
             )
@@ -785,15 +875,15 @@ class VectorSearchMixin:
                     "total_score": 0,
                     "search_method": "vector_similarity_unavailable",
                 }
-            vector_index_name = self._active_vector_index_name or "vector"
+            vector_index_name: str = self._active_vector_index_name or "vector"
 
             # Build the vector search query with optional filtering by kg_name and/or document_names
             # Relationship is: Chunk -[PART_OF]-> Document
             # We need to filter by either document_names or kg_name (or both)
 
             # Build one WHERE clause that always includes score threshold
-            where_conditions = ["score >= $similarity_threshold"]
-            params = {
+            where_conditions: list[str] = ["score >= $similarity_threshold"]
+            params: dict[str, object] = {
                 "query_vector": query_embedding,
                 "similarity_threshold": similarity_threshold,
             }
@@ -810,7 +900,7 @@ class VectorSearchMixin:
                 where_conditions.append("chunk.questionId = $question_id")
                 params["question_id"] = question_id
 
-            where_clause = "WHERE " + " AND ".join(where_conditions)
+            where_clause: str = "WHERE " + " AND ".join(where_conditions)
 
             # When filtering by kg_name or document_names the vector index is
             # queried globally first, then filtered.  Overfetch so that the
@@ -818,7 +908,7 @@ class VectorSearchMixin:
             # didn't rank in the global top-N.
             # Overfetch so KG-filtered chunks aren't excluded by global top-N,
             # but cap at 500 to avoid timeouts on large statistical queries.
-            retrieval_count = (
+            retrieval_count: int = (
                 min(max_chunks * 20, 500)
                 if (kg_name or document_names or question_id)
                 else max_chunks
@@ -830,7 +920,7 @@ class VectorSearchMixin:
                         "chunk.questionId = $question_id",
                         "coalesce(retrieval.questionId, chunk.questionId) = $question_id",
                     )
-                search_query = f"""
+                search_query: str = f"""
                 CALL db.index.vector.queryNodes('{vector_index_name}', {retrieval_count}, $query_vector)
                 YIELD node AS retrieval, score
                 MATCH (retrieval:RetrievalChunk)-[:RETRIEVES_FROM]->(chunk:Chunk)-[:PART_OF]->(d:Document)
@@ -894,7 +984,9 @@ class VectorSearchMixin:
                 """
             params["max_chunks"] = max_chunks
 
-            results = graph.query(search_query, params)
+            results: list[ScoredChunkProjection] = cast(
+                list[ScoredChunkProjection], graph.query(search_query, params)
+            )
             if vector_index_name == "retrieval_vector" and question_id and not results:
                 logging.info(
                     "No question-scoped retrieval spans found for kg=%s question_id=%s; "
@@ -902,11 +994,11 @@ class VectorSearchMixin:
                     kg_name,
                     question_id,
                 )
-                fallback_where_clause = where_clause.replace(
+                fallback_where_clause: str = where_clause.replace(
                     "coalesce(retrieval.questionId, chunk.questionId) = $question_id",
                     "chunk.questionId = $question_id",
                 )
-                fallback_query = f"""
+                fallback_query: str = f"""
                 CALL db.index.vector.queryNodes('vector', {retrieval_count}, $query_vector)
                 YIELD node AS chunk, score
                 MATCH (chunk)-[:PART_OF]->(d:Document)
@@ -936,7 +1028,13 @@ class VectorSearchMixin:
                 LIMIT $max_chunks
                 """
                 try:
-                    fallback_results = graph.query(fallback_query, params) or []
+                    fallback_results: list[ScoredChunkProjection] = (
+                        cast(
+                            list[ScoredChunkProjection],
+                            graph.query(fallback_query, params),
+                        )
+                        or []
+                    )
                 except Exception as fallback_exc:
                     logging.warning(
                         "Chunk-vector fallback failed for kg=%s question_id=%s: %s",
@@ -949,7 +1047,7 @@ class VectorSearchMixin:
                         results = fallback_results
                         vector_index_name = "vector"
 
-            context = {
+            context: GraphWorkingContext = {
                 "query": query,
                 "chunks": [],
                 "entities": {},
@@ -966,7 +1064,7 @@ class VectorSearchMixin:
             }
 
             for result in results:
-                chunk_info = {
+                chunk_info: ScoredRetrievedChunk = {
                     "text": result["text"],
                     "chunk_id": result["chunk_id"],
                     "chunk_element_id": result["chunk_element_id"],
@@ -990,12 +1088,14 @@ class VectorSearchMixin:
                     "linked_entity_count": len(result.get("entities") or []),
                 }
                 context["chunks"].append(chunk_info)
-                context["documents"].add(result["document"])
+                cast(set[StoredGraphProperty], context["documents"]).add(
+                    result["document"]
+                )
                 context["total_score"] += result["score"]
 
                 # Collect unique entities
                 for entity in result.get("entities") or []:
-                    entity_id = entity["id"]
+                    entity_id: str = entity["id"]
                     if entity_id not in context["entities"]:
                         context["entities"][entity_id] = {
                             "id": entity_id,
@@ -1010,8 +1110,8 @@ class VectorSearchMixin:
                         )
 
             # Multi-hop graph traversal from seed entities found in chunks
-            seed_ids = list(context["entities"].keys())
-            expansion = self._expand_entities_via_graph(
+            seed_ids: list[str] = list(context["entities"].keys())
+            expansion: GraphExpansion = self._expand_entities_via_graph(
                 graph,
                 seed_ids,
                 kg_name=kg_name,
@@ -1019,7 +1119,9 @@ class VectorSearchMixin:
                 question_id=question_id,
                 document_names=document_names,
             )
-            context["graph_neighbors"] = expansion["neighbors"]
+            context["graph_neighbors"] = cast(
+                dict[str, RetrievedEntity], expansion["neighbors"]
+            )
             context["traversal_paths"] = expansion["paths"]
 
             # Merge neighbor entities into the entity dict
@@ -1036,17 +1138,19 @@ class VectorSearchMixin:
                     }
 
             # Relationships between ALL entities (seeds + neighbors)
-            all_entity_ids = list(context["entities"].keys())
+            all_entity_ids: list[str] = list(context["entities"].keys())
             if all_entity_ids:
-                relationship_results = self._fetch_relationships_for_entity_ids(
-                    graph,
-                    all_entity_ids,
-                    kg_name=kg_name,
-                    question_id=question_id,
-                    document_names=document_names,
+                relationship_results: list[RelationshipRow] = (
+                    self._fetch_relationships_for_entity_ids(
+                        graph,
+                        all_entity_ids,
+                        kg_name=kg_name,
+                        question_id=question_id,
+                        document_names=document_names,
+                    )
                 )
                 for rel_result in relationship_results:
-                    rel_key = (
+                    rel_key: str = (
                         rel_result.get("relationship_element_id")
                         or f"{rel_result['source']}-{rel_result['relationship_type']}-{rel_result['target']}"
                         f"-negated={bool(rel_result.get('negated', False))}"
@@ -1080,7 +1184,7 @@ class VectorSearchMixin:
             context["entity_count"] = len(context["entities"])
             context["relationship_count"] = len(context["relationships"])
 
-            return context
+            return cast(GraphRetrievalContext, context)
 
         except Exception as e:
             logging.error(f"Error in vector similarity search: {e}")

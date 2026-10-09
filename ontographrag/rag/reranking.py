@@ -2,31 +2,34 @@ import hashlib
 import logging
 import os
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
-from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, TypedDict, cast
 
-from ontographrag.rag.systems._records import RetrievedChunk
+from ontographrag.rag.systems._records import ChunkT, RetrievedChunk
 
 if TYPE_CHECKING:
     from _hashlib import HASH
+
+    import numpy as np
+    from numpy.typing import NDArray
     from sentence_transformers import CrossEncoder
     from torch import Tensor, dtype
     from torch.return_types import topk as TopKResult
-    from transformers.configuration_utils import PretrainedConfig
 
 
 class Tokenizer(Protocol):
     def __call__(
         self,
         text: str | list[str],
+        /,
         *,
         return_tensors: str,
         truncation: bool,
         max_length: int,
         return_special_tokens_mask: bool,
         padding: bool = False,
-    ) -> dict[str, "Tensor"]: ...
+    ) -> Mapping[str, "Tensor"]: ...
 
 
 class HiddenState(Protocol):
@@ -36,12 +39,15 @@ class HiddenState(Protocol):
 
 class EncoderModel(Protocol):
     @property
-    def config(self) -> "PretrainedConfig": ...
+    def config(self) -> object: ...
     def __call__(
         self, *, input_ids: "Tensor", attention_mask: "Tensor"
-    ) -> HiddenState: ...
-    def to(self, device: str) -> "EncoderModel": ...
-    def eval(self) -> "EncoderModel": ...
+    ) -> "HiddenState | tuple[object, ...]": ...
+
+
+class LoadedEncoderModel(EncoderModel, Protocol):
+    def to(self, device: str) -> "LoadedEncoderModel": ...
+    def eval(self) -> "LoadedEncoderModel": ...
 
 
 class TensorFunctional(Protocol):
@@ -53,17 +59,33 @@ class TensorNeuralNetwork(Protocol):
     def functional(self) -> TensorFunctional: ...
 
 
+class EmptyTensorFactory(Protocol):
+    def __call__(self, size: tuple[int, int], /, *, dtype: "dtype") -> "Tensor": ...
+
+
+class TopKFunction(Protocol):
+    def __call__(self, input: "Tensor", /, k: int) -> "TopKResult": ...
+
+
 class TensorBackend(Protocol):
     @property
     def nn(self) -> TensorNeuralNetwork: ...
+
     @property
     def float32(self) -> "dtype": ...
+
     def no_grad(self) -> AbstractContextManager[None]: ...
-    def zeros_like(self, input: "Tensor", /) -> "Tensor": ...
+
+    @property
+    def zeros_like(self) -> Callable[["Tensor"], "Tensor"]: ...
+
     def matmul(self, input: "Tensor", other: "Tensor") -> "Tensor": ...
     def stack(self, tensors: list["Tensor"]) -> "Tensor": ...
-    def empty(self, size: tuple[int, int], /, *, dtype: "dtype") -> "Tensor": ...
-    def topk(self, input: "Tensor", /, k: int) -> "TopKResult": ...
+
+    @property
+    def empty(self) -> EmptyTensorFactory: ...
+    @property
+    def topk(self) -> TopKFunction: ...
 
 
 class LateInteractionBundle(TypedDict):
@@ -219,10 +241,15 @@ def _load_late_interaction_model(model_name: str) -> LateInteractionBundle | Non
         import torch
         from transformers import AutoModel, AutoTokenizer
 
-        tokenizer: Tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model: EncoderModel = AutoModel.from_pretrained(model_name)
+        tokenizer: Tokenizer = cast(
+            Tokenizer, AutoTokenizer.from_pretrained(model_name)
+        )
+        model: LoadedEncoderModel = cast(
+            LoadedEncoderModel, AutoModel.from_pretrained(model_name)
+        )
         model.to(device)
         model.eval()
+        torch_backend: TensorBackend = cast(TensorBackend, torch)
         bundle: LateInteractionBundle = {
             "tokenizer": tokenizer,
             "model": model,
@@ -230,7 +257,7 @@ def _load_late_interaction_model(model_name: str) -> LateInteractionBundle | Non
             "device": device,
             "query_max_length": query_max_length,
             "doc_max_length": doc_max_length,
-            "torch": torch,
+            "torch": torch_backend,
         }
     except Exception as exc:
         logging.warning(
@@ -258,7 +285,7 @@ def _late_interaction_scores(
         os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8
     )
 
-    query_inputs: dict[str, "Tensor"] = tokenizer(
+    query_inputs: Mapping[str, Tensor] = tokenizer(
         query,
         return_tensors="pt",
         truncation=True,
@@ -268,20 +295,20 @@ def _late_interaction_scores(
     query_inputs = {key: value.to(device) for key, value in query_inputs.items()}
 
     with torch.no_grad():
-        query_outputs: HiddenState = model(
+        query_outputs: HiddenState | tuple[object, ...] = model(
             input_ids=query_inputs["input_ids"],
             attention_mask=query_inputs["attention_mask"],
         )
-    query_hidden: "Tensor" = query_outputs.last_hidden_state[0]
-    query_special: "Tensor | None" = query_inputs.get("special_tokens_mask")
+    query_hidden: Tensor = query_outputs.last_hidden_state[0]
+    query_special: Tensor | None = query_inputs.get("special_tokens_mask")
     if query_special is None:
         query_special = torch.zeros_like(query_inputs["attention_mask"])
-    query_mask: "Tensor" = (query_inputs["attention_mask"][0] > 0) & (
+    query_mask: Tensor = (query_inputs["attention_mask"][0] > 0) & (
         query_special[0] == 0
     )
     if int(query_mask.sum().item()) == 0:
         query_mask = query_inputs["attention_mask"][0] > 0
-    query_tokens: "Tensor" = torch.nn.functional.normalize(
+    query_tokens: Tensor = torch.nn.functional.normalize(
         query_hidden[query_mask], p=2, dim=-1
     )
 
@@ -293,7 +320,7 @@ def _late_interaction_scores(
         texts.append(f"[Document: {doc}]\n{text}" if doc else text)
 
     for start in range(0, len(texts), batch_size):
-        doc_inputs: dict[str, "Tensor"] = tokenizer(
+        doc_inputs: Mapping[str, Tensor] = tokenizer(
             texts[start : start + batch_size],
             return_tensors="pt",
             padding=True,
@@ -303,26 +330,24 @@ def _late_interaction_scores(
         )
         doc_inputs = {key: value.to(device) for key, value in doc_inputs.items()}
         with torch.no_grad():
-            doc_outputs: HiddenState = model(
+            doc_outputs: HiddenState | tuple[object, ...] = model(
                 input_ids=doc_inputs["input_ids"],
                 attention_mask=doc_inputs["attention_mask"],
             )
-        doc_hidden: "Tensor" = doc_outputs.last_hidden_state
-        doc_special: "Tensor | None" = doc_inputs.get("special_tokens_mask")
+        doc_hidden: Tensor = doc_outputs.last_hidden_state
+        doc_special: Tensor | None = doc_inputs.get("special_tokens_mask")
         if doc_special is None:
             doc_special = torch.zeros_like(doc_inputs["attention_mask"])
-        doc_masks: "Tensor" = (doc_inputs["attention_mask"] > 0) & (doc_special == 0)
+        doc_masks: Tensor = (doc_inputs["attention_mask"] > 0) & (doc_special == 0)
 
         for row_idx in range(doc_hidden.shape[0]):
-            doc_mask: "Tensor" = doc_masks[row_idx]
+            doc_mask: Tensor = doc_masks[row_idx]
             if int(doc_mask.sum().item()) == 0:
                 doc_mask = doc_inputs["attention_mask"][row_idx] > 0
-            doc_tokens: "Tensor" = torch.nn.functional.normalize(
+            doc_tokens: Tensor = torch.nn.functional.normalize(
                 doc_hidden[row_idx][doc_mask], p=2, dim=-1
             )
-            similarity: "Tensor" = torch.matmul(
-                query_tokens, doc_tokens.transpose(0, 1)
-            )
+            similarity: Tensor = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
             score: float = float(similarity.max(dim=1).values.mean().item())
             scores.append(score)
 
@@ -330,13 +355,16 @@ def _late_interaction_scores(
 
 
 def _late_interaction_chunk_identity(chunk: RetrievedChunk, idx: int) -> str:
+    key: Literal[
+        "chunk_element_id", "parent_chunk_element_id", "chunk_id", "parent_chunk_id"
+    ]
     for key in (
         "chunk_element_id",
         "parent_chunk_element_id",
         "chunk_id",
         "parent_chunk_id",
     ):
-        value = chunk.get(key)
+        value: str | None = chunk.get(key)
         if value:
             return str(value)
     text: str = str(chunk.get("text", "")).strip()
@@ -390,7 +418,7 @@ def _late_interaction_default_shortlist_factor() -> int:
 
 
 def _late_interaction_index_signature(chunks: Sequence[RetrievedChunk]) -> str:
-    hasher: "HASH" = hashlib.sha1()
+    hasher: HASH = hashlib.sha1()
     for idx, chunk in enumerate(chunks):
         chunk_id: str = _late_interaction_chunk_identity(chunk, idx)
         text: str = _late_interaction_chunk_text(chunk)
@@ -434,7 +462,7 @@ def _encode_late_interaction_query(
     torch: TensorBackend = bundle["torch"]
     query_max_length: int = int(bundle["query_max_length"])
 
-    query_inputs: dict[str, "Tensor"] = tokenizer(
+    query_inputs: Mapping[str, Tensor] = tokenizer(
         query,
         return_tensors="pt",
         truncation=True,
@@ -444,25 +472,25 @@ def _encode_late_interaction_query(
     query_inputs = {key: value.to(device) for key, value in query_inputs.items()}
 
     with torch.no_grad():
-        query_outputs: HiddenState = model(
+        query_outputs: HiddenState | tuple[object, ...] = model(
             input_ids=query_inputs["input_ids"],
             attention_mask=query_inputs["attention_mask"],
         )
 
-    query_hidden: "Tensor" = query_outputs.last_hidden_state[0]
-    query_special: "Tensor | None" = query_inputs.get("special_tokens_mask")
+    query_hidden: Tensor = query_outputs.last_hidden_state[0]
+    query_special: Tensor | None = query_inputs.get("special_tokens_mask")
     if query_special is None:
         query_special = torch.zeros_like(query_inputs["attention_mask"])
-    query_mask: "Tensor" = (query_inputs["attention_mask"][0] > 0) & (
+    query_mask: Tensor = (query_inputs["attention_mask"][0] > 0) & (
         query_special[0] == 0
     )
     if int(query_mask.sum().item()) == 0:
         query_mask = query_inputs["attention_mask"][0] > 0
 
-    query_tokens: "Tensor" = torch.nn.functional.normalize(
+    query_tokens: Tensor = torch.nn.functional.normalize(
         query_hidden[query_mask], p=2, dim=-1
     )
-    pooled: "Tensor" = torch.nn.functional.normalize(
+    pooled: Tensor = torch.nn.functional.normalize(
         query_tokens.mean(dim=0, keepdim=True), p=2, dim=-1
     )[0]
     return {
@@ -499,11 +527,11 @@ def _build_late_interaction_index(
     )
 
     texts: list[str] = [_late_interaction_chunk_text(chunk) for chunk in chunk_list]
-    doc_tokens: list["Tensor"] = []
-    pooled_vectors: list["Tensor"] = []
+    doc_tokens: list[Tensor] = []
+    pooled_vectors: list[Tensor] = []
 
     for start in range(0, len(texts), batch_size):
-        doc_inputs: dict[str, "Tensor"] = tokenizer(
+        doc_inputs: Mapping[str, Tensor] = tokenizer(
             texts[start : start + batch_size],
             return_tensors="pt",
             padding=True,
@@ -513,32 +541,32 @@ def _build_late_interaction_index(
         )
         doc_inputs = {key: value.to(device) for key, value in doc_inputs.items()}
         with torch.no_grad():
-            doc_outputs: HiddenState = model(
+            doc_outputs: HiddenState | tuple[object, ...] = model(
                 input_ids=doc_inputs["input_ids"],
                 attention_mask=doc_inputs["attention_mask"],
             )
-        doc_hidden: "Tensor" = doc_outputs.last_hidden_state
-        doc_special: "Tensor | None" = doc_inputs.get("special_tokens_mask")
+        doc_hidden: Tensor = doc_outputs.last_hidden_state
+        doc_special: Tensor | None = doc_inputs.get("special_tokens_mask")
         if doc_special is None:
             doc_special = torch.zeros_like(doc_inputs["attention_mask"])
-        doc_masks: "Tensor" = (doc_inputs["attention_mask"] > 0) & (doc_special == 0)
+        doc_masks: Tensor = (doc_inputs["attention_mask"] > 0) & (doc_special == 0)
 
         for row_idx in range(doc_hidden.shape[0]):
-            doc_mask: "Tensor" = doc_masks[row_idx]
+            doc_mask: Tensor = doc_masks[row_idx]
             if int(doc_mask.sum().item()) == 0:
                 doc_mask = doc_inputs["attention_mask"][row_idx] > 0
-            token_tensor: "Tensor" = torch.nn.functional.normalize(
+            token_tensor: Tensor = torch.nn.functional.normalize(
                 doc_hidden[row_idx][doc_mask], p=2, dim=-1
             )
             token_tensor = token_tensor.detach().cpu()
-            pooled: "Tensor" = torch.nn.functional.normalize(
+            pooled: Tensor = torch.nn.functional.normalize(
                 token_tensor.mean(dim=0, keepdim=True), p=2, dim=-1
             )[0]
             doc_tokens.append(token_tensor)
             pooled_vectors.append(pooled)
 
     if pooled_vectors:
-        pooled_matrix: "Tensor" = torch.stack(pooled_vectors)
+        pooled_matrix: Tensor = torch.stack(pooled_vectors)
     else:
         hidden_size: int = int(getattr(model.config, "hidden_size", 1) or 1)
         pooled_matrix = torch.empty((0, hidden_size), dtype=torch.float32)
@@ -607,17 +635,19 @@ def _late_interaction_scores_indexed(
     shortlisted_indices: list[int] = list(range(total_docs))
     prefiltered: bool = shortlist_n < total_docs
     if prefiltered and shortlist_n > 0:
-        pooled_scores: "Tensor" = torch.matmul(
+        pooled_scores: Tensor = torch.matmul(
             index["doc_pooled"], query_repr["pooled"].detach().cpu()
         )
-        topk = torch.topk(pooled_scores, k=shortlist_n)
-        shortlisted_indices = [int(idx) for idx in topk.indices.tolist()]
+        topk: TopKResult = torch.topk(pooled_scores, k=shortlist_n)
+        shortlisted_indices = [
+            int(idx) for idx in cast(list[int], topk.indices.tolist())
+        ]
 
-    query_tokens: "Tensor" = query_repr["tokens"]
+    query_tokens: Tensor = query_repr["tokens"]
     scored: list[tuple[int, float]] = []
     for idx in shortlisted_indices:
-        doc_tokens: "Tensor" = index["doc_tokens"][idx].to(query_tokens.device)
-        similarity: "Tensor" = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
+        doc_tokens: Tensor = index["doc_tokens"][idx].to(query_tokens.device)
+        similarity: Tensor = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
         score: float = float(similarity.max(dim=1).values.mean().item())
         scored.append((idx, score))
 
@@ -632,15 +662,15 @@ def _late_interaction_scores_indexed(
 
 def late_interaction_rescore_chunks_for_query(
     query: str,
-    chunks: Sequence[RetrievedChunk],
+    chunks: Sequence[ChunkT],
     *,
     max_chunks: int | None = None,
     replace_score: bool = False,
     index_key: object = None,
     shortlist_size: int | None = None,
-) -> tuple[list[RetrievedChunk], RerankingMetadata]:
+) -> tuple[list[ChunkT], RerankingMetadata]:
     """Reorder chunks with a ColBERT-style token late-interaction scorer."""
-    chunk_list: list[RetrievedChunk] = [chunk.copy() for chunk in chunks]
+    chunk_list: list[ChunkT] = [cast(ChunkT, dict(chunk)) for chunk in chunks]
     if not chunk_list:
         return chunk_list, {"enabled": False, "applied": False, "reason": "no_chunks"}
     if not late_interaction_enabled():
@@ -670,36 +700,39 @@ def late_interaction_rescore_chunks_for_query(
                 shortlist_size=shortlist_size,
             )
             if indexed_scores:
-                scored_chunks: list[tuple[float, int, RetrievedChunk]] = []
+                scored_chunks: list[tuple[float, int, ChunkT]] = []
                 for idx, score in indexed_scores:
-                    chunk = chunk_list[idx].copy()
+                    chunk: ChunkT = cast(ChunkT, dict(chunk_list[idx]))
                     chunk["late_interaction_score"] = float(score)
                     if replace_score:
                         chunk["score"] = float(score)
                     scored_chunks.append((float(score), idx, chunk))
 
-                reranked = [
+                reranked: list[ChunkT] = [
                     chunk
                     for _score, _idx, chunk in sorted(
                         scored_chunks,
                         key=lambda item: (
                             -item[0],
-                            -float(item[2].get("score", 0.0)),
+                            -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
                             item[1],
                         ),
                     )
                 ]
                 if max_chunks is not None:
                     reranked = reranked[: max(1, int(max_chunks))]
-                return reranked, {
-                    "enabled": True,
-                    "applied": True,
-                    "model": model_name,
-                    "count": len(reranked),
-                    "replace_score": bool(replace_score),
-                    "index_keyed": True,
-                    **indexed_meta,
-                }
+                return reranked, cast(
+                    RerankingMetadata,
+                    {
+                        "enabled": True,
+                        "applied": True,
+                        "model": model_name,
+                        "count": len(reranked),
+                        "replace_score": bool(replace_score),
+                        "index_keyed": True,
+                        **indexed_meta,
+                    },
+                )
 
         scores: list[float] = _late_interaction_scores(bundle, query, chunk_list)
     except Exception as exc:
@@ -726,7 +759,7 @@ def late_interaction_rescore_chunks_for_query(
             scored_chunks,
             key=lambda item: (
                 -item[0],
-                -float(item[2].get("score", 0.0)),
+                -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
                 item[1],
             ),
         )
@@ -745,16 +778,16 @@ def late_interaction_rescore_chunks_for_query(
 
 def rerank_chunks_for_query(
     query: str,
-    chunks: Sequence[RetrievedChunk],
+    chunks: Sequence[ChunkT],
     *,
     max_chunks: int | None = None,
-) -> tuple[list[RetrievedChunk], RerankingMetadata]:
+) -> tuple[list[ChunkT], RerankingMetadata]:
     """Reorder chunks for answer generation with an optional learned reranker.
 
     Returns `(chunks, metadata)`. If the reranker is disabled or unavailable,
     the input order is preserved.
     """
-    chunk_list: list[RetrievedChunk] = [chunk.copy() for chunk in chunks]
+    chunk_list: list[ChunkT] = [cast(ChunkT, dict(chunk)) for chunk in chunks]
     if not chunk_list:
         return chunk_list, {"enabled": False, "applied": False, "reason": "no_chunks"}
     if not reranker_enabled():
@@ -764,7 +797,7 @@ def rerank_chunks_for_query(
     if not model_name:
         return chunk_list, {"enabled": True, "applied": False, "reason": "no_model"}
 
-    model: "CrossEncoder | None" = _load_cross_encoder(model_name)
+    model: CrossEncoder | None = _load_cross_encoder(model_name)
     if model is None:
         return chunk_list, {
             "enabled": True,
@@ -783,7 +816,9 @@ def rerank_chunks_for_query(
             pair_texts.append((query, text))
 
     try:
-        raw_scores = model.predict(pair_texts, show_progress_bar=False)
+        raw_scores: NDArray[np.float16 | np.float32 | np.float64] = model.predict(
+            pair_texts, show_progress_bar=False
+        )
     except Exception as exc:
         logging.warning("Reranker scoring failed for model '%s': %s", model_name, exc)
         return chunk_list, {
@@ -798,18 +833,18 @@ def rerank_chunks_for_query(
     except Exception:
         scores = [float(score) for score in list(raw_scores)]
 
-    scored_chunks: list[tuple[float, int, RetrievedChunk]] = []
+    scored_chunks: list[tuple[float, int, ChunkT]] = []
     for idx, (chunk, score) in enumerate(zip(chunk_list, scores)):
         chunk["reranker_score"] = score
         scored_chunks.append((score, idx, chunk))
 
-    reranked = [
+    reranked: list[ChunkT] = [
         chunk
         for _score, _idx, chunk in sorted(
             scored_chunks,
             key=lambda item: (
                 -item[0],
-                -float(item[2].get("score", 0.0)),
+                -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
                 item[1],
             ),
         )
