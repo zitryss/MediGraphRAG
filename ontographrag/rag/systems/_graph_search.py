@@ -12,12 +12,14 @@ from ontographrag.rag.systems._records import (
     GraphRetrievalContext,
     HoppedEntity,
     ProducedGraphRetrievalContext,
+    ProjectedRelationship,
     RelationshipRow,
     RelationTypeProjection,
     RetrievedChunk,
     RetrievedEntity,
     RetrievedRelationship,
     ScoredRetrievedChunk,
+    StoredGraphKey,
     StoredGraphProperty,
     StoredGraphValue,
     TraversalPath,
@@ -27,17 +29,18 @@ from ontographrag.rag.systems._records import (
 )
 
 if TYPE_CHECKING:
-    from langchain_core.prompt_values import PromptValue
-    from langchain_core.runnables import Runnable
     from numpy.typing import NDArray
 
-    from shared.common_fn import GraphQuery
 import numpy as np
+from langchain_core.prompt_values import PromptValue
+from langchain_core.runnables import Runnable
+
+from shared.common_fn import GraphQuery
 
 
 class MatchedEntityFields(TypedDict):
-    id: StoredGraphValue
-    type: str
+    id: NotRequired[StoredGraphProperty]
+    type: NotRequired[StoredGraphValue]
     element_id: str
     exact_in_query: NotRequired[int]
     query_in_entity: NotRequired[int]
@@ -51,12 +54,12 @@ class MatchedEntityFields(TypedDict):
 
 
 class MatchedEntityRow(MatchedEntityFields):
-    name: StoredGraphProperty
+    name: NotRequired[StoredGraphProperty]
     weighted_score: NotRequired[float]
 
 
 class ANNEntityRow(MatchedEntityFields):
-    name: StoredGraphProperty
+    name: NotRequired[StoredGraphProperty]
     weighted_score: float
 
 
@@ -105,7 +108,7 @@ class GraphSearchMixin:
         def _count_matched_query_tokens(
             cls,
             query: str,
-            entity_names: Sequence[StoredGraphProperty],
+            entity_names: Sequence[object],
         ) -> int: ...
         def _extract_query_entities(
             self,
@@ -113,7 +116,9 @@ class GraphSearchMixin:
             llm: "Runnable[PromptValue, object]",
         ) -> list[str]: ...
         @staticmethod
-        def _format_relationship_label(rel: RetrievedRelationship | None) -> str: ...
+        def _format_relationship_label(
+            rel: RetrievedRelationship | ProjectedRelationship | None,
+        ) -> str: ...
         def _generate_query_embedding(self, query: str) -> list[float]: ...
         @classmethod
         def _grounding_quality(
@@ -311,7 +316,7 @@ class GraphSearchMixin:
     def _fetch_relationships_for_entity_ids(
         self,
         graph: "GraphQuery",
-        entity_ids: list[str],
+        entity_ids: Sequence[StoredGraphKey],
         *,
         kg_name: str | None = None,
         question_id: str | None = None,
@@ -371,7 +376,7 @@ class GraphSearchMixin:
     def _plan_relation_paths(
         self,
         graph: "GraphQuery",
-        seed_entity_ids: list[str],
+        seed_entity_ids: Sequence[StoredGraphKey],
         query: str,
         *,
         kg_name: str | None = None,
@@ -472,7 +477,7 @@ class GraphSearchMixin:
     def _expand_entities_via_graph(
         self,
         graph: "GraphQuery",
-        seed_entity_ids: list[str],
+        seed_entity_ids: Sequence[StoredGraphKey],
         kg_name: str | None = None,
         max_hops: int = 2,
         max_neighbors: int = 30,
@@ -613,12 +618,12 @@ class GraphSearchMixin:
                 graph.query(traversal_query, params),
             )
 
-            neighbors: dict[str, GraphNeighbor] = {}
+            neighbors: dict[StoredGraphKey, GraphNeighbor] = {}
             seen_paths: set[str] = set()
             paths: list[TraversalPath] = []
 
             for row in results:
-                neighbor_id: str = row["id"]
+                neighbor_id: StoredGraphProperty = row["id"]
                 if not neighbor_id:
                     continue
 
@@ -636,11 +641,11 @@ class GraphSearchMixin:
                 # Store node_ids alongside the path string so iterative retrieval
                 # can prune paths whose nodes are not in the retained entity set.
                 for path_data in row["sample_paths"] or []:
-                    node_names: list[str] = path_data.get("nodes", [])
-                    node_ids: list[str] = path_data.get("node_ids", [])
-                    rel_data: list[RetrievedRelationship] = path_data.get("rels", [])
+                    node_names: list[StoredGraphProperty] = path_data.get("nodes", [])
+                    node_ids: list[StoredGraphProperty] = path_data.get("node_ids", [])
+                    rel_data: list[ProjectedRelationship] = path_data.get("rels", [])
                     if node_names and rel_data and len(node_names) == len(rel_data) + 1:
-                        parts: list[str] = [node_names[0]]
+                        parts: list[StoredGraphProperty] = [node_names[0]]
                         for rel, node in zip(rel_data, node_names[1:]):
                             if rel is None:
                                 rel_label: str = "RELATED"
@@ -751,11 +756,11 @@ class GraphSearchMixin:
     def _fetch_subgraph_edges(
         self,
         graph: "GraphQuery",
-        entity_ids: list[str],
+        entity_ids: Sequence[StoredGraphKey],
         kg_name: str | None = None,
         question_id: str | None = None,
         document_names: list[str] | None = None,
-    ) -> list[tuple[str, str, float]]:
+    ) -> list[tuple[StoredGraphKey, StoredGraphKey, float]]:
         """
         Return all directed edges (src_id, tgt_id) between a set of entity IDs.
 
@@ -828,10 +833,10 @@ class GraphSearchMixin:
 
     def _ppr_entity_scores(
         self,
-        seed_ids: list[str],
-        all_entity_ids: list[str],
-        edges: Sequence[tuple[str, str] | tuple[str, str, float]],
-    ) -> dict[str, float]:
+        seed_ids: Sequence[StoredGraphKey],
+        all_entity_ids: Sequence[StoredGraphKey],
+        edges: Sequence[tuple[str, str] | tuple[StoredGraphKey, StoredGraphKey, float]],
+    ) -> dict[StoredGraphKey, float]:
         """
         Approximate Personalized PageRank via confidence-weighted power iteration.
 
@@ -846,7 +851,9 @@ class GraphSearchMixin:
         if n == 0:
             return {}
 
-        idx: dict[str, int] = {eid: i for i, eid in enumerate(all_entity_ids)}
+        idx: dict[StoredGraphKey, int] = {
+            eid: i for i, eid in enumerate(all_entity_ids)
+        }
 
         # Build weighted undirected adjacency: adj[i] = {j: weight, ...}
         adj: list[dict[int, float]] = [{} for _ in range(n)]
@@ -893,7 +900,7 @@ class GraphSearchMixin:
         llm: "Runnable[PromptValue, object] | None" = None,
         document_names: list[str] | None = None,
         anchor_mask_entity_ids: list[str] | None = None,
-        anchor_mask_entity_names: Sequence[StoredGraphProperty] | None = None,
+        anchor_mask_entity_names: Sequence[object] | None = None,
     ) -> ProducedGraphRetrievalContext | None:
         """
         Entity-first retrieval: find KG entities whose names appear in the question,
@@ -989,7 +996,7 @@ class GraphSearchMixin:
 
                     if query_entities:
                         # One ANN call per extracted entity; union results, keep best score.
-                        seen_by_id: dict[str, ANNEntityRow] = {}
+                        seen_by_id: dict[StoredGraphKey, ANNEntityRow] = {}
                         for entity_mention in query_entities:
                             entity_vec: list[float] = self._generate_query_embedding(
                                 entity_mention,
@@ -1010,7 +1017,7 @@ class GraphSearchMixin:
                             )
                             for ann_row in rows:
                                 ann_row = cast(ANNEntityRow, dict(ann_row))
-                                eid: str = ann_row["id"]
+                                eid: StoredGraphProperty = ann_row["id"]
                                 if (
                                     eid not in seen_by_id
                                     or ann_row["weighted_score"]
@@ -1069,7 +1076,7 @@ class GraphSearchMixin:
             # Merge both passes, deduplicating by entity id and keeping the best-ranked
             # candidate features. Exact phrase matches outrank overlap matches, which
             # outrank embedding-only matches.
-            merged_by_id: dict[str, MatchedEntityRow] = {}
+            merged_by_id: dict[StoredGraphKey, MatchedEntityRow] = {}
             for embedding_row in emb_matched:
                 row: MatchedEntityRow = cast(MatchedEntityRow, dict(embedding_row))
                 row.setdefault("exact_in_query", 0)
@@ -1081,7 +1088,7 @@ class GraphSearchMixin:
                 row["_source_kind"] = "embedding"
                 merged_by_id[row["id"]] = row
 
-            embedding_score_default: dict[str, float] = {}
+            embedding_score_default: dict[StoredGraphKey, float] = {}
             for symbolic_row in sub_matched:
                 row = cast(MatchedEntityRow, dict(symbolic_row))
                 row["_embedding_score"] = float(
@@ -1198,7 +1205,7 @@ class GraphSearchMixin:
             )
 
             # Step 2: build seed entity dict (hop 0)
-            entities: dict[str, HoppedEntity] = {}
+            entities: dict[StoredGraphKey, HoppedEntity] = {}
             for row in matched:
                 eid = row["id"]
                 if not eid:
@@ -1219,7 +1226,7 @@ class GraphSearchMixin:
             # Step 3: walk the graph from seed entities to discover neighbors.
             # RoG-style: plan which relation types are query-relevant before
             # expanding, so traversal is constrained to semantically useful edges.
-            seed_ids: list[str] = list(entities.keys())
+            seed_ids: list[StoredGraphKey] = list(entities.keys())
             allowed_rel_types: list[str] | None = None
             if self.use_rog_path_planning:
                 allowed_rel_types = self._plan_relation_paths(
@@ -1254,7 +1261,7 @@ class GraphSearchMixin:
 
             # Step 4: retrieve chunks, tracking which entity (and therefore which hop
             # depth) each chunk was reached through so we can assign hop-weighted scores.
-            all_entity_ids: list[str] = list(entities.keys())
+            all_entity_ids: list[StoredGraphKey] = list(entities.keys())
             candidate_chunk_limit: int = min(max_chunks * 10, 200)
             chunk_params: dict[str, object] = {
                 "entity_ids": all_entity_ids,
@@ -1320,12 +1327,12 @@ class GraphSearchMixin:
             # This replaces the fixed hop-score table with a principled random-walk
             # score that accounts for the full graph topology — entities connected to
             # more seeds via shorter, denser paths receive higher scores.
-            all_entity_ids_for_ppr: list[str] = list(entities.keys())
-            seed_ids_for_ppr: list[str] = [
+            all_entity_ids_for_ppr: list[StoredGraphKey] = list(entities.keys())
+            seed_ids_for_ppr: list[StoredGraphKey] = [
                 eid for eid, info in entities.items() if info.get("min_hops", 99) == 0
             ]
-            ppr_scores: dict[str, float] = {}
-            subgraph_edges: list[tuple[str, str, float]] = []
+            ppr_scores: dict[StoredGraphKey, float] = {}
+            subgraph_edges: list[tuple[StoredGraphKey, StoredGraphKey, float]] = []
             if (
                 self.use_ppr_scoring
                 and seed_ids_for_ppr
@@ -1357,7 +1364,7 @@ class GraphSearchMixin:
             chunks: list[ScoredRetrievedChunk] = []
             documents: set[StoredGraphProperty] = set()
             for chunk_row in chunk_results:
-                linked: list[str] = chunk_row.get("linked_entity_ids") or []
+                linked: list[StoredGraphKey] = chunk_row.get("linked_entity_ids") or []
                 if ppr_scores and max_ppr > 0:
                     # PPR path: score = avg normalised PPR of covering entities
                     # + coverage bonus (n'·P from HippoRAG).
@@ -1432,12 +1439,12 @@ class GraphSearchMixin:
                 qvec: NDArray[np.float64] = np.array(query_embedding, dtype=float)
                 qnorm: np.float64 = cast(np.float64, np.linalg.norm(qvec))
                 # Collect element IDs of hop-1+ chunks that need similarity checks
-                traversal_eids: list[str | None] = [
+                traversal_eids: list[StoredGraphProperty] = [
                     c["chunk_element_id"]
                     for c in chunks
                     if c.get("min_hop", 1) > 0 and c.get("chunk_element_id")
                 ]
-                eid_to_sim: dict[str | None, float] = {}
+                eid_to_sim: dict[StoredGraphKey, float] = {}
                 if traversal_eids and qnorm > 0:
                     try:
                         _emb_rows: list[EmbeddingProjection] = cast(
@@ -1449,7 +1456,7 @@ class GraphSearchMixin:
                             ),
                         )
                         for _row in _emb_rows or []:
-                            _emb: list[float] | None = _row.get("emb")
+                            _emb: StoredGraphProperty = _row.get("emb")
                             if not _emb:
                                 continue
                             cvec: NDArray[np.float64] = np.array(_emb, dtype=float)
@@ -1546,10 +1553,10 @@ class GraphSearchMixin:
             return {
                 "query": query,
                 "chunks": chunks,
-                "entities": cast(dict[str, RetrievedEntity], entities),
+                "entities": cast(dict[StoredGraphKey, RetrievedEntity], entities),
                 "relationships": relationships,
                 "graph_neighbors": cast(
-                    dict[str, RetrievedEntity],
+                    dict[StoredGraphKey, RetrievedEntity],
                     expansion["neighbors"],
                 ),
                 "traversal_paths": expansion["paths"],
@@ -1609,7 +1616,7 @@ class GraphSearchMixin:
         question_id: str | None = None,
         document_names: list[str] | None = None,
         anchor_mask_entity_ids: list[str] | None = None,
-        anchor_mask_entity_names: Sequence[StoredGraphProperty] | None = None,
+        anchor_mask_entity_names: Sequence[object] | None = None,
     ) -> ProducedGraphRetrievalContext | None:
         """
         Retriever-first graph expansion (RFGE).
@@ -1654,8 +1661,8 @@ class GraphSearchMixin:
                 for name in (anchor_mask_entity_names or [])
                 if str(name).strip()
             }
-            vec_entity_ids: list[str] = []
-            cosine_by_chunk: dict[str | None, float] = {}
+            vec_entity_ids: list[StoredGraphKey] = []
+            cosine_by_chunk: dict[StoredGraphKey, float] = {}
             _MAX_ENTITIES_PER_CHUNK: int = (
                 4  # cap seeds per chunk to avoid generic-entity flooding
             )
@@ -1666,7 +1673,7 @@ class GraphSearchMixin:
                 for ent in chunk_ents:
                     if added >= _MAX_ENTITIES_PER_CHUNK:
                         break
-                    eid: str | None = ent.get("id")
+                    eid: StoredGraphProperty = ent.get("id")
                     if not eid:
                         continue
                     ent_name: str = (
@@ -1676,7 +1683,7 @@ class GraphSearchMixin:
                     )
                     if str(eid) in mask_ids or ent_name in mask_names:
                         continue
-                    eid_lower: str = eid.lower().strip()
+                    eid_lower: str | bytes = eid.lower().strip()
                     if len(eid_lower) <= 2 or eid_lower in self._ENTITY_MATCH_STOPWORDS:
                         continue
                     if eid not in vec_entity_ids:
@@ -1699,7 +1706,7 @@ class GraphSearchMixin:
             )
 
             # Build the combined entity pool: passage seeds + graph neighbors.
-            all_entities: dict[str, RetrievedEntity] = {}
+            all_entities: dict[StoredGraphKey, RetrievedEntity] = {}
             for eid in vec_entity_ids:
                 all_entities[eid] = {
                     "id": eid,
@@ -1710,15 +1717,17 @@ class GraphSearchMixin:
                 all_entities[nid] = {**ninfo, "min_hops": ninfo.get("min_hops", 1)}
 
             # Step 4: PPR scoring over the full entity pool.
-            all_eid_list: list[str] = list(all_entities.keys())
-            subgraph_edges: list[tuple[str, str, float]] = self._fetch_subgraph_edges(
-                graph,
-                all_eid_list,
-                kg_name=kg_name,
-                question_id=question_id,
-                document_names=document_names,
+            all_eid_list: list[StoredGraphKey] = list(all_entities.keys())
+            subgraph_edges: list[tuple[StoredGraphKey, StoredGraphKey, float]] = (
+                self._fetch_subgraph_edges(
+                    graph,
+                    all_eid_list,
+                    kg_name=kg_name,
+                    question_id=question_id,
+                    document_names=document_names,
+                )
             )
-            ppr_scores: dict[str, float] = {}
+            ppr_scores: dict[StoredGraphKey, float] = {}
             max_ppr: float = 0.0
             if subgraph_edges:
                 ppr_scores = self._ppr_entity_scores(
@@ -1731,7 +1740,7 @@ class GraphSearchMixin:
             # Step 5: re-score existing chunks with combined cosine + PPR signal.
             chunks: list[ScoredRetrievedChunk] = []
             for chunk in vec_ctx["chunks"]:
-                cid: str | None = chunk["chunk_id"]
+                cid: StoredGraphProperty = chunk["chunk_id"]
                 cosine: float = cosine_by_chunk.get(cid, float(chunk.get("score", 0.0)))
                 linked: list[StoredGraphProperty] = [
                     e.get("id") for e in chunk.get("entities", []) if e.get("id")
@@ -1758,13 +1767,13 @@ class GraphSearchMixin:
                 chunks.append(rescored_chunk)
 
             # Step 6: fetch chunks for graph-neighbor entities not yet retrieved.
-            neighbor_eids: list[str] = [
+            neighbor_eids: list[StoredGraphKey] = [
                 eid
                 for eid in expansion["neighbors"]
                 if ppr_scores.get(eid, 0.0) >= self._RFGE_MIN_PPR_SCORE
             ]
             if neighbor_eids:
-                existing_cids: set[str | None] = {c["chunk_id"] for c in chunks}
+                existing_cids: set[StoredGraphKey] = {c["chunk_id"] for c in chunks}
                 extra_params: dict[str, object] = {
                     "entity_ids": neighbor_eids[:20],
                     "limit": max(4, max_chunks // 3),
@@ -1892,7 +1901,7 @@ class GraphSearchMixin:
                 "entities": all_entities,
                 "relationships": relationships,
                 "graph_neighbors": cast(
-                    dict[str, RetrievedEntity],
+                    dict[StoredGraphKey, RetrievedEntity],
                     expansion["neighbors"],
                 ),
                 "traversal_paths": expansion["paths"],

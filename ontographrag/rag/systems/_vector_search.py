@@ -1,11 +1,11 @@
 import logging
 import os
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
 from ontographrag.rag.systems._records import (
     ChunkProjection,
-    CompleteRetrievedChunk,
     EntityProjection,
     FloatListConvertible,
     GraphExpansion,
@@ -16,6 +16,7 @@ from ontographrag.rag.systems._records import (
     RetrievedEntity,
     ScoredChunkProjection,
     ScoredRetrievedChunk,
+    StoredGraphKey,
     StoredGraphProperty,
 )
 
@@ -24,11 +25,11 @@ if TYPE_CHECKING:
     from langchain_core.embeddings import Embeddings
     from numpy.typing import NDArray
 
-    from shared.common_fn import GraphQuery
 from ontographrag.rag.reranking import (
     late_interaction_enabled,
     late_interaction_rescore_chunks_for_query,
 )
+from shared.common_fn import GraphQuery
 
 
 class VectorSearchMixin:
@@ -41,7 +42,7 @@ class VectorSearchMixin:
     if TYPE_CHECKING:
         _late_interaction_corpus_cache: dict[
             tuple[str, tuple[str, ...], str, bool],
-            list[CompleteRetrievedChunk],
+            list[ChunkProjection],
         ]
         _GRAPH_TRAVERSAL_SEED_LIMIT: int
         _active_vector_index_name: str | None
@@ -53,7 +54,7 @@ class VectorSearchMixin:
         def _expand_entities_via_graph(
             self,
             graph: "GraphQuery",
-            seed_entity_ids: list[str],
+            seed_entity_ids: Sequence[StoredGraphKey],
             kg_name: str | None = None,
             max_hops: int = 2,
             max_neighbors: int = 30,
@@ -65,7 +66,7 @@ class VectorSearchMixin:
         def _fetch_relationships_for_entity_ids(
             self,
             graph: "GraphQuery",
-            entity_ids: list[str],
+            entity_ids: Sequence[StoredGraphKey],
             *,
             kg_name: str | None = None,
             question_id: str | None = None,
@@ -154,10 +155,9 @@ class VectorSearchMixin:
         document_names: list[str] | None,
         question_id: str | None,
         include_entities: bool,
-    ) -> list[CompleteRetrievedChunk]:
+    ) -> list[ChunkProjection]:
         cache: (
-            dict[tuple[str, tuple[str, ...], str, bool], list[CompleteRetrievedChunk]]
-            | None
+            dict[tuple[str, tuple[str, ...], str, bool], list[ChunkProjection]] | None
         ) = getattr(self, "_late_interaction_corpus_cache", None)
         if cache is None:
             cache = {}
@@ -172,7 +172,7 @@ class VectorSearchMixin:
             )
         )
         if scope_key in cache:
-            return [cast(CompleteRetrievedChunk, dict(row)) for row in cache[scope_key]]
+            return [cast(ChunkProjection, dict(row)) for row in cache[scope_key]]
 
         params: dict[str, object] = {"corpus_cap": self._late_interaction_corpus_cap()}
         filters: list[str] = []
@@ -290,8 +290,8 @@ class VectorSearchMixin:
             """
             rows = cast(list[ChunkProjection], graph.query(chunk_query, params)) or []
 
-        cache[scope_key] = [cast(CompleteRetrievedChunk, dict(row)) for row in rows]
-        return [cast(CompleteRetrievedChunk, dict(row)) for row in rows]
+        cache[scope_key] = [cast(ChunkProjection, dict(row)) for row in rows]
+        return [cast(ChunkProjection, dict(row)) for row in rows]
 
     def _late_interaction_search(
         self,
@@ -312,7 +312,7 @@ class VectorSearchMixin:
                     include_entities=True,
                 )
             )
-            rows: list[CompleteRetrievedChunk] = self._late_interaction_corpus_rows(
+            rows: list[ChunkProjection] = self._late_interaction_corpus_rows(
                 graph,
                 kg_name=kg_name,
                 document_names=document_names,
@@ -432,10 +432,10 @@ class VectorSearchMixin:
                 "late_interaction_stage": li_meta,
             }
 
-            all_entity_ids: list[str] = []
+            all_entity_ids: list[StoredGraphKey] = []
             for selected_row in selected_rows:
                 for entity in selected_row.get("entities", []):
-                    entity_id: str | None = entity.get("id")
+                    entity_id: StoredGraphProperty = entity.get("id")
                     if not entity_id:
                         continue
                     if entity_id not in context["entities"]:
@@ -464,7 +464,7 @@ class VectorSearchMixin:
                     document_names=document_names,
                 )
                 context["graph_neighbors"] = cast(
-                    dict[str, RetrievedEntity],
+                    dict[StoredGraphKey, RetrievedEntity],
                     expansion["neighbors"],
                 )
                 context["traversal_paths"] = expansion["paths"]
@@ -731,7 +731,7 @@ class VectorSearchMixin:
 
                 # Collect unique entities
                 for entity in result.get("entities") or []:
-                    entity_id: str = entity["id"]
+                    entity_id: StoredGraphProperty = entity["id"]
                     if entity_id not in context["entities"]:
                         context["entities"][entity_id] = {
                             "id": entity_id,
@@ -746,7 +746,7 @@ class VectorSearchMixin:
                         )
 
             # Multi-hop graph traversal from seed entities
-            seed_ids: list[str] = list(context["entities"].keys())
+            seed_ids: list[StoredGraphKey] = list(context["entities"].keys())
             expansion: GraphExpansion = self._expand_entities_via_graph(
                 graph,
                 seed_ids,
@@ -756,7 +756,7 @@ class VectorSearchMixin:
                 document_names=document_names,
             )
             context["graph_neighbors"] = cast(
-                dict[str, RetrievedEntity],
+                dict[StoredGraphKey, RetrievedEntity],
                 expansion["neighbors"],
             )
             context["traversal_paths"] = expansion["paths"]
@@ -776,7 +776,7 @@ class VectorSearchMixin:
                     }
 
             # Relationships between ALL entities (seeds + neighbors)
-            all_entity_ids: list[str] = list(context["entities"].keys())
+            all_entity_ids: list[StoredGraphKey] = list(context["entities"].keys())
             if all_entity_ids:
                 relationship_results: list[RelationshipRow] = (
                     self._fetch_relationships_for_entity_ids(
@@ -1103,7 +1103,7 @@ class VectorSearchMixin:
 
                 # Collect unique entities
                 for entity in result.get("entities") or []:
-                    entity_id: str = entity["id"]
+                    entity_id: StoredGraphProperty = entity["id"]
                     if entity_id not in context["entities"]:
                         context["entities"][entity_id] = {
                             "id": entity_id,
@@ -1118,7 +1118,7 @@ class VectorSearchMixin:
                         )
 
             # Multi-hop graph traversal from seed entities found in chunks
-            seed_ids: list[str] = list(context["entities"].keys())
+            seed_ids: list[StoredGraphKey] = list(context["entities"].keys())
             expansion: GraphExpansion = self._expand_entities_via_graph(
                 graph,
                 seed_ids,
@@ -1128,7 +1128,7 @@ class VectorSearchMixin:
                 document_names=document_names,
             )
             context["graph_neighbors"] = cast(
-                dict[str, RetrievedEntity],
+                dict[StoredGraphKey, RetrievedEntity],
                 expansion["neighbors"],
             )
             context["traversal_paths"] = expansion["paths"]
@@ -1147,7 +1147,7 @@ class VectorSearchMixin:
                     }
 
             # Relationships between ALL entities (seeds + neighbors)
-            all_entity_ids: list[str] = list(context["entities"].keys())
+            all_entity_ids: list[StoredGraphKey] = list(context["entities"].keys())
             if all_entity_ids:
                 relationship_results: list[RelationshipRow] = (
                     self._fetch_relationships_for_entity_ids(

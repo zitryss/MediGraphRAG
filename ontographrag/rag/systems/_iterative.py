@@ -2,30 +2,31 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast, overload
 
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompt_values import PromptValue
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
+
+from ontographrag.rag.graph_state import summarize_context_graph_state
 from ontographrag.rag.systems._records import (
+    ChunkIdentity,
     ChunkT,
     GraphRetrievalContext,
     HopBucket,
     ProducedGraphRetrievalContext,
+    PromptTemplateFactory,
     RetrievalContext,
     RetrievedEntity,
     RetrievedRelationship,
     ScoredCompleteRetrievalContext,
     ScoredRetrievedChunk,
+    SlicedGraphValue,
+    StoredGraphKey,
     StoredGraphProperty,
     StrongContextT,
     TraversalPath,
 )
-
-if TYPE_CHECKING:
-    from langchain_core.prompt_values import PromptValue
-    from langchain_core.runnables import Runnable
-
-    from shared.common_fn import GraphQuery
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-
-from ontographrag.rag.graph_state import summarize_context_graph_state
+from shared.common_fn import GraphQuery
 
 
 class IterativeRetrievalMixin:
@@ -49,7 +50,7 @@ class IterativeRetrievalMixin:
         def _count_matched_query_tokens(
             cls,
             query: str,
-            entity_names: Sequence[StoredGraphProperty],
+            entity_names: Sequence[object],
         ) -> int: ...
         def _entity_first_search(
             self,
@@ -62,7 +63,7 @@ class IterativeRetrievalMixin:
             llm: "Runnable[PromptValue, object] | None" = None,
             document_names: list[str] | None = None,
             anchor_mask_entity_ids: list[str] | None = None,
-            anchor_mask_entity_names: Sequence[StoredGraphProperty] | None = None,
+            anchor_mask_entity_names: Sequence[object] | None = None,
         ) -> ProducedGraphRetrievalContext | None: ...
         def _extract_query_entities(
             self,
@@ -214,7 +215,7 @@ class IterativeRetrievalMixin:
         document_names: list[str],
         question_id: str | None = None,
         anchor_mask_entity_ids: list[str] | None = None,
-        anchor_mask_entity_names: Sequence[StoredGraphProperty] | None = None,
+        anchor_mask_entity_names: Sequence[object] | None = None,
     ) -> ProducedGraphRetrievalContext | None:
         """
         Per-hop retrieval with bridge answer extraction between hops (IRCoT / StepChain).
@@ -227,7 +228,10 @@ class IterativeRetrievalMixin:
 
         Returns a merged context dict, or None if every hop returned empty results.
         """
-        bridge_prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
+        bridge_prompt: ChatPromptTemplate = cast(
+            PromptTemplateFactory,
+            ChatPromptTemplate,
+        ).from_messages(
             [
                 (
                     "system",
@@ -260,7 +264,7 @@ class IterativeRetrievalMixin:
         _hop0_seed_count: int = 0
         _hop0_grounding: float = 0.0
 
-        seen_chunk_ids: set[str] = set()
+        seen_chunk_ids: set[ChunkIdentity] = set()
 
         current_sub_qs: list[str] = list(sub_questions)
         iterative_subquestion_max_hops: int = (
@@ -448,12 +452,14 @@ class IterativeRetrievalMixin:
             # Using all_chunk_ids for activation ensures that a hop's graph facts are kept
             # whenever ANY of its chunks survive truncation, even if they were first seen in
             # an earlier hop and therefore not counted as new here.
-            all_hop_cids: set[str] = {
+            all_hop_cids: set[ChunkIdentity] = {
                 c.get("chunk_id") or c.get("text", "")[:60] for c in hop_ctx["chunks"]
             }
             new_chunks: list[ScoredRetrievedChunk] = []
             for chunk in hop_ctx["chunks"]:
-                cid: str = chunk.get("chunk_id") or chunk.get("text", "")[:60]
+                cid: StoredGraphProperty | SlicedGraphValue = (
+                    chunk.get("chunk_id") or chunk.get("text", "")[:60]
+                )
                 if cid not in seen_chunk_ids:
                     seen_chunk_ids.add(cid)
                     new_chunks.append(chunk)
@@ -595,7 +601,7 @@ class IterativeRetrievalMixin:
         # --- Build chunk-level entity set from retained chunks ---
         # Use all_chunk_ids (pre-dedup) for hop activation so that a hop with a
         # deduplicated chunk still becomes active when that chunk is in the final set.
-        retained_cids: set[str] = {
+        retained_cids: set[ChunkIdentity] = {
             c.get("chunk_id") or c.get("text", "")[:60] for c in all_chunks
         }
         active_hops: set[int] = set()
@@ -606,8 +612,8 @@ class IterativeRetrievalMixin:
         # Derive the entity set directly from retained chunks (chunk-level granularity):
         # - entity-first chunks carry "linked_entity_ids" (set at construction time)
         # - vector/text chunks carry "entities" list of dicts with "id" keys
-        retained_eids: set[str] = set()
-        eid: str | None
+        retained_eids: set[StoredGraphKey] = set()
+        eid: StoredGraphProperty
         for chunk in all_chunks:
             for eid in chunk.get("linked_entity_ids") or []:
                 if eid:
@@ -618,9 +624,9 @@ class IterativeRetrievalMixin:
                     retained_eids.add(eid)
 
         # --- Merge graph facts from active hops, then filter to retained entity set ---
-        merged_entities: dict[str, RetrievedEntity] = {}
+        merged_entities: dict[StoredGraphKey, RetrievedEntity] = {}
         merged_relationships: list[RetrievedRelationship] = []
-        merged_graph_neighbors: dict[str, RetrievedEntity] = {}
+        merged_graph_neighbors: dict[StoredGraphKey, RetrievedEntity] = {}
         merged_traversal_paths: list[TraversalPath] = []
         seen_rel_keys: set[str] = set()
         seen_path_strs: set[str] = set()
@@ -647,7 +653,7 @@ class IterativeRetrievalMixin:
                     continue
                 # Prune paths that mention nodes outside the retained entity set.
                 # Paths without node_ids (built before this fix) are kept as-is.
-                path_nids: list[str] | None = path_entry.get("node_ids")
+                path_nids: list[StoredGraphProperty] | None = path_entry.get("node_ids")
                 if path_nids and not all(nid in retained_eids for nid in path_nids):
                     continue
                 seen_path_strs.add(pstr)

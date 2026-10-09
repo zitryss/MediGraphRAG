@@ -7,15 +7,12 @@ from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict, cast
 
 from ontographrag.rag.systems._records import (
     DecodedJSON,
+    PromptTemplateFactory,
     RetrievalContext,
     RetrievedChunk,
-    StoredGraphProperty,
 )
 
 if TYPE_CHECKING:
-    from langchain_core.prompt_values import PromptValue
-    from langchain_core.runnables import Runnable
-
     from ontographrag.rag.systems._constants import RetrievalConfiguration
 
 
@@ -35,7 +32,9 @@ class AdaptiveRetrievalParameters(TypedDict):
 
 
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompt_values import PromptValue
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 
 from ontographrag.rag.systems._constants import (
     RAG_CONFIG,
@@ -212,7 +211,10 @@ class QueryPlanningMixin:
         if not is_complex:
             return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-        prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
+        prompt: ChatPromptTemplate = cast(
+            PromptTemplateFactory,
+            ChatPromptTemplate,
+        ).from_messages(
             [
                 (
                     "system",
@@ -474,7 +476,7 @@ class QueryPlanningMixin:
     def _count_matched_query_tokens(
         cls,
         query: str,
-        entity_names: Sequence[StoredGraphProperty],
+        entity_names: Sequence[object],
     ) -> int:
         """Count how many distinct content tokens from the query are covered by entity names."""
         query_tokens: list[str] = cls._content_query_tokens(query)
@@ -536,7 +538,10 @@ class QueryPlanningMixin:
         if cache_key in self._entity_extraction_cache:
             return self._entity_extraction_cache[cache_key]
 
-        prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
+        prompt: ChatPromptTemplate = cast(
+            PromptTemplateFactory,
+            ChatPromptTemplate,
+        ).from_messages(
             [
                 (
                     "system",
@@ -602,7 +607,10 @@ class QueryPlanningMixin:
         to [question] on any failure so the caller always receives a usable list.
         """
         n_hops: int = max(2, min(max_hops, 4))
-        prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
+        prompt: ChatPromptTemplate = cast(
+            PromptTemplateFactory,
+            ChatPromptTemplate,
+        ).from_messages(
             [
                 (
                     "system",

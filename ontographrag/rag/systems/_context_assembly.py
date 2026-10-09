@@ -2,6 +2,11 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast, overload
 
+from ontographrag.rag.graph_state import summarize_context_graph_state
+from ontographrag.rag.retrieval_sampling import (
+    compute_candidate_limit,
+    select_ranked_subset,
+)
 from ontographrag.rag.systems._records import (
     ChunkProjection,
     ChunkT,
@@ -10,10 +15,11 @@ from ontographrag.rag.systems._records import (
     EntityProjection,
     EvidencePath,
     FusedChunkRecord,
-    GraphPrimitive,
     GraphRetrievalContext,
+    IdentifiedRetrievedChunk,
     PartialRetrievalContext,
     ProducedGraphRetrievalContext,
+    ProjectedRelationship,
     RetrievalContext,
     RetrievalProvenance,
     RetrievedChunk,
@@ -21,19 +27,14 @@ from ontographrag.rag.systems._records import (
     RetrievedRelationship,
     ScoredCompleteRetrievalContext,
     ScoredRetrievedChunk,
+    SlicedGraphValue,
+    StoredGraphKey,
     StoredGraphProperty,
     StoredGraphValue,
     StrongContextT,
     TraversalPath,
 )
-
-if TYPE_CHECKING:
-    from shared.common_fn import GraphQuery
-from ontographrag.rag.graph_state import summarize_context_graph_state
-from ontographrag.rag.retrieval_sampling import (
-    compute_candidate_limit,
-    select_ranked_subset,
-)
+from shared.common_fn import GraphQuery
 
 
 class ContextAssemblyMixin:
@@ -74,7 +75,7 @@ class ContextAssemblyMixin:
         ) -> int: ...
 
     @staticmethod
-    def _chunk_identity(chunk: RetrievedChunk) -> str:
+    def _chunk_identity(chunk: RetrievedChunk) -> "StoredGraphValue":
         return (
             chunk.get("chunk_id")
             or chunk.get("chunk_element_id")
@@ -95,7 +96,9 @@ class ContextAssemblyMixin:
         )
 
     @staticmethod
-    def _format_relationship_label(rel: RetrievedRelationship | None) -> str:
+    def _format_relationship_label(
+        rel: RetrievedRelationship | ProjectedRelationship | None,
+    ) -> str:
         if not isinstance(rel, dict):
             return "RELATED"
         label: str = str(rel.get("type") or "RELATED").strip() or "RELATED"
@@ -154,10 +157,10 @@ class ContextAssemblyMixin:
         question_ids: set[str] = set()
         passage_keys: set[str] = set()
         for chunk in chunks:
-            pos: int | None = chunk.get("position")
+            pos: StoredGraphProperty = chunk.get("position")
             if isinstance(pos, (int, float)):
                 positions.add(int(pos))
-            qid: str | None = chunk.get("question_id")
+            qid: StoredGraphProperty = chunk.get("question_id")
             if qid is not None and str(qid).strip():
                 qid_str: str = str(qid)
                 question_ids.add(qid_str)
@@ -268,8 +271,10 @@ class ContextAssemblyMixin:
         pruned["chunks"] = selected_chunks
         retained_eids: set[str] = cls._retained_entity_ids_from_chunks(selected_chunks)
 
-        entities: dict[str, RetrievedEntity] = context.get("entities", {}) or {}
-        graph_neighbors: dict[str, RetrievedEntity] = (
+        entities: dict[StoredGraphKey, RetrievedEntity] = (
+            context.get("entities", {}) or {}
+        )
+        graph_neighbors: dict[StoredGraphKey, RetrievedEntity] = (
             context.get("graph_neighbors", {}) or {}
         )
         relationships: list[RetrievedRelationship] = (
@@ -309,7 +314,7 @@ class ContextAssemblyMixin:
                 path_str: str = path_entry.get("path", "")
                 if path_str in seen_paths:
                     continue
-                node_ids: list[str] | None = path_entry.get("node_ids")
+                node_ids: list[StoredGraphProperty] | None = path_entry.get("node_ids")
                 if node_ids and not all(
                     node_id in retained_eids for node_id in node_ids
                 ):
@@ -613,16 +618,16 @@ class ContextAssemblyMixin:
 
         existing_chunk_ids: set[str] = set()
         for chunk in merged["chunks"]:
-            chunk_key: str = cls._chunk_identity(chunk)
+            chunk_key: StoredGraphValue = cls._chunk_identity(chunk)
             if chunk_key:
                 existing_chunk_ids.add(str(chunk_key))
-            parent_chunk_key: str | None = chunk.get("parent_chunk_id")
+            parent_chunk_key: StoredGraphProperty = chunk.get("parent_chunk_id")
             if parent_chunk_key:
                 existing_chunk_ids.add(str(parent_chunk_key))
         new_chunks: list[RetrievedChunk] = []
         for chunk in secondary.get("chunks", []):
-            cid: str = cls._chunk_identity(chunk)
-            parent_cid: str | None = chunk.get("parent_chunk_id")
+            cid: StoredGraphValue = cls._chunk_identity(chunk)
+            parent_cid: StoredGraphProperty = chunk.get("parent_chunk_id")
             if cid in existing_chunk_ids or (
                 parent_cid and str(parent_cid) in existing_chunk_ids
             ):
@@ -893,13 +898,13 @@ class ContextAssemblyMixin:
             return list(chunks)
 
         ranked_chunks: list[ChunkT] = sorted(chunks, key=self._chunk_rank_key)
-        passage_counts: dict[str | int, int] = {}
+        passage_counts: dict[StoredGraphKey, int] = {}
         capped_chunks: list[ChunkT] = []
-        pkey: str | int
+        pkey: StoredGraphProperty
         for chunk in ranked_chunks:
             chunk_view: RetrievedChunk = chunk
-            qid_val: str = chunk_view.get("question_id") or ""
-            pidx_val: int | None = chunk_view.get("passage_index")
+            qid_val: StoredGraphProperty = chunk_view.get("question_id") or ""
+            pidx_val: StoredGraphProperty = chunk_view.get("passage_index")
             if pidx_val is not None and qid_val:
                 pkey = f"{qid_val}::p{pidx_val}"
             else:
@@ -928,10 +933,10 @@ class ContextAssemblyMixin:
         chunks: Sequence[RetrievedChunk] = context.get("chunks", [])
         traversal_paths: list[TraversalPath] = context.get("traversal_paths", [])
         relationships: list[RetrievedRelationship] = context.get("relationships", [])
-        entities: dict[str, RetrievedEntity] = context.get("entities", {})
+        entities: dict[StoredGraphKey, RetrievedEntity] = context.get("entities", {})
 
         def _chunk_passage_key(chunk: RetrievedChunk) -> str | None:
-            qid: str | None = chunk.get("question_id")
+            qid: StoredGraphProperty = chunk.get("question_id")
             if qid is None or not str(qid).strip():
                 return None
             return f"{qid}::p{chunk.get('passage_index', -1)}"
@@ -941,7 +946,7 @@ class ContextAssemblyMixin:
             path_info: EvidencePath,
         ) -> bool:
             chunk_positions: set[int] = set()
-            pos: int | None = chunk.get("position")
+            pos: StoredGraphProperty = chunk.get("position")
             if isinstance(pos, (int, float)):
                 chunk_positions.add(int(pos))
             path_positions: set[int] = {
@@ -964,7 +969,7 @@ class ContextAssemblyMixin:
             chunk_entity_ids: set[StoredGraphProperty] = set(
                 chunk.get("linked_entity_ids") or [],
             )
-            path_nodes: set[str] = set(path_info.get("node_ids") or [])
+            path_nodes: set[StoredGraphKey] = set(path_info.get("node_ids") or [])
             if not chunk_entity_ids or not path_nodes:
                 return False
 
@@ -977,8 +982,13 @@ class ContextAssemblyMixin:
             return len(overlap) >= required_overlap
 
         # Index chunks by their linked entities for fast lookup.
-        chunk_by_id: dict[str | None, RetrievedChunk] = {
-            c["chunk_id"]: c for c in chunks if c.get("chunk_id")
+        chunk_by_id: dict[StoredGraphKey, IdentifiedRetrievedChunk] = {
+            cast(IdentifiedRetrievedChunk, c)["chunk_id"]: cast(
+                IdentifiedRetrievedChunk,
+                c,
+            )
+            for c in chunks
+            if c.get("chunk_id")
         }
 
         # Build a unified path list from both traversal paths and direct relationships.
@@ -994,17 +1004,17 @@ class ContextAssemblyMixin:
                     "passage_keys": list(p.get("passage_keys") or []),
                 },
             )
-        entity_name_lookup: dict[str, StoredGraphValue] = {
+        entity_name_lookup: dict[StoredGraphKey, StoredGraphProperty] = {
             eid: (info.get("name") or info.get("description") or eid)
             for eid, info in entities.items()
         }
         MAX_REL_PATHS: int = max(0, 25 - len(all_paths))
         for rel in relationships[:MAX_REL_PATHS]:
-            src: str | list[GraphPrimitive] = entity_name_lookup.get(
+            src: SlicedGraphValue = entity_name_lookup.get(
                 rel["source"],
                 rel["source"],
             )[:50]
-            tgt: str | list[GraphPrimitive] = entity_name_lookup.get(
+            tgt: SlicedGraphValue = entity_name_lookup.get(
                 rel["target"],
                 rel["target"],
             )[:50]
@@ -1021,7 +1031,7 @@ class ContextAssemblyMixin:
 
         # Associate each chunk with up to two supporting chains so shared bridge
         # evidence can appear in multiple reasoning chains without flooding all of them.
-        chunk_chain_count: dict[str | None, int] = {}
+        chunk_chain_count: dict[StoredGraphKey, int] = {}
         _MAX_CHAINS_PER_CHUNK: int = 2
         chain_blocks: list[str] = []
         ungrounded_paths: list[str] = []  # paths with no supporting passage
@@ -1029,7 +1039,7 @@ class ContextAssemblyMixin:
             path_str: str = path_info["path_str"]
             if not path_str:
                 continue
-            supporting: list[RetrievedChunk] = []
+            supporting: list[IdentifiedRetrievedChunk] = []
             for cid, chunk in chunk_by_id.items():
                 if chunk_chain_count.get(cid, 0) >= _MAX_CHAINS_PER_CHUNK:
                     continue
@@ -1048,7 +1058,7 @@ class ContextAssemblyMixin:
                     ),
                 ]
                 for i, chunk in enumerate(supporting[:3], 1):
-                    text: str = (chunk.get("text") or "").strip()[:400]
+                    text: str | bytes = (chunk.get("text") or "").strip()[:400]
                     lines.append(f"  [P{i}] {text}")
                     chunk_chain_count[chunk["chunk_id"]] = (
                         chunk_chain_count.get(chunk["chunk_id"], 0) + 1
@@ -1087,7 +1097,7 @@ class ContextAssemblyMixin:
             return "(No passages retrieved)"
         lines: list[str] = []
         for idx, chunk in enumerate(chunks, 1):
-            text: str = (chunk.get("text") or "").strip()
+            text: str | bytes = (chunk.get("text") or "").strip()
             if text:
                 lines.append(f"[{idx}] {text}")
         if not lines:
@@ -1110,7 +1120,7 @@ class ContextAssemblyMixin:
         # --- legacy: flat chunk list (for callers that use formatted_context directly) ---
         chunk_texts: list[str] = []
         for _i, chunk in enumerate(context["chunks"], 1):
-            doc: StoredGraphValue = chunk.get("document", "unknown")
+            doc: StoredGraphProperty = chunk.get("document", "unknown")
             chunk_text: str = f"[Source: {doc}]\n{chunk['text']}\n"
             chunk_texts.append(chunk_text)
         _formatted_context: str = "\n".join(chunk_texts)
@@ -1124,17 +1134,17 @@ class ContextAssemblyMixin:
                 key=lambda p: p.get("hops", 99),
             )
             path_lines.extend([f"  {p['path']}" for p in sorted_paths])
-        entity_name_lookup: dict[str, StoredGraphValue] = {
+        entity_name_lookup: dict[StoredGraphKey, StoredGraphProperty] = {
             eid: (info.get("description") or eid)
             for eid, info in context.get("entities", {}).items()
         }
         MAX_RELATIONSHIPS: int = 25
         for rel in context.get("relationships", [])[:MAX_RELATIONSHIPS]:
-            src_name: str | list[GraphPrimitive] = entity_name_lookup.get(
+            src_name: SlicedGraphValue = entity_name_lookup.get(
                 rel["source"],
                 rel["source"],
             )[:50]
-            tgt_name: str | list[GraphPrimitive] = entity_name_lookup.get(
+            tgt_name: SlicedGraphValue = entity_name_lookup.get(
                 rel["target"],
                 rel["target"],
             )[:50]
@@ -1146,12 +1156,12 @@ class ContextAssemblyMixin:
 
         # --- entities ---
         entity_texts: list[str] = []
-        seed_entities: dict[str, RetrievedEntity] = {
+        seed_entities: dict[StoredGraphKey, RetrievedEntity] = {
             eid: info
             for eid, info in context["entities"].items()
             if info.get("source") != "graph_traversal"
         }
-        neighbor_entities: dict[str, RetrievedEntity] = {
+        neighbor_entities: dict[StoredGraphKey, RetrievedEntity] = {
             eid: info
             for eid, info in context["entities"].items()
             if info.get("source") == "graph_traversal"
@@ -1164,7 +1174,7 @@ class ContextAssemblyMixin:
             entity_texts.append("Seed entities (directly from retrieved chunks):")
             for entity_id, info in list(seed_entities.items())[:MAX_SEED_ENTITIES]:
                 eid: StoredGraphValue = info.get("id") or entity_id or "Unknown"
-                etype: str = info.get("type") or "Unknown"
+                etype: StoredGraphValue = info.get("type") or "Unknown"
                 line: str = f"  - {eid} | Type: {etype}"
                 desc: StoredGraphProperty = info.get("description")
                 if desc and desc != eid:
@@ -1176,9 +1186,9 @@ class ContextAssemblyMixin:
                 )
 
         if neighbor_entities:
-            shown: list[tuple[str, RetrievedEntity]] = list(neighbor_entities.items())[
-                :MAX_NEIGHBOR_ENTITIES
-            ]
+            shown: list[tuple[StoredGraphKey, RetrievedEntity]] = list(
+                neighbor_entities.items(),
+            )[:MAX_NEIGHBOR_ENTITIES]
             entity_texts.append(
                 f"\nGraph-traversal neighbors ({len(neighbor_entities)} discovered, showing top {len(shown)}):",
             )

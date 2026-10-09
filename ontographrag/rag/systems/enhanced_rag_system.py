@@ -5,18 +5,23 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, cast
 
 from ontographrag.rag.systems._records import (
-    CompleteRetrievedChunk,
+    ChunkProjection,
     ContextT,
+    ElementIdentifiedRetrievedChunk,
     GraphRetrievalContext,
+    IdentifiedRetrievedChunk,
     ProducedGraphRetrievalContext,
+    PromptTemplateFactory,
     RetrievalContext,
     RetrievedChunk,
     RetrievedEntity,
     RetrievedRelationship,
-    StoredGraphValue,
+    StoredGraphKey,
+    StoredGraphProperty,
 )
 from ontographrag.rag.systems._response_records import (
     EntityDetails,
+    EntityDetailsProjection,
     EntitySearchHit,
     EntitySearchProjection,
     ErrorPayload,
@@ -32,17 +37,16 @@ from ontographrag.rag.systems._response_records import (
 
 if TYPE_CHECKING:
     from langchain_core.embeddings import Embeddings
-    from langchain_core.prompt_values import PromptValue
-    from langchain_core.runnables import Runnable
 
     from ontographrag.rag.answer_guardrails import GuardrailVerdict
     from ontographrag.rag.systems._query_planning import (
         AdaptiveRetrievalParameters,
         QuestionType,
     )
-    from shared.common_fn import GraphQuery
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompt_values import PromptValue
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 from langchain_neo4j import Neo4jGraph
 
 from ontographrag.kg.utils.common_functions import load_embedding_model
@@ -62,6 +66,7 @@ from ontographrag.rag.systems._graph_search import GraphSearchMixin
 from ontographrag.rag.systems._iterative import IterativeRetrievalMixin
 from ontographrag.rag.systems._query_planning import QueryPlanningMixin
 from ontographrag.rag.systems._vector_search import VectorSearchMixin
+from shared.common_fn import GraphQuery
 
 
 class EnhancedRAGSystem(
@@ -259,7 +264,7 @@ class EnhancedRAGSystem(
 
         self._vector_index_available: bool | None = None  # cached after first check
         self._active_vector_index_name: str | None = None
-        self._graph: Neo4jGraph | None = None  # shared Neo4j connection
+        self._graph: GraphQuery | None = None  # shared Neo4j connection
         self._embedding_cache: dict[
             str,
             list[float],
@@ -270,7 +275,7 @@ class EnhancedRAGSystem(
         ] = {}  # (query, model_key) → entity strings
         self._late_interaction_corpus_cache: dict[
             tuple[str, tuple[str, ...], str, bool],
-            list[CompleteRetrievedChunk],
+            list[ChunkProjection],
         ] = {}  # scoped corpus rows for LI retrieval
 
         if retrieval_mode not in self.RETRIEVAL_MODES:
@@ -313,7 +318,10 @@ class EnhancedRAGSystem(
         # Evidence is pre-organized into reasoning chains (graph paths + their
         # supporting passages) before generation, making multi-hop evidence explicit
         # and reducing the chance the LLM invents bridge steps.
-        self.rag_prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
+        self.rag_prompt: ChatPromptTemplate = cast(
+            PromptTemplateFactory,
+            ChatPromptTemplate,
+        ).from_messages(
             [
                 (
                     "system",
@@ -1418,15 +1426,15 @@ Question: {question}""",
                 }) AS mentions
             """
 
-            results: list[EntityDetails] = cast(
-                list[EntityDetails],
+            results: list[EntityDetailsProjection] = cast(
+                list[EntityDetailsProjection],
                 graph.query(query, {"entity_id": entity_id}),
             )
 
             if not results:
                 return {"error": f"Entity {entity_id} not found"}
 
-            result: EntityDetails = results[0]
+            result: EntityDetailsProjection = results[0]
             return {
                 "id": result["id"],
                 "type": result["type"],
@@ -1548,7 +1556,10 @@ Question: {question}""",
         reasoning_edges: list[ReasoningEdge] = []
 
         try:
-            context_entities: dict[str, RetrievedEntity] = context.get("entities", {})
+            context_entities: dict[StoredGraphKey, RetrievedEntity] = context.get(
+                "entities",
+                {},
+            )
             context_chunks: Sequence[RetrievedChunk] = context.get("chunks", [])
             context_relationships: list[RetrievedRelationship] = context.get(
                 "relationships",
@@ -1556,8 +1567,8 @@ Question: {question}""",
             )
 
             response_lower: str = response.lower()
-            mentioned_entity_names: set[str] = set()
-            mentioned_chunk_ids: set[str | None] = set()
+            mentioned_entity_names: set[StoredGraphKey] = set()
+            mentioned_chunk_ids: set[StoredGraphKey] = set()
 
             # Match entities by name: use description (= n.name, human-readable) as primary
             # key, falling back to id only if description is absent.
@@ -1565,7 +1576,7 @@ Question: {question}""",
             # for text matching against the LLM response.
             for entity_key, entity_info in context_entities.items():
                 # description = coalesce(entity.name, '') from Cypher — the readable name
-                entity_name: str = (
+                entity_name: str | bytes = (
                     (entity_info.get("description") or entity_info.get("id") or "")
                     .lower()
                     .replace("_", " ")
@@ -1597,9 +1608,17 @@ Question: {question}""",
                     if 0 <= chunk_index < len(context_chunks):
                         matched_chunk: RetrievedChunk = context_chunks[chunk_index]
                         if matched_chunk.get("chunk_id"):
-                            mentioned_chunk_ids.add(matched_chunk["chunk_id"])
+                            mentioned_chunk_ids.add(
+                                cast(IdentifiedRetrievedChunk, matched_chunk)[
+                                    "chunk_id"
+                                ],
+                            )
                         if matched_chunk.get("chunk_element_id"):
-                            mentioned_chunk_ids.add(matched_chunk["chunk_element_id"])
+                            mentioned_chunk_ids.add(
+                                cast(ElementIdentifiedRetrievedChunk, matched_chunk)[
+                                    "chunk_element_id"
+                                ],
+                            )
                 except (ValueError, TypeError):
                     continue
 
@@ -1618,7 +1637,7 @@ Question: {question}""",
                     )
 
             # Strategy 4: Include chunks that contain mentioned entities (semantic linking)
-            relevant_chunk_ids: set[str | None] = set()
+            relevant_chunk_ids: set[StoredGraphKey] = set()
             for entity_id in {e["id"] for e in used_entities}:
                 for chunk in context_chunks:
                     chunk_entities: Sequence[RetrievedEntity] = chunk.get(
@@ -1631,7 +1650,7 @@ Question: {question}""",
 
             # Include explicitly mentioned chunks
             for chunk in context_chunks:
-                chunk_id: str | None = chunk.get("chunk_id", "")
+                chunk_id: StoredGraphProperty = chunk.get("chunk_id", "")
                 chunk_element_id: str | None = chunk.get("chunk_element_id", "")
                 is_direct: bool = (
                     chunk_id in mentioned_chunk_ids
@@ -1642,7 +1661,7 @@ Question: {question}""",
                     or chunk_element_id in relevant_chunk_ids
                 )
                 if is_direct or has_relevant_entity:
-                    text: str = chunk.get("text", "")
+                    text: StoredGraphProperty = chunk.get("text", "")
                     used_chunks.append(
                         {
                             "id": chunk_id,
@@ -1659,9 +1678,9 @@ Question: {question}""",
                 used_entities
             ):  # Only look for relationships if we have filtered entities
                 # Build lookup: element_id or id → human-readable name
-                entity_name_lookup: dict[str | None, StoredGraphValue] = {}
+                entity_name_lookup: dict[StoredGraphKey, StoredGraphProperty] = {}
                 for e in used_entities:
-                    name: StoredGraphValue = e.get("description") or e.get("id", "")
+                    name: StoredGraphProperty = e.get("description") or e.get("id", "")
                     if e.get("element_id"):
                         entity_name_lookup[e["element_id"]] = name
                     if e.get("id"):
@@ -1670,11 +1689,11 @@ Question: {question}""",
                 used_entity_element_ids: set[str | None] = {
                     e["element_id"] for e in used_entities if e["element_id"]
                 }
-                used_entity_ids: set[str] = {e["id"] for e in used_entities}
+                used_entity_ids: set[StoredGraphKey] = {e["id"] for e in used_entities}
 
                 for rel in context_relationships:
-                    source_id: str = rel.get("source", "")
-                    target_id: str = rel.get("target", "")
+                    source_id: StoredGraphKey = rel.get("source", "")
+                    target_id: StoredGraphKey = rel.get("target", "")
                     source_element_id: str | None = rel.get("source_element_id", "")
                     target_element_id: str | None = rel.get("target_element_id", "")
 
@@ -1689,8 +1708,8 @@ Question: {question}""",
                     )
 
                     if source_in_set and target_in_set:
-                        src_key: str = source_element_id or source_id
-                        tgt_key: str = target_element_id or target_id
+                        src_key: StoredGraphKey = source_element_id or source_id
+                        tgt_key: StoredGraphKey = target_element_id or target_id
                         reasoning_edges.append(
                             {
                                 "from": src_key,

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Never, NotRequired, TypedDict
 from ontographrag.rag.systems._records import (
     RetrievalContext,
     RetrievedRelationship,
+    StoredGraphKey,
     StoredGraphProperty,
     StoredGraphValue,
 )
@@ -29,27 +30,27 @@ class GuardrailMetadata(TypedDict):
 
 
 class UsedEntity(TypedDict):
-    id: str
+    id: StoredGraphKey
     element_id: str | None
-    type: str | None
+    type: StoredGraphProperty
     description: StoredGraphProperty
     reasoning_context: str
 
 
 class UsedChunk(TypedDict):
-    id: str | None
+    id: StoredGraphProperty
     element_id: str | None
-    text: str
+    text: StoredGraphProperty
     reasoning_context: str
 
 
 ReasoningEdge = TypedDict(
     "ReasoningEdge",
     {
-        "from": str,
-        "to": str,
-        "from_name": StoredGraphValue,
-        "to_name": StoredGraphValue,
+        "from": StoredGraphKey,
+        "to": StoredGraphKey,
+        "from_name": StoredGraphProperty,
+        "to_name": StoredGraphProperty,
         "relationship": str,
         "reasoning_context": str,
     },
@@ -82,7 +83,7 @@ class GenerationResponseFields(TypedDict):
     sources: list[StoredGraphProperty]
     confidence: float
     error: NotRequired[str]
-    entities: NotRequired[list[str]]
+    entities: NotRequired[list[StoredGraphKey]]
     used_entities: NotRequired[list[UsedEntity]]
     used_chunks: NotRequired[list[UsedChunk]]
     reasoning_edges: NotRequired[list[ReasoningEdge]]
@@ -105,20 +106,20 @@ class ErrorPayload(TypedDict):
 
 
 class EntityRelationshipDetail(TypedDict):
-    related_id: StoredGraphProperty
-    related_type: str | None
+    related_id: NotRequired[StoredGraphProperty]
+    related_type: NotRequired[StoredGraphProperty]
     relationship_type: str | None
     relationship_element_id: str | None
 
 
 class EntityMention(TypedDict):
-    chunk_id: str | None
-    document: StoredGraphProperty
+    chunk_id: NotRequired[StoredGraphProperty]
+    document: NotRequired[StoredGraphProperty]
 
 
 class EntityDetails(TypedDict):
     id: str
-    type: str | None
+    type: StoredGraphProperty
     description: StoredGraphProperty
     element_id: str
     relationships: list[EntityRelationshipDetail]
@@ -135,10 +136,10 @@ class KnowledgeGraphStats(TypedDict):
 
 
 class EntitySearchHit(TypedDict):
-    id: StoredGraphValue
+    id: StoredGraphProperty
     element_id: str
-    type: str | None
-    description: StoredGraphProperty
+    type: StoredGraphProperty
+    description: str
     score: float
     chunk_mentions: int
     documents: list[StoredGraphValue]
@@ -149,13 +150,22 @@ class KnowledgeGraphStatsProjection(TypedDict):
     chunks: int
     entities: int
     relationships: int
-    document_names: list[StoredGraphValue]
+    document_names: NotRequired[list[StoredGraphValue]]
 
 
 class EntitySearchProjection(TypedDict):
-    id: StoredGraphValue
+    id: NotRequired[StoredGraphProperty]
     element_id: str
-    type: str | None
+    type: NotRequired[StoredGraphProperty]
     name: str
     chunk_mentions: int
-    documents: list[StoredGraphValue]
+    documents: NotRequired[list[StoredGraphValue]]
+
+
+class EntityDetailsProjection(TypedDict):
+    id: str
+    element_id: str
+    type: NotRequired[StoredGraphProperty]
+    description: NotRequired[StoredGraphProperty]
+    relationships: NotRequired[list[EntityRelationshipDetail]]
+    mentions: NotRequired[list[EntityMention]]

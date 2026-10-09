@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, cast, overload
 
 from ontographrag.rag.systems._records import (
     ChunkProjection,
-    CompleteRetrievedChunk,
     DecodedJSON,
     FloatListConvertible,
     FusedChunkRecord,
+    PromptTemplateFactory,
     QueryEncoder,
     RetrievalContext,
     RetrievalWorkingContext,
@@ -28,15 +28,14 @@ from ontographrag.rag.systems._response_records import (
 if TYPE_CHECKING:
     import numpy as np
     from langchain_core.embeddings import Embeddings
-    from langchain_core.prompt_values import PromptValue
-    from langchain_core.runnables import Runnable
     from numpy.typing import NDArray
 
     from ontographrag.rag.answer_guardrails import GuardrailVerdict
-    from shared.common_fn import GraphQuery
 
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompt_values import PromptValue
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 from langchain_neo4j import Neo4jGraph
 
 from ontographrag.kg.utils.common_functions import load_embedding_model
@@ -53,6 +52,7 @@ from ontographrag.rag.retrieval_sampling import (
     compute_candidate_limit,
     select_ranked_subset,
 )
+from shared.common_fn import GraphQuery
 
 
 class VanillaRAGSystem:
@@ -153,11 +153,14 @@ class VanillaRAGSystem:
         self._vector_index_name: str | None = None
         self._late_interaction_corpus_cache: dict[
             tuple[str, tuple[str, ...], str],
-            list[CompleteRetrievedChunk],
+            list[ChunkProjection],
         ] = {}
 
         # Simple RAG prompt template (no KG traversal instructions)
-        self.rag_prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
+        self.rag_prompt: ChatPromptTemplate = cast(
+            PromptTemplateFactory,
+            ChatPromptTemplate,
+        ).from_messages(
             [
                 (
                     "system",
@@ -467,7 +470,10 @@ User Query: {question}""",
         if not is_complex:
             return variants[: self._QUERY_FUSION_MAX_VARIANTS]
 
-        prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages(
+        prompt: ChatPromptTemplate = cast(
+            PromptTemplateFactory,
+            ChatPromptTemplate,
+        ).from_messages(
             [
                 (
                     "system",
@@ -621,10 +627,10 @@ User Query: {question}""",
         kg_name: str | None,
         document_names: list[str] | None,
         question_id: str | None,
-    ) -> list[CompleteRetrievedChunk]:
-        cache: (
-            dict[tuple[str, tuple[str, ...], str], list[CompleteRetrievedChunk]] | None
-        ) = getattr(self, "_late_interaction_corpus_cache", None)
+    ) -> list[ChunkProjection]:
+        cache: dict[tuple[str, tuple[str, ...], str], list[ChunkProjection]] | None = (
+            getattr(self, "_late_interaction_corpus_cache", None)
+        )
         if cache is None:
             cache = {}
             self._late_interaction_corpus_cache = cache
@@ -635,7 +641,7 @@ User Query: {question}""",
             question_id=question_id,
         )
         if scope_key in cache:
-            return [cast(CompleteRetrievedChunk, dict(row)) for row in cache[scope_key]]
+            return [cast(ChunkProjection, dict(row)) for row in cache[scope_key]]
 
         params: dict[str, object] = {"corpus_cap": self._late_interaction_corpus_cap()}
         filters: list[str] = []
@@ -713,8 +719,8 @@ User Query: {question}""",
             """
             rows = cast(list[ChunkProjection], graph.query(chunk_query, params)) or []
 
-        cache[scope_key] = [cast(CompleteRetrievedChunk, dict(row)) for row in rows]
-        return [cast(CompleteRetrievedChunk, dict(row)) for row in rows]
+        cache[scope_key] = [cast(ChunkProjection, dict(row)) for row in rows]
+        return [cast(ChunkProjection, dict(row)) for row in rows]
 
     def _late_interaction_search(
         self,
@@ -733,7 +739,7 @@ User Query: {question}""",
             document_names=document_names,
             question_id=question_id,
         )
-        rows: list[CompleteRetrievedChunk] = self._late_interaction_corpus_rows(
+        rows: list[ChunkProjection] = self._late_interaction_corpus_rows(
             graph,
             kg_name=kg_name,
             document_names=document_names,

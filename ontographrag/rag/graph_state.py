@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from itertools import combinations
-from typing import Literal, NotRequired
+from typing import Literal, NotRequired, Protocol, cast
 
 from typing_extensions import ReadOnly, TypedDict
 
@@ -34,6 +34,14 @@ class StateEntity(TypedDict, total=False):
     min_hops: ReadOnly[int | float | str | None]
 
 
+class StateEntityMap(Protocol):
+    """Read-only iteration actually used to normalize arbitrary graph IDs."""
+
+    def items(self) -> Iterable[tuple[object, StateEntity | None]]: ...
+
+    def keys(self) -> Iterable[object]: ...
+
+
 class StateChunk(TypedDict, total=False):
     chunk_id: ReadOnly[object]
     chunk_element_id: ReadOnly[object]
@@ -51,7 +59,7 @@ class StateDiagnostics(TypedDict, total=False):
 class GraphStateContext(TypedDict, total=False):
     diagnostics: ReadOnly[StateDiagnostics | None]
     chunks: ReadOnly[Sequence[StateChunk | None] | None]
-    entities: ReadOnly[Mapping[str, StateEntity | None] | None]
+    entities: ReadOnly[StateEntityMap | None]
     relationships: ReadOnly[Sequence[StateRelationship | None] | None]
     traversal_paths: ReadOnly[Sequence[StatePath | None] | None]
     retrieval_route: ReadOnly[object]
@@ -204,7 +212,7 @@ def summarize_context_graph_state(
     context = context or {}
     diagnostics: StateDiagnostics = context.get("diagnostics") or {}
     chunks: Sequence[StateChunk | None] = context.get("chunks") or []
-    entities: Mapping[str, StateEntity | None] = context.get("entities") or {}
+    entities: StateEntityMap = context.get("entities") or cast(StateEntityMap, {})
     relationships: Sequence[StateRelationship | None] = (
         context.get("relationships") or []
     )
@@ -231,12 +239,14 @@ def summarize_context_graph_state(
         )
         if _clean_id(name)
     ]
-    entity_ids: list[str] = list(entities.keys()) or _entity_ids_from_chunks(chunks)
+    entity_ids: Sequence[object] = list(entities.keys()) or _entity_ids_from_chunks(
+        chunks,
+    )
     relationship_ids: list[str] = [_relationship_id(rel) for rel in relationships]
     path_ids: list[str] = [_path_id(path) for path in traversal_paths]
     chunk_ids: list[str] = [_chunk_id(chunk) for chunk in chunks]
 
-    subgraph_items: list[str] = list(entity_ids) + relationship_ids + path_ids
+    subgraph_items: list[object] = list(entity_ids) + relationship_ids + path_ids
     return {
         "route": _clean_id(context.get("retrieval_route")),
         "search_method": _clean_id(context.get("search_method")),

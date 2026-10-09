@@ -1,29 +1,53 @@
 """Dictionary records produced and combined by the retrieval systems."""
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, TypeAlias, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    NotRequired,
+    Protocol,
+    Required,
+    TypeAlias,
+    TypeVar,
+)
 
 from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
     import numpy as np
+    from langchain_core.prompts import ChatPromptTemplate
     from numpy.typing import NDArray
 
     from ontographrag.rag.reranking import RerankingMetadata
 
 from ontographrag.rag.graph_state import GraphStateSummary
+from shared.graph_types import (
+    Neo4jProperty,
+    Neo4jPropertyValue,
+)
+from shared.graph_types import (
+    Neo4jPropertyScalar as ImportedPropertyScalar,
+)
+from shared.graph_types import (
+    Neo4jPropertyValue as ImportedPropertyValue,
+)
 
 DecodedJSON: TypeAlias = (
     str | int | float | bool | None | list["DecodedJSON"] | dict[str, "DecodedJSON"]
 )
 
 
-# The maintained storage sanitizer admits these values for extensible properties.
-# This is not a universal Neo4j driver-value model: temporal/node/relationship
-# objects remain outside the per-query property projections below.
+# Imported graphs bypass the normalized storage writer. These aliases cover
+# hydrated property values, not arbitrary Cypher row maps or driver entities.
 GraphPrimitive: TypeAlias = str | int | float | bool
-StoredGraphValue: TypeAlias = GraphPrimitive | list[GraphPrimitive]
-StoredGraphProperty: TypeAlias = StoredGraphValue | None
+StoredGraphValue: TypeAlias = Neo4jPropertyValue
+StoredGraphProperty: TypeAlias = Neo4jProperty
+# Successful dict/set insertion excludes list properties; missing IDs may be None.
+StoredGraphKey: TypeAlias = "ImportedPropertyScalar | None"
+SlicedGraphValue: TypeAlias = (
+    str | bytes | tuple[int, ...] | tuple[float, ...] | list[ImportedPropertyScalar]
+)
+ChunkIdentity: TypeAlias = "StoredGraphKey | tuple[int, ...] | tuple[float, ...]"
 
 
 class EntityExtensions(TypedDict, total=False):
@@ -35,34 +59,38 @@ class EntityExtensions(TypedDict, total=False):
 
 
 class PartialRetrievedEntity(EntityExtensions, total=False):
-    id: StoredGraphValue
+    id: StoredGraphProperty
     element_id: str | None
-    type: str | None
+    type: StoredGraphProperty
     description: StoredGraphProperty
-    mentioned_in_chunks: list[str | None]
+    mentioned_in_chunks: list[StoredGraphProperty]
 
 
 class EntityProjectionFields(EntityExtensions):
-    id: StoredGraphValue
-    element_id: str | None
-    type: str | None
-    description: StoredGraphProperty
+    id: NotRequired[StoredGraphProperty]
+    element_id: str
+    type: NotRequired[StoredGraphValue]
+    description: NotRequired[StoredGraphValue]
 
 
 class EntityProjection(EntityProjectionFields, total=False):
-    mentioned_in_chunks: list[str | None]
+    mentioned_in_chunks: list[StoredGraphProperty]
 
 
-class MentionedEntity(EntityProjectionFields):
-    mentioned_in_chunks: list[str | None]
+class MentionedEntity(EntityExtensions):
+    id: StoredGraphProperty
+    element_id: str | None
+    type: StoredGraphProperty
+    description: StoredGraphProperty
+    mentioned_in_chunks: list[StoredGraphProperty]
 
 
 class HoppedEntity(TypedDict):
-    id: StoredGraphValue
+    id: StoredGraphProperty
     element_id: str | None
-    type: str | None
+    type: StoredGraphProperty
     description: StoredGraphProperty
-    mentioned_in_chunks: list[str | None]
+    mentioned_in_chunks: list[StoredGraphProperty]
     source: str
     min_hops: int
     name: NotRequired[StoredGraphProperty]
@@ -71,15 +99,15 @@ class HoppedEntity(TypedDict):
 
 
 class GraphNeighbor(TypedDict):
-    id: StoredGraphValue
+    id: StoredGraphProperty
     element_id: str
-    type: str
+    type: StoredGraphValue
     name: StoredGraphProperty
     min_hops: int
     seed_connections: int
     source: str
     description: NotRequired[StoredGraphProperty]
-    mentioned_in_chunks: NotRequired[list[str | None]]
+    mentioned_in_chunks: NotRequired[list[StoredGraphProperty]]
     score: NotRequired[float]
 
 
@@ -93,15 +121,15 @@ RetrievedEntity: TypeAlias = (
 
 
 class RetrievedChunkExtensions(TypedDict, total=False):
-    parent_chunk_id: str | None
+    parent_chunk_id: StoredGraphProperty
     parent_chunk_element_id: str | None
-    question_id: str | None
-    passage_index: int | None
-    chunk_local_index: int | None
-    retrieval_local_index: int | None
-    position: int | None
+    question_id: StoredGraphProperty
+    passage_index: StoredGraphProperty
+    chunk_local_index: StoredGraphProperty
+    retrieval_local_index: StoredGraphProperty
+    position: StoredGraphProperty
     min_hop: int
-    source: str | None
+    source: StoredGraphProperty
     kg_name: StoredGraphProperty
     entities: list[RetrievedEntity] | list[EntityProjection]
     linked_entity_ids: Sequence[StoredGraphProperty]
@@ -114,58 +142,91 @@ class RetrievedChunkExtensions(TypedDict, total=False):
 
 
 class PartialRetrievedChunk(RetrievedChunkExtensions, total=False):
-    text: str
-    document: StoredGraphValue
-    chunk_id: str | None
+    text: StoredGraphProperty
+    document: StoredGraphProperty
+    chunk_id: StoredGraphProperty
     chunk_element_id: str | None
     score: float
 
 
+class IdentifiedRetrievedChunk(RetrievedChunkExtensions, total=False):
+    """Read view after an existing truthy chunk_id guard; no value coercion."""
+
+    chunk_id: Required[StoredGraphProperty]
+    text: StoredGraphProperty
+    document: StoredGraphProperty
+    chunk_element_id: str | None
+    score: float
+
+
+class ElementIdentifiedRetrievedChunk(RetrievedChunkExtensions, total=False):
+    """Read view after the existing truthy chunk_element_id guard."""
+
+    chunk_id: StoredGraphProperty
+    text: StoredGraphProperty
+    document: StoredGraphProperty
+    chunk_element_id: Required[str | None]
+    score: float
+
+
 class CompleteRetrievedChunk(RetrievedChunkExtensions):
-    text: str
-    document: StoredGraphValue
-    chunk_id: str | None
+    text: StoredGraphProperty
+    document: StoredGraphProperty
+    chunk_id: StoredGraphProperty
     chunk_element_id: str | None
     score: NotRequired[float]
 
 
 class ScoredRetrievedChunk(RetrievedChunkExtensions):
-    text: str
-    document: StoredGraphValue
-    chunk_id: str | None
+    text: StoredGraphProperty
+    document: StoredGraphProperty
+    chunk_id: StoredGraphProperty
     chunk_element_id: str | None
     score: float
 
 
 RetrievedChunk: TypeAlias = (
-    PartialRetrievedChunk | CompleteRetrievedChunk | ScoredRetrievedChunk
+    PartialRetrievedChunk
+    | IdentifiedRetrievedChunk
+    | CompleteRetrievedChunk
+    | ScoredRetrievedChunk
 )
 ChunkT = TypeVar("ChunkT", bound=RetrievedChunk)
 
 
 class RetrievalProvenance(TypedDict, total=False):
-    question_ids: list[str] | list[GraphPrimitive]
-    passage_keys: list[str] | list[GraphPrimitive]
-    provenance_positions: list[int] | list[GraphPrimitive]
+    question_ids: ImportedPropertyValue
+    passage_keys: ImportedPropertyValue
+    provenance_positions: ImportedPropertyValue
 
 
 class RetrievedRelationship(RetrievalProvenance, total=False):
     key: str
-    source: str
+    source: StoredGraphKey
     source_element_id: str | None
-    target: str
+    target: StoredGraphKey
     target_element_id: str | None
     type: str
     element_id: str | None
     negated: bool
-    condition: StoredGraphProperty
-    quantitative: StoredGraphProperty
+    condition: "ImportedPropertyValue | None"
+    quantitative: "ImportedPropertyValue | None"
     confidence: float | None
+
+
+class ProjectedRelationship(RetrievalProvenance, total=False):
+    """Sanitized traversal map; imported properties are not normalized."""
+
+    type: Required[str]
+    negated: ImportedPropertyValue
+    condition: "ImportedPropertyValue | None"
+    quantitative: "ImportedPropertyValue | None"
+    confidence: Required[float]
 
 
 class TraversalPath(RetrievalProvenance, total=False):
     path: str
-    node_ids: list[str]
+    node_ids: list[StoredGraphProperty]
     hops: int
     seed: str
     target: str
@@ -173,16 +234,20 @@ class TraversalPath(RetrievalProvenance, total=False):
 
 
 class RetrievalDiagnostics(TypedDict, total=False):
-    seed_entity_ids: list[str]
-    seed_entity_names: list[str] | list[str | None] | list[StoredGraphProperty]
-    seed_entities: list[str] | list[str | None] | list[StoredGraphProperty]
+    seed_entity_ids: list[StoredGraphKey]
+    seed_entity_names: (
+        list[str] | list[str | None] | list[StoredGraphProperty] | list[StoredGraphKey]
+    )
+    seed_entities: (
+        list[str] | list[str | None] | list[StoredGraphProperty] | list[StoredGraphKey]
+    )
     anchor_mask_entity_ids: list[str]
     anchor_mask_entity_names: list[str]
     ann_match_count: int
     symbolic_match_count: int
     rfge_fired: bool
     subgraph_edge_count: int
-    top_ppr_entities: list[tuple[str, float]]
+    top_ppr_entities: list[tuple[StoredGraphKey, float]]
     retrieval_mode_config: str
     subquestion_count: int
     active_hop_count: int
@@ -222,22 +287,22 @@ class PartialRetrievalContext(RetrievalContextExtensions, total=False):
     chunks: list[RetrievedChunk]
     documents: list[StoredGraphProperty]
     total_score: float
-    entities: dict[str, RetrievedEntity]
+    entities: dict[StoredGraphKey, RetrievedEntity]
     relationships: list[RetrievedRelationship]
     entity_count: int
     relationship_count: int
 
-    graph_neighbors: dict[str, RetrievedEntity]
+    graph_neighbors: dict[StoredGraphKey, RetrievedEntity]
     traversal_paths: list[TraversalPath]
 
 
 class CompleteRetrievalContext(RetrievalContextExtensions, RetrievalCore, total=False):
-    entities: dict[str, RetrievedEntity]
+    entities: dict[StoredGraphKey, RetrievedEntity]
     relationships: list[RetrievedRelationship]
     entity_count: int
     relationship_count: int
 
-    graph_neighbors: dict[str, RetrievedEntity]
+    graph_neighbors: dict[StoredGraphKey, RetrievedEntity]
     traversal_paths: list[TraversalPath]
 
 
@@ -248,22 +313,22 @@ class ScoredRetrievalCore(TypedDict):
 
 
 class GraphRetrievalContext(RetrievalContextExtensions, ScoredRetrievalCore):
-    entities: dict[str, RetrievedEntity]
+    entities: dict[StoredGraphKey, RetrievedEntity]
     relationships: list[RetrievedRelationship]
     entity_count: NotRequired[int]
     relationship_count: NotRequired[int]
 
-    graph_neighbors: dict[str, RetrievedEntity]
+    graph_neighbors: dict[StoredGraphKey, RetrievedEntity]
     traversal_paths: list[TraversalPath]
 
 
 class CountedGraphRetrievalContext(RetrievalContextExtensions, RetrievalCore):
-    entities: dict[str, RetrievedEntity]
+    entities: dict[StoredGraphKey, RetrievedEntity]
     relationships: list[RetrievedRelationship]
     entity_count: int
     relationship_count: int
 
-    graph_neighbors: dict[str, RetrievedEntity]
+    graph_neighbors: dict[StoredGraphKey, RetrievedEntity]
     traversal_paths: list[TraversalPath]
 
 
@@ -272,22 +337,22 @@ class ScoredCompleteRetrievalContext(
     ScoredRetrievalCore,
     total=False,
 ):
-    entities: dict[str, RetrievedEntity]
+    entities: dict[StoredGraphKey, RetrievedEntity]
     relationships: list[RetrievedRelationship]
     entity_count: int
     relationship_count: int
 
-    graph_neighbors: dict[str, RetrievedEntity]
+    graph_neighbors: dict[StoredGraphKey, RetrievedEntity]
     traversal_paths: list[TraversalPath]
 
 
 class ProducedGraphRetrievalContext(RetrievalContextExtensions, ScoredRetrievalCore):
-    entities: dict[str, RetrievedEntity]
+    entities: dict[StoredGraphKey, RetrievedEntity]
     relationships: list[RetrievedRelationship]
     entity_count: int
     relationship_count: int
 
-    graph_neighbors: dict[str, RetrievedEntity]
+    graph_neighbors: dict[StoredGraphKey, RetrievedEntity]
     traversal_paths: list[TraversalPath]
 
 
@@ -322,12 +387,12 @@ class GraphWorkingContext(RetrievalContextExtensions):
     chunks: list[RetrievedChunk]
     documents: set[StoredGraphProperty] | list[StoredGraphProperty]
     total_score: float
-    entities: dict[str, MentionedEntity]
+    entities: dict[StoredGraphKey, MentionedEntity]
     relationships: list[RetrievedRelationship]
     entity_count: NotRequired[int]
     relationship_count: NotRequired[int]
 
-    graph_neighbors: NotRequired[dict[str, RetrievedEntity]]
+    graph_neighbors: NotRequired[dict[StoredGraphKey, RetrievedEntity]]
     traversal_paths: NotRequired[list[TraversalPath]]
 
 
@@ -340,59 +405,61 @@ class FusedChunkRecord(TypedDict):
 
 class EvidencePath(TypedDict):
     path_str: str
-    node_ids: set[str]
+    node_ids: set[StoredGraphKey]
     hops: int
-    provenance_positions: list[int] | list[GraphPrimitive]
-    passage_keys: list[str] | list[GraphPrimitive]
+    provenance_positions: list[ImportedPropertyScalar]
+    passage_keys: list[ImportedPropertyScalar]
 
 
 class GraphExpansion(TypedDict):
-    neighbors: dict[str, GraphNeighbor]
+    neighbors: dict[StoredGraphKey, GraphNeighbor]
     paths: list[TraversalPath]
 
 
 class RelationshipRow(RetrievalProvenance):
-    source: str
+    """Sanitized Cypher row; only predicate/computed scalar keys are guaranteed."""
+
+    source: StoredGraphKey
     source_element_id: str
-    target: str
+    target: StoredGraphKey
     target_element_id: str
     relationship_type: str
     relationship_element_id: str
-    negated: bool | None
-    condition: StoredGraphProperty
-    quantitative: StoredGraphProperty
-    confidence: float | None
+    negated: NotRequired[ImportedPropertyValue]
+    condition: NotRequired["ImportedPropertyValue | None"]
+    quantitative: NotRequired["ImportedPropertyValue | None"]
+    confidence: float
 
 
 class HopBucket(TypedDict):
-    all_chunk_ids: set[str]
+    all_chunk_ids: set[ChunkIdentity]
     new_chunks: list[ScoredRetrievedChunk]
-    entities: dict[str, RetrievedEntity]
+    entities: dict[StoredGraphKey, RetrievedEntity]
     relationships: list[RetrievedRelationship]
-    graph_neighbors: dict[str, RetrievedEntity]
+    graph_neighbors: dict[StoredGraphKey, RetrievedEntity]
     traversal_paths: list[TraversalPath]
 
 
 class ChunkProjectionFields(TypedDict):
-    """Common columns projected from Chunk/Document matches; route extras vary."""
+    """Sanitized raw rows; imported array properties may be omitted."""
 
-    text: str
-    chunk_id: str | None
+    text: NotRequired[StoredGraphProperty]
+    chunk_id: NotRequired[StoredGraphProperty]
     chunk_element_id: str
-    document: StoredGraphValue
-    parent_chunk_id: NotRequired[str | None]
+    document: NotRequired[StoredGraphProperty]
+    parent_chunk_id: NotRequired[StoredGraphProperty]
     parent_chunk_element_id: NotRequired[str | None]
-    question_id: NotRequired[str | None]
-    passage_index: NotRequired[int | None]
-    chunk_local_index: NotRequired[int | None]
-    retrieval_local_index: NotRequired[int | None]
-    position: NotRequired[int | None]
-    source: NotRequired[str | None]
+    question_id: NotRequired[StoredGraphProperty]
+    passage_index: NotRequired[StoredGraphProperty]
+    chunk_local_index: NotRequired[StoredGraphProperty]
+    retrieval_local_index: NotRequired[StoredGraphProperty]
+    position: NotRequired[StoredGraphProperty]
+    source: NotRequired[StoredGraphProperty]
     kg_name: NotRequired[StoredGraphProperty]
     entities: NotRequired[list[EntityProjection]]
-    linked_entity_ids: NotRequired[list[str]]
+    linked_entity_ids: NotRequired[list[StoredGraphKey]]
     linked_entity_count: NotRequired[int]
-    seed_entity_id: NotRequired[str]
+    seed_entity_id: NotRequired[StoredGraphKey]
 
 
 class ChunkProjection(ChunkProjectionFields, total=False):
@@ -408,16 +475,16 @@ class RelationTypeProjection(TypedDict):
     cnt: int
 
 
-class TraversalSampleProjection(TypedDict):
+class TraversalSampleProjection(TypedDict, total=False):
     nodes: list[StoredGraphProperty]
     node_ids: list[StoredGraphProperty]
-    rels: list[RetrievedRelationship]
+    rels: list[ProjectedRelationship]
 
 
 class TraversalProjection(TypedDict):
-    id: StoredGraphValue
-    name: StoredGraphProperty
-    type: str
+    id: NotRequired[StoredGraphValue]
+    name: NotRequired[StoredGraphProperty]
+    type: NotRequired[StoredGraphValue]
     element_id: str
     min_hops: int
     seed_connections: int
@@ -425,14 +492,14 @@ class TraversalProjection(TypedDict):
 
 
 class EdgeProjection(TypedDict):
-    src: str
-    tgt: str
+    src: StoredGraphKey
+    tgt: StoredGraphKey
     conf: float
 
 
 class EmbeddingProjection(TypedDict):
-    eid: str
-    emb: list[float] | None
+    eid: StoredGraphKey
+    emb: NotRequired[StoredGraphProperty]
 
 
 class QueryEncoder(Protocol):
@@ -467,3 +534,13 @@ class VectorIndexOptionsProjection(TypedDict):
 
 class FloatListConvertible(Protocol):
     def tolist(self) -> list[float]: ...
+
+
+class PromptTemplateFactory(Protocol):
+    """Installed chat-template factory restricted to the string pairs we pass."""
+
+    def from_messages(
+        self,
+        messages: Sequence[tuple[str, str]],
+        template_format: Literal["f-string", "mustache", "jinja2"] = "f-string",
+    ) -> "ChatPromptTemplate": ...
