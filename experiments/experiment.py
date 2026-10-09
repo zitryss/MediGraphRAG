@@ -355,7 +355,7 @@ class SamplingGenerateOptions(TypedDict, total=False):
 
 class SamplingResponse(TypedDict, total=False):
     response: ReadOnly[str]
-    context: ReadOnly[RetrievalContext]
+    context: ReadOnly["RetrievalContext"]
     used_chunks: ReadOnly[Sequence[ChunkTextProjection | str]]
 
 
