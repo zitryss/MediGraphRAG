@@ -11,7 +11,7 @@ import json
 import os
 import sys
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypedDict, cast
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypedDict, cast
 
 import numpy as np
 from numpy.typing import NDArray

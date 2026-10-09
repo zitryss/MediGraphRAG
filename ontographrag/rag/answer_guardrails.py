@@ -10,7 +10,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from typing_extensions import TypedDict
 
-
 GuardrailJSON: TypeAlias = (
     str | int | float | bool | None | list["GuardrailJSON"] | dict[str, "GuardrailJSON"]
 )

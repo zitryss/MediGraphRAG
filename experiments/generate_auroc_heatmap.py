@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from matplotlib.cm import ScalarMappable
     from matplotlib.colorbar import Colorbar
     from matplotlib.colors import Colormap
-    from matplotlib.figure import Figure
 import matplotlib
 
 matplotlib.use("Agg")
