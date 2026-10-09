@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -9,6 +11,8 @@ import google.generativeai as genai
 import httpx
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompt_values import ChatPromptValue
+from langchain_core.prompts import ChatPromptTemplate
 
 from ontographrag.providers import model_providers as providers
 
@@ -318,3 +322,213 @@ def test_ollama_force_json_retains_truthy_nonboolean(
     monkeypatch.setattr(ollama, "chat", chat)
     assert providers.OllamaProvider().generate("s", "u", "m", force_json="yes") == "{}"
     assert chat.call_args.kwargs["format"] == "json"
+
+
+@pytest.mark.parametrize("messages", [None, False, 7])
+def test_adapter_preserves_noniterable_messages_failure(messages: object) -> None:
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    with pytest.raises(TypeError, match="not iterable"):
+        adapter.invoke({"messages": messages, "input": "unused fallback"})
+    provider.generate.assert_not_called()
+
+
+@pytest.mark.parametrize("content", [None, False, 0, 7, {"arbitrary": object()}])
+def test_adapter_forwards_raw_dictionary_fields(content: object) -> None:
+    provider: Mock = Mock()
+    provider.generate.return_value = "answer"
+    model: object = object()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "default",
+    )
+    assert (
+        adapter.invoke({"input": content, "text": "ignored", "model": model})
+        == "answer"
+    )
+    assert provider.generate.call_args.args[0] == ""
+    assert provider.generate.call_args.args[1] is content
+    assert provider.generate.call_args.args[2] is model
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [
+        "characters",
+        {"human": "mapping keys"},
+        [{"type": "human", "content": "not attributes"}],
+    ],
+)
+def test_adapter_ignores_nonmessage_iterable_members(messages: object) -> None:
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    adapter.invoke({"messages": messages, "text": "fallback"})
+    provider.generate.assert_called_once_with("", "fallback", "model", temperature=1.0)
+
+
+@pytest.mark.parametrize("value", [None, 7])
+def test_adapter_preserves_noncallable_to_messages_failure(value: object) -> None:
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    with pytest.raises(TypeError, match="not callable"):
+        adapter.invoke(SimpleNamespace(to_messages=value, content="unused"))
+    provider.generate.assert_not_called()
+
+
+def test_adapter_preserves_noniterable_to_messages_result() -> None:
+    provider: Mock = Mock()
+    to_messages: Mock = Mock(return_value=None)
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    with pytest.raises(TypeError, match="not iterable"):
+        adapter.invoke(SimpleNamespace(to_messages=to_messages))
+    to_messages.assert_called_once_with()
+    provider.generate.assert_not_called()
+
+
+@dataclass
+class AccessTrackedMessage:
+    value: object
+    events: list[str]
+
+    @property
+    def type(self) -> str:
+        self.events.append("type")
+        return "human"
+
+    @property
+    def content(self) -> object:
+        self.events.append("content")
+        return self.value
+
+
+@dataclass
+class AccessTrackedPrompt:
+    messages: object
+    events: list[str]
+
+    @property
+    def to_messages(self) -> Callable[[], object]:
+        self.events.append("to_messages")
+        return self.produce
+
+    def produce(self) -> object:
+        self.events.append("produce")
+        return self.messages
+
+
+def test_adapter_preserves_duck_descriptor_access_order() -> None:
+    events: list[str] = []
+    content: object = object()
+    message: AccessTrackedMessage = AccessTrackedMessage(content, events)
+    prompt: AccessTrackedPrompt = AccessTrackedPrompt([message], events)
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    adapter.invoke(prompt)
+    assert events == [
+        "to_messages",
+        "to_messages",
+        "produce",
+        "type",
+        "content",
+        "type",
+        "type",
+        "content",
+    ]
+    assert provider.generate.call_args.args[1] is content
+
+
+def test_adapter_preserves_fallback_content_descriptor_reads() -> None:
+    events: list[str] = []
+    content: object = object()
+    message: AccessTrackedMessage = AccessTrackedMessage(content, events)
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    adapter.invoke(message)
+    assert events == ["content", "content"]
+    assert provider.generate.call_args.args[1] is content
+
+
+class AccessTrackedInput(dict[str, object]):
+    def __init__(self, values: dict[str, object]) -> None:
+        super().__init__(values)
+        self.reads: list[str] = []
+
+    def get(self, key: str, default: object = None) -> object:
+        self.reads.append(key)
+        return super().get(key, default)
+
+
+def test_adapter_preserves_eager_fallback_lookup_order() -> None:
+    input_value: AccessTrackedInput = AccessTrackedInput(
+        {"input": None, "text": "ignored", "chunk_text": "also ignored"},
+    )
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    adapter.invoke(input_value)
+    assert input_value.reads == ["messages", "model", "chunk_text", "text", "input"]
+    provider.generate.assert_called_once_with("", None, "model", temperature=1.0)
+
+
+def test_adapter_accepts_real_chat_prompt_producer() -> None:
+    template: ChatPromptTemplate = ChatPromptTemplate.from_template(
+        "Question: {question}",
+    )
+    prompt: ChatPromptValue = template.format_prompt(question="Question?")
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    adapter.invoke(prompt)
+    provider.generate.assert_called_once_with(
+        "",
+        "Question: Question?",
+        "model",
+        temperature=1.0,
+    )
+
+
+@pytest.mark.parametrize("model", [None, 0, ""])
+def test_adapter_does_not_replace_present_falsey_model(model: object) -> None:
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "default",
+    )
+    adapter.invoke({"input": "question", "model": model})
+    assert provider.generate.call_args.args[2] is model
+
+
+@pytest.mark.parametrize("role", ["system", "human"])
+def test_adapter_matching_role_does_not_validate_content(role: str) -> None:
+    content: object = object()
+    message: SimpleNamespace = SimpleNamespace(type=role, content=content)
+    provider: Mock = Mock()
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    adapter.invoke({"messages": [message]})
+    position: int = 0 if role == "system" else 1
+    assert provider.generate.call_args.args[position] is content

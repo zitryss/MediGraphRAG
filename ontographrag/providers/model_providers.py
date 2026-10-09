@@ -275,6 +275,8 @@ HTTPPayloadValue: TypeAlias = JSONValue | list[ProviderMessage]
 
 
 class AdapterInput(TypedDict):
+    """Well-formed caller inputs, not a schema inferred by the dict guard."""
+
     messages: NotRequired[Iterable[object]]
     model: NotRequired[str]
     input: NotRequired[MessageContent]
@@ -282,6 +284,8 @@ class AdapterInput(TypedDict):
     chunk_text: NotRequired[MessageContent]
 
 
+# These describe known producers. The attribute-existence checks in invoke do
+# not establish these contracts for arbitrary public duck inputs.
 class ContentMessage(Protocol):
     @property
     def content(self) -> MessageContent: ...
@@ -329,39 +333,40 @@ class LangChainRunnableAdapter(Runnable[object, ModelOutput]):
         # Handle ChatPromptTemplate inputs (system and user messages)
         if isinstance(input, dict):
             # Direct dict input - extract model name if provided
-            input_dict: AdapterInput = cast(AdapterInput, input)
-            messages: Iterable[object] = input_dict.get("messages", [])
-            model_name: str = input_dict.get("model", self.model)
+            input_dict: dict[object, object] = input
+            messages: object = input_dict.get("messages", [])
+            model_name: object = input_dict.get("model", self.model)
         elif hasattr(input, "to_messages"):
             # ChatPromptValue object
-            messages = cast(PromptMessages, input).to_messages()
+            messages = input.to_messages()
             model_name = self.model
         else:
             # Fallback
             messages = []
             model_name = self.model
 
-        system_prompt: MessageContent = ""
-        user_prompt: MessageContent = ""
+        # Public duck inputs are not validated; preserve raw values and failures.
+        system_prompt: object = ""
+        user_prompt: object = ""
 
+        message: object
         for message in messages:
             if hasattr(message, "type") and hasattr(message, "content"):
-                role_message: RoleMessage = cast(RoleMessage, message)
-                if role_message.type == "system":
-                    system_prompt = role_message.content
-                elif role_message.type == "human":
-                    user_prompt = role_message.content
+                if message.type == "system":
+                    system_prompt = message.content
+                elif message.type == "human":
+                    user_prompt = message.content
 
         # If no explicit messages found, try simple string input
         if not system_prompt and not user_prompt:
             if isinstance(input, dict):
-                fallback_input: AdapterInput = cast(AdapterInput, input)
+                fallback_input: dict[object, object] = input
                 user_prompt = fallback_input.get(
                     "input",
                     fallback_input.get("text", fallback_input.get("chunk_text", "")),
                 )
             elif hasattr(input, "content"):
-                user_prompt = cast(ContentMessage, input).content
+                user_prompt = input.content
             elif isinstance(input, str):
                 user_prompt = input
             else:
