@@ -509,7 +509,7 @@ def _get_metric_names(results: VisualizationResults) -> Sequence[str]:
 def load_results(results_path: str) -> "JSONValue":
     """Load experiment results from JSON file."""
     with open(results_path, "r") as f:
-        data: "JSONValue" = cast("DefaultJSONCodec", json).load(f)
+        data: JSONValue = cast("DefaultJSONCodec", json).load(f)
         return data
 
 
@@ -2143,7 +2143,7 @@ def main() -> None:
 
     # Load results
     print(f"Loading results from {args.results}...")
-    results: "JSONValue" = load_results(args.results)
+    results: JSONValue = load_results(args.results)
 
     # Check if multi-dataset
     is_multi_dataset: bool = "per_dataset_results" in results

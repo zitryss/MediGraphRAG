@@ -330,9 +330,9 @@ def taxonomy_prevalence() -> dict[str, TaxonomySummary]:
                 gps: dict[str, float | None] = gps_cache[key]
             else:
                 gps = {}
-            sd_vals: "list[bool | int | float | str | list[JSONValue] | dict[str, JSONValue]]" = [
-                r["sd"] for r in rows if r["sd"] is not None
-            ]
+            sd_vals: list[
+                bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
+            ] = [r["sd"] for r in rows if r["sd"] is not None]
             sd_med: float | None = float(np.median(sd_vals)) if sd_vals else None
             for r in rows:
                 tot += 1
@@ -390,7 +390,7 @@ def hard_certificate_mask(
     rows: Sequence[TrustRow | CompleteTrustRow],
     gps: Mapping[str, float | None],
 ) -> NDArray[np.bool_ | np.float64]:
-    sd_vals: "list[bool | int | float | str | list[JSONValue] | dict[str, JSONValue]]" = [
+    sd_vals: list[bool | int | float | str | list[JSONValue] | dict[str, JSONValue]] = [
         r["sd"] for r in rows if r["sd"] is not None
     ]
     sd_med: float = float(np.median(sd_vals))
@@ -503,13 +503,13 @@ def learned_certificate() -> LearnedSummary:
 
 def hopwise_wrong_counts() -> list[HopwiseCount]:
     path: str = os.path.join(REPO, "results", "analyses", "current_hopwise_2wiki.json")
-    art: "JSONValue" = cast("DefaultJSONCodec", json).load(open(path))
+    art: JSONValue = cast("DefaultJSONCodec", json).load(open(path))
     out: list[HopwiseCount] = []
     for row in art:
         if not isinstance(row, dict):
             continue
-        n: "JSONValue" = row.get("n")
-        acc: "JSONValue" = row.get("accuracy", row.get("acc"))
+        n: JSONValue = row.get("n")
+        acc: JSONValue = row.get("accuracy", row.get("acc"))
         rec: HopwiseCount = {
             "policy": row.get("policy"),
             "hop": row.get("hop"),
@@ -529,10 +529,10 @@ def hopwise_wrong_counts() -> list[HopwiseCount]:
 def compute_times() -> dict[str, ComputeTimeSummary]:
     agg: dict[str, list[float]] = {}
     for slug in KEY:
-        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        doc: JSONValue = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])),
         )
-        cfg: "JSONValue" = next(
+        cfg: JSONValue = next(
             c
             for c in doc["config_results"]
             if c["config"]["name"].startswith("kg_entity_first")

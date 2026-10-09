@@ -95,7 +95,7 @@ PREFERRED_CONFIG_NAME: str | None = os.environ.get("MIRAGE_CONFIG_NAME")
 
 
 def _select_config_result(path: str, results_doc: "JSONValue") -> "JSONValue":
-    config_results: "JSONValue" = results_doc.get("config_results", [])
+    config_results: JSONValue = results_doc.get("config_results", [])
     if not config_results:
         raise ValueError(f"{path} contains no config_results")
     if len(config_results) == 1:
@@ -122,10 +122,10 @@ def _select_config_result(path: str, results_doc: "JSONValue") -> "JSONValue":
 def load_auroc(path: str, system: str) -> "dict[str, JSONValue]":
     """Return {measure_key: auroc_value} for a system ('vanilla_rag' or 'kg_rag')."""
     with open(path) as f:
-        d: "JSONValue" = cast("DefaultJSONCodec", json).load(f)
-    cfg: "JSONValue" = _select_config_result(path, d)
-    auroc_block: "JSONValue" = cfg.get("auroc_aurec", {}).get(system, {})
-    out: "dict[str, JSONValue]" = {
+        d: JSONValue = cast("DefaultJSONCodec", json).load(f)
+    cfg: JSONValue = _select_config_result(path, d)
+    auroc_block: JSONValue = cfg.get("auroc_aurec", {}).get(system, {})
+    out: dict[str, JSONValue] = {
         k.replace("_auroc", ""): v
         for k, v in auroc_block.items()
         if k.endswith("_auroc")
@@ -143,7 +143,7 @@ def build_matrix(system: str) -> NDArray[np.float64]:
     for j, ds in enumerate(DATASET_ORDER):
         path: str = RUNS[ds]
         try:
-            auroc: "dict[str, JSONValue]" = load_auroc(path, system)
+            auroc: dict[str, JSONValue] = load_auroc(path, system)
         except Exception:
             continue
         for i, (key, _, family) in enumerate(MEASURES):

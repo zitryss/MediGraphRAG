@@ -60,10 +60,10 @@ TARGETS: list[tuple[str, str]] = [
 
 def load_answers(slug: str, policy: str) -> list[JudgedAnswer]:
     if policy == "strict":
-        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        doc: JSONValue = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, STRICT_RUNS[slug])),
         )
-        details: "JSONValue" = doc["config_results"][0]["details"]
+        details: JSONValue = doc["config_results"][0]["details"]
     else:
         doc = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])),
@@ -101,7 +101,7 @@ def metric_aurocs(
     except Exception:
         gps = {}
     out: dict[str, tuple[float | None, int]] = {}
-    getters: "list[tuple[str, Callable[[TrustRow], JSONValue]]]" = [
+    getters: list[tuple[str, Callable[[TrustRow], JSONValue]]] = [
         ("sd_uq", lambda r: r["sd"]),
         ("seu", lambda r: r["seu"]),
         ("gps", lambda r: gps.get(r["qid"])),
@@ -112,7 +112,7 @@ def metric_aurocs(
         s, w = [], []
         for r in rows:
             lbl: bool | None = labels_by_qid.get(r["qid"])
-            v: "JSONValue" = getter(r)
+            v: JSONValue = getter(r)
             if lbl is None or v is None:
                 continue
             s.append(float(v))

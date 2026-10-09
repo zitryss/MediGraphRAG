@@ -123,7 +123,7 @@ FIG_DIR: str = os.path.join(REPO, "paper", "figures")
 
 def _iter_result_details() -> "Iterator[tuple[str, str, JSONValue]]":
     for slug, manifest_key in KEY.items():
-        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        doc: JSONValue = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"])),
         )
         for cfg in doc["config_results"]:
@@ -157,7 +157,7 @@ def collect_rows() -> list[DiversityRow]:
             diversity: DiversityProjection = _row_diversity(row)
             if not diversity:
                 continue
-            output_entropy: "JSONValue" = row.get("kg_discrete_semantic_entropy")
+            output_entropy: JSONValue = row.get("kg_discrete_semantic_entropy")
             if output_entropy is None:
                 continue
             rows.append(

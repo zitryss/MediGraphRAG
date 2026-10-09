@@ -149,10 +149,10 @@ def judge_one(
 def load_run(policy: str) -> list[JudgedAnswer]:
     """Return rows with question/expected/response/original label for RealMedQA."""
     if policy == "strict":
-        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        doc: JSONValue = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, STRICT_RUNS["realmedqa"])),
         )
-        details: "JSONValue" = doc["config_results"][0]["details"]
+        details: JSONValue = doc["config_results"][0]["details"]
         out: list[JudgedAnswer] = [
             (
                 str(r["question_id"]),
@@ -168,7 +168,7 @@ def load_run(policy: str) -> list[JudgedAnswer]:
     doc = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"])),
     )
-    cfg: "JSONValue" = next(
+    cfg: JSONValue = next(
         c
         for c in doc["config_results"]
         if c["config"]["name"].startswith("kg_entity_first")
@@ -201,7 +201,7 @@ def metric_aurocs(
         side="kg",
     )
     out: dict[str, tuple[float | None, int]] = {}
-    getters: "list[tuple[str, Callable[[TrustRow], JSONValue]]]" = [
+    getters: list[tuple[str, Callable[[TrustRow], JSONValue]]] = [
         ("sd_uq", lambda r: r["sd"]),
         ("seu", lambda r: r["seu"]),
         ("gps", lambda r: gps.get(r["qid"])),
@@ -212,7 +212,7 @@ def metric_aurocs(
         s, w = [], []
         for r in rows:
             lbl: bool | None = labels_by_qid.get(r["qid"])
-            v: "JSONValue" = getter(r)
+            v: JSONValue = getter(r)
             if lbl is None or v is None:
                 continue
             s.append(float(v))

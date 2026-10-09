@@ -82,7 +82,7 @@ def load(path: str, jsonl: bool = False) -> "JSONValue":
         return [
             cast("DefaultJSONCodec", json).loads(l) for l in open(path) if l.strip()
         ]
-    document: "JSONValue" = cast("DefaultJSONCodec", json).load(open(path))
+    document: JSONValue = cast("DefaultJSONCodec", json).load(open(path))
     return document["config_results"][0]["details"]
 
 

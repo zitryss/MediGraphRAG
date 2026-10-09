@@ -96,7 +96,7 @@ B: int = 5000
 def answered_counts() -> dict[str, dict[str, AnsweredCounts]]:
     out: dict[str, dict[str, AnsweredCounts]] = {}
     for slug, manifest_key in KEY.items():
-        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        doc: JSONValue = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"])),
         )
         out[slug] = {}
@@ -129,18 +129,18 @@ def answered_counts() -> dict[str, dict[str, AnsweredCounts]]:
 
 
 def realmedqa_adaptive_strict_complete_case() -> CompleteCase:
-    adaptive_doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+    adaptive_doc: JSONValue = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"])),
     )
-    strict_doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+    strict_doc: JSONValue = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, STRICT_RUNS["realmedqa"])),
     )
-    adaptive_rows: "JSONValue" = next(
+    adaptive_rows: JSONValue = next(
         cfg["details"]
         for cfg in adaptive_doc["config_results"]
         if cfg["config"]["name"].startswith("kg")
     )
-    strict_rows: "JSONValue" = strict_doc["config_results"][0]["details"]
+    strict_rows: JSONValue = strict_doc["config_results"][0]["details"]
     adaptive_answered: set[str] = {
         str(row["question_id"])
         for row in adaptive_rows

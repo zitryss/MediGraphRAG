@@ -163,7 +163,7 @@ class InterventionReport(TypedDict):
 def _result_details(dataset: str, policy: str) -> "JSONValue":
     if policy == "strict":
         path: str = os.path.join(REPO, STRICT_RUNS[dataset])
-        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(open(path))
+        doc: JSONValue = cast("DefaultJSONCodec", json).load(open(path))
         return doc["config_results"][0]["details"]
     path = os.path.join(REPO, MANIFEST[KEY[dataset]]["result_path"])
     doc = cast("DefaultJSONCodec", json).load(open(path))
@@ -189,8 +189,8 @@ def select_candidates(
     for row in _result_details(dataset, policy):
         if row.get("kg_generation_failed"):
             continue
-        sd: "JSONValue" = row.get("kg_sd_uq")
-        seu: "JSONValue" = row.get("kg_support_entailment_uncertainty")
+        sd: JSONValue = row.get("kg_sd_uq")
+        seu: JSONValue = row.get("kg_support_entailment_uncertainty")
         if sd is None or seu is None:
             continue
         if float(sd) > sd_threshold or float(seu) < seu_threshold:

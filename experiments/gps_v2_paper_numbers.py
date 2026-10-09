@@ -222,7 +222,7 @@ def main() -> None:
         "cases": {},
     }
 
-    manifest: "JSONValue" = cast("DefaultJSONCodec", json).load(
+    manifest: JSONValue = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
     )
     key_for: dict[str, str] = {
@@ -236,13 +236,13 @@ def main() -> None:
 
     pooled: dict[str, list[float]] = {"sd": [], "seu": [], "gps": []}
     for slug in SLUGS:
-        art: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        art: JSONValue = cast("DefaultJSONCodec", json).load(
             open(latest_artifact(slug)),
         )
-        run_doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        run_doc: JSONValue = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, manifest[key_for[slug]]["result_path"])),
         )
-        kg_rows: "dict[str, JSONValue]" = {}
+        kg_rows: dict[str, JSONValue] = {}
         for cfg in run_doc["config_results"]:
             if cfg["config"]["name"].startswith("kg_entity_first"):
                 kg_rows = {str(r["question_id"]): r for r in cfg["details"]}
@@ -268,9 +268,9 @@ def main() -> None:
         # pooled correlations + composite (KG side)
         comp_rows: list[tuple[float, float, float, bool]] = []
         for qid, s, c in v2_scores(art, "kg"):
-            r: "JSONValue" = kg_rows.get(qid, {})
-            sd: "JSONValue" = r.get("kg_sd_uq")
-            seu: "JSONValue" = r.get("kg_support_entailment_uncertainty")
+            r: JSONValue = kg_rows.get(qid, {})
+            sd: JSONValue = r.get("kg_sd_uq")
+            seu: JSONValue = r.get("kg_support_entailment_uncertainty")
             if sd is None or seu is None:
                 continue
             if s is not None:
@@ -332,16 +332,16 @@ def main() -> None:
         }
 
     # 2wiki hop-wise GPS AUC per policy
-    adaptive_art: "JSONValue" = cast("DefaultJSONCodec", json).load(
+    adaptive_art: JSONValue = cast("DefaultJSONCodec", json).load(
         open(latest_artifact("2wikimultihopqa")),
     )
-    strict_art: "JSONValue" = cast("DefaultJSONCodec", json).load(
+    strict_art: JSONValue = cast("DefaultJSONCodec", json).load(
         open(latest_artifact("2wikimultihopqa", strict=True)),
     )
     run_doc = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, manifest["2Wikimultihopqa"]["result_path"])),
     )
-    hop_by_qid: "dict[str, JSONValue]" = {}
+    hop_by_qid: dict[str, JSONValue] = {}
     for cfg in run_doc["config_results"]:
         for r in cfg["details"]:
             hop_by_qid[str(r["question_id"])] = r.get("hop_count")
@@ -364,16 +364,16 @@ def main() -> None:
             out["hopwise_2wiki"][f"{label}_{hop}hop"] = {"n": len(sel), "auroc": a}
 
     # case-study lookups
-    musique_art: "JSONValue" = cast("DefaultJSONCodec", json).load(
+    musique_art: JSONValue = cast("DefaultJSONCodec", json).load(
         open(latest_artifact("musique")),
     )
-    twiki_art: "JSONValue" = adaptive_art
-    case_specs: "dict[str, tuple[JSONValue, str]]" = {
+    twiki_art: JSONValue = adaptive_art
+    case_specs: dict[str, tuple[JSONValue, str]] = {
         "mickey_mouse": (musique_art, "Mickey Mouse"),
         "fire_eater": (twiki_art, "Fire-Eater"),
         "the_cup": (twiki_art, "The Cup (1999"),
     }
-    qtext: "dict[str, JSONValue]" = {}
+    qtext: dict[str, JSONValue] = {}
     for cfg in cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, manifest["Musique"]["result_path"])),
     )["config_results"]:
@@ -385,7 +385,7 @@ def main() -> None:
     for name, (art, needle) in case_specs.items():
         for q in art["questions"]:
             if needle.lower() in qtext.get(str(q["question_id"]), "").lower():
-                st: "JSONValue" = (q.get("store") or {}).get(
+                st: JSONValue = (q.get("store") or {}).get(
                     "kg",
                 )
                 res: ReplayScore | CaseReplayScore = (

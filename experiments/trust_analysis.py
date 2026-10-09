@@ -151,8 +151,8 @@ RNG: np.random.Generator = np.random.default_rng(42)
 
 def rows_for(slug: str, policy: str) -> list[TrustRow]:
     """policy in {kg, vanilla, strict}; returns list of per-question dicts."""
-    doc: "JSONValue"
-    details: "JSONValue"
+    doc: JSONValue
+    details: JSONValue
     prefix: str
     if policy == "strict":
         doc = cast("DefaultJSONCodec", json).load(
