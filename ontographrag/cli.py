@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 import httpx
 import typer
 
-# These records describe the fields consumed from the server and curated cases;
-# JSON decoding remains at the existing HTTP/file boundaries without validation.
+# These records describe expected wire shapes, not decoder guarantees.
+# Unvalidated HTTP/file JSON is kept as JSONValue at the read sites below.
 JSONValue: TypeAlias = (
     None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
 )
@@ -96,7 +96,12 @@ class KGDetailPayload(TypedDict):
     stats: NotRequired[dict[str, JSONValue] | None]
 
 
-DatasetSpec: TypeAlias = dict[str, str]
+class DatasetSpec(TypedDict):
+    path: str
+    source: str
+    note: NotRequired[str]
+    prep: NotRequired[str]
+    download: NotRequired[str]
 
 
 app: typer.Typer = typer.Typer(
@@ -157,7 +162,7 @@ def _request_kwargs(api_key: str | None) -> RequestKwargs:
     return {"headers": {"X-API-Key": resolved}}
 
 
-def _normalize_probe_text(text: str) -> str:
+def _normalize_probe_text(text: JSONValue) -> str:
     normalized: str = unicodedata.normalize("NFKD", str(text or ""))
     return (
         "".join(ch for ch in normalized if not unicodedata.combining(ch))
@@ -292,8 +297,8 @@ def ingest(
             **_request_kwargs(api_key),
         )
     _raise_for_status(response)
-    payload: IngestPayload = response.json()
-    graph: GraphPayload = payload.get("graph_data") or {}
+    payload: JSONValue = response.json()
+    graph: JSONValue = payload.get("graph_data") or {}
     typer.echo(f"KG name: {payload.get('kg_name') or '(unnamed)'}")
     typer.echo(f"Nodes: {len(graph.get('nodes', []))}")
     typer.echo(f"Relationships: {len(graph.get('relationships', []))}")
@@ -336,21 +341,19 @@ def ask(
             **_request_kwargs(api_key),
         )
     _raise_for_status(response)
-    result: ChatPayload = response.json()
+    result: JSONValue = response.json()
     if json_output:
         typer.echo(json.dumps(result, indent=2))
         return
 
     typer.echo(result.get("response") or result.get("message") or "")
-    info: ChatInfo = result.get("info") or {}
-    kg_confidence: float | None = info.get("kg_confidence")
+    info: JSONValue = result.get("info") or {}
+    kg_confidence: JSONValue = info.get("kg_confidence")
     if kg_confidence is not None:
         typer.echo(f"\nKG confidence: {kg_confidence:.3f}")
-    used_entities: list[SourceEntity] = (
-        info.get("entities", {}).get("used_entities") or []
-    )
+    used_entities: JSONValue = info.get("entities", {}).get("used_entities") or []
     if used_entities:
-        names: list[str | None] = [
+        names: list[JSONValue] = [
             entity.get("description") or entity.get("id")
             for entity in used_entities[:10]
         ]
@@ -390,9 +393,7 @@ def runtime_regression(
     timeout_seconds: float = typer.Option(180.0, min=10.0, help="Per-request timeout."),
 ) -> None:
     """Run curated live regression questions against a running server."""
-    cases: (
-        list[RegressionCase] | None | bool | int | float | str | dict[str, JSONValue]
-    ) = json.loads(cases_file.read_text())
+    cases: JSONValue = json.loads(cases_file.read_text())
     if not isinstance(cases, list) or not cases:
         raise typer.BadParameter(
             "Regression cases file must contain a non-empty JSON array.",
@@ -420,10 +421,10 @@ def runtime_regression(
                 **_request_kwargs(api_key),
             )
             _raise_for_status(response)
-            result: ChatPayload = response.json()
-            answer: str = result.get("message") or result.get("response") or ""
-            info: ChatInfo = result.get("info") or {}
-            guardrail: GuardrailPayload = info.get("guardrail") or {}
+            result: JSONValue = response.json()
+            answer: JSONValue = result.get("message") or result.get("response") or ""
+            info: JSONValue = result.get("info") or {}
+            guardrail: JSONValue = info.get("guardrail") or {}
 
             expected_any: list[str] = [
                 str(item)
@@ -478,7 +479,7 @@ def explore_list(
             **_request_kwargs(api_key),
         )
     _raise_for_status(response)
-    payload: KGListPayload = response.json()
+    payload: JSONValue = response.json()
     for kg in payload.get("kgs", []):
         typer.echo(
             f"- {kg.get('kg_name') or kg.get('name')}: {kg.get('documentCount', '?')} documents",
@@ -506,11 +507,11 @@ def explore_show(
             **_request_kwargs(api_key),
         )
     _raise_for_status(response)
-    payload: KGDetailPayload = response.json()
+    payload: JSONValue = response.json()
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
         return
-    stats: dict[str, JSONValue] = payload.get("stats") or {}
+    stats: JSONValue = payload.get("stats") or {}
     typer.echo(f"KG: {kg_name}")
     for key, value in stats.items():
         typer.echo(f"- {key}: {value}")
@@ -704,20 +705,22 @@ def prepare(
     raw_path: Path = Path(spec["path"])
 
     if download:
-        if not spec.get("download"):
+        download_url: str | None = spec.get("download")
+        if not download_url:
             raise typer.BadParameter(
                 f"No direct download URL for '{dataset}'. Obtain it from {spec['source']} "
                 f"and place it at {raw_path}.",
             )
-        _download_to(spec["download"], raw_path)
+        _download_to(download_url, raw_path)
 
     if not raw_path.exists():
         typer.echo(f"Raw file not found: {raw_path}")
         typer.echo(f"Obtain it from {spec['source']} and place it at the path above.")
         if spec.get("download"):
             typer.echo(f"Or fetch it now: ontograph prepare {dataset} --download")
-        if spec.get("note"):
-            typer.echo(f"Note: {spec['note']}")
+        note: str | None = spec.get("note")
+        if note:
+            typer.echo(f"Note: {note}")
         raise typer.Exit(code=1)
 
     prep: str | None = spec.get("prep")
