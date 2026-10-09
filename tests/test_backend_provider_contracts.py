@@ -174,3 +174,147 @@ def test_embedding_fallback_and_exhaustion(monkeypatch: pytest.MonkeyPatch) -> N
     factory.side_effect = RuntimeError("offline")
     with pytest.raises(RuntimeError, match="Failed to initialize any"):
         providers.get_embedding_method("huggingface")
+
+
+def test_adapter_preserves_multimodal_content_and_rejects_extra_kwargs() -> None:
+    system: providers.MessageContent = [{"type": "text", "text": "rules"}]
+    user: providers.MessageContent = [
+        {"type": "text", "text": "describe"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}},
+    ]
+    provider: Mock = Mock()
+    provider.generate.return_value = "answer"
+    adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
+        provider,
+        "model",
+    )
+    assert (
+        adapter.invoke(
+            {"messages": [SystemMessage(content=system), HumanMessage(content=user)]},
+        )
+        == "answer"
+    )
+    assert provider.generate.call_args.args[:2] == (system, user)
+    assert adapter.invoke({"input": user}) == "answer"
+    assert provider.generate.call_args.args[1] is user
+    invoke: Mock = Mock(wraps=adapter.invoke)
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        invoke("input", unsupported=True)
+    assert adapter.bind(response_format={"type": "json_object"}) is adapter
+    assert adapter.with_structured_output(dict, include_raw=True) is adapter
+
+
+def test_huggingface_preserves_stream_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    chunks: object = iter(["first", "second"])
+    client: Mock = Mock()
+    client.text_generation.return_value = chunks
+    monkeypatch.setattr(providers, "InferenceClient", Mock(return_value=client))
+    assert (
+        providers.HuggingFaceProvider().generate("s", "u", "m", stream=True) is chunks
+    )
+    client.text_generation.assert_called_once_with(
+        prompt="s\n\nu",
+        model="m",
+        stream=True,
+        temperature=0.0,
+    )
+
+
+def test_openai_preserves_multimodal_payload_and_stream_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client: Mock = Mock()
+    client.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="answer"))],
+    )
+    monkeypatch.setattr(providers, "OpenAIClient", Mock(return_value=client))
+    provider: providers.OpenAIProvider = providers.OpenAIProvider()
+    content: providers.MessageContent = [{"type": "text", "text": "describe"}]
+    assert provider.generate("s", content, "m", max_tokens=4) == "answer"
+    assert (
+        client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        is content
+    )
+    client.chat.completions.create.return_value = iter(["chunk"])
+    with pytest.raises(AttributeError, match="choices"):
+        provider.generate("s", "u", "m", stream=True)
+
+
+def test_ollama_preserves_stream_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ollama
+
+    chat: Mock = Mock(return_value=iter([{"message": {"content": "chunk"}}]))
+    monkeypatch.setattr(ollama, "chat", chat)
+    assert "not subscriptable" in providers.OllamaProvider().generate(
+        "s",
+        "u",
+        "m",
+        stream=True,
+    )
+    assert chat.call_args.kwargs["stream"] is True
+
+
+def test_temperature_lock_preserves_extension_identity() -> None:
+    provider: Mock = Mock()
+    extension: object = object()
+    provider.extension = extension
+    provider.generate.return_value = "answer"
+    locked: providers.TemperatureLockedProvider = providers.TemperatureLockedProvider(
+        provider,
+        temperature=0.2,
+    )
+    assert locked.extension is extension
+    assert locked.generate("s", "u", "m", temperature=0.9, custom=extension) == "answer"
+    provider.generate.assert_called_once_with(
+        "s",
+        "u",
+        "m",
+        temperature=0.2,
+        custom=extension,
+    )
+
+
+@pytest.mark.parametrize("name", ["openai", "gemini", "huggingface"])
+def test_real_sdk_rejects_unsupported_provider_options(
+    name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-fake-key")
+    monkeypatch.setattr(genai, "configure", Mock())
+    provider: providers.ModelProvider = providers.get_provider(name)
+    # Deliberately exercise the permissive Python boundary with an invalid key.
+    generate: Mock = Mock(wraps=provider.generate)
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        generate("system", "user", "model", unsupported_option=True)
+
+
+def test_real_ollama_rejection_preserves_error_translation() -> None:
+    generate: Mock = Mock(wraps=providers.OllamaProvider().generate)
+    result: str = generate("system", "user", "model", unsupported_option=True)
+    assert result.startswith("Ollama error:")
+    assert "unexpected keyword argument" in result
+    assert "unsupported_option" in result
+
+
+def test_gemini_discards_opaque_temperature(monkeypatch: pytest.MonkeyPatch) -> None:
+    model: Mock = Mock()
+    model.generate_content.return_value = SimpleNamespace(text="answer")
+    monkeypatch.setattr(genai, "configure", Mock())
+    monkeypatch.setattr(genai, "GenerativeModel", Mock(return_value=model))
+    temperature: object = object()
+    assert (
+        providers.GeminiProvider().generate("s", "u", "m", temperature=temperature)
+        == "answer"
+    )
+    model.generate_content.assert_called_once_with(contents=["s", "u"])
+
+
+def test_ollama_force_json_retains_truthy_nonboolean(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ollama
+
+    chat: Mock = Mock(return_value={"message": {"content": "{}"}})
+    monkeypatch.setattr(ollama, "chat", chat)
+    assert providers.OllamaProvider().generate("s", "u", "m", force_json="yes") == "{}"
+    assert chat.call_args.kwargs["format"] == "json"

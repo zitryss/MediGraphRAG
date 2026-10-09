@@ -2,37 +2,62 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import (
     TYPE_CHECKING,
     Any,
+    Literal,
     NotRequired,
     Protocol,
     Self,
     TypeAlias,
     TypedDict,
+    Unpack,
     cast,
 )
 
-import google.generativeai as genai
+import google.generativeai as _genai
 import httpx
-from google.generativeai.types import GenerateContentResponse
+from google.generativeai.types.content_types import (
+    ContentsType,
+    FunctionLibraryType,
+    ToolConfigType,
+)
+from google.generativeai.types.generation_types import (
+    GenerationConfig,
+    GenerationConfigType,
+)
+from google.generativeai.types.helper_types import RequestOptionsType
+from google.generativeai.types.safety_types import SafetySettingOptions
 from huggingface_hub import (
     InferenceClient,
+    TextGenerationInputGrammarType,
     TextGenerationOutput,
     TextGenerationStreamOutput,
 )
+from langchain_core.embeddings import Embeddings
 from langchain_core.runnables import RunnableConfig
+from openai import NotGiven, Omit, Stream
 from openai import OpenAI as OpenAIClient
-from openai import Stream
-from openai.types.chat import ChatCompletion, ChatCompletionChunk
+from openai.types.chat import (
+    ChatCompletion,
+    ChatCompletionAudioParam,
+    ChatCompletionChunk,
+    ChatCompletionMessageParam,
+    ChatCompletionPredictionContentParam,
+    ChatCompletionStreamOptionsParam,
+    ChatCompletionToolChoiceOptionParam,
+    ChatCompletionToolParam,
+    completion_create_params,
+)
+from openai.types.shared import ReasoningEffort
+from openai.types.shared_params import Metadata
 
 if TYPE_CHECKING:
-    from google.generativeai.generative_models import GenerativeModel
+    import ollama
     from langchain_community.embeddings import (
         HuggingFaceEmbeddings as LegacyEmbeddingType,
     )
-    from langchain_core.embeddings import Embeddings
     from langchain_huggingface import HuggingFaceEmbeddings as ModernEmbeddingType
 
 from langchain_core.runnables.base import Runnable
@@ -67,6 +92,188 @@ class CompletionPayload(TypedDict):
 MessageContent: TypeAlias = str | list[str | dict[str, Any]]
 
 
+# This is the JSON encoder's value boundary, not a generic SDK-object map.
+JSONValue: TypeAlias = (
+    None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+)
+
+
+class OpenAIOptions(TypedDict, total=False):
+    """openai 1.98.0 Completions.create kwargs excluding owned model/messages."""
+
+    audio: ChatCompletionAudioParam | None | NotGiven
+    frequency_penalty: float | None | NotGiven
+    function_call: completion_create_params.FunctionCall | NotGiven
+    functions: Iterable[completion_create_params.Function] | NotGiven
+    logit_bias: dict[str, int] | None | NotGiven
+    logprobs: bool | None | NotGiven
+    max_completion_tokens: int | None | NotGiven
+    max_tokens: int | None | NotGiven
+    metadata: Metadata | None | NotGiven
+    modalities: list[Literal["text", "audio"]] | None | NotGiven
+    n: int | None | NotGiven
+    parallel_tool_calls: bool | NotGiven
+    prediction: ChatCompletionPredictionContentParam | None | NotGiven
+    presence_penalty: float | None | NotGiven
+    prompt_cache_key: str | NotGiven
+    reasoning_effort: ReasoningEffort | None | NotGiven
+    response_format: completion_create_params.ResponseFormat | NotGiven
+    safety_identifier: str | NotGiven
+    seed: int | None | NotGiven
+    service_tier: (
+        Literal["auto", "default", "flex", "scale", "priority"] | None | NotGiven
+    )
+    stop: str | list[str] | None | NotGiven
+    store: bool | None | NotGiven
+    stream: bool | None | NotGiven
+    stream_options: ChatCompletionStreamOptionsParam | None | NotGiven
+    temperature: float | None | NotGiven
+    tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven
+    tools: Iterable[ChatCompletionToolParam] | NotGiven
+    top_logprobs: int | None | NotGiven
+    top_p: float | None | NotGiven
+    user: str | NotGiven
+    web_search_options: completion_create_params.WebSearchOptions | NotGiven
+    extra_headers: Mapping[str, str | Omit] | None
+    extra_query: Mapping[str, object] | None
+    extra_body: object
+    timeout: float | httpx.Timeout | None | NotGiven
+
+
+class HuggingFaceOptions(TypedDict, total=False):
+    """InferenceClient.text_generation options, including stream/details."""
+
+    details: bool
+    stream: bool
+    adapter_id: str | None
+    best_of: int | None
+    decoder_input_details: bool | None
+    do_sample: bool | None
+    frequency_penalty: float | None
+    grammar: TextGenerationInputGrammarType | None
+    max_new_tokens: int | None
+    repetition_penalty: float | None
+    return_full_text: bool | None
+    seed: int | None
+    stop: list[str] | None
+    stop_sequences: list[str] | None
+    temperature: float | None
+    top_k: int | None
+    top_n_tokens: int | None
+    top_p: float | None
+    truncate: int | None
+    typical_p: float | None
+    watermark: bool | None
+
+
+class GeminiGenerationOptions(TypedDict, total=False):
+    generation_config: GenerationConfigType | None
+    safety_settings: SafetySettingOptions | None
+    stream: bool
+    tools: FunctionLibraryType | None
+    tool_config: ToolConfigType | None
+    request_options: RequestOptionsType | None
+
+
+class GeminiOptions(GeminiGenerationOptions, total=False):
+    # This value is discarded, not numerically inspected or sent to the SDK.
+    temperature: object
+
+
+class GeminiResponse(Protocol):
+    @property
+    def text(self) -> str: ...
+
+
+class GeminiModel(Protocol):
+    def generate_content(
+        self,
+        contents: ContentsType,
+        **kwargs: Unpack[GeminiGenerationOptions],
+    ) -> GeminiResponse: ...
+
+
+class GeminiModelFactory(Protocol):
+    def __call__(
+        self,
+        model_name: str,
+        *,
+        generation_config: GenerationConfigType | None = None,
+    ) -> GeminiModel: ...
+
+
+class GeminiConfigure(Protocol):
+    def __call__(self, *, api_key: str | None = None) -> None: ...
+
+
+class GeminiModule(Protocol):
+    # __init__.py explicitly reexports these installed implementation symbols.
+    configure: GeminiConfigure
+    GenerativeModel: GeminiModelFactory
+    GenerationConfig: type[GenerationConfig]
+
+
+genai: GeminiModule = cast(GeminiModule, _genai)
+
+
+class OllamaChatOptions(TypedDict, total=False):
+    messages: "Sequence[Mapping[str, Any] | ollama.Message] | None"
+    tools: "Sequence[Mapping[str, Any] | ollama.Tool | Callable[..., object]] | None"
+    stream: bool
+    format: Literal["", "json"] | dict[str, Any] | None
+    options: "Mapping[str, Any] | ollama.Options | None"
+    keep_alive: float | str | None
+
+
+class OllamaOptions(OllamaChatOptions, total=False):
+    # Existing behavior tests truthiness rather than requiring a boolean.
+    force_json: object
+
+
+class OllamaChatRequest(OllamaChatOptions, total=False):
+    model: str
+
+
+class OpenAICompletion(Protocol):
+    def __call__(
+        self,
+        *,
+        model: str,
+        messages: Iterable[ChatCompletionMessageParam],
+        **kwargs: Unpack[OpenAIOptions],
+    ) -> ChatCompletion | Stream[ChatCompletionChunk]: ...
+
+
+class OllamaChat(Protocol):
+    def __call__(
+        self,
+        **kwargs: Unpack[OllamaChatRequest],
+    ) -> "ollama.ChatResponse | Iterable[ollama.ChatResponse]": ...
+
+
+class HuggingFaceGeneration(Protocol):
+    def __call__(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        **kwargs: Unpack[HuggingFaceOptions],
+    ) -> (
+        str
+        | TextGenerationOutput
+        | Iterable[str]
+        | Iterable[TextGenerationStreamOutput]
+    ): ...
+
+
+class ProviderMessage(TypedDict):
+    role: Literal["system", "user"]
+    content: MessageContent
+
+
+HTTPPayloadValue: TypeAlias = JSONValue | list[ProviderMessage]
+
+
 class AdapterInput(TypedDict):
     messages: NotRequired[Iterable[object]]
     model: NotRequired[str]
@@ -90,11 +297,13 @@ class PromptMessages(Protocol):
 
 
 class ModelProvider(ABC):
+    # Extension providers own their kwargs schema; finite built-in SDK options
+    # below intentionally expose their narrower contracts.
     @abstractmethod
     def generate(
         self,
-        system_prompt: str,
-        user_prompt: str,
+        system_prompt: MessageContent,
+        user_prompt: MessageContent,
         model: str,
         **kwargs: Any,
     ) -> ModelOutput:
@@ -189,21 +398,25 @@ class OpenAIProvider(ModelProvider):
 
     def generate(
         self,
-        system_prompt: str,
-        user_prompt: str,
+        system_prompt: MessageContent,
+        user_prompt: MessageContent,
         model: str,
-        **kwargs: Any,
+        **kwargs: Unpack[OpenAIOptions],
     ) -> str | None:
         kwargs.setdefault("temperature", 1.0)
-        response: ChatCompletion | Stream[ChatCompletionChunk] = (
-            self.client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                **kwargs,
-            )
+        # Raw LangChain blocks are forwarded, including SDK-incompatible shapes.
+        # Do not cast their contents into validated OpenAI message parameters.
+        create: OpenAICompletion = cast(
+            OpenAICompletion,
+            self.client.chat.completions.create,
+        )
+        response: ChatCompletion | Stream[ChatCompletionChunk] = create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            **kwargs,
         )
         return response.choices[0].message.content
 
@@ -211,10 +424,10 @@ class OpenAIProvider(ModelProvider):
 class OllamaProvider(ModelProvider):
     def generate(
         self,
-        system_prompt: str,
-        user_prompt: str,
+        system_prompt: MessageContent,
+        user_prompt: MessageContent,
         model: str,
-        **kwargs: Any,
+        **kwargs: Unpack[OllamaOptions],
     ) -> str:
         import ollama
 
@@ -223,7 +436,7 @@ class OllamaProvider(ModelProvider):
             force_json: object = kwargs.pop("force_json", False)
 
             # Build the chat request
-            chat_kwargs: dict[str, Any] = {
+            chat_kwargs: OllamaChatRequest = {
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
@@ -237,9 +450,11 @@ class OllamaProvider(ModelProvider):
                 chat_kwargs["format"] = "json"
 
             # Add any remaining kwargs
-            chat_kwargs.update(kwargs)
+            remaining_options: OllamaChatRequest = cast(OllamaChatRequest, kwargs)
+            chat_kwargs.update(remaining_options)
 
-            response: ollama.ChatResponse | Iterable[ollama.ChatResponse] = ollama.chat(
+            chat: OllamaChat = cast(OllamaChat, ollama.chat)
+            response: ollama.ChatResponse | Iterable[ollama.ChatResponse] = chat(
                 **chat_kwargs,
             )
             content: str = response["message"]["content"]
@@ -265,19 +480,20 @@ class GeminiProvider(ModelProvider):
 
     def generate(
         self,
-        system_prompt: str,
-        user_prompt: str,
+        system_prompt: MessageContent,
+        user_prompt: MessageContent,
         model: str,
-        **kwargs: Any,
+        **kwargs: Unpack[GeminiOptions],
     ) -> str:
         kwargs.pop("temperature", None)  # pass via generation_config instead
-        gemini_model: GenerativeModel = genai.GenerativeModel(
+        gemini_model: GeminiModel = genai.GenerativeModel(
             model,
             generation_config=genai.GenerationConfig(temperature=0),
         )
-        response: GenerateContentResponse = gemini_model.generate_content(
+        generation_options: GeminiGenerationOptions = kwargs
+        response: GeminiResponse = gemini_model.generate_content(
             contents=[system_prompt, user_prompt],
-            **kwargs,
+            **generation_options,
         )
         # The SDK accessor is unannotated but returns a string join or raises.
         content: str = response.text
@@ -287,10 +503,10 @@ class GeminiProvider(ModelProvider):
 class HuggingFaceProvider(ModelProvider):
     def generate(
         self,
-        system_prompt: str,
-        user_prompt: str,
+        system_prompt: MessageContent,
+        user_prompt: MessageContent,
         model: str,
-        **kwargs: Any,
+        **kwargs: Unpack[HuggingFaceOptions],
     ) -> (
         str
         | TextGenerationOutput
@@ -300,32 +516,37 @@ class HuggingFaceProvider(ModelProvider):
         client: InferenceClient = InferenceClient(token=os.getenv("HF_API_TOKEN"))
         full_prompt: str = f"{system_prompt}\n\n{user_prompt}"
         kwargs.setdefault("temperature", 0.0)
+        generate: HuggingFaceGeneration = cast(
+            HuggingFaceGeneration,
+            client.text_generation,
+        )
         response: (
             str
             | TextGenerationOutput
             | Iterable[str]
             | Iterable[TextGenerationStreamOutput]
-        ) = client.text_generation(prompt=full_prompt, model=model, **kwargs)
+        ) = generate(prompt=full_prompt, model=model, **kwargs)
         return response
 
 
 class DeepSeekProvider(ModelProvider):
     def generate(
         self,
-        system_prompt: str,
-        user_prompt: str,
+        system_prompt: MessageContent,
+        user_prompt: MessageContent,
         model: str,
-        **kwargs: Any,
+        **kwargs: JSONValue,
     ) -> str | None:
         api_key: str | None = os.getenv("DEEPSEEK_API_KEY")
         headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
         kwargs.setdefault("temperature", 0)
-        payload: dict[str, Any] = {
+        messages: list[ProviderMessage] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        payload: dict[str, HTTPPayloadValue] = {
             "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": messages,
             **kwargs,
         }
 
@@ -343,10 +564,10 @@ class DeepSeekProvider(ModelProvider):
 class OpenRouterProvider(ModelProvider):
     def generate(
         self,
-        system_prompt: str,
-        user_prompt: str,
+        system_prompt: MessageContent,
+        user_prompt: MessageContent,
         model: str,
-        **kwargs: Any,
+        **kwargs: JSONValue,
     ) -> str | None:
         api_key: str | None = os.getenv("OPENROUTER_API_KEY")
         headers: dict[str, str] = {
@@ -355,12 +576,13 @@ class OpenRouterProvider(ModelProvider):
             "X-Title": "KG RAG Tool",
         }
         kwargs.setdefault("temperature", 0)
-        payload: dict[str, Any] = {
+        messages: list[ProviderMessage] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        payload: dict[str, HTTPPayloadValue] = {
             "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": messages,
             **kwargs,
         }
 
@@ -392,8 +614,8 @@ class TemperatureLockedProvider(ModelProvider):
 
     def generate(
         self,
-        system_prompt: str,
-        user_prompt: str,
+        system_prompt: MessageContent,
+        user_prompt: MessageContent,
         model: str,
         **kwargs: Any,
     ) -> ModelOutput:
@@ -401,6 +623,7 @@ class TemperatureLockedProvider(ModelProvider):
         kwargs["temperature"] = self.temperature
         return self.provider.generate(system_prompt, user_prompt, model, **kwargs)
 
+    # Attribute names and types are supplied by arbitrary extension providers.
     def __getattr__(self, name: str) -> Any:
         return getattr(self.provider, name)
 

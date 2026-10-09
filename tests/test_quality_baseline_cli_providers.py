@@ -2,6 +2,7 @@
 
 import socket
 from types import SimpleNamespace
+from typing import get_type_hints
 from unittest.mock import MagicMock
 
 import google.generativeai as genai
@@ -9,6 +10,7 @@ import httpx
 import pytest
 import typer
 from click.testing import Result
+from langchain_core.embeddings import Embeddings
 from typer.testing import CliRunner
 
 from ontographrag import cli
@@ -166,3 +168,15 @@ def test_embedding_fallback_order(monkeypatch: pytest.MonkeyPatch) -> None:
         match="Failed to initialize any embedding model. OpenAI error: second",
     ):
         model_providers.get_embedding_method("custom")
+
+
+def test_public_embedding_annotations_resolve() -> None:
+    assert get_type_hints(model_providers.get_embedding_model)["return"] is Embeddings
+    assert (
+        get_type_hints(model_providers.get_embedding_method)["return"]
+        == tuple[str, Embeddings]
+    )
+
+
+def test_gemini_module_facade_preserves_export_identity() -> None:
+    assert id(model_providers.genai) == id(genai)
