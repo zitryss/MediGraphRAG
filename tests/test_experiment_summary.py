@@ -30,6 +30,7 @@ from experiments.summary_utils import (
     AccuracyBreakdown,
     HopAccuracySummary,
     RetrievalConfigurationSelection,
+    SummaryDatasetBlock,
     TrackAccuracySummary,
     accumulate_track_accuracy,
     compute_accuracy_breakdown,
@@ -596,3 +597,36 @@ class TestComputeHopAccuracyBreakdown:
         )
         assert out["4-hop"]["metrics_by_approach"]["vanilla_rag"] == {}
         assert out["4-hop"]["metrics_by_approach"]["kg_rag"] == {}
+
+
+@pytest.mark.parametrize("accuracy", ["0.5", 0.5, True, None])
+def test_track_accuracy_preserves_raw_scalar_conversions(accuracy: object) -> None:
+    blocks: list[SummaryDatasetBlock] = [
+        {
+            "dataset": "raw",
+            "track": "biomedical",
+            "config_results": [{"vanilla_accuracy": accuracy}],
+        },
+    ]
+    result: dict[str, list[TrackAccuracySummary]] = accumulate_track_accuracy(blocks)
+    expected: float = 0.0 if accuracy is None else 1.0 if accuracy is True else 0.5
+    assert result["biomedical"][0]["vanilla_macro_accuracy"] == expected
+    assert result["biomedical"][0]["kg_macro_accuracy"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("accuracy", "error"),
+    [("not-a-number", ValueError), ([0.5], TypeError), ({}, TypeError)],
+)
+def test_track_accuracy_preserves_malformed_conversion_errors(
+    accuracy: object,
+    error: type[Exception],
+) -> None:
+    blocks: list[SummaryDatasetBlock] = [
+        {
+            "dataset": "raw",
+            "config_results": [{"vanilla_accuracy": accuracy}],
+        },
+    ]
+    with pytest.raises(error):
+        accumulate_track_accuracy(blocks)

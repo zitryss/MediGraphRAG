@@ -33,13 +33,44 @@ class SummaryConfigResult(TypedDict, total=False):
     kg_accuracy_raw: ReadOnly[object]
 
 
+class ScalarSummaryConfigResult(SummaryConfigResult, total=False):
+    """JSON scalar conversion inputs, not validation of historical JSON values."""
+
+    vanilla_accuracy: ReadOnly[float | str | None]
+    kg_accuracy: ReadOnly[float | str | None]
+    vanilla_answer_f1: ReadOnly[float | str | None]
+    kg_answer_f1: ReadOnly[float | str | None]
+    vanilla_answer_em: ReadOnly[float | str | None]
+    kg_answer_em: ReadOnly[float | str | None]
+    vanilla_answered_questions: ReadOnly[float | str | None]
+    kg_answered_questions: ReadOnly[float | str | None]
+    vanilla_accuracy_raw: ReadOnly[float | str | None]
+    kg_accuracy_raw: ReadOnly[float | str | None]
+
+
+class ProducedSummaryConfigResult(ScalarSummaryConfigResult):
+    """Fields guaranteed by a completed evaluation, unlike historical input."""
+
+    config: ReadOnly[SummaryConfigName]
+    vanilla_accuracy: ReadOnly[float]
+    kg_accuracy: ReadOnly[float]
+    vanilla_answer_f1: ReadOnly[float]
+    kg_answer_f1: ReadOnly[float]
+    vanilla_answer_em: ReadOnly[float]
+    kg_answer_em: ReadOnly[float]
+    vanilla_answered_questions: ReadOnly[int]
+    kg_answered_questions: ReadOnly[int]
+    vanilla_accuracy_raw: ReadOnly[float]
+    kg_accuracy_raw: ReadOnly[float]
+
+
 class SummaryDatasetBlock(TypedDict, total=False):
     dataset: ReadOnly[str]
     track: ReadOnly[str]
     config_results: ReadOnly[Sequence[SummaryConfigResult]]
 
 
-class AccuracyBreakdown(TypedDict):
+class AccuracyBreakdown(TypedDict, closed=True):
     total_questions: int
     num_generation_failures_vanilla: int
     num_generation_failures_kg: int
@@ -336,10 +367,12 @@ def accumulate_track_accuracy(
             )
             if dataset_name not in ta["datasets"]:
                 ta["datasets"].append(dataset_name)
-                if cfg_res.get("vanilla_accuracy") is not None:
-                    ta["vanilla_acc"].append(float(cfg_res["vanilla_accuracy"]))
-                if cfg_res.get("kg_accuracy") is not None:
-                    ta["kg_acc"].append(float(cfg_res["kg_accuracy"]))
+                vanilla_accuracy: object = cfg_res.get("vanilla_accuracy")
+                if vanilla_accuracy is not None:
+                    ta["vanilla_acc"].append(float(vanilla_accuracy))
+                kg_accuracy: object = cfg_res.get("kg_accuracy")
+                if kg_accuracy is not None:
+                    ta["kg_acc"].append(float(kg_accuracy))
 
     result: dict[str, list[TrackAccuracySummary]] = {}
     for (track, cfg_name), ta in track_accumulators.items():
