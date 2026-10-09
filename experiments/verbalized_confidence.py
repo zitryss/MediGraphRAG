@@ -82,7 +82,10 @@ USER_TMPL: str = (
 
 
 def ask_conf(
-    client: "OpenAI", question: str, response: str, retries: int = 3
+    client: "OpenAI",
+    question: str,
+    response: str,
+    retries: int = 3,
 ) -> float | None:
     for attempt in range(retries):
         try:
@@ -95,7 +98,8 @@ def ask_conf(
                     {
                         "role": "user",
                         "content": USER_TMPL.format(
-                            question=question, response=response
+                            question=question,
+                            response=response,
                         ),
                     },
                 ],
@@ -116,7 +120,7 @@ def ask_conf(
 
 def load_details(slug: str, policy: str) -> list[ConfidenceRow]:
     doc: ConfidenceDocument = json.load(
-        open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"]))
+        open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])),
     )
     cfg_prefix: str = "kg_entity_first" if policy == "kg" else "dense_floor"
     details: list[ConfidenceDetail] = next(
@@ -154,7 +158,9 @@ def main() -> None:
             print(f"[{slug}/{policy}] querying {len(rows)} confidences ...", flush=True)
             with ThreadPoolExecutor(max_workers=8) as ex:
                 scorer: Callable[[ConfidenceRow], float | None] = lambda t: ask_conf(
-                    client, t[1], t[2]
+                    client,
+                    t[1],
+                    t[2],
                 )
                 ps: list[float | None] = list(ex.map(scorer, rows))
             ok: list[tuple[ConfidenceRow, float]] = [

@@ -82,7 +82,9 @@ def gps_scores(slug: str, strict: bool) -> dict[str, float | None]:
 
 
 def metric_aurocs(
-    slug: str, policy: str, labels_by_qid: Mapping[str, bool | None]
+    slug: str,
+    policy: str,
+    labels_by_qid: Mapping[str, bool | None],
 ) -> dict[str, tuple[float | None, int]]:
     rows: list[TrustRow] = rows_for(slug, policy)
     try:
@@ -122,7 +124,7 @@ def main() -> None:
         print(f"[{tag}] judging {len(rows)} answers with {JUDGE_MODEL} ...", flush=True)
         with ThreadPoolExecutor(max_workers=8) as ex:
             verdicts: list[bool | None] = list(
-                ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows)
+                ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows),
             )
         ok: list[tuple[JudgedAnswer, bool]] = [
             (r, v) for r, v in zip(rows, verdicts) if v is not None
@@ -133,7 +135,9 @@ def main() -> None:
         kappa: float = float(cohen_kappa_score(orig, new))
         labels: dict[str, bool] = {r[0]: bool(v) for r, v in ok}
         aurocs: dict[str, tuple[float | None, int]] = metric_aurocs(
-            slug, policy, labels
+            slug,
+            policy,
+            labels,
         )
         results[tag] = {
             "n_judged": len(ok),

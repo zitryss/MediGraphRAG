@@ -59,7 +59,8 @@ class EnrichmentMixin:
 
         @staticmethod
         def _cosine_similarity(
-            left: Sequence[float | str] | None, right: Sequence[float | str] | None
+            left: Sequence[float | str] | None,
+            right: Sequence[float | str] | None,
         ) -> float: ...
 
         def _entity_candidate_names(self, entity: "EntityNode") -> list[str]: ...
@@ -88,7 +89,9 @@ class EnrichmentMixin:
         ) -> list[ExactAnchorSpan]: ...
 
         def _names_pass_synonym_guard(
-            self, left_name: str, right_name: str
+            self,
+            left_name: str,
+            right_name: str,
         ) -> bool: ...
 
         def _normalize_entity_text(self, text: str) -> str: ...
@@ -158,7 +161,7 @@ class EnrichmentMixin:
                         "chunk_position": chunk_position,
                         "local_start": local_start,
                         "local_end": local_end,
-                    }
+                    },
                 )
 
         def span_sort_key(span: AnchorSpan) -> tuple[float, float, str]:
@@ -175,7 +178,8 @@ class EnrichmentMixin:
 
     @classmethod
     def _merge_anchor_grounding(
-        cls, *groundings: "Mapping[str, Sequence[AnchorSpanInput]] | str | None"
+        cls,
+        *groundings: "Mapping[str, Sequence[AnchorSpanInput]] | str | None",
     ) -> AnchorGrounding:
         """Merge nested anchor grounding dicts component-wise."""
         merged: AnchorGrounding = {}
@@ -223,7 +227,7 @@ class EnrichmentMixin:
         if grounded_count == 3:
             status: str = "full"
         elif grounded_count >= 2 and {"source", "target"}.issubset(
-            set(grounded_components)
+            set(grounded_components),
         ):
             status = "partial"
         elif grounded_count >= 1:
@@ -257,7 +261,7 @@ class EnrichmentMixin:
             alias for alias in (target_aliases or []) if isinstance(alias, str)
         ]
         relation_candidates: list[str] = self._relationship_anchor_candidates(
-            {"type": relation_type, "properties": properties}
+            {"type": relation_type, "properties": properties},
         )
         condition_candidates: list[str] = [str(properties.get("condition") or "")]
         quantitative_candidates: list[str] = [str(properties.get("quantitative") or "")]
@@ -334,7 +338,7 @@ class EnrichmentMixin:
             },
         )
         restoration: RestorationRecord = self._restoration_from_anchor_grounding(
-            anchor_grounding
+            anchor_grounding,
         )
         restoration["anchor_grounding"] = anchor_grounding
         return restoration
@@ -470,7 +474,9 @@ Rules:
 Return ONLY the JSON object.
 """
         supplement_response: ModelOutput = llm.generate(
-            supplement_prompt, "", model_name
+            supplement_prompt,
+            "",
+            model_name,
         )
         supplement_data: DecodedJSONObject = self._parse_llm_json_response(
             supplement_response,
@@ -647,7 +653,7 @@ Return ONLY the JSON object.
                 for a in (source_aliases or [])
                 if a
                 for v in _surface_forms(a.strip().lower())
-            }
+            },
         )
         _tgt_forms: list[str] = list(
             _surface_forms(tgt_lower)
@@ -656,7 +662,7 @@ Return ONLY the JSON object.
                 for a in (target_aliases or [])
                 if a
                 for v in _surface_forms(a.strip().lower())
-            }
+            },
         )
         src_pats: list[re.Pattern[str]] = [
             _boundary_pattern(f) for f in _src_forms if f
@@ -732,7 +738,7 @@ Return ONLY the JSON object.
             return None
 
         cache_key: str = hashlib.sha1(
-            f"{source_name}|{relationship_type}|{target_name}|{evidence}".encode()
+            f"{source_name}|{relationship_type}|{target_name}|{evidence}".encode(),
         ).hexdigest()
         if cache_key in self._triple_reverification_cache:
             return self._triple_reverification_cache[cache_key]
@@ -776,7 +782,7 @@ Rules:
         entity_labels: list[str] = [
             str(
                 (node_lookup.get(entity_id, {}).get("properties") or {}).get("name")
-                or entity_id
+                or entity_id,
             )
             for entity_id in component.get("top_entities") or []
         ]
@@ -786,18 +792,18 @@ Rules:
             target_id: str = str(rel.get("target") or rel.get("to") or "").strip()
             source_name: str = str(
                 (node_lookup.get(source_id, {}).get("properties") or {}).get("name")
-                or source_id
+                or source_id,
             )
             target_name: str = str(
                 (node_lookup.get(target_id, {}).get("properties") or {}).get("name")
-                or target_id
+                or target_id,
             )
             relation: str = (
                 str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
             )
             if rel.get("negated"):
                 rel_phrases.append(
-                    f"{source_name} is not linked by {relation} to {target_name}"
+                    f"{source_name} is not linked by {relation} to {target_name}",
                 )
             else:
                 rel_phrases.append(f"{source_name} {relation} {target_name}")
@@ -809,15 +815,15 @@ Rules:
             summary_lines.append(
                 "Central entities: "
                 + ", ".join(entity_labels[: getattr(self, "max_summary_entities", 6)])
-                + "."
+                + ".",
             )
         if rel_phrases:
             summary_lines.append(
                 "Key relations: "
                 + "; ".join(
-                    rel_phrases[: getattr(self, "max_summary_relationships", 6)]
+                    rel_phrases[: getattr(self, "max_summary_relationships", 6)],
                 )
-                + "."
+                + ".",
             )
         return " ".join(summary_lines)
 
@@ -838,11 +844,11 @@ Rules:
             target_id: str = str(rel.get("target") or rel.get("to") or "").strip()
             source_name: str = str(
                 (node_lookup.get(source_id, {}).get("properties") or {}).get("name")
-                or source_id
+                or source_id,
             )
             target_name: str = str(
                 (node_lookup.get(target_id, {}).get("properties") or {}).get("name")
-                or target_id
+                or target_id,
             )
             relation: str = (
                 str(rel.get("type") or "RELATED_TO").replace("_", " ").lower()
@@ -856,7 +862,7 @@ Rules:
                 text = f"{source_name} {relation} {target_name}."
                 polarity = "affirmed"
             claim_id: str = hashlib.sha1(
-                f"{component_index}:{source_id}:{relation}:{target_id}:{polarity}".encode()
+                f"{component_index}:{source_id}:{relation}:{target_id}:{polarity}".encode(),
             ).hexdigest()
             claims.append(
                 {
@@ -864,7 +870,7 @@ Rules:
                     "text": text,
                     "polarity": polarity,
                     "confidence": self._confidence_score(
-                        (rel.get("properties") or {}).get("confidence")
+                        (rel.get("properties") or {}).get("confidence"),
                     ),
                     "entity_ids": [
                         entity_id for entity_id in [source_id, target_id] if entity_id
@@ -872,7 +878,7 @@ Rules:
                     "provenance_positions": list(rel.get("provenance_positions") or []),
                     "component_index": component_index,
                     "relationship_index": rel_index,
-                }
+                },
             )
         return claims
 
@@ -892,20 +898,21 @@ Rules:
 
         for left_index, left_component in enumerate(components):
             for right_index, right_component in enumerate(
-                components[left_index + 1 :], start=left_index + 1
+                components[left_index + 1 :],
+                start=left_index + 1,
             ):
                 best_bridge: FragmentationBridge | None = None
                 for left_entity_id in left_component.get("top_entities") or []:
                     left_node: EntityNode = node_lookup.get(left_entity_id, {})
                     left_name: str = str(
                         (left_node.get("properties") or {}).get("name")
-                        or left_entity_id
+                        or left_entity_id,
                     )
                     left_type: str = (
                         str(
                             (left_node.get("properties") or {}).get("type")
                             or left_node.get("label")
-                            or ""
+                            or "",
                         )
                         .strip()
                         .lower()
@@ -919,13 +926,13 @@ Rules:
                         right_node: EntityNode = node_lookup.get(right_entity_id, {})
                         right_name: str = str(
                             (right_node.get("properties") or {}).get("name")
-                            or right_entity_id
+                            or right_entity_id,
                         )
                         right_type: str = (
                             str(
                                 (right_node.get("properties") or {}).get("type")
                                 or right_node.get("label")
-                                or ""
+                                or "",
                             )
                             .strip()
                             .lower()
@@ -936,10 +943,10 @@ Rules:
                             for key in self._soft_entity_alias_keys(candidate)
                         }
                         alias_overlap: list[str] = sorted(
-                            left_alias_keys & right_alias_keys
+                            left_alias_keys & right_alias_keys,
                         )
                         lexical_guard: bool = bool(
-                            alias_overlap
+                            alias_overlap,
                         ) or self._names_pass_synonym_guard(
                             left_name,
                             right_name,
@@ -967,7 +974,8 @@ Rules:
                         ):
                             continue
                         confidence: float = max(
-                            similarity, 0.95 if alias_overlap else 0.75
+                            similarity,
+                            0.95 if alias_overlap else 0.75,
                         )
                         bridge: FragmentationBridge = {
                             "source_id": left_entity_id,
@@ -995,7 +1003,7 @@ Rules:
                 -float(bridge.get("confidence") or 0.0),
                 str(bridge.get("source_name") or ""),
                 str(bridge.get("target_name") or ""),
-            )
+            ),
         )
         return candidate_bridges[
             : max(0, getattr(self, "max_fragmentation_bridges", 8))

@@ -116,11 +116,11 @@ class KGContractFixture(TypedDict):
 def _make_benchmark(experiment_module: ExperimentModule) -> "MIRAGEEvaluationPipeline":
     benchmark: MIRAGEEvaluationPipeline = (
         experiment_module.MIRAGEEvaluationPipeline.__new__(
-            experiment_module.MIRAGEEvaluationPipeline
+            experiment_module.MIRAGEEvaluationPipeline,
         )
     )
     benchmark.QUESTION_SCOPED_DATASETS = frozenset(
-        {"musique", "hotpotqa", "2wikimultihopqa", "pubmedqa"}
+        {"musique", "hotpotqa", "2wikimultihopqa", "pubmedqa"},
     )
     return benchmark
 
@@ -138,8 +138,8 @@ def test_validate_retrieval_scope_rejects_cross_question_chunks(
                     "question_id": "q_other",
                     "document": "doc1",
                 },
-            ]
-        }
+            ],
+        },
     }
 
     assert (
@@ -172,8 +172,8 @@ def test_validate_retrieval_scope_allows_matching_question_scope(
                     "question_id": "q_target",
                     "document": "doc1",
                 },
-            ]
-        }
+            ],
+        },
     }
 
     assert (
@@ -198,7 +198,8 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool(
 
     class FakeRAGSystem:
         def generate_response(
-            self, **kwargs: Unpack[SamplingCall]
+            self,
+            **kwargs: Unpack[SamplingCall],
         ) -> "SamplingResponse":
             calls.append(kwargs)
             sample_id: int = kwargs["retrieval_sample_id"]
@@ -207,7 +208,7 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool(
                 "context": {
                     "chunks": [
                         {"text": f"sample chunk {sample_id}"},
-                    ]
+                    ],
                 },
             }
 
@@ -280,7 +281,7 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
 ) -> None:
     benchmark: MIRAGEEvaluationPipeline = (
         experiment_module.MIRAGEEvaluationPipeline.__new__(
-            experiment_module.MIRAGEEvaluationPipeline
+            experiment_module.MIRAGEEvaluationPipeline,
         )
     )
     benchmark.DATASET_KG_SCOPE_EVALUATION_SUBSET = "evaluation_subset"
@@ -297,7 +298,8 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
     benchmark.DEFAULT_TRACK = "other"
 
     def prepare_contract(
-        dataset_name: str, force_resample: bool = False
+        dataset_name: str,
+        force_resample: bool = False,
     ) -> KGContractFixture:
         return {
             "passages": [
@@ -306,7 +308,7 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
                     dataset=dataset_name,
                     question_id="q1",
                     passage_index=0,
-                )
+                ),
             ],
             "build_meta": {},
             "records_for_kg": [{"id": "q1"}],
@@ -322,7 +324,8 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
             seen["kwargs"] = kwargs
 
         def generate_knowledge_graph_from_passages(
-            self, **kwargs: Unpack[PassageBuildCall]
+            self,
+            **kwargs: Unpack[PassageBuildCall],
         ) -> BuildResult:
             seen["generate_kwargs"] = kwargs
             return {
@@ -332,11 +335,13 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
                     "total_passages": 1,
                     "total_chunks": 1,
                     "total_entities": 0,
-                }
+                },
             }
 
     monkeypatch.setattr(
-        experiment_module, "UnifiedOntologyGuidedKGCreator", FakeBuilder
+        experiment_module,
+        "UnifiedOntologyGuidedKGCreator",
+        FakeBuilder,
     )
 
     assert benchmark._build_kg_for_dataset("realmedqa") is True
@@ -373,7 +378,7 @@ def test_kg_routing_distribution_counts_entity_first_and_dense_fallback(
 
     dist: RoutingDistribution = (
         experiment_module.MIRAGEEvaluationPipeline._compute_kg_routing_distribution(
-            details
+            details,
         )
     )
 
@@ -401,7 +406,8 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
     benchmark.rebuild_kg = False
 
     def prepare_contract(
-        dataset_name: str, force_resample: bool = False
+        dataset_name: str,
+        force_resample: bool = False,
     ) -> KGContractFixture:
         return {
             "passages": [
@@ -410,7 +416,7 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
                     dataset=dataset_name,
                     question_id="q1",
                     passage_index=0,
-                )
+                ),
             ],
             "build_meta": {},
             "records_for_kg": [{"id": "q1"}],
@@ -426,7 +432,8 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
             seen["kwargs"] = kwargs
 
         def generate_knowledge_graph_from_passages(
-            self, **kwargs: Unpack[PassageBuildCall]
+            self,
+            **kwargs: Unpack[PassageBuildCall],
         ) -> BuildResult:
             seen["generate_kwargs"] = kwargs
             return {
@@ -436,11 +443,13 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
                     "total_passages": 1,
                     "total_chunks": 1,
                     "total_entities": 0,
-                }
+                },
             }
 
     monkeypatch.setattr(
-        experiment_module, "UnifiedOntologyGuidedKGCreator", FakeBuilder
+        experiment_module,
+        "UnifiedOntologyGuidedKGCreator",
+        FakeBuilder,
     )
 
     assert benchmark._build_kg_for_dataset("2wikimultihopqa") is True

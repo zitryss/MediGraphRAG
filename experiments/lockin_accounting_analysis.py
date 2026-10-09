@@ -105,7 +105,7 @@ REPO: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_JSON: str = os.path.join(REPO, "results", "analyses", "lockin_accounting.json")
 OUT_TEX: str = os.path.join(REPO, "results", "analyses", "lockin_accounting_tables.tex")
 MANIFEST: dict[str, ManifestEntry] = json.load(
-    open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
+    open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
 )
 
 KEY: dict[str, str] = {
@@ -200,7 +200,7 @@ def rows_for(slug: str, policy: str) -> list[AccountingRow]:
                         r.get("kg_correct")
                         if prefix == "kg"
                         else r.get("vanilla_correct")
-                    )
+                    ),
                 ),
                 "dse": (
                     r.get("kg_discrete_semantic_entropy")
@@ -220,7 +220,7 @@ def rows_for(slug: str, policy: str) -> list[AccountingRow]:
                 "route_reason": str(r.get("kg_route_reason") or "")
                 if prefix == "kg"
                 else "",
-            }
+            },
         )
     return out
 

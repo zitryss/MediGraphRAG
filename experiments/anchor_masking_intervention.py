@@ -208,7 +208,7 @@ def select_candidates(
                 "saved_seu": float(seu),
                 "saved_route": route,
                 "saved_route_reason": row.get("kg_route_reason", ""),
-            }
+            },
         )
         if len(candidates) >= limit:
             break
@@ -226,7 +226,7 @@ def _make_kg_system(policy: str) -> EnhancedRAGSystem:
             embedding_model=os.getenv("EMBEDDING_PROVIDER", "sentence_transformers"),
         )
     return EnhancedRAGSystem(
-        embedding_model=os.getenv("EMBEDDING_PROVIDER", "sentence_transformers")
+        embedding_model=os.getenv("EMBEDDING_PROVIDER", "sentence_transformers"),
     )
 
 
@@ -280,7 +280,7 @@ def _generate_once(
     )
     context: RetrievalContext = result.get("context", {}) or {}
     state: GraphStateSummary = context.get(
-        "graph_state"
+        "graph_state",
     ) or summarize_context_graph_state(context)
     return {
         "response": response,
@@ -331,11 +331,12 @@ def _sample_diversity(
         context="",
     )
     diversity: InterventionDiversity = cast(
-        InterventionDiversity, {**graph_state_diversity(graph_states)}
+        InterventionDiversity,
+        {**graph_state_diversity(graph_states)},
     )
     diversity["chunk_text_jaccard"] = float(chunk_jaccard or 0.0)
     diversity["discrete_semantic_entropy"] = float(
-        uq.get("discrete_semantic_entropy", 0.0)
+        uq.get("discrete_semantic_entropy", 0.0),
     )
     diversity["sd_uq"] = float(uq.get("sd_uq", 0.0))
     diversity["responses"] = samples
@@ -343,7 +344,8 @@ def _sample_diversity(
 
 
 def run_intervention(
-    args: argparse.Namespace, candidates: list[InterventionCandidate]
+    args: argparse.Namespace,
+    candidates: list[InterventionCandidate],
 ) -> InterventionResults:
     pipeline: MIRAGEEvaluationPipeline = MIRAGEEvaluationPipeline(
         num_samples=None,
@@ -415,17 +417,17 @@ def run_intervention(
                 "masked_rerun": masked,
                 "masked_diversity": masked_diversity,
                 "answer_changed": bool(
-                    masked and masked["response"] != baseline["response"]
+                    masked and masked["response"] != baseline["response"],
                 ),
                 "state_changed": bool(
                     masked
                     and masked["graph_state"].get("subgraph_signature")
-                    != baseline["graph_state"].get("subgraph_signature")
+                    != baseline["graph_state"].get("subgraph_signature"),
                 ),
                 "correctness_improved": bool(
-                    masked and (not baseline["correct"]) and masked["correct"]
+                    masked and (not baseline["correct"]) and masked["correct"],
                 ),
-            }
+            },
         )
     return {"results": results}
 
@@ -451,7 +453,10 @@ def main() -> None:
     parser.add_argument(
         "--out",
         default=os.path.join(
-            REPO, "results", "analyses", "anchor_masking_intervention.json"
+            REPO,
+            "results",
+            "analyses",
+            "anchor_masking_intervention.json",
         ),
     )
     args: argparse.Namespace = parser.parse_args()

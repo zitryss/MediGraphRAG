@@ -33,7 +33,7 @@ def test_cli_ask_defaults_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
             "info": {
                 "kg_confidence": 0.1256,
                 "entities": {
-                    "used_entities": [{"id": "A"}, {"id": "B", "description": "Beta"}]
+                    "used_entities": [{"id": "A"}, {"id": "B", "description": "Beta"}],
                 },
             },
         },
@@ -43,7 +43,8 @@ def test_cli_ask_defaults_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
     client.post.return_value = response
     monkeypatch.setattr(httpx, "Client", factory)
     result: Result = CliRunner().invoke(
-        cli.app, ["ask", "Why?", "--server", "http://baseline.invalid///"]
+        cli.app,
+        ["ask", "Why?", "--server", "http://baseline.invalid///"],
     )
     assert result.exit_code == 0, result.output
     assert (
@@ -56,7 +57,7 @@ def test_cli_ask_defaults_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
         headers={"X-API-Key": "fake-env-key"},
     )
     assert cli._request_kwargs("explicit-key") == {
-        "headers": {"X-API-Key": "explicit-key"}
+        "headers": {"X-API-Key": "explicit-key"},
     }
     assert cli._request_kwargs("") == {"headers": {"X-API-Key": "fake-env-key"}}
     monkeypatch.delenv("ONTOGRAPHRAG_API_KEY")
@@ -72,7 +73,8 @@ def test_cli_ask_defaults_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
 )
 def test_cli_error_detail_precedence(payload: dict[str, str], expected: str) -> None:
     with pytest.raises(
-        typer.BadParameter, match=f"503 Service Unavailable: {expected}"
+        typer.BadParameter,
+        match=f"503 Service Unavailable: {expected}",
     ):
         cli._raise_for_status(httpx.Response(503, json=payload))
 
@@ -85,7 +87,10 @@ def test_cli_serve_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     result: Result = CliRunner().invoke(cli.app, ["serve"])
     assert result.exit_code == 0, result.output
     run.assert_called_once_with(
-        "ontographrag.api.app:app", host="0.0.0.0", port=8004, reload=False
+        "ontographrag.api.app:app",
+        host="0.0.0.0",
+        port=8004,
+        reload=False,
     )
 
 
@@ -98,7 +103,9 @@ def test_openai_constructor_and_request(monkeypatch: pytest.MonkeyPatch) -> None
     )
     monkeypatch.setattr(model_providers, "OpenAIClient", factory)
     provider: model_providers.ModelProvider = model_providers.get_provider(
-        "OpenAI", model="ignored", temperature=0.25
+        "OpenAI",
+        model="ignored",
+        temperature=0.25,
     )
     factory.assert_called_once_with(api_key="fake-key", timeout=17.0)
     assert provider.generate("system", "user", "model") == "answer"
@@ -139,7 +146,7 @@ def test_gemini_constructor_and_temperature(monkeypatch: pytest.MonkeyPatch) -> 
     assert model.call_args.args == ("gemini-model",)
     assert model.call_args.kwargs["generation_config"].temperature == 0
     model.return_value.generate_content.assert_called_once_with(
-        contents=["system", "user"]
+        contents=["system", "user"],
     )
 
 

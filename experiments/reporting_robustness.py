@@ -92,7 +92,7 @@ def answered_counts() -> dict[str, dict[str, AnsweredCounts]]:
     out: dict[str, dict[str, AnsweredCounts]] = {}
     for slug, manifest_key in KEY.items():
         doc: TrustDocument = json.load(
-            open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"]))
+            open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"])),
         )
         out[slug] = {}
         for cfg in doc["config_results"]:
@@ -125,10 +125,10 @@ def answered_counts() -> dict[str, dict[str, AnsweredCounts]]:
 
 def realmedqa_adaptive_strict_complete_case() -> CompleteCase:
     adaptive_doc: TrustDocument = json.load(
-        open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"]))
+        open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"])),
     )
     strict_doc: TrustDocument = json.load(
-        open(os.path.join(REPO, STRICT_RUNS["realmedqa"]))
+        open(os.path.join(REPO, STRICT_RUNS["realmedqa"])),
     )
     adaptive_rows: list[TrustDetail] = next(
         cfg["details"]

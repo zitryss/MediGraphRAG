@@ -29,7 +29,7 @@ def test_configured_provider_names_from_env_detects_keys() -> None:
             "OPENAI_API_KEY": "x",
             "OPENROUTER_API_KEY": "y",
             "OLLAMA_HOST": "http://localhost:11434",
-        }
+        },
     )
     assert providers == ["openai", "openrouter", "ollama"]
 

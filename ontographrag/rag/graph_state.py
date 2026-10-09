@@ -366,6 +366,6 @@ def dominant_anchor_id(
 ) -> str:
     """Return the most frequent seed entity id across sample states."""
     diversity: EmptyGraphStateDiversity | GraphStateDiversity = graph_state_diversity(
-        sample_states
+        sample_states,
     )
     return str(diversity.get("dominant_seed_entity_id") or "")

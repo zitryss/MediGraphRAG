@@ -267,7 +267,7 @@ def seu_at_coverage(draws: int = 200, cov: float = 0.8) -> dict[str, CoverageSum
         if len(rows) < 20:
             continue
         seu: NDArray[np.float64] = np.array(
-            [float(seu_value) for r in rows if (seu_value := r["seu"]) is not None]
+            [float(seu_value) for r in rows if (seu_value := r["seu"]) is not None],
         )
         corr: NDArray[np.float64] = np.array([r["correct"] for r in rows], float)
         n: int = len(rows)
@@ -391,7 +391,7 @@ def hard_certificate_mask(
             and r["seu"] is not None
             and r["seu"] <= 0.5
             and g is not None
-            and g <= 0.5
+            and g <= 0.5,
         )
     return np.array(mask)
 
@@ -415,7 +415,7 @@ def learned_certificate() -> LearnedSummary:
                     float(r["seu"]),
                     0.5 if g is None else float(g),
                     1.0 if g is None else 0.0,
-                ]
+                ],
             )
             labels.append(int(r["correct"]))
         data[slug] = {
@@ -429,17 +429,18 @@ def learned_certificate() -> LearnedSummary:
     per_ds, pooled = {}, {"hard": [0, 0], "learned": [0, 0], "n": 0}
     for held in KEY:
         train_X: NDArray[np.float64] = np.vstack(
-            [data[s]["X"] for s in KEY if s != held]
+            [data[s]["X"] for s in KEY if s != held],
         )
         train_y: NDArray[np.int64 | np.float64] = np.concatenate(
-            [data[s]["y"] for s in KEY if s != held]
+            [data[s]["y"] for s in KEY if s != held],
         )
         clf: LogisticRegression = LogisticRegression(max_iter=1000).fit(
-            train_X, train_y
+            train_X,
+            train_y,
         )
         # threshold chosen on TRAIN to match the hard certificate's train precision
         train_hard: NDArray[np.bool_ | np.float64] = np.concatenate(
-            [data[s]["hard"] for s in KEY if s != held]
+            [data[s]["hard"] for s in KEY if s != held],
         )
         hard_prec_train: np.float64 = train_y[train_hard].mean()
         p_train: NDArray[np.float32 | np.float64] = clf.predict_proba(train_X)[:, 1]
@@ -517,7 +518,7 @@ def compute_times() -> dict[str, ComputeTimeSummary]:
     agg: dict[str, list[float]] = {}
     for slug in KEY:
         doc: TimeDocument = json.load(
-            open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"]))
+            open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])),
         )
         cfg: TimeConfig = next(
             c

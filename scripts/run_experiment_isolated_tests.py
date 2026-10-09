@@ -67,7 +67,7 @@ class BoundaryAudit:
     sentinel_attempts: list[str] = field(default_factory=lambda: list[str]())
     permitted_probes: list[str] = field(default_factory=lambda: list[str]())
     probe_sockets: list[socket.socket] = field(
-        default_factory=lambda: list[socket.socket]()
+        default_factory=lambda: list[socket.socket](),
     )
     probe_module_code: CodeType | None = None
     probe_code: CodeType | None = None

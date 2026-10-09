@@ -54,17 +54,23 @@ class ContextAssemblyMixin:
 
         @classmethod
         def _comparison_branch_match_count(
-            cls, query: str, chunk: RetrievedChunk
+            cls,
+            query: str,
+            chunk: RetrievedChunk,
         ) -> int: ...
 
         @classmethod
         def _lexical_query_overlap_count(
-            cls, query: str, chunk: RetrievedChunk
+            cls,
+            query: str,
+            chunk: RetrievedChunk,
         ) -> int: ...
 
         @classmethod
         def _comparison_branch_coverage(
-            cls, query: str, chunks: Sequence[RetrievedChunk]
+            cls,
+            query: str,
+            chunks: Sequence[RetrievedChunk],
         ) -> int: ...
 
     @staticmethod
@@ -109,7 +115,9 @@ class ContextAssemblyMixin:
 
     @classmethod
     def _sort_chunks_for_query(
-        cls, query: str, chunks: Sequence[ChunkT]
+        cls,
+        query: str,
+        chunks: Sequence[ChunkT],
     ) -> list[ChunkT]:
         branches: list[str] = cls._comparison_branches(query)
         return sorted(
@@ -243,7 +251,8 @@ class ContextAssemblyMixin:
         kg_name: str | None,
     ) -> CountedGraphRetrievalContext | ProducedGraphRetrievalContext:
         chunks: list[RetrievedChunk] = cls._sort_chunks_for_query(
-            query, list(context.get("chunks", []))
+            query,
+            list(context.get("chunks", [])),
         )
         selected_chunks: list[RetrievedChunk] = select_ranked_subset(
             chunks,
@@ -326,10 +335,10 @@ class ContextAssemblyMixin:
                 chunk.get("document")
                 for chunk in selected_chunks
                 if chunk.get("document")
-            }
+            },
         )
         pruned["total_score"] = float(
-            sum(float(chunk.get("score", 0.0)) for chunk in selected_chunks)
+            sum(float(chunk.get("score", 0.0)) for chunk in selected_chunks),
         )
         pruned["entity_count"] = len(pruned.get("entities", {}))
         pruned["relationship_count"] = len(pruned.get("relationships", []))
@@ -342,7 +351,7 @@ class ContextAssemblyMixin:
                     max_chunks,
                     retrieval_temperature,
                     retrieval_shortlist_factor,
-                )
+                ),
             ),
         }
         pruned["graph_state"] = summarize_context_graph_state(pruned)
@@ -350,7 +359,9 @@ class ContextAssemblyMixin:
 
     @classmethod
     def _graph_context_is_meaningful(
-        cls, query: str, context: RetrievalContext | None
+        cls,
+        query: str,
+        context: RetrievalContext | None,
     ) -> bool:
         """
         Decide whether the graph-centric retrieval signal is strong enough to stay primary.
@@ -364,7 +375,7 @@ class ContextAssemblyMixin:
 
         grounding: float | None = context.get("grounding_quality")
         has_structure: bool = bool(context.get("relationships")) or bool(
-            context.get("traversal_paths")
+            context.get("traversal_paths"),
         )
         if (
             grounding is not None
@@ -376,7 +387,8 @@ class ContextAssemblyMixin:
         branches: list[str] = cls._comparison_branches(query)
         if branches:
             return cls._comparison_branch_coverage(
-                query, context.get("chunks", [])
+                query,
+                context.get("chunks", []),
             ) >= len(branches)
 
         return has_structure or (
@@ -440,7 +452,7 @@ class ContextAssemblyMixin:
         scope_clause: str = ""
         if scope_conditions:
             scope_clause = "\n                  AND " + "\n                  AND ".join(
-                scope_conditions
+                scope_conditions,
             )
 
         adj_query: str = f"""
@@ -494,7 +506,8 @@ class ContextAssemblyMixin:
             )
         except Exception as adj_err:
             logging.debug(
-                "Enhanced adjacent chunk expansion failed (non-fatal): %s", adj_err
+                "Enhanced adjacent chunk expansion failed (non-fatal): %s",
+                adj_err,
             )
             return context
 
@@ -582,7 +595,8 @@ class ContextAssemblyMixin:
         primary_view: RetrievalContext = primary
         if not secondary or not secondary.get("chunks"):
             merged: PartialRetrievalContext = cast(
-                PartialRetrievalContext, dict(primary)
+                PartialRetrievalContext,
+                dict(primary),
             )
             merged["search_method"] = search_method
             return merged
@@ -619,7 +633,8 @@ class ContextAssemblyMixin:
             candidate: RetrievedChunk = cast(RetrievedChunk, dict(chunk))
             if min_secondary_score is not None:
                 candidate["score"] = max(
-                    float(candidate.get("score", 0.0)), min_secondary_score
+                    float(candidate.get("score", 0.0)),
+                    min_secondary_score,
                 )
             new_chunks.append(candidate)
             if secondary_limit is not None and len(new_chunks) >= secondary_limit:
@@ -627,7 +642,8 @@ class ContextAssemblyMixin:
 
         merged["chunks"].extend(new_chunks)
         merged["chunks"] = cls._sort_chunks_for_query(
-            primary_view.get("query", ""), merged["chunks"]
+            primary_view.get("query", ""),
+            merged["chunks"],
         )
         merged["chunks"] = merged["chunks"][:max_chunks]
 
@@ -665,10 +681,10 @@ class ContextAssemblyMixin:
                     for chunk in merged["chunks"]
                     if chunk.get("document")
                 ),
-            }
+            },
         )
         merged["total_score"] = float(
-            sum(float(chunk.get("score", 0.0)) for chunk in merged["chunks"])
+            sum(float(chunk.get("score", 0.0)) for chunk in merged["chunks"]),
         )
         merged["entity_count"] = len(merged["entities"])
         merged["relationship_count"] = len(merged["relationships"])
@@ -774,14 +790,15 @@ class ContextAssemblyMixin:
 
         for context in usable_contexts:
             ranked_chunks: list[RetrievedChunk] = cls._sort_chunks_for_query(
-                query, list(context.get("chunks", []))
+                query,
+                list(context.get("chunks", [])),
             )
             for rank, chunk in enumerate(ranked_chunks, 1):
                 chunk_key: str = str(
                     chunk.get("parent_chunk_id")
                     or chunk.get("chunk_id")
                     or chunk.get("chunk_element_id")
-                    or str(chunk.get("text", ""))[:120]
+                    or str(chunk.get("text", ""))[:120],
                 )
                 record: FusedChunkRecord | None = chunk_records.get(chunk_key)
                 if record is None:
@@ -844,10 +861,10 @@ class ContextAssemblyMixin:
                 chunk.get("document")
                 for chunk in merged["chunks"]
                 if chunk.get("document")
-            }
+            },
         )
         merged["total_score"] = float(
-            sum(float(chunk.get("score", 0.0)) for chunk in merged["chunks"])
+            sum(float(chunk.get("score", 0.0)) for chunk in merged["chunks"]),
         )
         merged["entity_count"] = len(merged["entities"])
         merged["relationship_count"] = len(merged["relationships"])
@@ -920,7 +937,8 @@ class ContextAssemblyMixin:
             return f"{qid}::p{chunk.get('passage_index', -1)}"
 
         def _chunk_supports_path(
-            chunk: RetrievedChunk, path_info: EvidencePath
+            chunk: RetrievedChunk,
+            path_info: EvidencePath,
         ) -> bool:
             chunk_positions: set[int] = set()
             pos: int | None = chunk.get("position")
@@ -944,7 +962,7 @@ class ContextAssemblyMixin:
                 return chunk_passage_key in path_passage_keys
 
             chunk_entity_ids: set[StoredGraphProperty] = set(
-                chunk.get("linked_entity_ids") or []
+                chunk.get("linked_entity_ids") or [],
             )
             path_nodes: set[str] = set(path_info.get("node_ids") or [])
             if not chunk_entity_ids or not path_nodes:
@@ -974,7 +992,7 @@ class ContextAssemblyMixin:
                     "hops": p.get("hops", 1),
                     "provenance_positions": list(p.get("provenance_positions") or []),
                     "passage_keys": list(p.get("passage_keys") or []),
-                }
+                },
             )
         entity_name_lookup: dict[str, StoredGraphValue] = {
             eid: (info.get("name") or info.get("description") or eid)
@@ -983,10 +1001,12 @@ class ContextAssemblyMixin:
         MAX_REL_PATHS: int = max(0, 25 - len(all_paths))
         for rel in relationships[:MAX_REL_PATHS]:
             src: str | list[GraphPrimitive] = entity_name_lookup.get(
-                rel["source"], rel["source"]
+                rel["source"],
+                rel["source"],
             )[:50]
             tgt: str | list[GraphPrimitive] = entity_name_lookup.get(
-                rel["target"], rel["target"]
+                rel["target"],
+                rel["target"],
             )[:50]
             rel_label: str = self._format_relationship_label(rel)
             all_paths.append(
@@ -996,7 +1016,7 @@ class ContextAssemblyMixin:
                     "hops": 1,
                     "provenance_positions": list(rel.get("provenance_positions") or []),
                     "passage_keys": list(rel.get("passage_keys") or []),
-                }
+                },
             )
 
         # Associate each chunk with up to two supporting chains so shared bridge
@@ -1025,7 +1045,7 @@ class ContextAssemblyMixin:
                     (
                         f"Chain {chain_idx} ({path_info['hops']} hop{'s' if path_info['hops'] != 1 else ''}): "
                         f"{path_str}"
-                    )
+                    ),
                 ]
                 for i, chunk in enumerate(supporting[:3], 1):
                     text: str = (chunk.get("text") or "").strip()[:400]
@@ -1054,7 +1074,7 @@ class ContextAssemblyMixin:
             sections.append(
                 "STRUCTURAL HINTS (graph paths — no passage retrieved; "
                 "use only if no passage evidence addresses the question):\n"
-                + "\n".join(ungrounded_paths)
+                + "\n".join(ungrounded_paths),
             )
         if not sections:
             sections.append("(No evidence retrieved)")
@@ -1100,7 +1120,8 @@ class ContextAssemblyMixin:
         traversal_paths: list[TraversalPath] = context.get("traversal_paths", [])
         if traversal_paths:
             sorted_paths: list[TraversalPath] = sorted(
-                traversal_paths, key=lambda p: p.get("hops", 99)
+                traversal_paths,
+                key=lambda p: p.get("hops", 99),
             )
             path_lines.extend([f"  {p['path']}" for p in sorted_paths])
         entity_name_lookup: dict[str, StoredGraphValue] = {
@@ -1110,10 +1131,12 @@ class ContextAssemblyMixin:
         MAX_RELATIONSHIPS: int = 25
         for rel in context.get("relationships", [])[:MAX_RELATIONSHIPS]:
             src_name: str | list[GraphPrimitive] = entity_name_lookup.get(
-                rel["source"], rel["source"]
+                rel["source"],
+                rel["source"],
             )[:50]
             tgt_name: str | list[GraphPrimitive] = entity_name_lookup.get(
-                rel["target"], rel["target"]
+                rel["target"],
+                rel["target"],
             )[:50]
             rel_type: str = self._format_relationship_label(rel)
             path_lines.append(f"  {src_name} --{rel_type}--> {tgt_name}")
@@ -1149,7 +1172,7 @@ class ContextAssemblyMixin:
                 entity_texts.append(line)
             if len(seed_entities) > MAX_SEED_ENTITIES:
                 entity_texts.append(
-                    f"  ... ({len(seed_entities) - MAX_SEED_ENTITIES} more omitted)"
+                    f"  ... ({len(seed_entities) - MAX_SEED_ENTITIES} more omitted)",
                 )
 
         if neighbor_entities:
@@ -1157,7 +1180,7 @@ class ContextAssemblyMixin:
                 :MAX_NEIGHBOR_ENTITIES
             ]
             entity_texts.append(
-                f"\nGraph-traversal neighbors ({len(neighbor_entities)} discovered, showing top {len(shown)}):"
+                f"\nGraph-traversal neighbors ({len(neighbor_entities)} discovered, showing top {len(shown)}):",
             )
             for entity_id, info in shown:
                 eid = info.get("id") or entity_id or "Unknown"

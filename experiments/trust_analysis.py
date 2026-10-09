@@ -111,7 +111,7 @@ class TrustReport(TypedDict):
 
 REPO: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST: dict[str, ManifestEntry] = json.load(
-    open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
+    open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
 )
 KEY: dict[str, str] = {
     "pubmedqa": "Pubmedqa",
@@ -168,7 +168,7 @@ def rows_for(slug: str, policy: str) -> list[TrustRow]:
                         r.get("kg_correct")
                         if prefix == "kg"
                         else r.get("vanilla_correct")
-                    )
+                    ),
                 ),
                 "dse": (
                     r.get("kg_discrete_semantic_entropy")
@@ -181,7 +181,7 @@ def rows_for(slug: str, policy: str) -> list[TrustRow]:
                     if prefix == "kg"
                     else r.get("vanilla_support_entailment_uncertainty")
                 ),
-            }
+            },
         )
     return out
 
@@ -291,7 +291,7 @@ def main() -> None:
         if len(set(wrong[idx])) < 2:
             continue
         diffs.append(
-            roc_auc_score(wrong[idx], seu[idx]) - roc_auc_score(wrong[idx], sd[idx])
+            roc_auc_score(wrong[idx], seu[idx]) - roc_auc_score(wrong[idx], sd[idx]),
         )
     out["paired_tests"]["strict_realmedqa_seu_minus_sd"] = {
         "diff": point,
@@ -319,7 +319,7 @@ def main() -> None:
         if len(set(a_w[idx])) < 2 or len(set(s_w[idx])) < 2:
             continue
         diffs.append(
-            roc_auc_score(a_w[idx], a_sd[idx]) - roc_auc_score(s_w[idx], s_sd[idx])
+            roc_auc_score(a_w[idx], a_sd[idx]) - roc_auc_score(s_w[idx], s_sd[idx]),
         )
     out["paired_tests"]["realmedqa_sd_adaptive_minus_strict"] = {
         "diff": point,

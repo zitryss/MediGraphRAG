@@ -113,7 +113,7 @@ def _select_config_result(path: str, results_doc: HeatmapDocument) -> HeatmapCon
     ]
     raise ValueError(
         f"{path} contains multiple configs {config_names}; "
-        "set MIRAGE_CONFIG_NAME to choose one explicitly"
+        "set MIRAGE_CONFIG_NAME to choose one explicitly",
     )
 
 
@@ -174,7 +174,10 @@ fig, axes = plt.subplots(
 
 
 def draw_panel(
-    ax: "Axes", mat: NDArray[np.float64], title: str, show_yticklabels: bool = True
+    ax: "Axes",
+    mat: NDArray[np.float64],
+    title: str,
+    show_yticklabels: bool = True,
 ) -> "Axes":
     # Mask for seaborn (NaN → blank)
     mask: NDArray[np.bool_] = np.isnan(mat)
@@ -290,7 +293,10 @@ cb.set_label("AUROC", fontsize=8.5)
 cb.ax.tick_params(labelsize=7.5)
 cb.set_ticks([0.25, 0.40, 0.50, 0.65, 0.80, 0.95])
 cb.ax.axhline(
-    (0.5 - VMIN) / (VMAX - VMIN), color="#333333", linewidth=1.0, linestyle="--"
+    (0.5 - VMIN) / (VMAX - VMIN),
+    color="#333333",
+    linewidth=1.0,
+    linestyle="--",
 )
 
 # ── Save ──────────────────────────────────────────────────────────────────────

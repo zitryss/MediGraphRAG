@@ -71,7 +71,8 @@ class Neo4jLoadOptions(TypedDict, total=False):
 
 @pytest.mark.parametrize("id_column", [None, "id"])
 def test_document_batch_preserves_absolute_rows(
-    tmp_path: Path, id_column: str | None
+    tmp_path: Path,
+    id_column: str | None,
 ) -> None:
     path: Path = tmp_path / "rows.csv"
     path.write_text("id,text,kind\na,alpha,A\nb,beta,B\nc,gamma,C\n")
@@ -82,7 +83,9 @@ def test_document_batch_preserves_absolute_rows(
     )
     assert processor.validate_csv_format(str(path))["is_valid"]
     result: DocumentBatch = processor.load_documents_bulk(
-        str(path), start_row=1, max_rows=1
+        str(path),
+        start_row=1,
+        max_rows=1,
     )
     assert result["documents"] == [
         {
@@ -90,7 +93,7 @@ def test_document_batch_preserves_absolute_rows(
             "doc_id": "b" if id_column else "row_1",
             "row_index": 1,
             "metadata": {"kind": "B", **({} if id_column else {"id": "b"})},
-        }
+        },
     ]
     assert result["metadata"]["total_documents"] == 1
 
@@ -122,7 +125,7 @@ def test_missing_csv_text_is_not_a_document(tmp_path: Path) -> None:
     path: Path = tmp_path / "rows.csv"
     path.write_text("id,text\na,\nb,valid\n")
     documents: list[CSVDocument] = DocumentCSVProcessor("text").load_documents_bulk(
-        str(path)
+        str(path),
     )["documents"]
     texts: list[str] = [document["text"] for document in documents]
     if texts == ["nan", "valid"]:
@@ -135,14 +138,16 @@ def test_medical_template_roundtrip_and_section_filter(tmp_path: Path) -> None:
     path: Path = tmp_path / "reports.csv"
     processor.create_csv_template(str(path), num_sample_rows=6)
     result: MedicalReportBatch = processor.load_reports_bulk(
-        str(path), start_row=1, max_rows=2
+        str(path),
+        start_row=1,
+        max_rows=2,
     )
     assert result["metadata"]["total_reports"] == 2
     assert result["reports"][0]["metadata"]["patient_id"] == "PAT002"
     assert result["reports"][0]["row_index"] == 1
     assert "chief_complaint" in result["reports"][0]["sections"]
     path.write_text(
-        "patient_id|chief_complaint|discharge_diagnosis\nP1|short|   Long enough diagnosis  \n"
+        "patient_id|chief_complaint|discharge_diagnosis\nP1|short|   Long enough diagnosis  \n",
     )
     report: MedicalReport = processor.load_reports_bulk(str(path))["reports"][0]
     assert report["sections"] == {"discharge_diagnosis": "Long enough diagnosis"}
@@ -165,7 +170,9 @@ def test_medical_invalid_input(tmp_path: Path, content: str) -> None:
     [("true", "bolt://neo4j:7687"), ("false", "bolt://localhost:7687")],
 )
 def test_loader_constructor(
-    monkeypatch: pytest.MonkeyPatch, docker: str, expected: str
+    monkeypatch: pytest.MonkeyPatch,
+    docker: str,
+    expected: str,
 ) -> None:
     monkeypatch.setenv("NEO4J_URI", "bolt://neo4j:7687")
     monkeypatch.setenv("DOCKER_ENV", docker)
@@ -175,7 +182,8 @@ def test_loader_constructor(
 
 
 def test_loader_ontology_and_graph(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loader: KGLoader = KGLoader()
     ontology: LoaderOntology = {
@@ -186,7 +194,8 @@ def test_loader_ontology_and_graph(
     path.write_text(json.dumps(ontology))
     assert loader._load_ontology(str(path)) == ontology
     nodes, groups, edges = loader._create_graph_with_ontology(
-        "fever fever pain a", ontology
+        "fever fever pain a",
+        ontology,
     )
     assert {n["label"] for n in nodes} == {"Fever", "Pain"}
     assert (
@@ -210,7 +219,9 @@ def test_loader_ontology_and_graph(
 
 @pytest.mark.parametrize("filename", ["graph", "nested/graph.json"])
 def test_loader_file_roundtrip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    filename: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     data: dict[str, list[dict[str, str]]] = {
@@ -227,14 +238,16 @@ def test_loader_file_roundtrip(
 
 
 def test_loader_pdf_success_and_failures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     reader: SimpleNamespace = SimpleNamespace(
-        pages=[SimpleNamespace(extract_text=lambda: "fever pain")]
+        pages=[SimpleNamespace(extract_text=lambda: "fever pain")],
     )
     monkeypatch.setattr(kg_loader, "PdfReader", Mock(return_value=reader))
     result: PDFLoadSuccess | LoaderFailure = KGLoader().load_from_pdf(
-        str(tmp_path / "doc.pdf"), str(tmp_path / "missing.json")
+        str(tmp_path / "doc.pdf"),
+        str(tmp_path / "missing.json"),
     )
     assert result["status"] == "success"
     assert result["filename"] == "doc.pdf"
@@ -246,7 +259,9 @@ def test_loader_pdf_success_and_failures(
 
 @pytest.mark.parametrize("authenticated,agent", [(False, False), (True, True)])
 def test_graph_driver_environment_and_connectivity(
-    monkeypatch: pytest.MonkeyPatch, authenticated: bool, agent: bool
+    monkeypatch: pytest.MonkeyPatch,
+    authenticated: bool,
+    agent: bool,
 ) -> None:
     for name, value in {
         "NEO4J_URI": "bolt://unit.invalid",
@@ -304,14 +319,20 @@ def test_shared_embedding_delegation(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_shared_merge_maps_identity_and_relationship_properties() -> None:
     graph: Mock = Mock()
     a: MergeNodeFixture = MergeNodeFixture(
-        id="a", type="Disease", properties={"id": "wrong", "name": "A"}
+        id="a",
+        type="Disease",
+        properties={"id": "wrong", "name": "A"},
     )
     b: MergeNodeFixture = MergeNodeFixture(id="b", type="Drug", properties={})
     rel: MergeRelationshipFixture = MergeRelationshipFixture(
-        source=b, target=a, type="may-treat condition", properties={"confidence": 0.8}
+        source=b,
+        target=a,
+        type="may-treat condition",
+        properties={"confidence": 0.8},
     )
     common_fn._add_graph_documents_with_merge(
-        graph, [MergeDocumentFixture(nodes=[a, b], relationships=[rel])]
+        graph,
+        [MergeDocumentFixture(nodes=[a, b], relationships=[rel])],
     )
     calls: list[_Call] = graph.query.call_args_list
     assert calls[0].args[1]["properties"] == {"id": "a", "name": "A"}
@@ -359,7 +380,7 @@ def test_loader_database_read_serializes_graph_and_closes(
         QueryResult([{"rel_count": 2}]),
         QueryResult([{"node": a}, {"node": b}, {}]),
         QueryResult(
-            [{"r": rel, "start": a, "end": b}, {"r": rel, "start": b, "end": missing}]
+            [{"r": rel, "start": a, "end": b}, {"r": rel, "start": b, "end": missing}],
         ),
     ]
     driver: Mock = Mock()
@@ -375,7 +396,10 @@ def test_loader_database_read_serializes_graph_and_closes(
     if limit is not None:
         options["limit"] = limit
     result: ImportedGraph | LoaderFailure = KGLoader().load_from_neo4j(
-        "bolt://unit.invalid", "u", "p", **options
+        "bolt://unit.invalid",
+        "u",
+        "p",
+        **options,
     )
     assert result["status"] == "success"
     assert result["loaded_nodes"] == 2
@@ -390,14 +414,17 @@ def test_loader_database_read_serializes_graph_and_closes(
 
 
 def test_loader_database_failure_still_closes(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     driver: Mock = Mock()
     driver.verify_connectivity.side_effect = RuntimeError("offline")
     monkeypatch.setattr(GraphDatabase, "driver", Mock(return_value=driver))
     monkeypatch.setattr(kg_loader, "__file__", str(tmp_path / "kg_loader.py"))
     result: ImportedGraph | LoaderFailure = KGLoader().load_from_neo4j(
-        "bolt://unit.invalid", "u", "p"
+        "bolt://unit.invalid",
+        "u",
+        "p",
     )
     assert result["details"]["error_type"] == "RuntimeError"
     driver.close.assert_called_once()
@@ -405,7 +432,8 @@ def test_loader_database_failure_still_closes(
 
 @pytest.mark.parametrize("label", [None, "Disease"])
 def test_loader_sample_filters_dangling_relationships(
-    monkeypatch: pytest.MonkeyPatch, label: str | None
+    monkeypatch: pytest.MonkeyPatch,
+    label: str | None,
 ) -> None:
     a: GraphNode = GraphNode(1, name="A", custom=Path("value"))
     rel: GraphNode = GraphNode(2, custom=Path("value"))
@@ -416,11 +444,14 @@ def test_loader_sample_filters_dangling_relationships(
             [
                 {"r": rel, "start": a, "end": a},
                 {"r": rel, "start": a, "end": GraphNode(99)},
-            ]
+            ],
         ),
     ]
     result: ImportedGraph | LoaderFailure = KGLoader()._load_neo4j_sample(
-        session, label or "", 2000, 4000
+        session,
+        label or "",
+        2000,
+        4000,
     )
     assert result["loaded_nodes"] == 1
     assert result["loaded_relationships"] == 1
@@ -435,7 +466,8 @@ def test_loader_sample_filters_dangling_relationships(
 
 @pytest.mark.parametrize("clear", [True, False])
 def test_loader_save_merge_keys_relationships_and_explicit_clear(
-    monkeypatch: pytest.MonkeyPatch, clear: bool
+    monkeypatch: pytest.MonkeyPatch,
+    clear: bool,
 ) -> None:
     from unittest.mock import MagicMock
 
@@ -456,7 +488,11 @@ def test_loader_save_merge_keys_relationships_and_explicit_clear(
         ],
     }
     result: GraphSaveSuccess | LoaderFailure = KGLoader().save_to_neo4j(
-        "bolt://unit.invalid", "u", "p", data, clear_database=clear
+        "bolt://unit.invalid",
+        "u",
+        "p",
+        data,
+        clear_database=clear,
     )
     assert result["status"] == "success"
     calls: list[_Call] = session.run.call_args_list
@@ -493,12 +529,14 @@ def test_legacy_chunking_page_metadata_and_cap(monkeypatch: pytest.MonkeyPatch) 
         Document(page_content=f"page {i}", metadata={"page": i}) for i in range(4)
     ]
     result: list[Document] = create_chunks.CreateChunksofDocument(
-        pages, Mock()
+        pages,
+        Mock(),
     ).split_file_into_chunks(4000, 0)
     assert [d.page_content for d in result] == ["page 0", "page 1"]
     assert [d.metadata["page_number"] for d in result] == [1, 2]
     docs: list[Document] = [Document(page_content="plain")]
     result = create_chunks.CreateChunksofDocument(docs, Mock()).split_file_into_chunks(
-        100, 0
+        100,
+        0,
     )
     assert result[0].page_content == "plain"

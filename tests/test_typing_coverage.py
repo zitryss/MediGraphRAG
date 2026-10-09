@@ -61,7 +61,8 @@ def test_syntax_constrained_bindings_are_separate_from_explicit_annotations() ->
 
 def test_any_is_not_explicit_precision() -> None:
     bindings: list[Binding] = inspect_source(
-        "from typing import Any\nx: Any = 1\n", "fixture.py"
+        "from typing import Any\nx: Any = 1\n",
+        "fixture.py",
     )
     assert any(binding.category == "dynamic" for binding in bindings)
 
@@ -137,7 +138,8 @@ def test_pattern_captures_are_syntax_constrained() -> None:
 
 def test_default_walrus_belongs_to_enclosing_scope() -> None:
     bindings: list[Binding] = inspect_source(
-        "def f(value: int = (default := 1)) -> None:\n    pass\n", "fixture.py"
+        "def f(value: int = (default := 1)) -> None:\n    pass\n",
+        "fixture.py",
     )
     assert any(
         binding.symbol == "default" and binding.scope == "<module>"
@@ -152,7 +154,8 @@ def test_fingerprint_tracks_changed_assignment_contract() -> None:
 
 
 @pytest.mark.parametrize(
-    "change", ["pending", "expired", "fingerprint", "unused", "duplicate"]
+    "change",
+    ["pending", "expired", "fingerprint", "unused", "duplicate"],
 )
 def test_exception_ledger_fails_closed(change: str) -> None:
     bindings: list[Binding] = inspect_source("x = 1\n", "fixture.py")
@@ -212,7 +215,8 @@ def test_malformed_exception_ledger_rejected(value: object) -> None:
 
 def test_type_variable_is_a_definition_not_an_untyped_value() -> None:
     bindings: list[Binding] = inspect_source(
-        'from typing import TypeVar\nT = TypeVar("T")\n', "fixture.py"
+        'from typing import TypeVar\nT = TypeVar("T")\n',
+        "fixture.py",
     )
     assert any(
         binding.symbol == "T" and binding.kind == "type-definition"
@@ -407,7 +411,8 @@ def test_discovery_includes_new_source_and_stubs(tmp_path: Path) -> None:
     source.write_text("value: int = 1\n")
     stub.write_text("value: int\n")
     with patch(
-        "scripts.check_typing_coverage.subprocess.check_output", return_value=b""
+        "scripts.check_typing_coverage.subprocess.check_output",
+        return_value=b"",
     ):
         assert discover(tmp_path) == sorted([source, stub])
 
@@ -415,7 +420,8 @@ def test_discovery_includes_new_source_and_stubs(tmp_path: Path) -> None:
 def test_discovery_rejects_empty_scope(tmp_path: Path) -> None:
     with (
         patch(
-            "scripts.check_typing_coverage.subprocess.check_output", return_value=b""
+            "scripts.check_typing_coverage.subprocess.check_output",
+            return_value=b"",
         ),
         pytest.raises(ValueError, match="No maintained Python files"),
     ):

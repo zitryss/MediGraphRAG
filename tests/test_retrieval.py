@@ -18,10 +18,12 @@ from typing import TYPE_CHECKING, Never, TypedDict, Unpack
 import pytest
 
 pytest.importorskip(
-    "langchain_neo4j", reason="langchain_neo4j not installed — skipping retrieval tests"
+    "langchain_neo4j",
+    reason="langchain_neo4j not installed — skipping retrieval tests",
 )
 pytest.importorskip(
-    "langchain", reason="langchain not installed — skipping retrieval tests"
+    "langchain",
+    reason="langchain not installed — skipping retrieval tests",
 )
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -118,7 +120,7 @@ class TestClassifyQuestionType:
     def test_what_percentage_is_statistical(self) -> None:
         assert (
             self.sys_.classify_question_type(
-                "What percentage of cases respond to metformin?"
+                "What percentage of cases respond to metformin?",
             )
             == "statistical"
         )
@@ -126,7 +128,7 @@ class TestClassifyQuestionType:
     def test_explain_is_semantic(self) -> None:
         assert (
             self.sys_.classify_question_type(
-                "Explain the mechanism of insulin resistance."
+                "Explain the mechanism of insulin resistance.",
             )
             == "semantic"
         )
@@ -159,7 +161,8 @@ class TestGroundingQuality:
     def test_perfect_grounding_capped_at_1(self) -> None:
         # 3 content words, 5 matched → capped at 1.0
         score: float = EnhancedRAGSystem._grounding_quality(
-            "Metformin treats diabetes", 5
+            "Metformin treats diabetes",
+            5,
         )
         assert score == 1.0
 
@@ -167,13 +170,15 @@ class TestGroundingQuality:
         # "Metformin treats diabetes" has 3 content words (>=4 chars: Metformin, treats, diabetes)
         # 1 matched → 1/3
         score: float = EnhancedRAGSystem._grounding_quality(
-            "Metformin treats diabetes", 1
+            "Metformin treats diabetes",
+            1,
         )
         assert abs(score - 1 / 3) < 1e-9
 
     def test_zero_matched_returns_0(self) -> None:
         score: float = EnhancedRAGSystem._grounding_quality(
-            "Metformin treats diabetes", 0
+            "Metformin treats diabetes",
+            0,
         )
         assert score == 0.0
 
@@ -189,7 +194,8 @@ class TestGroundingQuality:
     def test_output_in_unit_interval(self) -> None:
         for n in range(6):
             score: float = EnhancedRAGSystem._grounding_quality(
-                "Aspirin reduces fever inflammation", n
+                "Aspirin reduces fever inflammation",
+                n,
             )
             assert 0.0 <= score <= 1.0
 
@@ -258,7 +264,9 @@ class TestQuestionLocalGraphScope:
                 self.params: dict[str, object] | None = None
 
             def query(
-                self, query: str, params: dict[str, object] | None
+                self,
+                query: str,
+                params: dict[str, object] | None,
             ) -> list[dict[str, object]]:
                 self.query_text = query
                 self.params = params
@@ -288,7 +296,9 @@ class TestQuestionLocalGraphScope:
                 self.params: dict[str, object] | None = None
 
             def query(
-                self, query: str, params: dict[str, object] | None
+                self,
+                query: str,
+                params: dict[str, object] | None,
             ) -> list[dict[str, object]]:
                 self.query_text = query
                 self.params = params
@@ -318,7 +328,7 @@ class TestQuestionLocalGraphScope:
                     "position": 10,
                     "question_id": "q1",
                     "passage_index": 0,
-                }
+                },
             ],
             "entities": {
                 "e1": {"id": "e1"},
@@ -376,10 +386,12 @@ class TestDecomposeQuestion:
 
     def test_valid_json_array_returned(self) -> None:
         llm: RunnableLambda[object, str] = self._llm(
-            '["Who founded CRISPR?", "What country are they from?"]'
+            '["Who founded CRISPR?", "What country are they from?"]',
         )
         result: list[str] = self.sys_._decompose_question(
-            "Multi hop question?", llm, max_hops=2
+            "Multi hop question?",
+            llm,
+            max_hops=2,
         )
         assert isinstance(result, list)
         assert len(result) == 2
@@ -388,14 +400,18 @@ class TestDecomposeQuestion:
     def test_malformed_json_falls_back_to_original(self) -> None:
         llm: RunnableLambda[object, str] = self._llm("I cannot decompose this.")
         result: list[str] = self.sys_._decompose_question(
-            "Original question?", llm, max_hops=2
+            "Original question?",
+            llm,
+            max_hops=2,
         )
         assert result == ["Original question?"]
 
     def test_empty_response_falls_back(self) -> None:
         llm: RunnableLambda[object, str] = self._llm("")
         result: list[str] = self.sys_._decompose_question(
-            "Some question?", llm, max_hops=2
+            "Some question?",
+            llm,
+            max_hops=2,
         )
         assert result == ["Some question?"]
 
@@ -403,7 +419,9 @@ class TestDecomposeQuestion:
         # Needs >= 2 sub-questions; single-item signals LLM didn't decompose
         llm: RunnableLambda[object, str] = self._llm('["Only one question?"]')
         result: list[str] = self.sys_._decompose_question(
-            "Some question?", llm, max_hops=2
+            "Some question?",
+            llm,
+            max_hops=2,
         )
         assert result == ["Some question?"]
 
@@ -411,7 +429,9 @@ class TestDecomposeQuestion:
         many: str = '["Q1?", "Q2?", "Q3?", "Q4?", "Q5?"]'
         llm: RunnableLambda[object, str] = self._llm(many)
         result: list[str] = self.sys_._decompose_question(
-            "Multi hop question?", llm, max_hops=3
+            "Multi hop question?",
+            llm,
+            max_hops=3,
         )
         assert len(result) <= 3
 
@@ -449,11 +469,12 @@ class TestExtractQueryEntities:
                     "France",
                     "University of Paris",
                     "Marie Curie",
-                ]
-            )
+                ],
+            ),
         )
         result: list[str] = self.sys_._extract_query_entities(
-            "Who was Marie Curie?", llm
+            "Who was Marie Curie?",
+            llm,
         )
 
         assert (
@@ -532,7 +553,9 @@ class TestVanillaQuestionScopedRetrieval:
                 self.queries: list[tuple[str, dict[str, object]]] = []
 
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 self.queries.append((query, params or {}))
                 if "RETURN count(c) as chunk_count" in query:
@@ -554,7 +577,7 @@ class TestVanillaQuestionScopedRetrieval:
                             "score": 0.9,
                             "document": "hotpotqa",
                             "kg_name": "hotpotqa",
-                        }
+                        },
                     ]
                 return []
 
@@ -606,7 +629,9 @@ class TestVanillaQuestionScopedRetrieval:
                 self.queries: list[tuple[str, dict[str, object]]] = []
 
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 self.queries.append((query, params or {}))
                 if "RETURN count(c) as chunk_count" in query:
@@ -627,7 +652,7 @@ class TestVanillaQuestionScopedRetrieval:
                             "score": 0.92,
                             "document": "hotpotqa",
                             "kg_name": "hotpotqa",
-                        }
+                        },
                     ]
                 return []
 
@@ -679,7 +704,9 @@ class TestEnhancedQuestionScopedVectorRetrieval:
                 self.queries: list[tuple[str, dict[str, object]]] = []
 
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 self.queries.append((query, params or {}))
                 if "CALL db.index.vector.queryNodes('retrieval_vector'" in query:
@@ -700,7 +727,7 @@ class TestEnhancedQuestionScopedVectorRetrieval:
                             "document": "hotpotqa",
                             "kg_name": "hotpotqa",
                             "entities": [],
-                        }
+                        },
                     ]
                 return []
 
@@ -747,7 +774,9 @@ class TestEnhancedQuestionScopedVectorRetrieval:
                 self.queries: list[tuple[str, dict[str, object]]] = []
 
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 self.queries.append((query, params or {}))
                 if "CALL db.index.vector.queryNodes('retrieval_vector'" in query:
@@ -767,7 +796,7 @@ class TestEnhancedQuestionScopedVectorRetrieval:
                             "document": "hotpotqa",
                             "kg_name": "hotpotqa",
                             "entities": [],
-                        }
+                        },
                     ]
                 return []
 
@@ -792,7 +821,8 @@ class TestEnhancedQuestionScopedVectorRetrieval:
 
 class TestLateInteractionFirstStageRetrieval:
     def test_enhanced_semantic_search_prefers_late_interaction_backend(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         system: EnhancedRAGSystem = _make_system()
         system.retrieval_mode = "vector_only"
@@ -802,7 +832,9 @@ class TestLateInteractionFirstStageRetrieval:
 
         class FakeGraph:
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 if "RETURN count(c) as chunk_count" in query:
                     return [{"chunk_count": 1}]
@@ -812,7 +844,8 @@ class TestLateInteractionFirstStageRetrieval:
         system._create_neo4j_connection = lambda: graph
 
         def fake_late_interaction_search(
-            *args: object, **kwargs: object
+            *args: object,
+            **kwargs: object,
         ) -> "RetrievalContext":
             return {
                 "query": "Question?",
@@ -822,7 +855,7 @@ class TestLateInteractionFirstStageRetrieval:
                         "chunk_id": "c1",
                         "score": 0.7,
                         "document": "doc",
-                    }
+                    },
                 ],
                 "entities": {},
                 "relationships": [],
@@ -838,20 +871,24 @@ class TestLateInteractionFirstStageRetrieval:
         system._late_interaction_search = fake_late_interaction_search
 
         context: ProducedGraphRetrievalContext = system.get_rag_context(
-            "Question?", max_chunks=1, llm=None
+            "Question?",
+            max_chunks=1,
+            llm=None,
         )
 
         assert context["search_method"] == "late_interaction_similarity"
         assert context["chunks"][0]["text"] == "Late interaction evidence."
 
     def test_enhanced_semantic_search_falls_back_to_vector_when_late_interaction_empty(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         system: EnhancedRAGSystem = _make_system()
         system._first_stage_late_interaction_enabled = lambda: True
 
         def fake_late_interaction_search(
-            *args: object, **kwargs: object
+            *args: object,
+            **kwargs: object,
         ) -> "RetrievalContext":
             return {
                 "query": "Question?",
@@ -867,7 +904,8 @@ class TestLateInteractionFirstStageRetrieval:
         system._late_interaction_search = fake_late_interaction_search
 
         def fake_vector_similarity_search(
-            *args: object, **kwargs: object
+            *args: object,
+            **kwargs: object,
         ) -> "RetrievalContext":
             return {
                 "query": "Question?",
@@ -877,7 +915,7 @@ class TestLateInteractionFirstStageRetrieval:
                         "chunk_id": "c1",
                         "score": 0.8,
                         "document": "doc",
-                    }
+                    },
                 ],
                 "entities": {},
                 "relationships": [],
@@ -902,7 +940,8 @@ class TestLateInteractionFirstStageRetrieval:
         assert context["chunks"][0]["text"] == "Vector fallback."
 
     def test_enhanced_late_interaction_unapplied_returns_empty(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         system: EnhancedRAGSystem = _make_system()
 
@@ -912,7 +951,8 @@ class TestLateInteractionFirstStageRetrieval:
         system._late_interaction_scope_key = fake_late_interaction_scope_key
 
         def fake_late_interaction_corpus_rows(
-            *args: object, **kwargs: object
+            *args: object,
+            **kwargs: object,
         ) -> "list[RetrievedChunk]":
             return [
                 {
@@ -921,14 +961,16 @@ class TestLateInteractionFirstStageRetrieval:
                     "chunk_element_id": "ce1",
                     "document": "doc",
                     "entities": [],
-                }
+                },
             ]
 
         system._late_interaction_corpus_rows = fake_late_interaction_corpus_rows
         import ontographrag.rag.systems._vector_search as vector_search_module
 
         def fake_late_interaction_rescore_chunks_for_query(
-            query: "object", chunks: "list[RetrievedChunk]", **kwargs: "object"
+            query: "object",
+            chunks: "list[RetrievedChunk]",
+            **kwargs: "object",
         ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
             return (
                 list(chunks),
@@ -942,7 +984,9 @@ class TestLateInteractionFirstStageRetrieval:
         )
 
         context: GraphRetrievalContext = system._late_interaction_search(
-            object(), "Question?", max_chunks=1
+            object(),
+            "Question?",
+            max_chunks=1,
         )
 
         assert context["chunks"] == []
@@ -961,7 +1005,8 @@ class TestLateInteractionFirstStageRetrieval:
         system._late_interaction_search = fake_late_interaction_search
 
         def fake_vector_similarity_search(
-            *args: object, **kwargs: object
+            *args: object,
+            **kwargs: object,
         ) -> "RetrievalContext":
             return {
                 "query": "Question?",
@@ -971,7 +1016,7 @@ class TestLateInteractionFirstStageRetrieval:
                         "chunk_id": "c1",
                         "score": 0.8,
                         "document": "doc",
-                    }
+                    },
                 ],
                 "entities": {},
                 "relationships": [],
@@ -997,7 +1042,8 @@ class TestLateInteractionFirstStageRetrieval:
         assert context["chunks"][0]["text"] == "Dense floor."
 
     def test_vanilla_late_interaction_unapplied_returns_empty(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         system: VanillaRAGSystem = VanillaRAGSystem.__new__(VanillaRAGSystem)
 
@@ -1007,7 +1053,8 @@ class TestLateInteractionFirstStageRetrieval:
         system._late_interaction_scope_key = fake_late_interaction_scope_key
 
         def fake_late_interaction_corpus_rows(
-            *args: object, **kwargs: object
+            *args: object,
+            **kwargs: object,
         ) -> "list[RetrievedChunk]":
             return [
                 {
@@ -1015,13 +1062,15 @@ class TestLateInteractionFirstStageRetrieval:
                     "chunk_id": "c1",
                     "chunk_element_id": "ce1",
                     "document": "doc",
-                }
+                },
             ]
 
         system._late_interaction_corpus_rows = fake_late_interaction_corpus_rows
 
         def fake_late_interaction_rescore_chunks_for_query(
-            query: "object", chunks: "list[RetrievedChunk]", **kwargs: "object"
+            query: "object",
+            chunks: "list[RetrievedChunk]",
+            **kwargs: "object",
         ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
             return (
                 list(chunks),
@@ -1035,7 +1084,9 @@ class TestLateInteractionFirstStageRetrieval:
         )
 
         context: ScoredCompleteRetrievalContext = system._late_interaction_search(
-            object(), "Question?", max_chunks=1
+            object(),
+            "Question?",
+            max_chunks=1,
         )
 
         assert context["chunks"] == []
@@ -1043,14 +1094,17 @@ class TestLateInteractionFirstStageRetrieval:
         assert context["late_interaction_stage"]["reason"] == "model_unavailable"
 
     def test_vanilla_context_prefers_late_interaction_backend(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         system: VanillaRAGSystem = VanillaRAGSystem.__new__(VanillaRAGSystem)
         system._first_stage_late_interaction_enabled = lambda: True
 
         class FakeGraph:
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 if "RETURN count(c) as chunk_count" in query:
                     return [{"chunk_count": 1}]
@@ -1060,7 +1114,8 @@ class TestLateInteractionFirstStageRetrieval:
         system._create_neo4j_connection = lambda: graph
 
         def fake_late_interaction_search(
-            *args: object, **kwargs: object
+            *args: object,
+            **kwargs: object,
         ) -> "RetrievalContext":
             return {
                 "query": "Question?",
@@ -1070,7 +1125,7 @@ class TestLateInteractionFirstStageRetrieval:
                         "chunk_id": "c1",
                         "score": 0.7,
                         "document": "doc",
-                    }
+                    },
                 ],
                 "documents": ["doc"],
                 "total_score": 0.7,
@@ -1080,7 +1135,8 @@ class TestLateInteractionFirstStageRetrieval:
         system._late_interaction_search = fake_late_interaction_search
 
         context: ScoredCompleteRetrievalContext = system.get_vanilla_rag_context(
-            "Question?", max_chunks=1
+            "Question?",
+            max_chunks=1,
         )
 
         assert context["search_method"] == "vanilla_late_interaction_similarity"
@@ -1096,7 +1152,9 @@ class TestEnhancedAdjacentChunkRecovery:
                 self.queries: list[tuple[str, dict[str, object]]] = []
 
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 self.queries.append((query, params or {}))
                 return [
@@ -1118,9 +1176,9 @@ class TestEnhancedAdjacentChunkRecovery:
                                 "element_id": "entity-el-2",
                                 "type": "Entity",
                                 "description": "Rome",
-                            }
+                            },
                         ],
-                    }
+                    },
                 ]
 
         graph: FakeGraph = FakeGraph()
@@ -1138,7 +1196,7 @@ class TestEnhancedAdjacentChunkRecovery:
                     "kg_name": "hotpotqa",
                     "score": 0.9,
                     "linked_entity_ids": ["entity-1"],
-                }
+                },
             ],
             "documents": ["hotpotqa"],
         }
@@ -1172,7 +1230,9 @@ class TestDocumentScopedEnhancedRetrieval:
 
         class FakeGraph:
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 if "RETURN count(c) as chunk_count" in query:
                     return [{"chunk_count": 1}]
@@ -1205,7 +1265,7 @@ class TestDocumentScopedEnhancedRetrieval:
                         "chunk_id": "c1",
                         "linked_entity_ids": ["e1"],
                         "document": "doc_a.txt",
-                    }
+                    },
                 ],
                 "entities": {"e1": {"id": "e1"}},
                 "relationships": [],
@@ -1270,7 +1330,7 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(
                 "document": "2wikimultihopqa",
                 "linked_entity_ids": [],
                 "linked_entity_count": 0,
-            }
+            },
         ],
         "entities": {},
         "relationships": [],
@@ -1293,7 +1353,7 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(
                 "document": "2wikimultihopqa",
                 "linked_entity_ids": [],
                 "linked_entity_count": 0,
-            }
+            },
         ],
         "entities": {},
         "relationships": [],
@@ -1307,7 +1367,8 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(
     }
 
     def fake_create_neo4j_connection(
-        *_args: object, **_kwargs: "object"
+        *_args: object,
+        **_kwargs: "object",
     ) -> "list[dict[str, object]]":
         return []
 
@@ -1321,7 +1382,9 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(
         return True
 
     monkeypatch.setattr(
-        system, "_should_run_query_fusion", fake_should_run_query_fusion
+        system,
+        "_should_run_query_fusion",
+        fake_should_run_query_fusion,
     )
 
     def fake_generate_query_variants(*args: object, **kwargs: object) -> "list[str]":
@@ -1367,7 +1430,8 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(
     )
 
     def fake_extract_used_entities_and_chunks(
-        response: "object", context: "object"
+        response: "object",
+        context: "object",
     ) -> "UsedEvidence":
         return {"used_entities": [], "used_chunks": [], "reasoning_edges": []}
 
@@ -1378,7 +1442,9 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(
     )
 
     result: GenerationResponse = system.generate_response(
-        question, llm=object(), max_hops=1
+        question,
+        llm=object(),
+        max_hops=1,
     )
 
     assert "Riding the California Trail" in result["response"]
@@ -1400,7 +1466,7 @@ def test_vanilla_query_fusion_supplements_missing_comparison_branch(
                 "chunk_element_id": "ce1",
                 "score": 0.9,
                 "document": "2wikimultihopqa",
-            }
+            },
         ],
         "documents": ["2wikimultihopqa"],
         "total_score": 0.9,
@@ -1415,7 +1481,7 @@ def test_vanilla_query_fusion_supplements_missing_comparison_branch(
                 "chunk_element_id": "ce2",
                 "score": 0.7,
                 "document": "2wikimultihopqa",
-            }
+            },
         ],
         "documents": ["2wikimultihopqa"],
         "total_score": 0.7,
@@ -1426,7 +1492,9 @@ def test_vanilla_query_fusion_supplements_missing_comparison_branch(
         return True
 
     monkeypatch.setattr(
-        system, "_should_run_query_fusion", fake_should_run_query_fusion
+        system,
+        "_should_run_query_fusion",
+        fake_should_run_query_fusion,
     )
 
     def fake_generate_query_variants(*args: object, **kwargs: object) -> "list[str]":
@@ -1439,7 +1507,8 @@ def test_vanilla_query_fusion_supplements_missing_comparison_branch(
     )
 
     def fake_get_vanilla_rag_context(
-        query: "str", **kwargs: object
+        query: "str",
+        **kwargs: object,
     ) -> "RetrievalContext":
         return variant_context if query == "focus lost branch" else base_context
 
@@ -1470,7 +1539,9 @@ def test_vanilla_query_fusion_supplements_missing_comparison_branch(
     )
 
     result: GenerationResponse = system.generate_response(
-        question, llm=object(), max_chunks=4
+        question,
+        llm=object(),
+        max_chunks=4,
     )
 
     assert "Riding the California Trail" in result["response"]
@@ -1521,11 +1592,14 @@ def test_enhanced_generate_response_respects_reranker_order(
         return False
 
     monkeypatch.setattr(
-        system, "_should_run_query_fusion", fake_should_run_query_fusion
+        system,
+        "_should_run_query_fusion",
+        fake_should_run_query_fusion,
     )
 
     def fake_create_neo4j_connection(
-        *_args: object, **_kwargs: "object"
+        *_args: object,
+        **_kwargs: "object",
     ) -> "list[dict[str, object]]":
         return []
 
@@ -1536,7 +1610,9 @@ def test_enhanced_generate_response_respects_reranker_order(
     )
 
     def fake_late_interaction_rescore_chunks_for_query(
-        query: "object", chunks: "list[RetrievedChunk]", max_chunks: "object" = None
+        query: "object",
+        chunks: "list[RetrievedChunk]",
+        max_chunks: "object" = None,
     ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
         return (chunks, {"enabled": False, "applied": False, "reason": "disabled"})
 
@@ -1547,7 +1623,9 @@ def test_enhanced_generate_response_respects_reranker_order(
     )
 
     def fake_rerank_chunks_for_query(
-        query: "object", chunks: "list[RetrievedChunk]", max_chunks: "object" = None
+        query: "object",
+        chunks: "list[RetrievedChunk]",
+        max_chunks: "object" = None,
     ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
         return (
             [chunks[1], chunks[0]],
@@ -1585,7 +1663,8 @@ def test_enhanced_generate_response_respects_reranker_order(
     )
 
     def fake_extract_used_entities_and_chunks(
-        response: "object", context: "object"
+        response: "object",
+        context: "object",
     ) -> "UsedEvidence":
         return {"used_entities": [], "used_chunks": [], "reasoning_edges": []}
 
@@ -1596,7 +1675,9 @@ def test_enhanced_generate_response_respects_reranker_order(
     )
 
     result: GenerationResponse = system.generate_response(
-        "Who directed Lost and Delirious?", llm=object(), max_hops=1
+        "Who directed Lost and Delirious?",
+        llm=object(),
+        max_hops=1,
     )
 
     assert result["response"].startswith("Lost and Delirious is directed by Lea Pool.")
@@ -1633,7 +1714,8 @@ def test_vanilla_generate_response_respects_reranker_order(
     }
 
     def fake_get_vanilla_rag_context(
-        *args: object, **kwargs: object
+        *args: object,
+        **kwargs: object,
     ) -> "RetrievalContext":
         return context
 
@@ -1643,11 +1725,15 @@ def test_vanilla_generate_response_respects_reranker_order(
         return False
 
     monkeypatch.setattr(
-        system, "_should_run_query_fusion", fake_should_run_query_fusion
+        system,
+        "_should_run_query_fusion",
+        fake_should_run_query_fusion,
     )
 
     def fake_late_interaction_rescore_chunks_for_query(
-        query: "object", chunks: "list[RetrievedChunk]", max_chunks: "object" = None
+        query: "object",
+        chunks: "list[RetrievedChunk]",
+        max_chunks: "object" = None,
     ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
         return (chunks, {"enabled": False, "applied": False, "reason": "disabled"})
 
@@ -1658,7 +1744,9 @@ def test_vanilla_generate_response_respects_reranker_order(
     )
 
     def fake_rerank_chunks_for_query(
-        query: "object", chunks: "list[RetrievedChunk]", max_chunks: "object" = None
+        query: "object",
+        chunks: "list[RetrievedChunk]",
+        max_chunks: "object" = None,
     ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
         return (
             [chunks[1], chunks[0]],
@@ -1692,7 +1780,9 @@ def test_vanilla_generate_response_respects_reranker_order(
     )
 
     result: GenerationResponse = system.generate_response(
-        "Who directed Lost and Delirious?", llm=object(), max_chunks=4
+        "Who directed Lost and Delirious?",
+        llm=object(),
+        max_chunks=4,
     )
 
     assert result["response"].startswith("Lost and Delirious is directed by Lea Pool.")
@@ -1743,11 +1833,14 @@ def test_enhanced_generate_response_respects_late_interaction_order(
         return False
 
     monkeypatch.setattr(
-        system, "_should_run_query_fusion", fake_should_run_query_fusion
+        system,
+        "_should_run_query_fusion",
+        fake_should_run_query_fusion,
     )
 
     def fake_create_neo4j_connection(
-        *_args: object, **_kwargs: "object"
+        *_args: object,
+        **_kwargs: "object",
     ) -> "list[dict[str, object]]":
         return []
 
@@ -1758,7 +1851,9 @@ def test_enhanced_generate_response_respects_late_interaction_order(
     )
 
     def fake_late_interaction_rescore_chunks_for_query(
-        query: "object", chunks: "list[RetrievedChunk]", max_chunks: "object" = None
+        query: "object",
+        chunks: "list[RetrievedChunk]",
+        max_chunks: "object" = None,
     ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
         return (
             [chunks[1], chunks[0]],
@@ -1772,7 +1867,9 @@ def test_enhanced_generate_response_respects_late_interaction_order(
     )
 
     def fake_rerank_chunks_for_query(
-        query: "object", chunks: "list[RetrievedChunk]", max_chunks: "object" = None
+        query: "object",
+        chunks: "list[RetrievedChunk]",
+        max_chunks: "object" = None,
     ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
         return (chunks, {"enabled": False, "applied": False, "reason": "disabled"})
 
@@ -1807,7 +1904,8 @@ def test_enhanced_generate_response_respects_late_interaction_order(
     )
 
     def fake_extract_used_entities_and_chunks(
-        response: "object", context: "object"
+        response: "object",
+        context: "object",
     ) -> "UsedEvidence":
         return {"used_entities": [], "used_chunks": [], "reasoning_edges": []}
 
@@ -1818,7 +1916,9 @@ def test_enhanced_generate_response_respects_late_interaction_order(
     )
 
     result: GenerationResponse = system.generate_response(
-        "Who directed Lost and Delirious?", llm=object(), max_hops=1
+        "Who directed Lost and Delirious?",
+        llm=object(),
+        max_hops=1,
     )
 
     assert result["response"].startswith("Lost and Delirious is directed by Lea Pool.")
@@ -1855,7 +1955,8 @@ def test_vanilla_generate_response_respects_late_interaction_order(
     }
 
     def fake_get_vanilla_rag_context(
-        *args: object, **kwargs: object
+        *args: object,
+        **kwargs: object,
     ) -> "RetrievalContext":
         return context
 
@@ -1865,11 +1966,15 @@ def test_vanilla_generate_response_respects_late_interaction_order(
         return False
 
     monkeypatch.setattr(
-        system, "_should_run_query_fusion", fake_should_run_query_fusion
+        system,
+        "_should_run_query_fusion",
+        fake_should_run_query_fusion,
     )
 
     def fake_late_interaction_rescore_chunks_for_query(
-        query: "object", chunks: "list[RetrievedChunk]", max_chunks: "object" = None
+        query: "object",
+        chunks: "list[RetrievedChunk]",
+        max_chunks: "object" = None,
     ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
         return (
             [chunks[1], chunks[0]],
@@ -1883,7 +1988,9 @@ def test_vanilla_generate_response_respects_late_interaction_order(
     )
 
     def fake_rerank_chunks_for_query(
-        query: "object", chunks: "list[RetrievedChunk]", max_chunks: "object" = None
+        query: "object",
+        chunks: "list[RetrievedChunk]",
+        max_chunks: "object" = None,
     ) -> "tuple[list[RetrievedChunk], RerankingMetadata]":
         return (chunks, {"enabled": False, "applied": False, "reason": "disabled"})
 
@@ -1914,7 +2021,9 @@ def test_vanilla_generate_response_respects_late_interaction_order(
     )
 
     result: GenerationResponse = system.generate_response(
-        "Who directed Lost and Delirious?", llm=object(), max_chunks=4
+        "Who directed Lost and Delirious?",
+        llm=object(),
+        max_chunks=4,
     )
 
     assert result["response"].startswith("Lost and Delirious is directed by Lea Pool.")
@@ -1944,8 +2053,8 @@ class TestFormatContextForLLM:
                     "document": "paper.txt",
                     "chunk_id": "c1",
                     "linked_entity_ids": [],
-                }
-            ]
+                },
+            ],
         )
         evidence_block, _, _ = self.sys_.format_context_for_llm(ctx)
         assert "Aspirin reduces fever." in evidence_block
@@ -1958,14 +2067,14 @@ class TestFormatContextForLLM:
                     "document": "paper.txt",
                     "chunk_id": "c1",
                     "linked_entity_ids": ["e1"],
-                }
+                },
             ],
             traversal_paths=[
                 {
                     "path": "Aspirin --TREATS--> Fever",
                     "hops": 1,
                     "node_ids": ["e1", "e2"],
-                }
+                },
             ],
         )
         evidence_block, _, _ = self.sys_.format_context_for_llm(ctx)
@@ -1984,7 +2093,7 @@ class TestFormatContextForLLM:
                     "chunk_id": "c1",
                     "linked_entity_ids": ["e1"],
                     "position": 7,
-                }
+                },
             ],
             traversal_paths=[
                 {
@@ -1992,7 +2101,7 @@ class TestFormatContextForLLM:
                     "hops": 1,
                     "node_ids": ["e1", "e2"],
                     "provenance_positions": [7],
-                }
+                },
             ],
         )
         evidence_block, _, _ = self.sys_.format_context_for_llm(ctx)
@@ -2007,7 +2116,7 @@ class TestFormatContextForLLM:
     def test_relationships_rendered_in_paths(self) -> None:
         ctx: RetrievalContext = _minimal_context(
             entities={
-                "e1": {"id": "Aspirin", "type": "Drug", "description": "Aspirin"}
+                "e1": {"id": "Aspirin", "type": "Drug", "description": "Aspirin"},
             },
             relationships=[{"source": "e1", "target": "e2", "type": "TREATS"}],
         )
@@ -2021,7 +2130,7 @@ class TestFormatContextForLLM:
                 "e2": {"id": "Fever", "type": "Symptom", "description": "Fever"},
             },
             relationships=[
-                {"source": "e1", "target": "e2", "type": "TREATS", "negated": True}
+                {"source": "e1", "target": "e2", "type": "TREATS", "negated": True},
             ],
         )
         _, _, paths_str = self.sys_.format_context_for_llm(ctx)
@@ -2034,7 +2143,7 @@ class TestFormatContextForLLM:
 
     def test_traversal_paths_rendered(self) -> None:
         ctx: RetrievalContext = _minimal_context(
-            traversal_paths=[{"path": "Aspirin -> TREATS -> Fever", "hops": 1}]
+            traversal_paths=[{"path": "Aspirin -> TREATS -> Fever", "hops": 1}],
         )
         _, _, paths_str = self.sys_.format_context_for_llm(ctx)
         assert "Aspirin -> TREATS -> Fever" in paths_str
@@ -2054,7 +2163,7 @@ class TestFormatContextForLLM:
                     "source": "graph_traversal",
                     "description": "Fever",
                 },
-            }
+            },
         )
         _, entities_str, _ = self.sys_.format_context_for_llm(ctx)
         assert "Seed entities" in entities_str
@@ -2064,10 +2173,10 @@ class TestFormatContextForLLM:
 class TestGraphEvidenceFormatting:
     def test_relationship_identity_distinguishes_negation(self) -> None:
         positive: str = EnhancedRAGSystem._relationship_identity(
-            {"source": "drug", "target": "symptom", "type": "TREATS", "negated": False}
+            {"source": "drug", "target": "symptom", "type": "TREATS", "negated": False},
         )
         negative: str = EnhancedRAGSystem._relationship_identity(
-            {"source": "drug", "target": "symptom", "type": "TREATS", "negated": True}
+            {"source": "drug", "target": "symptom", "type": "TREATS", "negated": True},
         )
         assert positive != negative
 
@@ -2077,7 +2186,7 @@ class TestGraphEvidenceFormatting:
                 "type": "ASSOCIATED_WITH",
                 "condition": "in mice",
                 "quantitative": "p<0.05",
-            }
+            },
         )
         assert label == "ASSOCIATED_WITH [in mice] (p<0.05)"
 
@@ -2086,7 +2195,7 @@ class TestGraphEvidenceFormatting:
         context: RetrievalContext = _minimal_context(
             chunks=[{"text": "The study concludes yes."}],
             relationships=[
-                {"source": "e1", "target": "e2", "type": "TREATS", "negated": True}
+                {"source": "e1", "target": "e2", "type": "TREATS", "negated": True},
             ],
             traversal_paths=[{"path": "Drug --NOT TREATS--> Disease", "hops": 1}],
         )
@@ -2096,7 +2205,8 @@ class TestGraphEvidenceFormatting:
         assert "TREATS" not in evidence_block
 
     def test_pubmedqa_uses_passage_only_prompt(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         system: EnhancedRAGSystem = _make_system()
         system.rag_prompt = object()
@@ -2198,7 +2308,8 @@ class TestPerPassageChunkCap:
     """_MAX_CHUNKS_PER_PASSAGE limits chunks per (questionId, passageIndex)."""
 
     def _chunks_from_passages(
-        self, passage_assignments: Sequence[tuple[str | None, int | None]]
+        self,
+        passage_assignments: Sequence[tuple[str | None, int | None]],
     ) -> list[RetrievedChunk]:
         """passage_assignments: list of (question_id, passage_index)"""
         chunks: list[RetrievedChunk] = []
@@ -2220,12 +2331,14 @@ class TestPerPassageChunkCap:
                     "position": i,
                     "source": None,
                     "entities": [],
-                }
+                },
             )
         return chunks
 
     def _apply_cap(
-        self, chunks: list[RetrievedChunk], cap: int
+        self,
+        chunks: list[RetrievedChunk],
+        cap: int,
     ) -> list[RetrievedChunk]:
         """Run the real per-passage chunk cap helper."""
         s: EnhancedRAGSystem = _make_system()
@@ -2234,7 +2347,7 @@ class TestPerPassageChunkCap:
 
     def test_cap_limits_per_passage(self) -> None:
         chunks: list[RetrievedChunk] = self._chunks_from_passages(
-            [("q1", 0)] * 5 + [("q1", 1)] * 3
+            [("q1", 0)] * 5 + [("q1", 1)] * 3,
         )
         result: list[RetrievedChunk] = self._apply_cap(chunks, cap=2)
         from collections import Counter
@@ -2247,7 +2360,7 @@ class TestPerPassageChunkCap:
 
     def test_cap_preserves_all_when_under_limit(self) -> None:
         chunks: list[RetrievedChunk] = self._chunks_from_passages(
-            [("q1", 0), ("q1", 1), ("q1", 2)]
+            [("q1", 0), ("q1", 1), ("q1", 2)],
         )
         result: list[RetrievedChunk] = self._apply_cap(chunks, cap=2)
         assert len(result) == 3  # one per passage, all under cap

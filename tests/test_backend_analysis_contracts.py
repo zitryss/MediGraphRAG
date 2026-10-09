@@ -132,7 +132,8 @@ class GpsV3DepthMatchedExports(Protocol):
 
     @staticmethod
     def load_artifact(
-        slug: str, strict: bool = ...
+        slug: str,
+        strict: bool = ...,
     ) -> gps_v3_depth_matched_ReplayArtifact: ...
 
     @staticmethod
@@ -145,12 +146,16 @@ class GpsV3DepthMatchedExports(Protocol):
 
     @staticmethod
     def scored_rows(
-        slug: str, strict: bool = ..., side: str = ...
+        slug: str,
+        strict: bool = ...,
+        side: str = ...,
     ) -> list[tuple[str, float | None, bool]]: ...
 
     @staticmethod
     def scores_for(
-        slug: str, strict: bool = ..., side: str = ...
+        slug: str,
+        strict: bool = ...,
+        side: str = ...,
     ) -> dict[str, float | None]: ...
 
 
@@ -178,7 +183,11 @@ class TrustAnalysisExports(Protocol):
 class RejudgeIndependentExports(Protocol):
     @staticmethod
     def judge_one(
-        client: OpenAI, q: str, expected: str, response: str, retries: int = ...
+        client: OpenAI,
+        q: str,
+        expected: str,
+        response: str,
+        retries: int = ...,
     ) -> bool | None: ...
 
     time: ModuleType
@@ -187,12 +196,16 @@ class RejudgeIndependentExports(Protocol):
 class VerbalizedConfidenceExports(Protocol):
     @staticmethod
     def ask_conf(
-        client: OpenAI, question: str, response: str, retries: int = ...
+        client: OpenAI,
+        question: str,
+        response: str,
+        retries: int = ...,
     ) -> float | None: ...
 
     @staticmethod
     def load_details(
-        slug: str, policy: str
+        slug: str,
+        policy: str,
     ) -> list[verbalized_confidence_ConfidenceRow]: ...
 
 
@@ -313,7 +326,10 @@ class AnchorMaskingInterventionExports(Protocol):
 class GpsSensitivityExports(Protocol):
     @staticmethod
     def auroc_at(
-        slug: str, strict: bool, tau: float, gamma: float
+        slug: str,
+        strict: bool,
+        tau: float,
+        gamma: float,
     ) -> tuple[float | None, int]: ...
 
 
@@ -328,13 +344,15 @@ class Wave1AnalysisExports(Protocol):
 class ReportingRobustnessExports(Protocol):
     @staticmethod
     def answered_counts() -> dict[
-        str, dict[str, reporting_robustness_AnsweredCounts]
+        str,
+        dict[str, reporting_robustness_AnsweredCounts],
     ]: ...
 
     @staticmethod
     def odds_ratio_mh(
         tables: reporting_robustness_Mapping[
-            str, reporting_robustness_ContingencyTable
+            str,
+            reporting_robustness_ContingencyTable,
         ],
     ) -> float | None: ...
 
@@ -347,7 +365,9 @@ class ReportingRobustnessExports(Protocol):
 class RejudgeWave1Exports(Protocol):
     @staticmethod
     def metric_aurocs(
-        slug: str, policy: str, labels_by_qid: rejudge_wave1_Mapping[str, bool | None]
+        slug: str,
+        policy: str,
+        labels_by_qid: rejudge_wave1_Mapping[str, bool | None],
     ) -> dict[str, tuple[float | None, int]]: ...
 
 
@@ -471,10 +491,12 @@ def test_depth_matched_score(
     reason: str | None,
 ) -> None:
     module: GpsV3DepthMatchedExports = cast(
-        GpsV3DepthMatchedExports, analysis_import("gps_v3_depth_matched")
+        GpsV3DepthMatchedExports,
+        analysis_import("gps_v3_depth_matched"),
     )
     result: gps_v3_depth_matched_ReplayScore = module.score_from_store_depth_matched(
-        store, 2
+        store,
+        2,
     )
     assert result["score"] == pytest.approx(expected)
     assert result["null_reason"] == reason
@@ -486,7 +508,8 @@ def test_depth_replay_files_and_null_denominators(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module: GpsV3DepthMatchedExports = cast(
-        GpsV3DepthMatchedExports, analysis_import("gps_v3_depth_matched")
+        GpsV3DepthMatchedExports,
+        analysis_import("gps_v3_depth_matched"),
     )
     monkeypatch.setattr(module, "REPO", str(tmp_path))
     monkeypatch.setattr(module, "RUNS", str(tmp_path))
@@ -494,8 +517,8 @@ def test_depth_replay_files_and_null_denominators(
     run.mkdir()
     (tmp_path / "result.json").write_text(
         json.dumps(
-            {"config_results": [{"details": [{"question_id": "q1", "hop_count": 3}]}]}
-        )
+            {"config_results": [{"details": [{"question_id": "q1", "hop_count": 3}]}]},
+        ),
     )
     questions: list[ReplayQuestion] = [
         {
@@ -508,7 +531,7 @@ def test_depth_replay_files_and_null_denominators(
         {"question_id": "q4"},
     ]
     (run / "gps_v2_replay_musique_2026.json").write_text(
-        json.dumps({"source_result": "result.json", "questions": questions})
+        json.dumps({"source_result": "result.json", "questions": questions}),
     )
     assert module.scores_for("musique") == {"q1": 0, "q2": None}
     assert module.scored_rows("musique") == [("q1", 0, True), ("q2", None, False)]
@@ -524,7 +547,8 @@ def test_trust_silent_failure_and_selective_risk(
     analysis_import: Callable[[str], ModuleType],
 ) -> None:
     module: TrustAnalysisExports = cast(
-        TrustAnalysisExports, analysis_import("trust_analysis")
+        TrustAnalysisExports,
+        analysis_import("trust_analysis"),
     )
     assert module.silent_rate([]) == (None, 0)
     rows: list[SilentRow] = [
@@ -552,11 +576,12 @@ def test_independent_judge_parsing_and_retry(
     expected: bool | None,
 ) -> None:
     module: RejudgeIndependentExports = cast(
-        RejudgeIndependentExports, analysis_import("rejudge_independent")
+        RejudgeIndependentExports,
+        analysis_import("rejudge_independent"),
     )
     client: Mock = Mock()
     client.chat.completions.create.return_value = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=word))]
+        choices=[SimpleNamespace(message=SimpleNamespace(content=word))],
     )
     assert (
         module.judge_one(client, "question", "expected", "answer", retries=2)
@@ -571,17 +596,21 @@ def test_independent_judge_parsing_and_retry(
 
 
 @pytest.mark.parametrize(
-    "text,expected", [("0.75", 0.75), ("80%", 0.8), ("101", None), ("", None), ("0", 0)]
+    "text,expected",
+    [("0.75", 0.75), ("80%", 0.8), ("101", None), ("", None), ("0", 0)],
 )
 def test_verbal_confidence_parser(
-    analysis_import: Callable[[str], ModuleType], text: str, expected: float | None
+    analysis_import: Callable[[str], ModuleType],
+    text: str,
+    expected: float | None,
 ) -> None:
     module: VerbalizedConfidenceExports = cast(
-        VerbalizedConfidenceExports, analysis_import("verbalized_confidence")
+        VerbalizedConfidenceExports,
+        analysis_import("verbalized_confidence"),
     )
     client: Mock = Mock()
     client.chat.completions.create.return_value = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=text))]
+        choices=[SimpleNamespace(message=SimpleNamespace(content=text))],
     )
     assert module.ask_conf(client, "question", "response", retries=1) == expected
 
@@ -592,7 +621,8 @@ def test_certificate_mask_and_artifact(
     tmp_path: Path,
 ) -> None:
     module: CertificateEvalExports = cast(
-        CertificateEvalExports, analysis_import("certificate_eval")
+        CertificateEvalExports,
+        analysis_import("certificate_eval"),
     )
     rows: list[CertificateRow] = [
         (0.1, 0.2, 0.3, True),
@@ -608,7 +638,7 @@ def test_certificate_mask_and_artifact(
     (tmp_path / "results/analyses").mkdir(parents=True)
     module.main()
     result: CertificateReport = json.loads(
-        (tmp_path / "results/analyses/certificate_eval.json").read_text()
+        (tmp_path / "results/analyses/certificate_eval.json").read_text(),
     )
     assert result["pooled_certificate"] == {
         "coverage": 0.5,
@@ -642,7 +672,9 @@ def test_graph_diversity_analysis_artifacts(
     absent_details: list[DiversityDetail] = [{"question_id": "absent"}]
     details += absent_details
     monkeypatch.setattr(
-        module, "_iter_result_details", lambda: iter([("unit", "adaptive", details)])
+        module,
+        "_iter_result_details",
+        lambda: iter([("unit", "adaptive", details)]),
     )
     monkeypatch.setattr(module, "FIG_DIR", str(tmp_path / "figures"))
     monkeypatch.setattr(module, "OUT_JSON", str(tmp_path / "summary.json"))
@@ -677,8 +709,8 @@ def test_fullwiki_corpus_deduplicates_and_persists_selection(
                 },
                 {"id": "q2", "context": [["Title", ["one", "two"]]]},
                 "ignored",
-            ]
-        )
+            ],
+        ),
     )
     opts: CorpusOptions = {
         "hotpot_file": path,
@@ -720,10 +752,13 @@ def test_fullwiki_corpus_deduplicates_and_persists_selection(
     ],
 )
 def test_lockin_partition(
-    analysis_import: Callable[[str], ModuleType], changes: AccountingRow, bucket: str
+    analysis_import: Callable[[str], ModuleType],
+    changes: AccountingRow,
+    bucket: str,
 ) -> None:
     module: LockinAccountingAnalysisExports = cast(
-        LockinAccountingAnalysisExports, analysis_import("lockin_accounting_analysis")
+        LockinAccountingAnalysisExports,
+        analysis_import("lockin_accounting_analysis"),
     )
     row: AccountingRow = {
         "correct": False,
@@ -750,7 +785,8 @@ def test_diversity_analysis_numeric_output(
     tmp_path: Path,
 ) -> None:
     module: DiversityRunAnalysisExports = cast(
-        DiversityRunAnalysisExports, analysis_import("diversity_run_analysis")
+        DiversityRunAnalysisExports,
+        analysis_import("diversity_run_analysis"),
     )
     path: Path = tmp_path / "results.json"
     rows: list[TraceDetail] = [
@@ -771,10 +807,10 @@ def test_diversity_analysis_numeric_output(
         json.dumps(
             {
                 "config_results": [
-                    {"config": {"name": "kg_entity_first"}, "details": rows}
-                ]
-            }
-        )
+                    {"config": {"name": "kg_entity_first"}, "details": rows},
+                ],
+            },
+        ),
     )
     monkeypatch.setattr(module, "OUT", str(tmp_path / "analysis.json"))
     module.main(str(path))
@@ -791,11 +827,13 @@ def test_diversity_analysis_numeric_output(
 
 
 def test_concentration_points_and_bootstrap(
-    analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "make_figures", ModuleType("make_figures"))
     module: MakeConcentrationFigureExports = cast(
-        MakeConcentrationFigureExports, analysis_import("make_concentration_figure")
+        MakeConcentrationFigureExports,
+        analysis_import("make_concentration_figure"),
     )
     rows: list[ConcentrationDetail] = [
         {"kg_retrieval_overlap": 0.5, "kg_sd_uq": 0, "kg_correct": False},
@@ -829,7 +867,8 @@ def test_anchor_mask_candidate_filters_and_scoping(
 ) -> None:
     monkeypatch.setitem(sys.modules, "experiments.experiment", experiment_module)
     module: AnchorMaskingInterventionExports = cast(
-        AnchorMaskingInterventionExports, analysis_import("anchor_masking_intervention")
+        AnchorMaskingInterventionExports,
+        analysis_import("anchor_masking_intervention"),
     )
     base: CandidateDetail = {
         "question_id": "q",
@@ -869,10 +908,12 @@ def test_anchor_mask_candidate_filters_and_scoping(
 
 
 def test_sensitivity_replay_skips_unusable_and_scores(
-    analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module: GpsSensitivityExports = cast(
-        GpsSensitivityExports, analysis_import("gps_sensitivity")
+        GpsSensitivityExports,
+        analysis_import("gps_sensitivity"),
     )
     questions: list[ReplayQuestion] = [
         {
@@ -908,10 +949,12 @@ def test_sensitivity_replay_skips_unusable_and_scores(
 
 
 def test_wave1_wilson_and_silent_counts(
-    analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module: Wave1AnalysisExports = cast(
-        Wave1AnalysisExports, analysis_import("wave1_analysis")
+        Wave1AnalysisExports,
+        analysis_import("wave1_analysis"),
     )
     assert module.wilson_ci(0, 0) is None
     lo: float
@@ -946,7 +989,8 @@ def test_reporting_odds_ratio_and_answered_denominators(
     tmp_path: Path,
 ) -> None:
     module: ReportingRobustnessExports = cast(
-        ReportingRobustnessExports, analysis_import("reporting_robustness")
+        ReportingRobustnessExports,
+        analysis_import("reporting_robustness"),
     )
     assert module.odds_ratio_mh({}) is None
     assert module.odds_ratio_mh(
@@ -956,8 +1000,8 @@ def test_reporting_odds_ratio_and_answered_denominators(
                 "cert_wrong": 1,
                 "uncert_correct": 2,
                 "uncert_wrong": 3,
-            }
-        }
+            },
+        },
     ) == pytest.approx(6)
     monkeypatch.setattr(module, "REPO", str(tmp_path))
     monkeypatch.setattr(module, "KEY", {"realmedqa": "Unit"})
@@ -973,10 +1017,10 @@ def test_reporting_odds_ratio_and_answered_denominators(
                             {"question_id": "q1"},
                             {"question_id": "q2", "kg_generation_failed": True},
                         ],
-                    }
-                ]
-            }
-        )
+                    },
+                ],
+            },
+        ),
     )
     assert module.answered_counts()["realmedqa"]["kg"] == {
         "total": 2,
@@ -992,10 +1036,12 @@ def test_reporting_odds_ratio_and_answered_denominators(
 
 
 def test_rejudge_metric_denominators(
-    analysis_import: Callable[[str], ModuleType], monkeypatch: pytest.MonkeyPatch
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module: RejudgeWave1Exports = cast(
-        RejudgeWave1Exports, analysis_import("rejudge_wave1")
+        RejudgeWave1Exports,
+        analysis_import("rejudge_wave1"),
     )
     rows: list[RejudgeRow] = [
         {"qid": str(i), "sd": i / 12, "seu": i / 12} for i in range(12)
@@ -1011,7 +1057,9 @@ def test_rejudge_metric_denominators(
 
     monkeypatch.setattr(module, "gps_scores", fake_gps_scores)
     result: dict[str, tuple[float | None, int]] = module.metric_aurocs(
-        "unit", "kg", {str(i): i < 6 for i in range(12)}
+        "unit",
+        "kg",
+        {str(i): i < 6 for i in range(12)},
     )
     assert result == {"sd_uq": (1, 12), "seu": (1, 12), "gps": (1, 12)}
     assert module.metric_aurocs("unit", "kg", {})["gps"] == (None, 0)
@@ -1023,7 +1071,8 @@ def test_residue_audit_filter_and_artifact(
     tmp_path: Path,
 ) -> None:
     module: ResidueAuditExports = cast(
-        ResidueAuditExports, analysis_import("residue_audit")
+        ResidueAuditExports,
+        analysis_import("residue_audit"),
     )
     monkeypatch.setattr(module, "REPO", str(tmp_path))
     monkeypatch.setattr(module, "KEY", {"unit": "Unit"})
@@ -1056,10 +1105,10 @@ def test_residue_audit_filter_and_artifact(
                             {**base, "question_id": "q2", "kg_correct": True},
                             {**base, "kg_generation_failed": True},
                         ],
-                    }
-                ]
-            }
-        )
+                    },
+                ],
+            },
+        ),
     )
     module.main()
     result: ResidueReport = json.loads((tmp_path / "out.json").read_text())
@@ -1075,7 +1124,8 @@ def test_migration_figure_artifacts(
 ) -> None:
     monkeypatch.setitem(sys.modules, "make_figures", ModuleType("make_figures"))
     module: MakeMigrationFigureExports = cast(
-        MakeMigrationFigureExports, analysis_import("make_migration_figure")
+        MakeMigrationFigureExports,
+        analysis_import("make_migration_figure"),
     )
     monkeypatch.setattr(module, "OUT", str(tmp_path))
 
@@ -1112,7 +1162,8 @@ def test_verbal_confidence_load_details_selects_policy_and_excludes_failures(
     expected: list[tuple[str, str, str, bool]],
 ) -> None:
     module: VerbalizedConfidenceExports = cast(
-        VerbalizedConfidenceExports, analysis_import("verbalized_confidence")
+        VerbalizedConfidenceExports,
+        analysis_import("verbalized_confidence"),
     )
     payload: ConfidenceDocument = {
         "config_results": [

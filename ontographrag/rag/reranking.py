@@ -41,7 +41,10 @@ class EncoderModel(Protocol):
     @property
     def config(self) -> object: ...
     def __call__(
-        self, *, input_ids: "Tensor", attention_mask: "Tensor"
+        self,
+        *,
+        input_ids: "Tensor",
+        attention_mask: "Tensor",
     ) -> "HiddenState | tuple[object, ...]": ...
 
 
@@ -190,7 +193,7 @@ def _load_cross_encoder(model_name: str) -> "CrossEncoder | None":
 
     device: str = os.getenv("ONTOGRAPHRAG_RERANKER_DEVICE", "cpu").strip() or "cpu"
     max_length: int = int(
-        os.getenv("ONTOGRAPHRAG_RERANKER_MAX_LENGTH", "512").strip() or 512
+        os.getenv("ONTOGRAPHRAG_RERANKER_MAX_LENGTH", "512").strip() or 512,
     )
     cache_key: tuple[str, str, int] = (model_name, device, max_length)
     if cache_key in _RERANKER_CACHE:
@@ -202,7 +205,9 @@ def _load_cross_encoder(model_name: str) -> "CrossEncoder | None":
         from sentence_transformers import CrossEncoder
 
         model: CrossEncoder = CrossEncoder(
-            model_name, device=device, max_length=max_length
+            model_name,
+            device=device,
+            max_length=max_length,
         )
     except Exception as exc:
         logging.warning("Could not initialize reranker model '%s': %s", model_name, exc)
@@ -221,10 +226,10 @@ def _load_late_interaction_model(model_name: str) -> LateInteractionBundle | Non
         os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DEVICE", "cpu").strip() or "cpu"
     )
     query_max_length: int = int(
-        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_QUERY_MAX_LENGTH", "48").strip() or 48
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_QUERY_MAX_LENGTH", "48").strip() or 48,
     )
     doc_max_length: int = int(
-        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DOC_MAX_LENGTH", "256").strip() or 256
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_DOC_MAX_LENGTH", "256").strip() or 256,
     )
     cache_key: tuple[str, str, int, int] = (
         model_name,
@@ -242,10 +247,12 @@ def _load_late_interaction_model(model_name: str) -> LateInteractionBundle | Non
         from transformers import AutoModel, AutoTokenizer
 
         tokenizer: Tokenizer = cast(
-            Tokenizer, AutoTokenizer.from_pretrained(model_name)
+            Tokenizer,
+            AutoTokenizer.from_pretrained(model_name),
         )
         model: LoadedEncoderModel = cast(
-            LoadedEncoderModel, AutoModel.from_pretrained(model_name)
+            LoadedEncoderModel,
+            AutoModel.from_pretrained(model_name),
         )
         model.to(device)
         model.eval()
@@ -261,7 +268,9 @@ def _load_late_interaction_model(model_name: str) -> LateInteractionBundle | Non
         }
     except Exception as exc:
         logging.warning(
-            "Could not initialize late-interaction model '%s': %s", model_name, exc
+            "Could not initialize late-interaction model '%s': %s",
+            model_name,
+            exc,
         )
         _LATE_INTERACTION_FAILURES.add(cache_key)
         return None
@@ -282,7 +291,7 @@ def _late_interaction_scores(
     query_max_length: int = int(bundle["query_max_length"])
     doc_max_length: int = int(bundle["doc_max_length"])
     batch_size: int = int(
-        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8,
     )
 
     query_inputs: Mapping[str, Tensor] = tokenizer(
@@ -309,7 +318,9 @@ def _late_interaction_scores(
     if int(query_mask.sum().item()) == 0:
         query_mask = query_inputs["attention_mask"][0] > 0
     query_tokens: Tensor = torch.nn.functional.normalize(
-        query_hidden[query_mask], p=2, dim=-1
+        query_hidden[query_mask],
+        p=2,
+        dim=-1,
     )
 
     scores: list[float] = []
@@ -345,7 +356,9 @@ def _late_interaction_scores(
             if int(doc_mask.sum().item()) == 0:
                 doc_mask = doc_inputs["attention_mask"][row_idx] > 0
             doc_tokens: Tensor = torch.nn.functional.normalize(
-                doc_hidden[row_idx][doc_mask], p=2, dim=-1
+                doc_hidden[row_idx][doc_mask],
+                p=2,
+                dim=-1,
             )
             similarity: Tensor = torch.matmul(query_tokens, doc_tokens.transpose(0, 1))
             score: float = float(similarity.max(dim=1).values.mean().item())
@@ -356,7 +369,10 @@ def _late_interaction_scores(
 
 def _late_interaction_chunk_identity(chunk: RetrievedChunk, idx: int) -> str:
     key: Literal[
-        "chunk_element_id", "parent_chunk_element_id", "chunk_id", "parent_chunk_id"
+        "chunk_element_id",
+        "parent_chunk_element_id",
+        "chunk_id",
+        "parent_chunk_id",
     ]
     for key in (
         "chunk_element_id",
@@ -382,7 +398,7 @@ def _late_interaction_index_cache_limit() -> int:
         1,
         int(
             os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_INDEX_CACHE_SIZE", "12").strip()
-            or 12
+            or 12,
         ),
     )
 
@@ -392,7 +408,7 @@ def _late_interaction_prefilter_min_docs() -> int:
         16,
         int(
             os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_PREFILTER_MIN_DOCS", "96").strip()
-            or 96
+            or 96,
         ),
     )
 
@@ -402,7 +418,7 @@ def _late_interaction_shortlist_cap() -> int:
         16,
         int(
             os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_SHORTLIST_CAP", "384").strip()
-            or 384
+            or 384,
         ),
     )
 
@@ -412,7 +428,7 @@ def _late_interaction_default_shortlist_factor() -> int:
         2,
         int(
             os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_SHORTLIST_FACTOR", "8").strip()
-            or 8
+            or 8,
         ),
     )
 
@@ -454,7 +470,8 @@ def _trim_late_interaction_index_cache() -> None:
 
 
 def _encode_late_interaction_query(
-    bundle: LateInteractionBundle, query: str
+    bundle: LateInteractionBundle,
+    query: str,
 ) -> EncodedQuery:
     tokenizer: Tokenizer = bundle["tokenizer"]
     model: EncoderModel = bundle["model"]
@@ -488,10 +505,14 @@ def _encode_late_interaction_query(
         query_mask = query_inputs["attention_mask"][0] > 0
 
     query_tokens: Tensor = torch.nn.functional.normalize(
-        query_hidden[query_mask], p=2, dim=-1
+        query_hidden[query_mask],
+        p=2,
+        dim=-1,
     )
     pooled: Tensor = torch.nn.functional.normalize(
-        query_tokens.mean(dim=0, keepdim=True), p=2, dim=-1
+        query_tokens.mean(dim=0, keepdim=True),
+        p=2,
+        dim=-1,
     )[0]
     return {
         "tokens": query_tokens,
@@ -510,7 +531,9 @@ def _build_late_interaction_index(
         return None, False
 
     cache_key: tuple[str, str, int, str, str] = _late_interaction_index_cache_key(
-        bundle, chunk_list, index_key
+        bundle,
+        chunk_list,
+        index_key,
     )
     cached: LateInteractionIndex | None = _LATE_INTERACTION_INDEX_CACHE.get(cache_key)
     if cached is not None:
@@ -523,7 +546,7 @@ def _build_late_interaction_index(
     torch: TensorBackend = bundle["torch"]
     doc_max_length: int = int(bundle["doc_max_length"])
     batch_size: int = int(
-        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8
+        os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_BATCH_SIZE", "8").strip() or 8,
     )
 
     texts: list[str] = [_late_interaction_chunk_text(chunk) for chunk in chunk_list]
@@ -556,11 +579,15 @@ def _build_late_interaction_index(
             if int(doc_mask.sum().item()) == 0:
                 doc_mask = doc_inputs["attention_mask"][row_idx] > 0
             token_tensor: Tensor = torch.nn.functional.normalize(
-                doc_hidden[row_idx][doc_mask], p=2, dim=-1
+                doc_hidden[row_idx][doc_mask],
+                p=2,
+                dim=-1,
             )
             token_tensor = token_tensor.detach().cpu()
             pooled: Tensor = torch.nn.functional.normalize(
-                token_tensor.mean(dim=0, keepdim=True), p=2, dim=-1
+                token_tensor.mean(dim=0, keepdim=True),
+                p=2,
+                dim=-1,
             )[0]
             doc_tokens.append(token_tensor)
             pooled_vectors.append(pooled)
@@ -616,7 +643,9 @@ def _late_interaction_scores_indexed(
     torch: TensorBackend = bundle["torch"]
     query_repr: EncodedQuery = _encode_late_interaction_query(bundle, query)
     index, cache_hit = _build_late_interaction_index(
-        bundle, chunks, index_key=index_key
+        bundle,
+        chunks,
+        index_key=index_key,
     )
     if index is None:
         return [], {
@@ -636,7 +665,8 @@ def _late_interaction_scores_indexed(
     prefiltered: bool = shortlist_n < total_docs
     if prefiltered and shortlist_n > 0:
         pooled_scores: Tensor = torch.matmul(
-            index["doc_pooled"], query_repr["pooled"].detach().cpu()
+            index["doc_pooled"],
+            query_repr["pooled"].detach().cpu(),
         )
         topk: TopKResult = torch.topk(pooled_scores, k=shortlist_n)
         shortlisted_indices = [
@@ -737,7 +767,9 @@ def late_interaction_rescore_chunks_for_query(
         scores: list[float] = _late_interaction_scores(bundle, query, chunk_list)
     except Exception as exc:
         logging.warning(
-            "Late-interaction scoring failed for model '%s': %s", model_name, exc
+            "Late-interaction scoring failed for model '%s': %s",
+            model_name,
+            exc,
         )
         return chunk_list, {
             "enabled": True,
@@ -817,7 +849,8 @@ def rerank_chunks_for_query(
 
     try:
         raw_scores: NDArray[np.float16 | np.float32 | np.float64] = model.predict(
-            pair_texts, show_progress_bar=False
+            pair_texts,
+            show_progress_bar=False,
         )
     except Exception as exc:
         logging.warning("Reranker scoring failed for model '%s': %s", model_name, exc)

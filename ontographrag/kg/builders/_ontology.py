@@ -111,7 +111,9 @@ class OntologySchemaMixin:
         _last_schema_enforcement_stats: dict[str, int]
 
         def _semantic_relationship_match(
-            self, raw_type: str, candidate_ids: list[str]
+            self,
+            raw_type: str,
+            candidate_ids: list[str],
         ) -> tuple[str, float] | None: ...
 
         def _find_exact_text_spans(
@@ -243,7 +245,7 @@ class OntologySchemaMixin:
                         required=bool(p.get("required", False)),
                         enum_values=list(p.get("enum_values") or p.get("values") or []),
                         unit=p.get("unit") or None,
-                    )
+                    ),
                 )
             entity_types.append(
                 OntEntityType(
@@ -252,7 +254,7 @@ class OntologySchemaMixin:
                     description=cls.get("description") or None,
                     uri=cls.get("uri") or None,
                     properties=props,
-                )
+                ),
             )
 
         relationship_types: list[OntRelType] = []
@@ -277,7 +279,7 @@ class OntologySchemaMixin:
                         type=self._prop_type(a.get("type", "string")),
                         description=a.get("description") or None,
                         unit=a.get("unit") or None,
-                    )
+                    ),
                 )
             relationship_types.append(
                 OntRelType(
@@ -289,7 +291,7 @@ class OntologySchemaMixin:
                     range=rel.get("to") or rel.get("range") or None,
                     cardinality=rel.get("cardinality") or None,
                     attributes=attrs,
-                )
+                ),
             )
 
         return OntologySchema(
@@ -326,7 +328,8 @@ class OntologySchemaMixin:
             return _local(r) if r else None
 
         def _child_text_by_local_name(
-            parent: ET.Element | None, local_name: str
+            parent: ET.Element | None,
+            local_name: str,
         ) -> str | None:
             if parent is None:
                 return None
@@ -344,7 +347,8 @@ class OntologySchemaMixin:
             return str(value or "").strip().lower() in {"true", "1", "yes"}
 
         def _xsd_to_prop_type(
-            range_uri: str | None, explicit_type: str | None
+            range_uri: str | None,
+            explicit_type: str | None,
         ) -> PropertyType:
             if explicit_type:
                 return self._prop_type(explicit_type)
@@ -386,7 +390,7 @@ class OntologySchemaMixin:
                         if cmt_el is not None and cmt_el.text
                         else None
                     ),
-                )
+                ),
             )
 
         entity_by_id: dict[str, OntEntityType] = {et.id: et for et in entity_types}
@@ -407,21 +411,24 @@ class OntologySchemaMixin:
             range_uri: ET.Element[str] | None = dt_elem.find(".//" + _rdfs_rng)
             range_local: str | None = _res_local(range_uri)
             explicit_type: str | None = _child_text_by_local_name(
-                dt_elem, "propertyType"
+                dt_elem,
+                "propertyType",
             ) or _child_text_by_local_name(dt_elem, "attributeType")
             prop_type: PropertyType = _xsd_to_prop_type(range_local, explicit_type)
             enum_values_text: str | None = _child_text_by_local_name(
-                dt_elem, "enumValues"
+                dt_elem,
+                "enumValues",
             )
             enum_values: list[str] = [
                 v.strip() for v in (enum_values_text or "").split(",") if v.strip()
             ]
             unit: str | None = _child_text_by_local_name(dt_elem, "unit")
             identifier: bool = _bool_text(
-                _child_text_by_local_name(dt_elem, "isIdentifier")
+                _child_text_by_local_name(dt_elem, "isIdentifier"),
             )
             relationship_attr_of: str | None = _child_text_by_local_name(
-                dt_elem, "relationshipAttributeOf"
+                dt_elem,
+                "relationshipAttributeOf",
             )
 
             if relationship_attr_of:
@@ -431,7 +438,7 @@ class OntologySchemaMixin:
                         type=prop_type,
                         description=description,
                         unit=unit,
-                    )
+                    ),
                 )
                 continue
 
@@ -447,7 +454,7 @@ class OntologySchemaMixin:
                     required=False,
                     enum_values=enum_values,
                     unit=unit,
-                )
+                ),
             )
 
         relationship_types: list[OntRelType] = []
@@ -480,7 +487,7 @@ class OntologySchemaMixin:
                     range=_res_local(rng_el),
                     cardinality=_child_text_by_local_name(prop_elem, "cardinality"),
                     attributes=relationship_attribute_map.get(local, []),
-                )
+                ),
             )
 
         return OntologySchema(
@@ -504,7 +511,7 @@ class OntologySchemaMixin:
 
         self.ontology_classes = valid_classes
         logging.info(
-            f"Validated ontology classes: {len(self.ontology_classes)} valid entries"
+            f"Validated ontology classes: {len(self.ontology_classes)} valid entries",
         )
 
         # Clean ontology relationships
@@ -517,7 +524,7 @@ class OntologySchemaMixin:
 
         self.ontology_relationships = valid_relationships
         logging.info(
-            f"Validated ontology relationships: {len(self.ontology_relationships)} valid entries"
+            f"Validated ontology relationships: {len(self.ontology_relationships)} valid entries",
         )
 
     @staticmethod
@@ -605,7 +612,7 @@ class OntologySchemaMixin:
     ) -> str | None:
         """Coerce extracted entity types onto the active ontology when present."""
         has_ontology: bool = bool(
-            self._ontology_schema and self._ontology_schema.entity_types
+            self._ontology_schema and self._ontology_schema.entity_types,
         ) or bool(self.ontology_classes)
         if not has_ontology:
             if raw_type:
@@ -624,7 +631,8 @@ class OntologySchemaMixin:
                 return matched
             classified: str = self._classify_entity_with_ontology(entity_text)
             matched = self._match_ontology_entity_type(
-                classified, allow_fuzzy=False
+                classified,
+                allow_fuzzy=False,
             ) or self._match_ontology_entity_type(classified)
             if matched:
                 return matched
@@ -632,7 +640,7 @@ class OntologySchemaMixin:
         generic_type: str | None = self._schema_generic_entity_type()
         if generic_type:
             if raw_type and self._normalize_ontology_identifier(
-                raw_type
+                raw_type,
             ) != self._normalize_ontology_identifier(generic_type):
                 logging.info(
                     "Coercing off-schema entity type '%s' for '%s' to generic ontology type '%s'",
@@ -816,18 +824,20 @@ class OntologySchemaMixin:
         if schema and schema.relationship_types and schema.entity_types:
             for rt in schema.relationship_types[: max(1, self.few_shot_example_count)]:
                 source_type: OntEntityType | None = next(
-                    (et for et in schema.entity_types if et.id == rt.domain), None
+                    (et for et in schema.entity_types if et.id == rt.domain),
+                    None,
                 )
                 target_type: OntEntityType | None = next(
-                    (et for et in schema.entity_types if et.id == rt.range), None
+                    (et for et in schema.entity_types if et.id == rt.range),
+                    None,
                 )
                 if not source_type or not target_type:
                     continue
                 source_name: str = self._example_surface_form_for_type(
-                    source_type.label
+                    source_type.label,
                 )
                 target_name: str = self._example_surface_form_for_type(
-                    target_type.label
+                    target_type.label,
                 )
                 examples.append(
                     f"Example {len(examples) + 1}\n"
@@ -841,14 +851,14 @@ class OntologySchemaMixin:
                     f'    {{"id": "{source_name}", "type": "{source_type.id}", "properties": {{"name": "{source_name}", "description": "{source_type.label}: {source_name}"}}}},\n'
                     f'    {{"id": "{target_name}", "type": "{target_type.id}", "properties": {{"name": "{target_name}", "description": "{target_type.label}: {target_name}"}}}}\n'
                     "  ]\n"
-                    "}"
+                    "}",
                 )
                 if len(examples) >= self.few_shot_example_count:
                     break
         elif self.ontology_classes:
             for cls in self.ontology_classes[: self.few_shot_example_count]:
                 entity_name: str = self._example_surface_form_for_type(
-                    cls.get("label", cls.get("id", "Entity"))
+                    cls.get("label", cls.get("id", "Entity")),
                 )
                 examples.append(
                     f"Example {len(examples) + 1}\n"
@@ -859,7 +869,7 @@ class OntologySchemaMixin:
                     '  "entities": [\n'
                     f'    {{"id": "{entity_name}", "type": "{cls.get("id", "Concept")}", "properties": {{"name": "{entity_name}", "description": "{cls.get("label", cls.get("id", "Concept"))}: {entity_name}"}}}}\n'
                     "  ]\n"
-                    "}"
+                    "}",
                 )
 
         return "\n\n".join(examples)
@@ -894,7 +904,8 @@ class OntologySchemaMixin:
             if not _is_valid_entity_name(text):
                 continue
             spans: list[ExactAnchorSpan] = self._find_exact_text_spans(
-                chunk_text, [text]
+                chunk_text,
+                [text],
             )
             if not spans:
                 continue
@@ -904,7 +915,8 @@ class OntologySchemaMixin:
                 continue
             seen_entities.add(key)
             coerced_type: str | None = self._coerce_entity_type_with_ontology(
-                anchor_type, exact_text
+                anchor_type,
+                exact_text,
             )
             if not coerced_type:
                 continue
@@ -913,7 +925,7 @@ class OntologySchemaMixin:
                     "text": exact_text,
                     "type": coerced_type,
                     "anchor_spans": spans,
-                }
+                },
             )
 
         seen_relations: set[str] = set()
@@ -941,7 +953,7 @@ class OntologySchemaMixin:
                     "text": exact_text,
                     "type_hint": str(type_hint or exact_text).strip(),
                     "anchor_spans": spans,
-                }
+                },
             )
 
         seen_attributes: set[tuple[str, str]] = set()
@@ -971,7 +983,7 @@ class OntologySchemaMixin:
                     if role in {"condition", "quantitative", "other"}
                     else "other",
                     "anchor_spans": spans,
-                }
+                },
             )
 
         return inventory
@@ -993,7 +1005,7 @@ class OntologySchemaMixin:
         if self._ontology_class_embeddings and self.embedding_function:
             try:
                 entity_emb: list[float] = self.embedding_function.embed_query(
-                    entity_text
+                    entity_text,
                 )
                 best_class, best_score = None, 0.0
                 for cls_id, cls_emb in self._ontology_class_embeddings:
@@ -1003,7 +1015,7 @@ class OntologySchemaMixin:
                         / (
                             (sum(a * a for a in entity_emb) ** 0.5 + 1e-9)
                             * (sum(b * b for b in cls_emb) ** 0.5 + 1e-9)
-                        )
+                        ),
                     )
                     if score > best_score:
                         best_score, best_class = score, cls_id
@@ -1011,7 +1023,7 @@ class OntologySchemaMixin:
                     return best_class
             except Exception as e:
                 logging.debug(
-                    f"Embedding classification failed for '{entity_text}': {e}"
+                    f"Embedding classification failed for '{entity_text}': {e}",
                 )
 
         # Strategy 2: exact substring match against ontology class labels
@@ -1097,7 +1109,8 @@ class OntologySchemaMixin:
 
         if schema and schema.entity_types:
             matched: str | None = self._match_ontology_entity_type(
-                fallback, allow_fuzzy=False
+                fallback,
+                allow_fuzzy=False,
             )
             if matched:
                 return matched
@@ -1123,7 +1136,8 @@ class OntologySchemaMixin:
             source_type: str = self._classify_entity_with_ontology(source)
             target_type: str = self._classify_entity_with_ontology(target)
             candidates: list[OntRelType] = schema.compatible_relationships(
-                source_type, target_type
+                source_type,
+                target_type,
             )
             if candidates:
                 # Rank by lexical similarity of the relationship label to
@@ -1132,7 +1146,9 @@ class OntologySchemaMixin:
                 best: OntRelType = max(
                     candidates,
                     key=lambda rt: difflib.SequenceMatcher(
-                        None, rt.label.lower(), combined
+                        None,
+                        rt.label.lower(),
+                        combined,
                     ).ratio(),
                 )
                 return best.id.replace(" ", "_").replace("-", "_").upper()
@@ -1235,7 +1251,9 @@ class OntologySchemaMixin:
                 score: float = max(
                     difflib.SequenceMatcher(None, normalized_raw, cand_label).ratio(),
                     difflib.SequenceMatcher(
-                        None, normalized_raw, rt.id.lower()
+                        None,
+                        normalized_raw,
+                        rt.id.lower(),
                     ).ratio(),
                 )
                 # Boost schema-compatible candidates
@@ -1279,7 +1297,9 @@ class OntologySchemaMixin:
                 candidate = ont_rel["label"].lower().replace(" ", "_")
                 score = difflib.SequenceMatcher(None, normalized_raw, candidate).ratio()
                 id_score: float = difflib.SequenceMatcher(
-                    None, normalized_raw, ont_rel["id"].lower()
+                    None,
+                    normalized_raw,
+                    ont_rel["id"].lower(),
                 ).ratio()
                 best_s: float = max(score, id_score)
                 if best_s > best_score:
@@ -1313,7 +1333,8 @@ class OntologySchemaMixin:
             return None
         if len(sanitized) > 50 or not re.match(r"^[A-Z][A-Z0-9_]*$", sanitized):
             logging.debug(
-                "Rel type '%s' failed sanitization; using ASSOCIATED_WITH", raw_type
+                "Rel type '%s' failed sanitization; using ASSOCIATED_WITH",
+                raw_type,
             )
             return "ASSOCIATED_WITH"
         return sanitized
@@ -1364,7 +1385,7 @@ class OntologySchemaMixin:
     ) -> "tuple[list[NodeT], list[RelationshipT]]":
         """Apply ontology type enforcement after harmonization as a final backstop."""
         has_ontology: bool = bool(
-            self._ontology_schema and self._ontology_schema.entity_types
+            self._ontology_schema and self._ontology_schema.entity_types,
         ) or bool(self.ontology_classes)
         if not has_ontology:
             return harmonized_entities, harmonized_relationships
@@ -1395,7 +1416,7 @@ class OntologySchemaMixin:
             and rel.get("target") in valid_entity_ids
         ]
         dropped_relationships: int = len(harmonized_relationships) - len(
-            filtered_relationships
+            filtered_relationships,
         )
         if dropped_entities or dropped_relationships:
             logging.info(

@@ -26,7 +26,9 @@ from scipy.stats import spearmanr
 sys.path.insert(
     0,
     os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "paper", "figures"
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "paper",
+        "figures",
     ),
 )
 import make_figures  # rcParams styling
@@ -78,7 +80,8 @@ def load(path: str, jsonl: bool = False) -> list[ConcentrationDetail]:
 
 
 def points(
-    rows: Sequence[ConcentrationDetail], pre: str
+    rows: Sequence[ConcentrationDetail],
+    pre: str,
 ) -> Iterator[NDArray[np.float64]]:
     ow: list[float]
     sw: list[np.float64]
@@ -110,7 +113,8 @@ def binned_means(
     if len(x) < 8:
         return [], [], []
     edges: NDArray[np.float64] = cast(
-        NDArray[np.float64], np.quantile(x, np.linspace(0, 1, n_bins + 1))
+        NDArray[np.float64],
+        np.quantile(x, np.linspace(0, 1, n_bins + 1)),
     )
     mids: list[float]
     means: list[float]
@@ -121,7 +125,8 @@ def binned_means(
         if m.sum() < 4:
             continue
         vals: NDArray[np.float64 | np.int64] = cast(
-            NDArray[np.float64 | np.int64], y[m]
+            NDArray[np.float64 | np.int64],
+            y[m],
         )
         mids.append(float(cast(NDArray[np.float64 | np.int64], x[m]).mean()))
         means.append(float(vals.mean()))
@@ -142,7 +147,14 @@ def single_panel(srcs: ConcentrationSources) -> None:
     ow, sw, oc, sc = points(rows, "kg")
     ax.scatter(oc, sc, s=10, c=C_OK, alpha=0.5, linewidths=0, zorder=1, label="correct")
     ax.scatter(
-        ow, sw, s=16, c=C_WRONG, alpha=0.75, linewidths=0, zorder=2, label="wrong"
+        ow,
+        sw,
+        s=16,
+        c=C_WRONG,
+        alpha=0.75,
+        linewidths=0,
+        zorder=2,
+        label="wrong",
     )
     mids, means, cis = binned_means(ow, sw)
     if mids:
@@ -174,7 +186,9 @@ def single_panel(srcs: ConcentrationSources) -> None:
     ax.set_xlabel("Per-question retrieval overlap", fontsize=8)
     ax.set_ylabel(r"$\log_{10}(\mathrm{SD\text{-}UQ}+10^{-12})$", fontsize=8)
     ax.set_title(
-        "Entity-first KG, 2WikiMHQA (archived trace)", fontsize=8.4, fontweight="bold"
+        "Entity-first KG, 2WikiMHQA (archived trace)",
+        fontsize=8.4,
+        fontweight="bold",
     )
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -210,7 +224,7 @@ def main() -> None:
     ]
     fig, axes = plt.subplots(2, 3, figsize=(7.05, 4.4), sharey=True, sharex=True)
     for row, (side_label, pre) in enumerate(
-        [("Entity-first KG", "kg"), ("Dense", "vanilla")]
+        [("Entity-first KG", "kg"), ("Dense", "vanilla")],
     ):
         for col, (name, rows) in enumerate(srcs):
             ax: Axes = axes[row, col]
@@ -266,10 +280,22 @@ def main() -> None:
             ax.spines["right"].set_visible(False)
     h: list[MatplotlibLine2D] = [
         cast(PyplotLineExport, plt).Line2D(
-            [], [], color=C_WRONG, marker="o", ls="", ms=5, label="wrong"
+            [],
+            [],
+            color=C_WRONG,
+            marker="o",
+            ls="",
+            ms=5,
+            label="wrong",
         ),
         cast(PyplotLineExport, plt).Line2D(
-            [], [], color=C_OK, marker="o", ls="", ms=5, label="correct"
+            [],
+            [],
+            color=C_OK,
+            marker="o",
+            ls="",
+            ms=5,
+            label="correct",
         ),
         cast(PyplotLineExport, plt).Line2D(
             [],
@@ -291,7 +317,12 @@ def main() -> None:
         edgecolor="#cccccc",
     )
     fig.subplots_adjust(
-        left=0.105, right=0.985, top=0.88, bottom=0.11, wspace=0.08, hspace=0.14
+        left=0.105,
+        right=0.985,
+        top=0.88,
+        bottom=0.11,
+        wspace=0.08,
+        hspace=0.14,
     )
     for ext in ("pdf", "png"):
         p: str = os.path.join(OUT, f"concentration_facets.{ext}")

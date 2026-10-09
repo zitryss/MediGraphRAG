@@ -24,7 +24,7 @@ class TestEnhancedGroundingHelpers:
 
     def test_content_query_tokens_drop_common_question_words(self) -> None:
         tokens: list[str] = self.system._content_query_tokens(
-            "What company owns the manufacturer of Learjet 60?"
+            "What company owns the manufacturer of Learjet 60?",
         )
         assert tokens == ["owns", "manufacturer", "learjet"]
 

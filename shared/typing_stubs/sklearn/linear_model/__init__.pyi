@@ -20,7 +20,12 @@ class LogisticRegression:
         | None = None,
         random_state: int | np.random.RandomState | None = None,
         solver: Literal[
-            "lbfgs", "liblinear", "newton-cg", "newton-cholesky", "sag", "saga"
+            "lbfgs",
+            "liblinear",
+            "newton-cg",
+            "newton-cholesky",
+            "sag",
+            "saga",
         ] = "lbfgs",
         max_iter: int = 100,
         multi_class: Literal["auto", "ovr", "multinomial", "deprecated"] = "deprecated",
@@ -30,6 +35,9 @@ class LogisticRegression:
         l1_ratio: float | None = None,
     ) -> None: ...
     def fit(
-        self, X: ArrayLike, y: ArrayLike, sample_weight: ArrayLike | None = None
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        sample_weight: ArrayLike | None = None,
     ) -> Self: ...
     def predict_proba(self, X: ArrayLike) -> NDArray[np.float32 | np.float64]: ...

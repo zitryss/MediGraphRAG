@@ -147,15 +147,18 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
     ) -> None:
         # Resolve env-var defaults here so no hardcoded URIs appear in source code
         resolved_neo4j_uri: str = neo4j_uri or os.getenv(
-            "NEO4J_URI", "bolt://localhost:7687"
+            "NEO4J_URI",
+            "bolt://localhost:7687",
         )
         resolved_neo4j_user: str = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD")
         resolved_neo4j_database: str = neo4j_database or os.getenv(
-            "NEO4J_DATABASE", "neo4j"
+            "NEO4J_DATABASE",
+            "neo4j",
         )
         resolved_embedding_model: str = embedding_model or os.getenv(
-            "EMBEDDING_PROVIDER", "sentence_transformers"
+            "EMBEDDING_PROVIDER",
+            "sentence_transformers",
         )
 
         # Pass ontology_path to parent so it loads ontology in the correct dict format
@@ -205,49 +208,65 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         patient_info: PatientDemographics = {}
 
         name_match: re.Match[str] | None = re.search(
-            r"Name:\s*([^\n\r]+)", text, re.IGNORECASE
+            r"Name:\s*([^\n\r]+)",
+            text,
+            re.IGNORECASE,
         )
         if name_match:
             patient_info["name"] = name_match.group(1).strip()
 
         unit_match: re.Match[str] | None = re.search(
-            r"Unit No:\s*([^\n\r]+)", text, re.IGNORECASE
+            r"Unit No:\s*([^\n\r]+)",
+            text,
+            re.IGNORECASE,
         )
         if unit_match:
             patient_info["unit_no"] = unit_match.group(1).strip()
 
         dob_match: re.Match[str] | None = re.search(
-            r"Date of Birth:\s*([^\n\r]+)", text, re.IGNORECASE
+            r"Date of Birth:\s*([^\n\r]+)",
+            text,
+            re.IGNORECASE,
         )
         if dob_match:
             patient_info["date_of_birth"] = dob_match.group(1).strip()
 
         admission_match: re.Match[str] | None = re.search(
-            r"Admission Date:\s*([^\n\r]+)", text, re.IGNORECASE
+            r"Admission Date:\s*([^\n\r]+)",
+            text,
+            re.IGNORECASE,
         )
         if admission_match:
             patient_info["admission_date"] = admission_match.group(1).strip()
 
         discharge_match: re.Match[str] | None = re.search(
-            r"Discharge Date:\s*([^\n\r]+)", text, re.IGNORECASE
+            r"Discharge Date:\s*([^\n\r]+)",
+            text,
+            re.IGNORECASE,
         )
         if discharge_match:
             patient_info["discharge_date"] = discharge_match.group(1).strip()
 
         sex_match: re.Match[str] | None = re.search(
-            r"Sex:\s*([^\n\r]+)", text, re.IGNORECASE
+            r"Sex:\s*([^\n\r]+)",
+            text,
+            re.IGNORECASE,
         )
         if sex_match:
             patient_info["sex"] = sex_match.group(1).strip()
 
         service_match: re.Match[str] | None = re.search(
-            r"Service:\s*([^\n\r]+)", text, re.IGNORECASE
+            r"Service:\s*([^\n\r]+)",
+            text,
+            re.IGNORECASE,
         )
         if service_match:
             patient_info["service"] = service_match.group(1).strip()
 
         attending_match: re.Match[str] | None = re.search(
-            r"Attending:\s*([^\n\r]+)", text, re.IGNORECASE
+            r"Attending:\s*([^\n\r]+)",
+            text,
+            re.IGNORECASE,
         )
         if attending_match:
             patient_info["attending"] = attending_match.group(1).strip()
@@ -261,7 +280,9 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         pmh_section: str = self._extract_section(text, "Past Medical History")
         if pmh_section:
             condition_matches: list[str] = re.findall(
-                r"\d+\.\s*([^.\n]+)", pmh_section, re.MULTILINE
+                r"\d+\.\s*([^.\n]+)",
+                pmh_section,
+                re.MULTILINE,
             )
             for match in condition_matches:
                 condition: str = match.strip()
@@ -275,7 +296,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "condition": condition,
                             "category": "past_medical_history",
                             "status": "chronic",
-                        }
+                        },
                     )
 
             pmh_conditions: list[str] = [
@@ -296,7 +317,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "condition": condition,
                             "category": "past_medical_history",
                             "status": "chronic",
-                        }
+                        },
                     )
 
         hopi_section: str = self._extract_section(text, "History of Present Illness")
@@ -314,7 +335,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "condition": match,
                             "category": "present_illness",
                             "status": "acute",
-                        }
+                        },
                     )
 
             if "ascites" in hopi_section.lower():
@@ -323,7 +344,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         "condition": "ascites",
                         "category": "present_illness",
                         "status": "acute",
-                    }
+                    },
                 )
 
         chief_complaint_section: str = self._extract_section(text, "Chief Complaint")
@@ -342,7 +363,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "condition": "abdominal distension",
                             "category": "chief_complaint",
                             "status": "presenting",
-                        }
+                        },
                     )
                 else:
                     conditions.append(
@@ -350,7 +371,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "condition": complaint_text,
                             "category": "chief_complaint",
                             "status": "presenting",
-                        }
+                        },
                     )
 
         discharge_dx_section: str = self._extract_section(text, "Discharge Diagnosis")
@@ -361,7 +382,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         "condition": "ascites from portal hypertension",
                         "category": "discharge_diagnosis",
                         "status": "final",
-                    }
+                    },
                 )
 
         seen: set[str] = set()
@@ -379,7 +400,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         medications: list[Medication] = []
 
         admission_meds_section: str = self._extract_section(
-            text, "Medications on Admission"
+            text,
+            "Medications on Admission",
         )
         if admission_meds_section:
             med_lines: list[str] = [
@@ -390,11 +412,12 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
             for med in med_lines:
                 if med and len(med) > 2:
                     medications.append(
-                        {"medication": med, "timing": "admission", "status": "chronic"}
+                        {"medication": med, "timing": "admission", "status": "chronic"},
                     )
 
         discharge_meds_section: str = self._extract_section(
-            text, "Discharge Medications"
+            text,
+            "Discharge Medications",
         )
         if discharge_meds_section:
             med_lines = [
@@ -409,7 +432,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "medication": med,
                             "timing": "discharge",
                             "status": "prescribed",
-                        }
+                        },
                     )
 
         hospital_course: str = self._extract_section(text, "Brief Hospital Course")
@@ -425,7 +448,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         "medication": med_change.strip(),
                         "timing": "hospital_course",
                         "status": "adjusted",
-                    }
+                    },
                 )
 
         return medications
@@ -484,12 +507,14 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         ]
 
         pertinent_results_section: str = self._extract_section(
-            text, "Pertinent Results"
+            text,
+            "Pertinent Results",
         )
         if pertinent_results_section:
             for pattern in lab_patterns:
                 matches: list[tuple[str, str] | tuple[str, str, str]] = re.findall(
-                    pattern, pertinent_results_section
+                    pattern,
+                    pertinent_results_section,
                 )
                 for match in matches:
                     if len(match) == 2:
@@ -499,7 +524,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                                 "test": lab_name.strip(),
                                 "value": value,
                                 "abnormal": "*" in str(match),
-                            }
+                            },
                         )
                     elif len(match) == 3:
                         full_name, short_name, value = match
@@ -508,7 +533,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                                 "test": f"{full_name} ({short_name})",
                                 "value": value,
                                 "abnormal": "*" in str(match),
-                            }
+                            },
                         )
 
         return lab_values
@@ -516,7 +541,9 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
     def _extract_section(self, text: str, section_name: str) -> str:
         """Extract a specific section from the patient report"""
         section_match: re.Match[str] | None = re.search(
-            rf"{section_name}[:\s]*", text, re.IGNORECASE
+            rf"{section_name}[:\s]*",
+            text,
+            re.IGNORECASE,
         )
         if not section_match:
             return ""
@@ -547,14 +574,14 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         logging.info(f"Starting bulk processing of medical reports from {csv_path}")
 
         csv_processor: _MedicalReportCSVProcessor = MedicalReportCSVProcessor(
-            delimiter="|"
+            delimiter="|",
         )
         validation: MedicalCSVValidation | CSVValidationFailure = (
             csv_processor.validate_csv_format(csv_path)
         )
         if not validation["is_valid"]:
             raise ValueError(
-                f"CSV validation failed: {validation.get('validation_errors', validation.get('error'))}"
+                f"CSV validation failed: {validation.get('validation_errors', validation.get('error'))}",
             )
 
         all_knowledge_graphs: list[KnowledgeGraph] = []
@@ -563,7 +590,9 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         while True:
             try:
                 batch_data: MedicalReportBatch = csv_processor.load_reports_bulk(
-                    csv_path, start_row=start_row + total_processed, max_rows=batch_size
+                    csv_path,
+                    start_row=start_row + total_processed,
+                    max_rows=batch_size,
                 )
                 reports: list[MedicalReport] = batch_data["reports"]
                 if not reports:
@@ -573,7 +602,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                 for report in reports:
                     try:
                         report_text: str = report["sections"].get(
-                            "full_report_text", ""
+                            "full_report_text",
+                            "",
                         )
                         if not report_text:
                             sections_text: list[str] = [
@@ -594,20 +624,20 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                                 batch_kgs.append(kg)
                     except Exception as e:
                         logging.error(
-                            f"Failed to process report at row {report['row_index']}: {e}"
+                            f"Failed to process report at row {report['row_index']}: {e}",
                         )
 
                 all_knowledge_graphs.extend(batch_kgs)
                 total_processed += len(reports)
                 logging.info(
-                    f"Processed batch: {len(reports)} reports, generated {len(batch_kgs)} knowledge graphs"
+                    f"Processed batch: {len(reports)} reports, generated {len(batch_kgs)} knowledge graphs",
                 )
 
                 if len(reports) < batch_size:
                     break
             except Exception as e:
                 logging.error(
-                    f"Error processing batch starting at row {start_row + total_processed}: {e}"
+                    f"Error processing batch starting at row {start_row + total_processed}: {e}",
                 )
                 break
 
@@ -639,7 +669,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         """Process documents from any CSV file and build a knowledge graph."""
         if DocumentCSVProcessor is None:
             raise RuntimeError(
-                "DocumentCSVProcessor not available — install csv_processor module"
+                "DocumentCSVProcessor not available — install csv_processor module",
             )
 
         logging.info(
@@ -649,12 +679,13 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         )
 
         processor: _DocumentCSVProcessor = DocumentCSVProcessor(
-            text_column=text_column, id_column=id_column
+            text_column=text_column,
+            id_column=id_column,
         )
         validation: CSVValidation = processor.validate_csv_format(csv_path)
         if not validation["is_valid"]:
             raise ValueError(
-                f"CSV validation failed: {validation.get('validation_errors')}"
+                f"CSV validation failed: {validation.get('validation_errors')}",
             )
 
         all_knowledge_graphs: list[KnowledgeGraph] = []
@@ -663,7 +694,9 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         while True:
             try:
                 batch_data: DocumentBatch = processor.load_documents_bulk(
-                    csv_path, start_row=start_row + total_processed, max_rows=batch_size
+                    csv_path,
+                    start_row=start_row + total_processed,
+                    max_rows=batch_size,
                 )
                 documents: list[CSVDocument] = batch_data["documents"]
                 if not documents:
@@ -728,7 +761,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         }
 
     def _merge_knowledge_graphs(
-        self, knowledge_graphs: list[KnowledgeGraph]
+        self,
+        knowledge_graphs: list[KnowledgeGraph],
     ) -> KnowledgeGraph:
         """Merge multiple knowledge graphs into a single unified graph."""
         all_nodes: list[EntityNode]
@@ -741,10 +775,12 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
             all_chunks.extend(kg.get("chunks", []))
 
         harmonized_nodes, id_map = self._harmonize_entities(
-            all_nodes, return_id_map=True
+            all_nodes,
+            return_id_map=True,
         )
         harmonized_rels: list[NormalizedRelationship] = self._harmonize_relationships(
-            all_relationships, id_map
+            all_relationships,
+            id_map,
         )
 
         return {
@@ -762,7 +798,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         }
 
     def _extract_entities_and_relationships_for_patients(
-        self, text: str
+        self,
+        text: str,
     ) -> PatientExtraction:
         """Extract patient-specific entities and relationships using hybrid approach."""
         entities: list[PatientEntity] = []
@@ -783,7 +820,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         "description": f"Patient: {', '.join(f'{k}: {v}' for k, v in patient_info.items())}",
                         **patient_info,
                     },
-                }
+                },
             )
 
         conditions: list[MedicalCondition] = self._extract_medical_conditions(text)
@@ -800,7 +837,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         "category": condition["category"],
                         "status": condition["status"],
                     },
-                }
+                },
             )
             if patient_info and condition["category"] != "presenting":
                 relationships.append(
@@ -813,7 +850,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "category": condition["category"],
                             "status": condition["status"],
                         },
-                    }
+                    },
                 )
 
         for medication in self._extract_medications(text):
@@ -829,7 +866,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         "timing": medication["timing"],
                         "status": medication["status"],
                     },
-                }
+                },
             )
             if patient_info:
                 relationships.append(
@@ -842,7 +879,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "timing": medication["timing"],
                             "status": medication["status"],
                         },
-                    }
+                    },
                 )
 
         for lab in self._extract_lab_values(text):
@@ -858,7 +895,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         "value": lab["value"],
                         "abnormal": lab["abnormal"],
                     },
-                }
+                },
             )
             if patient_info:
                 relationships.append(
@@ -871,7 +908,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "value": lab["value"],
                             "abnormal": lab["abnormal"],
                         },
-                    }
+                    },
                 )
 
         for key, value in self._extract_social_history(text).items():
@@ -889,7 +926,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                         "factor": key,
                         "value": value,
                     },
-                }
+                },
             )
             if patient_info:
                 relationships.append(
@@ -902,7 +939,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                             "factor": key,
                             "value": value,
                         },
-                    }
+                    },
                 )
 
         return {"entities": entities, "relationships": relationships}
@@ -919,7 +956,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         if llm is None:
             logging.warning(
                 "No LLM provided to generate_patient_knowledge_graph — "
-                "falling back to regex-only extraction. Pass an LLM for better coverage."
+                "falling back to regex-only extraction. Pass an LLM for better coverage.",
             )
 
         chunks: list[TextChunk] = self._chunk_text(text)
@@ -939,7 +976,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                 if llm is not None:
                     llm_result: ExtractionResult = (
                         self._extract_entities_and_relationships_with_llm(
-                            chunk["text"], llm
+                            chunk["text"],
+                            llm,
                         )
                     )
                     all_entities.extend(llm_result.get("entities", []))
@@ -948,7 +986,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                 logging.error(f"Error processing chunk {chunk['chunk_id']}: {e}")
 
         harmonized_entities, id_map = self._harmonize_entities(
-            all_entities, return_id_map=True
+            all_entities,
+            return_id_map=True,
         )
         harmonized_relationships: list[NormalizedRelationship] = (
             self._harmonize_relationships(all_relationships, id_map)

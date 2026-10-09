@@ -34,7 +34,9 @@ def clean_model_caches(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(ranking, name, {})
     for name in ("_RERANKER_FAILURES", "_LATE_INTERACTION_FAILURES"):
         monkeypatch.setattr(
-            ranking, name, set[tuple[str, str, int] | tuple[str, str, int, int]]()
+            ranking,
+            name,
+            set[tuple[str, str, int] | tuple[str, str, int, int]](),
         )
     monkeypatch.setattr(
         ranking,
@@ -72,12 +74,13 @@ def test_model_loaders_cache_success_and_failure(
 @pytest.mark.usefixtures("clean_model_caches")
 @pytest.mark.parametrize("special_mode", ["normal", "absent", "all"])
 def test_token_maxsim_scoring_and_cached_index_agree(
-    monkeypatch: pytest.MonkeyPatch, special_mode: str
+    monkeypatch: pytest.MonkeyPatch,
+    special_mode: str,
 ) -> None:
     def tokenize(texts: str | list[str], **kwargs: object) -> dict[str, torch.Tensor]:
         values: list[str] = [texts] if isinstance(texts, str) else texts
         ids: Tensor = torch.tensor(
-            [[1, 1] if "relevant" in text else [2, 2] for text in values]
+            [[1, 1] if "relevant" in text else [2, 2] for text in values],
         )
         result: dict[str, Tensor] = {
             "input_ids": ids,
@@ -91,7 +94,8 @@ def test_token_maxsim_scoring_and_cached_index_agree(
 
     def forward(input_ids: torch.Tensor, attention_mask: torch.Tensor) -> TensorOutput:
         hidden: Tensor = torch.nn.functional.one_hot(
-            input_ids - 1, num_classes=2
+            input_ids - 1,
+            num_classes=2,
         ).float()
         return TensorOutput(last_hidden_state=hidden)
 
@@ -110,22 +114,32 @@ def test_token_maxsim_scoring_and_cached_index_agree(
         {"chunk_id": "b", "text": "relevant", "document": "doc"},
     ]
     assert ranking._late_interaction_scores(
-        bundle, "relevant", chunks
+        bundle,
+        "relevant",
+        chunks,
     ) == pytest.approx([0, 1])
     first, meta = ranking._late_interaction_scores_indexed(
-        bundle, "relevant", chunks, index_key="unit"
+        bundle,
+        "relevant",
+        chunks,
+        index_key="unit",
     )
     assert first == [(1, 1.0), (0, 0.0)]
     assert not meta["index_cached"]
     count: int = model.call_count
     second, meta = ranking._late_interaction_scores_indexed(
-        bundle, "relevant", chunks, index_key="unit"
+        bundle,
+        "relevant",
+        chunks,
+        index_key="unit",
     )
     assert second == first and meta["index_cached"]
     assert model.call_count == count + 1  # query re-encoded; documents reused
     chunks[0]["text"] = "relevant changed"
     updated, cached = ranking._build_late_interaction_index(
-        bundle, chunks, index_key="unit"
+        bundle,
+        chunks,
+        index_key="unit",
     )
     assert updated is not None
     # Cache identity includes text, preventing stale embeddings under same corpus key.
@@ -134,7 +148,8 @@ def test_token_maxsim_scoring_and_cached_index_agree(
 
 @pytest.mark.parametrize("kind", ["cross", "late"])
 def test_reranking_failed_model_preserves_inputs(
-    monkeypatch: pytest.MonkeyPatch, kind: str
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
 ) -> None:
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER", "1")
     monkeypatch.setenv("ONTOGRAPHRAG_RERANKER_MODEL", "unit")
@@ -146,13 +161,15 @@ def test_reranking_failed_model_preserves_inputs(
             ranking,
             "_load_cross_encoder",
             Mock(
-                return_value=Mock(predict=Mock(side_effect=RuntimeError("bad tensor")))
+                return_value=Mock(predict=Mock(side_effect=RuntimeError("bad tensor"))),
             ),
         )
         result, meta = ranking.rerank_chunks_for_query("q", chunks)
     else:
         monkeypatch.setattr(
-            ranking, "_load_late_interaction_model", Mock(return_value={})
+            ranking,
+            "_load_late_interaction_model",
+            Mock(return_value={}),
         )
         result, meta = ranking.late_interaction_rescore_chunks_for_query("q", chunks)
     assert result == chunks and result is not chunks

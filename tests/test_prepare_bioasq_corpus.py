@@ -35,7 +35,7 @@ def test_load_bioasq_pmids_collects_from_documents_and_snippets(tmp_path: Path) 
             }
           ]
         }
-        """.strip()
+        """.strip(),
     )
 
     assert load_bioasq_pmids(bioasq_path) == ["111", "222"]

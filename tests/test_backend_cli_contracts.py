@@ -65,7 +65,8 @@ def test_ask_payload_and_output(transport: MagicMock, as_json: bool) -> None:
 
 
 def test_ingest_uploads_document_and_ontology(
-    transport: MagicMock, tmp_path: Path
+    transport: MagicMock,
+    tmp_path: Path,
 ) -> None:
     path: Path = tmp_path / "doc.txt"
     path.write_text("synthetic document")
@@ -101,7 +102,8 @@ def test_ingest_uploads_document_and_ontology(
 
 
 @pytest.mark.parametrize(
-    "body", ["not json", '{"detail":"denied"}', '{"message":"denied"}']
+    "body",
+    ["not json", '{"detail":"denied"}', '{"message":"denied"}'],
 )
 def test_http_error_exit(transport: MagicMock, body: str) -> None:
     transport.post.return_value = httpx.Response(403, text=body)
@@ -111,7 +113,8 @@ def test_http_error_exit(transport: MagicMock, body: str) -> None:
 
 
 def test_download_stream_and_prepare_paths(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     response: Mock = Mock(is_success=True)
     response.iter_bytes.return_value = iter([b"first", b"second"])

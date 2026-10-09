@@ -104,7 +104,10 @@ class DiversityReport(TypedDict):
 
 
 OUT_JSON: str = os.path.join(
-    REPO, "results", "analyses", "graph_state_diversity_analysis.json"
+    REPO,
+    "results",
+    "analyses",
+    "graph_state_diversity_analysis.json",
 )
 FIG_DIR: str = os.path.join(REPO, "paper", "figures")
 
@@ -112,7 +115,7 @@ FIG_DIR: str = os.path.join(REPO, "paper", "figures")
 def _iter_result_details() -> Iterator[tuple[str, str, list[DiversityDetail]]]:
     for slug, manifest_key in KEY.items():
         doc: DiversityDocument = json.load(
-            open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"]))
+            open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"])),
         )
         for cfg in doc["config_results"]:
             if not cfg["config"]["name"].startswith("kg_entity_first"):
@@ -159,11 +162,11 @@ def collect_rows() -> list[DiversityRow]:
                     "subgraph_entropy": float(diversity.get("subgraph_entropy") or 0.0),
                     "path_entropy": float(diversity.get("path_entropy") or 0.0),
                     "seed_entity_entropy": float(
-                        diversity.get("seed_entity_entropy") or 0.0
+                        diversity.get("seed_entity_entropy") or 0.0,
                     ),
                     "subgraph_jaccard": float(diversity.get("subgraph_jaccard") or 0.0),
                     "sample_count": int(diversity.get("sample_count") or 0),
-                }
+                },
             )
     return rows
 
@@ -176,10 +179,12 @@ def plot(rows: list[DiversityRow]) -> list[str]:
     ax: Axes
     fig, ax = plt.subplots(figsize=(4.8, 3.4))
     x: NDArray[np.float64] = np.array(
-        [r["subgraph_entropy"] for r in rows], dtype=float
+        [r["subgraph_entropy"] for r in rows],
+        dtype=float,
     )
     y: NDArray[np.float64] = np.array(
-        [r["output_discrete_semantic_entropy"] for r in rows], dtype=float
+        [r["output_discrete_semantic_entropy"] for r in rows],
+        dtype=float,
     )
     wrong: NDArray[np.bool_] = np.array([not r["correct"] for r in rows], dtype=bool)
     ax.scatter(x[~wrong], y[~wrong], s=18, c="#4C78A8", alpha=0.55, label="correct")
@@ -192,7 +197,8 @@ def plot(rows: list[DiversityRow]) -> list[str]:
     outputs: list[str] = []
     for ext in ("pdf", "png"):
         path: str = os.path.join(
-            FIG_DIR, f"graph_state_entropy_vs_output_entropy.{ext}"
+            FIG_DIR,
+            f"graph_state_entropy_vs_output_entropy.{ext}",
         )
         fig.savefig(path, bbox_inches="tight", dpi=180)
         outputs.append(path)

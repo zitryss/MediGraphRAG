@@ -32,7 +32,8 @@ def creator(monkeypatch: pytest.MonkeyPatch) -> UnifiedOntologyGuidedKGCreator:
     embedding.embed_documents.side_effect = fake_side_effect
     monkeypatch.setattr(base, "load_embedding_model", Mock(return_value=(embedding, 3)))
     return UnifiedOntologyGuidedKGCreator(
-        strict_ontology=False, enable_soft_entity_linking=False
+        strict_ontology=False,
+        enable_soft_entity_linking=False,
     )
 
 
@@ -116,7 +117,9 @@ former smoker quit alcohol and drug use
     ],
 )
 def test_social_history_states(
-    creator: UnifiedOntologyGuidedKGCreator, text: str, status: str
+    creator: UnifiedOntologyGuidedKGCreator,
+    text: str,
+    status: str,
 ) -> None:
     result: SocialHistory = creator._extract_social_history("Social History:\n" + text)
     assert result["smoking_status"] == status
@@ -151,11 +154,15 @@ def test_bulk_documents_partial_failure_and_batch_accounting(
             {"nodes": [], "relationships": [], "chunks": [{"id": "a"}]},
             RuntimeError("failed document"),
             {"nodes": [], "relationships": [], "chunks": [{"id": "c"}]},
-        ]
+        ],
     )
     monkeypatch.setattr(creator, "generate_knowledge_graph", generate)
     result: BulkProcessingResult = creator.bulk_process_documents(
-        str(path), "text", id_column="id", batch_size=2, kg_name="unit"
+        str(path),
+        "text",
+        id_column="id",
+        batch_size=2,
+        kg_name="unit",
     )
     assert result["metadata"]["total_documents_processed"] == 3
     assert result["metadata"]["total_knowledge_graphs"] == 2

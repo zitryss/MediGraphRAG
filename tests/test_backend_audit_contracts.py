@@ -55,15 +55,27 @@ def test_vector_retrievability_and_failed_query() -> None:
         [{"eid": "other", "score": 0.9}, {"eid": "target", "score": 0.8}],
     ]
     assert audit._check_chunk_retrievable_via_vector(
-        driver, "q", 0, [1.0, 0.0], "unit"
+        driver,
+        "q",
+        0,
+        [1.0, 0.0],
+        "unit",
     ) == (True, 0.8)
     session.run.side_effect = [[{"eid": "target"}], RuntimeError("index unavailable")]
     assert audit._check_chunk_retrievable_via_vector(
-        driver, "q", 0, [1.0, 0.0], "unit"
+        driver,
+        "q",
+        0,
+        [1.0, 0.0],
+        "unit",
     ) == (False, None)
     session.run.side_effect = [[]]
     assert audit._check_chunk_retrievable_via_vector(
-        driver, "q", 0, [1.0, 0.0], "unit"
+        driver,
+        "q",
+        0,
+        [1.0, 0.0],
+        "unit",
     ) == (False, None)
 
 
@@ -84,7 +96,8 @@ def test_correctness_classes(vanilla: bool, kg: bool, label: str) -> None:
 
 
 def test_package_manifest_hashes_and_corruption(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(package, "REPO", tmp_path)
     payload: Path = tmp_path / "artifact.txt"
@@ -119,7 +132,8 @@ def test_package_manifest_hashes_and_corruption(
 
 
 def test_package_manifest_loading(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manifest: Path = tmp_path / "MANIFEST.json"
     monkeypatch.setattr(package, "REPO", tmp_path)

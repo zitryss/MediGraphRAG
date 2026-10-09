@@ -24,7 +24,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(
     0,
     os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "paper", "figures"
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "paper",
+        "figures",
     ),
 )
 import make_figures  # rcParams styling
@@ -57,7 +59,9 @@ class NumericHistogramAxes(Protocol):
 FLOOR: float = 1e-12
 N_ARROWS: int = 12
 OUT: str = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "paper", "figures"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "paper",
+    "figures",
 )
 C_AD, C_ST = "#4D4D4D", "#B2182B"
 
@@ -98,7 +102,7 @@ def main() -> None:
         if col == 0:
             shared: list[str] = sorted(set(ad) & set(st))
             sample: list[np.str_] = list(
-                rng.choice(shared, min(N_ARROWS, len(shared)), replace=False)
+                rng.choice(shared, min(N_ARROWS, len(shared)), replace=False),
             )
             for q in sample:
                 x0, y0 = xy(ad[q])
@@ -135,11 +139,18 @@ def main() -> None:
                 zorder=3,
             )
             cast(NumericHistogramAxes, ax_m).hist(
-                pts[:, 0], bins=np.linspace(-12.2, -1.0, 36), color=color, alpha=0.55
+                pts[:, 0],
+                bins=np.linspace(-12.2, -1.0, 36),
+                color=color,
+                alpha=0.55,
             )
         ax.axvline(np.log10(FLOOR) + 0.02, color="#888888", lw=0.7, ls=":")
         ax.text(
-            np.log10(FLOOR) + 0.25, 0.04, "output\nfloor", fontsize=6.2, color="#666666"
+            np.log10(FLOOR) + 0.25,
+            0.04,
+            "output\nfloor",
+            fontsize=6.2,
+            color="#666666",
         )
         ax_m.set_title(label, fontsize=9, pad=2)
         ax_m.set_xlim(-12.4, -1.0)

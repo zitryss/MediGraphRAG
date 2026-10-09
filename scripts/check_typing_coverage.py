@@ -120,7 +120,7 @@ class Coverage(ast.NodeVisitor):
             (
                 f"{getattr(node, 'lineno', 1)}:{getattr(node, 'col_offset', 0)}:"
                 + ast.dump(node, include_attributes=False)
-            ).encode()
+            ).encode(),
         ).hexdigest()
         self.bindings.append(
             Binding(
@@ -132,7 +132,7 @@ class Coverage(ast.NodeVisitor):
                 category,
                 declaration,
                 fingerprint,
-            )
+            ),
         )
 
     def enter(self, name: str, kind: str, body: Iterable[ast.stmt]) -> None:
@@ -183,7 +183,7 @@ class Coverage(ast.NodeVisitor):
             self.scope.seen.add(parameter.arg)
             if parameter.annotation is not None:
                 self.scope.declarations[parameter.arg] = ast.unparse(
-                    parameter.annotation
+                    parameter.annotation,
                 )
                 self.emit(
                     parameter,
@@ -275,12 +275,14 @@ class Coverage(ast.NodeVisitor):
                     declaration = declaration or owner.declarations.get(symbol, "")
                     if symbol.startswith(("self.", "cls.")):
                         declaration = declaration or owner.declarations.get(
-                            symbol.split(".", 1)[1], ""
+                            symbol.split(".", 1)[1],
+                            "",
                         )
                     break
         if isinstance(target, ast.Attribute) and not declaration:
             direct_receiver: bool = isinstance(
-                target.value, ast.Name
+                target.value,
+                ast.Name,
             ) and target.value.id in {"self", "cls"}
             if not direct_receiver:
                 kind = "attribute-mutation"
@@ -332,7 +334,11 @@ class Coverage(ast.NodeVisitor):
                 if isinstance(target, ast.Name):
                     self.scope.seen.add(target.id)
                     self.emit(
-                        node, target.id, "type-definition", "inferred", constructor
+                        node,
+                        target.id,
+                        "type-definition",
+                        "inferred",
+                        constructor,
                     )
             if constructor in {
                 "typing.TypedDict",
@@ -431,21 +437,30 @@ class Coverage(ast.NodeVisitor):
         if node.args.vararg is not None:
             self.scope.seen.add(node.args.vararg.arg)
             self.emit(
-                node.args.vararg, node.args.vararg.arg, "lambda-parameter", "inferred"
+                node.args.vararg,
+                node.args.vararg.arg,
+                "lambda-parameter",
+                "inferred",
             )
         if node.args.kwarg is not None:
             self.scope.seen.add(node.args.kwarg.arg)
             self.emit(
-                node.args.kwarg, node.args.kwarg.arg, "lambda-parameter", "inferred"
+                node.args.kwarg,
+                node.args.kwarg.arg,
+                "lambda-parameter",
+                "inferred",
             )
         self.visit(node.body)
         self.scopes.pop()
 
     def comprehension(
-        self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+        self,
+        node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
     ) -> None:
         self.enter(
-            f"{self.scope.name}.<comprehension:{node.lineno}>", "comprehension", []
+            f"{self.scope.name}.<comprehension:{node.lineno}>",
+            "comprehension",
+            [],
         )
         for generator in node.generators:
             self.bind(generator.target, "comprehension", True)
@@ -584,7 +599,8 @@ class Coverage(ast.NodeVisitor):
 def discover(root: Path) -> list[Path]:
     tracked: list[str] = (
         subprocess.check_output(
-            ["git", "ls-files", "-z", "--", "*.py", "*.pyi"], cwd=root
+            ["git", "ls-files", "-z", "--", "*.py", "*.pyi"],
+            cwd=root,
         )
         .decode()
         .split("\0")
@@ -633,9 +649,9 @@ def inspect_source(source: str, path: str) -> list[Binding]:
                     "dynamic",
                     "",
                     hashlib.sha256(
-                        f"{token.start[0]}:{token.start[1]}:{token.string}".encode()
+                        f"{token.start[0]}:{token.start[1]}:{token.string}".encode(),
                     ).hexdigest(),
-                )
+                ),
             )
     return visitor.bindings
 
@@ -720,7 +736,7 @@ def parse_entries(value: object) -> list[ExceptionEntry]:
                 values["reviewer"],
                 values["disposition"],
                 date.fromisoformat(values["expires"]),
-            )
+            ),
         )
     return entries
 
@@ -741,7 +757,7 @@ def reconcile(
         ]
         if len(matches) != 1:
             errors.append(
-                f"{entry.identity}: unused, changed, or ambiguous fingerprint"
+                f"{entry.identity}: unused, changed, or ambiguous fingerprint",
             )
             continue
         binding: Binding = matches[0]
@@ -772,7 +788,7 @@ def main() -> int:
     bindings: list[Binding] = []
     for path in paths:
         bindings.extend(
-            inspect_source(path.read_text(), path.relative_to(root).as_posix())
+            inspect_source(path.read_text(), path.relative_to(root).as_posix()),
         )
     entries: list[ExceptionEntry] = (
         parse_entries(json.loads(args.exceptions.read_text()))
@@ -810,7 +826,7 @@ def main() -> int:
             },
             indent=2,
         )
-        + "\n"
+        + "\n",
     )
     print(f"{len(paths)} files; {len(bindings)} bindings; {failures} unresolved")
     return int(args.check and failures > 0)

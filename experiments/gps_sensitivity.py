@@ -79,7 +79,10 @@ RUNS: list[tuple[str, str, bool]] = [
 
 
 def auroc_at(
-    slug: str, strict: bool, tau: float, gamma: float
+    slug: str,
+    strict: bool,
+    tau: float,
+    gamma: float,
 ) -> tuple[float | None, int]:
     """Return (auroc, usable_n) for one (tau, gamma) cell using saved stores."""
     artifact: ReplayArtifact = load_artifact(slug, strict=strict)
@@ -93,7 +96,10 @@ def auroc_at(
         if store is None or store.get("null_reason") == "generation_failed":
             continue
         res: ReplayScore = score_from_store_depth_matched(
-            store, expected_hop(slug, rows.get(qid)), tau=tau, gamma=gamma
+            store,
+            expected_hop(slug, rows.get(qid)),
+            tau=tau,
+            gamma=gamma,
         )
         if res["null_reason"]:
             continue
@@ -141,7 +147,7 @@ def main() -> None:
             f"range=[{out['runs'][label]['auroc_min']!s:.5}, "
             f"{out['runs'][label]['auroc_max']!s:.5}] "
             f"std={out['runs'][label]['auroc_std']:.3f} "
-            f"usable {min(usables)}-{max(usables)}"
+            f"usable {min(usables)}-{max(usables)}",
         )
     json.dump(out, open(OUT_PATH, "w"), indent=1, default=float)
     print("wrote", os.path.relpath(OUT_PATH, REPO))

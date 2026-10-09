@@ -249,7 +249,10 @@ class ReplayOutput(V2ReplayArtifact):
 
 REPO_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST: str = os.path.join(
-    REPO_ROOT, "paper", "figures", "latest_results_manifest.json"
+    REPO_ROOT,
+    "paper",
+    "figures",
+    "latest_results_manifest.json",
 )
 
 DATASETS: dict[str, tuple[str, bool, int]] = {
@@ -269,7 +272,7 @@ MIN_NAME_LENGTH: int = 4
 MAX_ENTITIES: int = 5  # per side, matching GPS-v1
 MAX_SOFT_SPANS: int = 24  # candidate spans embedded per text
 TAU_LOOSE: float = float(
-    os.environ.get("GPS_TAU_LOOSE", 0.60)
+    os.environ.get("GPS_TAU_LOOSE", 0.60),
 )  # store floor; grid taus filter above this
 TAU_Q: float = 0.75  # fixed question-side soft-fallback threshold (not tuned)
 GRID_TAU: tuple[float, ...] = tuple(
@@ -304,7 +307,9 @@ def _select_config(doc: ReplayDocument, name: str) -> ReplayConfig:
 
 
 def _merged_rows(
-    result_path: str, kg_cfg: str = KG_CFG, with_dense: bool = True
+    result_path: str,
+    kg_cfg: str = KG_CFG,
+    with_dense: bool = True,
 ) -> list[MergedReplayRow]:
     """vanilla_* fields from the dense config, kg_* from entity-first (paper convention)."""
     doc: ReplayDocument = json.load(open(result_path))
@@ -329,7 +334,9 @@ class ScopedEntityIndex:
 
     def __init__(self, session: Session, kg_name: str, question_id: str | None) -> None:
         scope: LiteralString = _question_local_entity_support_predicate(
-            "e", kg_name=kg_name, question_id=question_id
+            "e",
+            kg_name=kg_name,
+            question_id=question_id,
         )
         self.rows: list[ScopedEntity] = _load_scoped_entities(
             session,
@@ -373,22 +380,30 @@ class ScopedEntityIndex:
 
     def surface_match(self, text: str) -> list[ScopedEntity]:
         return _match_scoped_entities_to_text(
-            text, self.rows, min_name_length=MIN_NAME_LENGTH, max_entities=MAX_ENTITIES
+            text,
+            self.rows,
+            min_name_length=MIN_NAME_LENGTH,
+            max_entities=MAX_ENTITIES,
         )
 
     def soft_match(
-        self, text: str, encoder: SentenceTransformer, tau: float
+        self,
+        text: str,
+        encoder: SentenceTransformer,
+        tau: float,
     ) -> list[SoftMatch]:
         """Top entities by max cosine between any candidate span and the entity name."""
         if self.emb_matrix.shape[0] == 0:
             return []
         spans: list[str] = _candidate_structural_spans(
-            text, min_name_length=MIN_NAME_LENGTH
+            text,
+            min_name_length=MIN_NAME_LENGTH,
         )[:MAX_SOFT_SPANS]
         if not spans:
             return []
         span_embs: NDArray[np.float32] = encoder.encode(
-            spans, normalize_embeddings=True
+            spans,
+            normalize_embeddings=True,
         )
         sims: NDArray[np.float32] = span_embs @ self.emb_matrix.T  # (spans, entities)
         best: NDArray[np.float32] = sims.max(axis=0)  # best span per entity
@@ -399,7 +414,7 @@ class ScopedEntityIndex:
             if cos < tau:
                 break
             out.append(
-                {"id": self.emb_ids[idx], "name": self.emb_names[idx], "cos": cos}
+                {"id": self.emb_ids[idx], "name": self.emb_names[idx], "cos": cos},
             )
         return out
 
@@ -414,7 +429,9 @@ def _min_path_length(
 ) -> int | None:
     """Smallest L in 1..max_hops with a qualifying path, mirroring GPS-v1 filters."""
     path_scope: LiteralString = _question_local_path_support_predicate(
-        path_var="p", kg_name=kg_name, question_id=question_id
+        path_var="p",
+        kg_name=kg_name,
+        question_id=question_id,
     )
     params: dict[str, str | list[str]] = {"q_ids": q_ids, "a_id": a_id}
     if kg_name:
@@ -510,7 +527,9 @@ def replay_question(
 
 
 def score_from_store(
-    store_row: ReplayStore | V2ReplayStore, tau: float, gamma: float
+    store_row: ReplayStore | V2ReplayStore,
+    tau: float,
+    gamma: float,
 ) -> ReplayScore:
     """Evaluate one (tau, gamma) grid point from a stored replay row."""
     if store_row.get("null_reason"):
@@ -539,7 +558,10 @@ def auroc(scores: list[float], wrong: list[bool]) -> float | None:
 
 
 def summarize(
-    rows: list[CompletedReplayRow], side: str, tau: float, gamma: float
+    rows: list[CompletedReplayRow],
+    side: str,
+    tau: float,
+    gamma: float,
 ) -> ReplaySummary:
     scored: list[float]
     wrong: list[bool]
@@ -561,8 +583,8 @@ def summarize(
         scored.append(res["score"])
         wrong.append(
             not bool(
-                (r.get("kg_correct") if side == "kg" else r.get("vanilla_correct"))
-            )
+                (r.get("kg_correct") if side == "kg" else r.get("vanilla_correct")),
+            ),
         )
     return {
         "tau": tau,
@@ -591,7 +613,9 @@ def run_dataset(
     if runfile:
         result_path: str = os.path.join(REPO_ROOT, runfile)
         rows: list[MergedReplayRow] = _merged_rows(
-            result_path, kg_cfg=kg_cfg, with_dense=False
+            result_path,
+            kg_cfg=kg_cfg,
+            with_dense=False,
         )
     else:
         manifest: dict[str, dict[str, str]] = json.load(open(MANIFEST))
@@ -600,7 +624,8 @@ def run_dataset(
     print(f"[{slug}] {len(rows)} questions from {os.path.basename(result_path)}")
 
     driver: Driver = GraphDatabase.driver(
-        env["uri"], auth=(env["user"], env["password"])
+        env["uri"],
+        auth=(env["user"], env["password"]),
     )
     shared_index: ScopedEntityIndex | None = None
     t0: float = time.time()
@@ -608,17 +633,20 @@ def run_dataset(
         if not scoped:
             shared_index = ScopedEntityIndex(session, slug, None)
             print(
-                f"[{slug}] shared index: {len(shared_index.emb_ids)} embedded entities"
+                f"[{slug}] shared index: {len(shared_index.emb_ids)} embedded entities",
             )
         for i, r in enumerate(rows):
             qid: str | None = str(r["question_id"]) if scoped else None
             index: ScopedEntityIndex = shared_index or ScopedEntityIndex(
-                session, slug, qid
+                session,
+                slug,
+                qid,
             )
             r["store"] = {}
             sides: tuple[
                 tuple[
-                    Literal["kg", "vanilla"], Literal["kg_response", "vanilla_response"]
+                    Literal["kg", "vanilla"],
+                    Literal["kg_response", "vanilla_response"],
                 ],
                 ...,
             ] = (
@@ -689,8 +717,8 @@ def run_dataset(
             s.append(float(val))
             w.append(
                 not bool(
-                    (r.get("kg_correct") if side == "kg" else r.get("vanilla_correct"))
-                )
+                    (r.get("kg_correct") if side == "kg" else r.get("vanilla_correct")),
+                ),
             )
         v1[side] = {"usable": len(s), "auroc": auroc(s, w)}
 
@@ -728,12 +756,12 @@ def run_dataset(
     print(f"[{slug}] wrote {out_path}")
     for side in eval_sides:
         print(
-            f"[{slug}] {side}: v1 usable={v1[side]['usable']} auroc={v1[side]['auroc']}"
+            f"[{slug}] {side}: v1 usable={v1[side]['usable']} auroc={v1[side]['auroc']}",
         )
         for s in summary[side]:
             print(
                 f"[{slug}] {side}: v2 tau={s['tau']} gamma={s['gamma']} "
-                f"usable={s['usable']}/{s['answered']} auroc={s['auroc']}"
+                f"usable={s['usable']}/{s['answered']} auroc={s['auroc']}",
             )
 
 

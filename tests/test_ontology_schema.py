@@ -145,7 +145,10 @@ def test_compatible_relationships_ranks_full_then_partial_then_unconstrained() -
             RelationshipType(id="generic", label="generic"),
             RelationshipType(id="treats_any", label="treatsAny", domain="Drug"),
             RelationshipType(
-                id="treats", label="treats", domain="Drug", range="Disease"
+                id="treats",
+                label="treats",
+                domain="Drug",
+                range="Disease",
             ),
         ],
     )
@@ -248,7 +251,7 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
                     name="patientId",
                     type=PropertyType.STRING,
                     identifier=True,
-                )
+                ),
             ],
         ),
         EntityType(id="Encounter", label="Encounter"),
@@ -259,7 +262,7 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
             label="hasEncounter",
             domain="Patient",
             range="Encounter",
-        )
+        ),
     ]
 
     schema_a: OntologySchema = OntologySchema(
@@ -278,7 +281,7 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
                         name="patientId",
                         type=PropertyType.INTEGER,
                         identifier=True,
-                    )
+                    ),
                 ],
             ),
             EntityType(id="Encounter", label="Encounter"),
@@ -306,7 +309,7 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
             "label": "hasEncounter",
             "domain": "Patient",
             "range": "Encounter",
-        }
+        },
     ]
 
     creator._ontology_schema = schema_a
@@ -327,13 +330,14 @@ def test_validate_ontology_schema_rejects_missing_identifier_property() -> None:
                 "properties": [
                     {"name": "name", "type": "string"},
                 ],
-            }
+            },
         ],
         "relationships": [],
     }
 
     errors: list[str] = validate_ontology_schema(
-        json.dumps(ontology).encode("utf-8"), "ontology.json"
+        json.dumps(ontology).encode("utf-8"),
+        "ontology.json",
     )
 
     assert any("missing identifier property" in err for err in errors)
@@ -362,12 +366,13 @@ def test_validate_ontology_schema_rejects_invalid_cardinality() -> None:
                 "from": "Patient",
                 "to": "Encounter",
                 "cardinality": "manyish",
-            }
+            },
         ],
     }
 
     errors: list[str] = validate_ontology_schema(
-        json.dumps(ontology).encode("utf-8"), "ontology.json"
+        json.dumps(ontology).encode("utf-8"),
+        "ontology.json",
     )
 
     assert any("invalid cardinality" in err for err in errors)

@@ -47,7 +47,9 @@ class IterativeRetrievalMixin:
         def _comparison_branches(query: str) -> list[str]: ...
         @classmethod
         def _count_matched_query_tokens(
-            cls, query: str, entity_names: Sequence[StoredGraphProperty]
+            cls,
+            query: str,
+            entity_names: Sequence[StoredGraphProperty],
         ) -> int: ...
         def _entity_first_search(
             self,
@@ -63,16 +65,22 @@ class IterativeRetrievalMixin:
             anchor_mask_entity_names: Sequence[StoredGraphProperty] | None = None,
         ) -> ProducedGraphRetrievalContext | None: ...
         def _extract_query_entities(
-            self, query: str, llm: "Runnable[PromptValue, object]"
+            self,
+            query: str,
+            llm: "Runnable[PromptValue, object]",
         ) -> list[str]: ...
         def _first_stage_late_interaction_enabled(self) -> bool: ...
         @classmethod
         def _graph_context_is_meaningful(
-            cls, query: str, context: RetrievalContext | None
+            cls,
+            query: str,
+            context: RetrievalContext | None,
         ) -> bool: ...
         @classmethod
         def _grounding_quality(
-            cls, query: str, matched_query_token_count: int
+            cls,
+            query: str,
+            matched_query_token_count: int,
         ) -> float: ...
         @overload
         @classmethod
@@ -129,7 +137,9 @@ class IterativeRetrievalMixin:
         ) -> GraphRetrievalContext: ...
         @classmethod
         def _sort_chunks_for_query(
-            cls, query: str, chunks: Sequence[ChunkT]
+            cls,
+            query: str,
+            chunks: Sequence[ChunkT],
         ) -> list[ChunkT]: ...
         def _text_similarity_search(
             self,
@@ -233,10 +243,11 @@ class IterativeRetrievalMixin:
                     "human",
                     "Sub-question: {sub_q}\nNext sub-question: {next_sub_q}\n\nPassages:\n{passages}",
                 ),
-            ]
+            ],
         )
         bridge_chain: Runnable[dict[str, str], str] = cast(
-            "Runnable[dict[str, str], str]", bridge_prompt | llm | StrOutputParser()
+            "Runnable[dict[str, str], str]",
+            bridge_prompt | llm | StrOutputParser(),
         )
 
         # Per-hop buckets so we can prune graph facts after chunk truncation.
@@ -268,7 +279,9 @@ class IterativeRetrievalMixin:
             )
             hop_max: int = max(6, max_chunks // len(current_sub_qs))
             hop_retrieval_k: int = self._iterative_hop_retrieval_budget(
-                kg_name, hop_idx, hop_max
+                kg_name,
+                hop_idx,
+                hop_max,
             )
             comparison_query: bool = bool(self._comparison_branches(sub_q))
             next_sub_q: str = (
@@ -328,7 +341,9 @@ class IterativeRetrievalMixin:
                         max_hops=iterative_subquestion_max_hops,
                         question_id=question_id,
                         allow_first_stage_late_interaction=getattr(
-                            self, "retrieval_mode", "hybrid_auto"
+                            self,
+                            "retrieval_mode",
+                            "hybrid_auto",
                         )
                         != "entity_first",
                     )
@@ -336,7 +351,8 @@ class IterativeRetrievalMixin:
                         secondary_limit: int = max(
                             2,
                             min(
-                                self._HYBRID_SUPPLEMENT_LIMIT, hop_retrieval_k // 2 or 1
+                                self._HYBRID_SUPPLEMENT_LIMIT,
+                                hop_retrieval_k // 2 or 1,
                             ),
                         )
                         if (
@@ -389,7 +405,9 @@ class IterativeRetrievalMixin:
                             max_hops=iterative_subquestion_max_hops,
                             question_id=question_id,
                             allow_first_stage_late_interaction=getattr(
-                                self, "retrieval_mode", "hybrid_auto"
+                                self,
+                                "retrieval_mode",
+                                "hybrid_auto",
                             )
                             != "entity_first",
                         )
@@ -405,7 +423,9 @@ class IterativeRetrievalMixin:
                         )
                 except Exception as _fe:
                     logging.warning(
-                        "Hop %d fallback search failed: %s", hop_idx + 1, _fe
+                        "Hop %d fallback search failed: %s",
+                        hop_idx + 1,
+                        _fe,
                     )
                     hop_ctx = None
 
@@ -419,7 +439,7 @@ class IterativeRetrievalMixin:
                         "relationships": [],
                         "graph_neighbors": {},
                         "traversal_paths": [],
-                    }
+                    },
                 )
                 continue
 
@@ -446,7 +466,7 @@ class IterativeRetrievalMixin:
                     "relationships": hop_ctx.get("relationships", []),
                     "graph_neighbors": hop_ctx.get("graph_neighbors", {}),
                     "traversal_paths": hop_ctx.get("traversal_paths", []),
-                }
+                },
             )
 
             # Anchor grounding/seed metrics to hop 0 only (direct question entities).
@@ -471,11 +491,13 @@ class IterativeRetrievalMixin:
                         if surface and len(surface) >= 4:
                             surfaces.append(surface)
                     matched_token_count: int = self._count_matched_query_tokens(
-                        question, surfaces
+                        question,
+                        surfaces,
                     )
                     _hop0_seed_count = len(surfaces)
                     _hop0_grounding = self._grounding_quality(
-                        question, matched_token_count
+                        question,
+                        matched_token_count,
                     )
 
             # Extract bridge answer to refine the next sub-question
@@ -492,7 +514,7 @@ class IterativeRetrievalMixin:
                             "sub_q": sub_q,
                             "next_sub_q": next_sub_q,
                             "passages": passages,
-                        }
+                        },
                     ).strip()
                     _bad_phrases: tuple[str, ...] = (
                         "i don't know",
@@ -508,12 +530,15 @@ class IterativeRetrievalMixin:
                         and not any(p in raw_bridge.lower() for p in _bad_phrases)
                     ):
                         logging.info(
-                            "Bridge answer for hop %d: %s", hop_idx + 1, raw_bridge
+                            "Bridge answer for hop %d: %s",
+                            hop_idx + 1,
+                            raw_bridge,
                         )
                         next_q: str = current_sub_qs[hop_idx + 1]
                         if "[BRIDGE]" in next_q:
                             current_sub_qs[hop_idx + 1] = next_q.replace(
-                                "[BRIDGE]", raw_bridge
+                                "[BRIDGE]",
+                                raw_bridge,
                             )
                         else:
                             current_sub_qs[hop_idx + 1] = (
@@ -541,7 +566,8 @@ class IterativeRetrievalMixin:
                                     )
                             except Exception as _ee:
                                 logging.debug(
-                                    "Bridge entity extraction failed: %s", _ee
+                                    "Bridge entity extraction failed: %s",
+                                    _ee,
                                 )
                     else:
                         logging.info(
@@ -551,7 +577,9 @@ class IterativeRetrievalMixin:
                         )
                 except Exception as e:
                     logging.warning(
-                        "Bridge answer extraction failed at hop %d: %s", hop_idx + 1, e
+                        "Bridge answer extraction failed at hop %d: %s",
+                        hop_idx + 1,
+                        e,
                     )
 
         # --- Flatten all hop chunks (new-only), sort, and truncate ---

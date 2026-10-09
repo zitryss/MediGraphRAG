@@ -124,12 +124,13 @@ class VanillaRAGSystem:
             else os.getenv("NEO4J_PASSWORD")
         )
         self.neo4j_database: str | None = neo4j_database or os.getenv(
-            "NEO4J_DATABASE", "neo4j"
+            "NEO4J_DATABASE",
+            "neo4j",
         )
 
         if not self.neo4j_uri or not self.neo4j_user or not self.neo4j_password:
             raise ValueError(
-                "Neo4j connection parameters not found. Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD environment variables."
+                "Neo4j connection parameters not found. Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD environment variables.",
             )
 
         # Initialize embeddings through the shared loader so KG construction and
@@ -142,7 +143,7 @@ class VanillaRAGSystem:
         self.embedding_model: Embeddings
         self.embedding_dimension: int
         self.embedding_model, self.embedding_dimension = load_embedding_model(
-            embedding_provider
+            embedding_provider,
         )
         logging.info(
             "Initialized vanilla retrieval embedding backend '%s' with dimension %d",
@@ -151,7 +152,8 @@ class VanillaRAGSystem:
         )
         self._vector_index_name: str | None = None
         self._late_interaction_corpus_cache: dict[
-            tuple[str, tuple[str, ...], str], list[CompleteRetrievedChunk]
+            tuple[str, tuple[str, ...], str],
+            list[CompleteRetrievedChunk],
         ] = {}
 
         # Simple RAG prompt template (no KG traversal instructions)
@@ -185,7 +187,7 @@ Task-Specific Answer Instructions:
 User Query: {question}""",
                 ),
                 ("human", "{question}"),
-            ]
+            ],
         )
 
     def _create_neo4j_connection(self) -> "GraphQuery":
@@ -211,7 +213,8 @@ User Query: {question}""",
 
         if hasattr(self.embedding_model, "encode"):
             embedding: NDArray[np.float32] | list[float] = cast(
-                QueryEncoder, self.embedding_model
+                QueryEncoder,
+                self.embedding_model,
             ).encode(query, convert_to_numpy=True)
             return (
                 cast(FloatListConvertible, embedding).tolist()
@@ -220,7 +223,7 @@ User Query: {question}""",
             )
 
         raise ValueError(
-            "Unsupported embedding model interface. Expected embed_query or encode."
+            "Unsupported embedding model interface. Expected embed_query or encode.",
         )
 
     def _resolve_vector_index_name(self, graph: "GraphQuery") -> str | None:
@@ -231,7 +234,7 @@ User Query: {question}""",
         try:
             index_rows: list[dict[str, object]] = (
                 graph.query(
-                    "SHOW INDEXES YIELD name, type, state WHERE type = 'VECTOR' RETURN name, state"
+                    "SHOW INDEXES YIELD name, type, state WHERE type = 'VECTOR' RETURN name, state",
                 )
                 or []
             )
@@ -269,7 +272,7 @@ User Query: {question}""",
             200,
             int(
                 os.getenv("ONTOGRAPHRAG_LATE_INTERACTION_CORPUS_CAP", "5000").strip()
-                or 5000
+                or 5000,
             ),
         )
 
@@ -344,13 +347,15 @@ User Query: {question}""",
                     str(chunk.get("document", "")).lower(),
                     str(chunk.get("text", "")).lower(),
                 ],
-            )
+            ),
         )
         return sum(1 for branch in branches if branch.lower() in haystack)
 
     @classmethod
     def _comparison_branch_coverage(
-        cls, query: str, chunks: list[RetrievedChunk]
+        cls,
+        query: str,
+        chunks: list[RetrievedChunk],
     ) -> int:
         branches: list[str] = cls._comparison_branches(query)
         if not branches:
@@ -378,13 +383,15 @@ User Query: {question}""",
                     str(chunk.get("document", "")).lower(),
                     str(chunk.get("text", "")).lower(),
                 ],
-            )
+            ),
         )
         return sum(1 for token in tokens if token in haystack)
 
     @classmethod
     def _sort_chunks_for_query(
-        cls, query: str, chunks: list[RetrievedChunk]
+        cls,
+        query: str,
+        chunks: list[RetrievedChunk],
     ) -> list[RetrievedChunk]:
         branches: list[str] = cls._comparison_branches(query)
         return sorted(
@@ -409,14 +416,17 @@ User Query: {question}""",
 
     @classmethod
     def _should_run_query_fusion(
-        cls, question: str, context: RetrievalContext | None
+        cls,
+        question: str,
+        context: RetrievalContext | None,
     ) -> bool:
         if not cls._query_fusion_enabled():
             return False
         branches: list[str] = cls._comparison_branches(question)
         if branches:
             coverage: int = cls._comparison_branch_coverage(
-                question, list((context or {}).get("chunks", []))
+                question,
+                list((context or {}).get("chunks", [])),
             )
             if coverage < len(branches):
                 return True
@@ -427,14 +437,16 @@ User Query: {question}""",
         )
 
     def _generate_query_variants(
-        self, question: str, llm: "Runnable[PromptValue, object] | None"
+        self,
+        question: str,
+        llm: "Runnable[PromptValue, object] | None",
     ) -> list[str]:
         variants: list[str] = []
         seen: set[str] = {self._normalize_retrieval_query(question).lower()}
 
         for branch in self._comparison_branches(question):
             branch_query: str = self._normalize_retrieval_query(
-                f"Focus on {branch}. Original question: {question}"
+                f"Focus on {branch}. Original question: {question}",
             )
             branch_key: str = branch_query.lower()
             if branch_query and branch_key not in seen:
@@ -472,11 +484,12 @@ User Query: {question}""",
                     ),
                 ),
                 ("human", "{question}"),
-            ]
+            ],
         )
         try:
             chain: Runnable[dict[str, str | int], str] = cast(
-                "Runnable[dict[str, str | int], str]", prompt | llm | StrOutputParser()
+                "Runnable[dict[str, str | int], str]",
+                prompt | llm | StrOutputParser(),
             )
             raw: str = chain.invoke({"question": question, "n": remaining})
             match: re.Match[str] | None = re.search(r"\[.*\]", str(raw), re.DOTALL)
@@ -498,7 +511,8 @@ User Query: {question}""",
                             break
         except Exception as exc:
             logging.debug(
-                "Vanilla query fusion reformulation failed (non-fatal): %s", exc
+                "Vanilla query fusion reformulation failed (non-fatal): %s",
+                exc,
             )
 
         return variants[: self._QUERY_FUSION_MAX_VARIANTS]
@@ -545,14 +559,15 @@ User Query: {question}""",
         chunk_records: dict[str, FusedChunkRecord] = {}
         for context in usable_contexts:
             ranked_chunks: list[RetrievedChunk] = cls._sort_chunks_for_query(
-                query, list(context.get("chunks", []))
+                query,
+                list(context.get("chunks", [])),
             )
             for rank, chunk in enumerate(ranked_chunks, 1):
                 chunk_key: str = str(
                     chunk.get("parent_chunk_id")
                     or chunk.get("chunk_id")
                     or chunk.get("chunk_element_id")
-                    or str(chunk.get("text", ""))[:120]
+                    or str(chunk.get("text", ""))[:120],
                 )
                 record: FusedChunkRecord | None = chunk_records.get(chunk_key)
                 if record is None:
@@ -591,10 +606,10 @@ User Query: {question}""",
                     chunk.get("document")
                     for chunk in fused_chunks
                     if chunk.get("document")
-                }
+                },
             ),
             "total_score": float(
-                sum(float(chunk.get("score", 0.0)) for chunk in fused_chunks)
+                sum(float(chunk.get("score", 0.0)) for chunk in fused_chunks),
             ),
             "search_method": search_method,
         }
@@ -632,7 +647,7 @@ User Query: {question}""",
             params["document_names"] = list(document_names)
         if question_id:
             filters.append(
-                "coalesce(retrieval.questionId, chunk.questionId) = $question_id"
+                "coalesce(retrieval.questionId, chunk.questionId) = $question_id",
             )
             params["question_id"] = question_id
         where_clause: str = "WHERE " + " AND ".join(filters) if filters else ""
@@ -757,7 +772,7 @@ User Query: {question}""",
                     "score": 0.0,
                     "document": row["document"],
                     "kg_name": row.get("kg_name"),
-                }
+                },
             )
         reranked_rows, li_meta = late_interaction_rescore_chunks_for_query(
             query,
@@ -898,7 +913,8 @@ User Query: {question}""",
             """
             try:
                 adj_results: list[ChunkProjection] = cast(
-                    list[ChunkProjection], graph.query(adj_query, adj_params)
+                    list[ChunkProjection],
+                    graph.query(adj_query, adj_params),
                 )
                 for adj_result in adj_results:
                     if adj_result["chunk_element_id"] not in seen_ids:
@@ -912,21 +928,22 @@ User Query: {question}""",
                                 "question_id": adj_result.get("question_id"),
                                 "passage_index": adj_result.get("passage_index"),
                                 "chunk_local_index": adj_result.get(
-                                    "chunk_local_index"
+                                    "chunk_local_index",
                                 ),
                                 "score": 0.0,
                                 "document": adj_result["document"],
                                 "kg_name": adj_result.get("kg_name"),
                                 "adjacent": True,
-                            }
+                            },
                         )
                         cast(set[StoredGraphProperty], context["documents"]).add(
-                            adj_result["document"]
+                            adj_result["document"],
                         )
                         seen_ids.add(adj_result["chunk_element_id"])
             except Exception as adj_err:
                 logging.debug(
-                    "Adjacent chunk expansion failed (non-fatal): %s", adj_err
+                    "Adjacent chunk expansion failed (non-fatal): %s",
+                    adj_err,
                 )
 
         context["chunks"] = self._sort_chunks_for_query(query, context["chunks"])
@@ -965,7 +982,8 @@ User Query: {question}""",
                 RETURN count(c) as chunk_count LIMIT 1
                 """
                 check_result: list[dict[str, object]] = graph.query(
-                    check_query, {"kg_name": kg_name}
+                    check_query,
+                    {"kg_name": kg_name},
                 )
             else:
                 check_query = "MATCH (c:Chunk) RETURN count(c) as chunk_count LIMIT 1"
@@ -1105,7 +1123,8 @@ User Query: {question}""",
             params["max_chunks"] = candidate_limit
 
             results: list[ScoredChunkProjection] = cast(
-                list[ScoredChunkProjection], graph.query(search_query, params)
+                list[ScoredChunkProjection],
+                graph.query(search_query, params),
             )
             selected_results: list[ScoredChunkProjection] = select_ranked_subset(
                 results,
@@ -1159,7 +1178,8 @@ User Query: {question}""",
                 """
                 try:
                     fallback_results: list[ScoredChunkProjection] = cast(
-                        list[ScoredChunkProjection], graph.query(fallback_query, params)
+                        list[ScoredChunkProjection],
+                        graph.query(fallback_query, params),
                     )
                 except Exception as fallback_exc:
                     logging.warning(
@@ -1228,7 +1248,7 @@ User Query: {question}""",
                 }
                 context["chunks"].append(chunk_info)
                 cast(set[StoredGraphProperty], context["documents"]).add(
-                    result["document"]
+                    result["document"],
                 )
                 context["total_score"] += result["score"]
                 seen_ids.add(result["chunk_element_id"])
@@ -1289,7 +1309,8 @@ User Query: {question}""",
                 """
                 try:
                     adj_results: list[ChunkProjection] = cast(
-                        list[ChunkProjection], graph.query(adj_query, adj_params)
+                        list[ChunkProjection],
+                        graph.query(adj_query, adj_params),
                     )
                     for adj_result in adj_results:
                         if adj_result["chunk_element_id"] not in seen_ids:
@@ -1303,21 +1324,22 @@ User Query: {question}""",
                                     "question_id": adj_result.get("question_id"),
                                     "passage_index": adj_result.get("passage_index"),
                                     "chunk_local_index": adj_result.get(
-                                        "chunk_local_index"
+                                        "chunk_local_index",
                                     ),
                                     "score": 0.0,
                                     "document": adj_result["document"],
                                     "kg_name": adj_result.get("kg_name"),
                                     "adjacent": True,
-                                }
+                                },
                             )
                             cast(set[StoredGraphProperty], context["documents"]).add(
-                                adj_result["document"]
+                                adj_result["document"],
                             )
                             seen_ids.add(adj_result["chunk_element_id"])
                 except Exception as adj_err:
                     logging.debug(
-                        "Adjacent chunk expansion failed (non-fatal): %s", adj_err
+                        "Adjacent chunk expansion failed (non-fatal): %s",
+                        adj_err,
                     )
 
             context["chunks"] = self._sort_chunks_for_query(query, context["chunks"])
@@ -1352,7 +1374,7 @@ User Query: {question}""",
         if runtime_guardrail is not None:
             return bool(runtime_guardrail)
         return str(
-            os.getenv("ONTOGRAPHRAG_RUNTIME_ANSWER_GUARDRAIL", "0")
+            os.getenv("ONTOGRAPHRAG_RUNTIME_ANSWER_GUARDRAIL", "0"),
         ).strip().lower() in {
             "1",
             "true",
@@ -1365,8 +1387,9 @@ User Query: {question}""",
             str(
                 runtime_guardrail_mode
                 or os.getenv(
-                    "ONTOGRAPHRAG_RUNTIME_ANSWER_GUARDRAIL_MODE", "retry_then_abstain"
-                )
+                    "ONTOGRAPHRAG_RUNTIME_ANSWER_GUARDRAIL_MODE",
+                    "retry_then_abstain",
+                ),
             )
             .strip()
             .lower()
@@ -1398,7 +1421,7 @@ User Query: {question}""",
                 else extra_block
             )
             logging.info(
-                f"Prepended {len(extra_context_texts)} extra context(s) to prompt"
+                f"Prepended {len(extra_context_texts)} extra context(s) to prompt",
             )
 
         chain: Runnable[dict[str, str | int], str] = cast(
@@ -1411,7 +1434,7 @@ User Query: {question}""",
                 "question": question,
                 "answer_instructions": answer_instructions
                 or "No additional formatting constraints.",
-            }
+            },
         )
 
     def _apply_runtime_answer_guardrail(
@@ -1481,7 +1504,7 @@ User Query: {question}""",
         """
         try:
             logging.info(
-                f"Starting vanilla RAG generate_response for question: {question}"
+                f"Starting vanilla RAG generate_response for question: {question}",
             )
 
             # Get context using vanilla vector retrieval
@@ -1500,7 +1523,8 @@ User Query: {question}""",
 
             if self._should_run_query_fusion(question, context):
                 variant_queries: list[str] = self._generate_query_variants(
-                    question, llm
+                    question,
+                    llm,
                 )
                 variant_contexts: list[ScoredCompleteRetrievalContext] = [context]
                 for variant_query in variant_queries:
@@ -1534,7 +1558,7 @@ User Query: {question}""",
                         max_chunks=max_chunks,
                         search_method="query_fusion_"
                         + str(
-                            context.get("search_method") or "vanilla_vector_similarity"
+                            context.get("search_method") or "vanilla_vector_similarity",
                         ),
                     )
                 )

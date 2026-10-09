@@ -68,7 +68,7 @@ class GateFixture:
                             "files": manifest,
                             "unresolved": unresolved,
                             "ledger_errors": [],
-                        }
+                        },
                     ),
                 )
             returncode = unresolved
@@ -165,7 +165,8 @@ def test_complete_gate_records_exact_commands_hashes_and_versions(
     ],
 )
 def test_failures_never_become_a_clean_receipt(
-    gate: GateFixture, scenario: str
+    gate: GateFixture,
+    scenario: str,
 ) -> None:
     gate.scenario = scenario
     assert invoke(gate) == 1

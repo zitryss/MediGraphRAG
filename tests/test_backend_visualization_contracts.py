@@ -117,8 +117,9 @@ def result_blocks() -> list[visual.ResultBlockView]:
             # each generated key is one optional numeric PlotDetail field.
             row.update(
                 cast(
-                    PlotDetailFixture, {f"{prefix}_{m}": (i + 1) / 10 for m in metrics}
-                )
+                    PlotDetailFixture,
+                    {f"{prefix}_{m}": (i + 1) / 10 for m in metrics},
+                ),
             )
         details.append(row)
     config: ConfigResultFixture = {
@@ -152,7 +153,7 @@ def result_blocks() -> list[visual.ResultBlockView]:
     for prefix in ["vanilla", "kg"]:
         # Same finite metric names populate the matching average fields.
         config.update(
-            cast(ConfigResultFixture, {f"{prefix}_avg_{m}": 0.4 for m in metrics})
+            cast(ConfigResultFixture, {f"{prefix}_avg_{m}": 0.4 for m in metrics}),
         )
         config.update(
             cast(
@@ -160,9 +161,9 @@ def result_blocks() -> list[visual.ResultBlockView]:
                 {
                     f"{prefix}_avg_compute_times": {
                         m: 0.01 * (i + 1) for i, m in enumerate(metrics)
-                    }
+                    },
                 },
-            )
+            ),
         )
     return [{"dataset": "unit", "config_results": [config]}]
 
@@ -183,10 +184,13 @@ def result_blocks() -> list[visual.ResultBlockView]:
     ],
 )
 def test_plots_emit_png_artifacts(
-    function_name: str, result_blocks: list[visual.ResultBlockView], tmp_path: Path
+    function_name: str,
+    result_blocks: list[visual.ResultBlockView],
+    tmp_path: Path,
 ) -> None:
     paths: list[str] = getattr(visual, function_name)(
-        result_blocks, output_dir=str(tmp_path)
+        result_blocks,
+        output_dir=str(tmp_path),
     )
     assert paths, function_name
     for path in paths:
@@ -219,7 +223,9 @@ def test_legacy_aggregation_means(multi: bool, tmp_path: Path) -> None:
     overall: visual.OverallMetrics = visual.aggregate_overall(results)
     assert overall["kg_rag"]["accuracy"] == 0.8
     figure: Figure | None = visual.create_overall_comparison_chart(
-        overall, ["accuracy"], str(tmp_path / "overall.png")
+        overall,
+        ["accuracy"],
+        str(tmp_path / "overall.png"),
     )
     assert figure is not None
     bars: list[Rectangle] = [
@@ -231,7 +237,8 @@ def test_legacy_aggregation_means(multi: bool, tmp_path: Path) -> None:
 
 
 def test_new_schema_aggregation_and_bar_values(
-    result_blocks: list[visual.ResultBlockView], tmp_path: Path
+    result_blocks: list[visual.ResultBlockView],
+    tmp_path: Path,
 ) -> None:
     results: visual.VisualizationResults = {
         "results": result_blocks,
@@ -241,7 +248,9 @@ def test_new_schema_aggregation_and_bar_values(
     assert aggregated["unit"]["kg_rag"]["accuracy"] == 0.75
     assert visual.aggregate_overall(results)["vanilla_rag"]["accuracy"] == 0.5
     figure: Figure | None = visual.create_comparison_chart(
-        aggregated, ["accuracy"], str(tmp_path / "comparison.png")
+        aggregated,
+        ["accuracy"],
+        str(tmp_path / "comparison.png"),
     )
     assert figure is not None
     bars: list[Rectangle] = [

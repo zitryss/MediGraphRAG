@@ -47,7 +47,8 @@ class ReverificationOptions(TypedDict):
 def creator(monkeypatch: pytest.MonkeyPatch) -> module.OntologyGuidedKGCreator:
     monkeypatch.setattr(module, "load_embedding_model", Mock(return_value=(Mock(), 3)))
     return module.OntologyGuidedKGCreator(
-        strict_ontology=False, enable_soft_entity_linking=False
+        strict_ontology=False,
+        enable_soft_entity_linking=False,
     )
 
 
@@ -93,14 +94,15 @@ def schema_file(tmp_path: Path) -> Path:
                     },
                     {},
                 ],
-            }
-        )
+            },
+        ),
     )
     return path
 
 
 def test_json_schema_load_and_hash_card(
-    creator: module.OntologyGuidedKGCreator, schema_file: Path
+    creator: module.OntologyGuidedKGCreator,
+    schema_file: Path,
 ) -> None:
     creator.ontology_path = str(schema_file)
     creator._load_ontology(str(schema_file))
@@ -121,13 +123,14 @@ def test_json_schema_load_and_hash_card(
     assert creator._coerce_entity_type_with_ontology("off_schema") is None
     assert "TREATS" in creator._build_ontology_few_shot_examples()
     prompt: str = creator._build_ontology_prompt_section(
-        "Aspirin is a Drug treating Disease"
+        "Aspirin is a Drug treating Disease",
     )
     assert "Drug" in prompt and "dose" in prompt
 
 
 def test_owl_typed_properties_and_relationship_attributes(
-    creator: module.OntologyGuidedKGCreator, tmp_path: Path
+    creator: module.OntologyGuidedKGCreator,
+    tmp_path: Path,
 ) -> None:
     path: Path = tmp_path / "schema.owl"
     path.write_text("""<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#" xmlns:owl="http://www.w3.org/2002/07/owl#" xmlns:app="urn:test:">
@@ -151,7 +154,9 @@ def test_owl_typed_properties_and_relationship_attributes(
     assert schema.relationship_types[0].attributes[0].name == "dose"
     assert (
         creator._canonicalize_relationship_type(
-            "treats", source_type="Drug", target_type="Disease"
+            "treats",
+            source_type="Drug",
+            target_type="Disease",
         )
         == "TREATS"
     )
@@ -202,7 +207,8 @@ def test_reverification_caches_only_explicit_decisions(
     ],
 )
 def test_coreference_plausibility_gate(
-    creator: module.OntologyGuidedKGCreator, response: str | RuntimeError
+    creator: module.OntologyGuidedKGCreator,
+    response: str | RuntimeError,
 ) -> None:
     original: str = "These cells survived during treatment."
     llm: Mock = Mock()
@@ -211,7 +217,10 @@ def test_coreference_plausibility_gate(
     else:
         llm.generate.return_value = response
     result: str = creator._resolve_coreferences_llm(
-        original, "Treated cells received aspirin.", llm, "unit"
+        original,
+        "Treated cells received aspirin.",
+        llm,
+        "unit",
     )
     assert result == (
         response
@@ -225,7 +234,9 @@ def test_coreference_plausibility_gate(
 
 @pytest.mark.parametrize("schema", [False, True])
 def test_real_llm_extraction_and_grounded_postprocessing(
-    creator: module.OntologyGuidedKGCreator, schema_file: Path, schema: bool
+    creator: module.OntologyGuidedKGCreator,
+    schema_file: Path,
+    schema: bool,
 ) -> None:
     if schema:
         creator._load_ontology(str(schema_file))
@@ -241,7 +252,7 @@ def test_real_llm_extraction_and_grounded_postprocessing(
                 "target": "Pain",
                 "type": "TREATS",
                 "properties": {"anchor_text": "treats"},
-            }
+            },
         ],
     }
     llm: Mock = Mock(generate=Mock(return_value=json.dumps(payload)))
@@ -258,7 +269,8 @@ def test_real_llm_extraction_and_grounded_postprocessing(
     assert "Results" in prompt and "Treated cells" in prompt
     llm.generate.side_effect = TimeoutError("read operation timed out")
     assert creator._extract_entities_and_relationships_with_llm(
-        "Aspirin treats Pain.", llm
+        "Aspirin treats Pain.",
+        llm,
     ) == {"entities": [], "relationships": []}
 
 
@@ -271,13 +283,15 @@ def test_real_llm_extraction_and_grounded_postprocessing(
     ],
 )
 def test_json_recovery_preserves_valid_content(
-    creator: module.OntologyGuidedKGCreator, response: str
+    creator: module.OntologyGuidedKGCreator,
+    response: str,
 ) -> None:
     result: DecodedJSONObject = creator._parse_llm_json_response(
-        response, allow_partial_extraction=True
+        response,
+        allow_partial_extraction=True,
     )
     assert result.get("value") is not None or result.get("entities") == [
-        {"id": "Aspirin"}
+        {"id": "Aspirin"},
     ]
 
 
@@ -287,7 +301,8 @@ def test_json_recovery_preserves_valid_content(
     reason="generate_knowledge_graph references undefined provider while assembling metadata",
 )
 def test_real_preview_build_completes_without_persistence(
-    creator: module.OntologyGuidedKGCreator, monkeypatch: pytest.MonkeyPatch
+    creator: module.OntologyGuidedKGCreator,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_embedding_function(texts: list[str]) -> list[list[float]]:
         return [[1.0, 0.0, 0.0] for _ in texts]
@@ -310,15 +325,18 @@ def test_real_preview_build_completes_without_persistence(
                         {"id": "Pain", "type": "Disease"},
                     ],
                     "relationships": [
-                        {"source": "Aspirin", "target": "Pain", "type": "TREATS"}
+                        {"source": "Aspirin", "target": "Pain", "type": "TREATS"},
                     ],
-                }
-            )
-        )
+                },
+            ),
+        ),
     )
     try:
         result: KnowledgeGraph = creator.generate_knowledge_graph(
-            "Aspirin treats Pain.", llm, kg_name="unit", max_chunks=1
+            "Aspirin treats Pain.",
+            llm,
+            kg_name="unit",
+            max_chunks=1,
         )
     except NameError as exc:
         if exc.name == "provider" and str(exc) == "name 'provider' is not defined":
@@ -356,7 +374,8 @@ def test_schema_embedding_classification_and_fallback(
 
 
 def test_anchor_inventory_only_retains_exact_grounded_spans(
-    creator: module.OntologyGuidedKGCreator, schema_file: Path
+    creator: module.OntologyGuidedKGCreator,
+    schema_file: Path,
 ) -> None:
     creator._load_ontology(str(schema_file))
     text: str = "Aspirin treats Pain at 5 mg."
@@ -399,7 +418,8 @@ def test_anchor_inventory_only_retains_exact_grounded_spans(
 
 
 def test_storage_connection_and_vector_index_contract(
-    creator: module.OntologyGuidedKGCreator, monkeypatch: pytest.MonkeyPatch
+    creator: module.OntologyGuidedKGCreator,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from ontographrag.kg.builders import _storage
 
@@ -408,7 +428,8 @@ def test_storage_connection_and_vector_index_contract(
     monkeypatch.setattr(_storage, "Neo4jGraph", factory)
     for name in ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "NEO4J_DATABASE"]:
         monkeypatch.setenv(
-            name, "before"
+            name,
+            "before",
         )  # restoration covers legacy direct os.environ writes
     creator.neo4j_password = ""
     assert creator._create_neo4j_connection() is graph
@@ -427,7 +448,8 @@ def test_storage_connection_and_vector_index_contract(
 
 
 def test_creator_retrieval_maps_unique_entities_and_errors(
-    creator: module.OntologyGuidedKGCreator, monkeypatch: pytest.MonkeyPatch
+    creator: module.OntologyGuidedKGCreator,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     graph: Mock = Mock(
         query=Mock(
@@ -438,13 +460,15 @@ def test_creator_retrieval_maps_unique_entities_and_errors(
                     "score": 0.7,
                     "document": "doc",
                     "entities": [{"id": "Aspirin"}, {"id": "Aspirin"}],
-                }
-            ]
-        )
+                },
+            ],
+        ),
     )
     monkeypatch.setattr(creator, "_create_neo4j_connection", Mock(return_value=graph))
     monkeypatch.setattr(
-        creator, "embedding_function", Mock(embed_query=Mock(return_value=[1, 0, 0]))
+        creator,
+        "embedding_function",
+        Mock(embed_query=Mock(return_value=[1, 0, 0])),
     )
     result: CreatorRagContext = creator.get_rag_context("aspirin", top_k=2)
     assert result["entities"] == ["Aspirin"] and result["documents"] == ["doc"]
@@ -463,7 +487,9 @@ def test_creator_retrieval_maps_unique_entities_and_errors(
     ],
 )
 def test_schema_free_classification_retains_domain_priority(
-    creator: module.OntologyGuidedKGCreator, text: str, expected: str
+    creator: module.OntologyGuidedKGCreator,
+    text: str,
+    expected: str,
 ) -> None:
     # Explicit precedence: disease terms outrank location terms in ambiguous labels.
     assert creator._classify_entity_with_ontology(text) == expected
@@ -489,7 +515,8 @@ def test_schema_free_classification_retains_domain_priority(
     ],
 )
 def test_neo4j_property_coercion_contract(
-    value: object, expected: Neo4jStoredValue | None
+    value: object,
+    expected: Neo4jStoredValue | None,
 ) -> None:
     assert StorageMixin._coerce_neo4j_property_value(value) == expected
 

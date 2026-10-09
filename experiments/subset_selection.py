@@ -68,7 +68,7 @@ def selection_file_path(
     """Return the persisted selection path for one dataset/seed/sample-count subset."""
     safe_dataset: str = sanitize_selection_token(dataset_name)
     safe_key: str = sanitize_selection_token(
-        selection_key(num_samples=num_samples, subset_seed=subset_seed)
+        selection_key(num_samples=num_samples, subset_seed=subset_seed),
     )
     return base_dir / f"{safe_dataset}__{safe_key}.json"
 
@@ -188,7 +188,7 @@ def resolve_question_subset(
         ]
         if not saved_ids and ordered_ids:
             raise ValueError(
-                f"Persisted selection at {selection_path} is missing question_ids."
+                f"Persisted selection at {selection_path} is missing question_ids.",
             )
 
         missing_ids: list[str] = [
@@ -200,7 +200,7 @@ def resolve_question_subset(
             preview: str = ", ".join(missing_ids[:5])
             raise ValueError(
                 f"Persisted selection at {selection_path} contains IDs not present in "
-                f"the current dataset '{dataset_name}': {preview}"
+                f"the current dataset '{dataset_name}': {preview}",
             )
 
         warnings: list[str] = []
@@ -209,12 +209,12 @@ def resolve_question_subset(
         if saved_seed is not None and int(saved_seed) != int(subset_seed):
             warnings.append(
                 f"Persisted question subset for {dataset_name} uses subset_seed={saved_seed}; "
-                f"requested subset_seed={subset_seed} will be ignored until you rebuild the KG."
+                f"requested subset_seed={subset_seed} will be ignored until you rebuild the KG.",
             )
         if saved_requested != requested_num_samples:
             warnings.append(
                 f"Persisted question subset for {dataset_name} uses num_samples={saved_requested}; "
-                f"requested num_samples={requested_num_samples} will be ignored until you rebuild the KG."
+                f"requested num_samples={requested_num_samples} will be ignored until you rebuild the KG.",
             )
 
         payload = _enrich_payload_identity(
@@ -236,7 +236,7 @@ def resolve_question_subset(
     if require_existing and not force_resample:
         raise FileNotFoundError(
             f"No persisted question subset found for dataset '{dataset_name}' at {selection_path}. "
-            f"Rebuild the KG to create one."
+            f"Rebuild the KG to create one.",
         )
 
     selected_ids: list[str] = deterministic_subset_ids(

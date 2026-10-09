@@ -13,7 +13,9 @@ from experiments.dataset_adapters import GoldRecord, InferenceRecord
     [("1", "", "beta"), ("b", "", "beta"), (99, "", ""), (0, "Explicit", "explicit")],
 )
 def test_medqa_release_answer_variants(
-    answer_idx: str | int, explicit: str, expected: str
+    answer_idx: str | int,
+    explicit: str,
+    expected: str,
 ) -> None:
     inference: InferenceRecord
     gold: GoldRecord
@@ -24,7 +26,7 @@ def test_medqa_release_answer_variants(
             "options": {"0": "Alpha", "1": "Beta"},
             "answer_idx": answer_idx,
             "answer": explicit,
-        }
+        },
     )
     assert gold.short_answer == expected
     assert inference.options == {"A": "Alpha", "B": "Beta"}
@@ -44,7 +46,9 @@ def test_medqa_release_answer_variants(
     ],
 )
 def test_bioasq_factoid_aliases_stay_in_gold(
-    raw: list[str] | list[list[str]], expected: str, aliases: list[str] | None
+    raw: list[str] | list[list[str]],
+    expected: str,
+    aliases: list[str] | None,
 ) -> None:
     inference: InferenceRecord
     gold: GoldRecord
@@ -55,7 +59,7 @@ def test_bioasq_factoid_aliases_stay_in_gold(
             "type": "factoid",
             "exact_answer": raw,
             "snippets": [{"text": "retrieval evidence"}, {}],
-        }
+        },
     )
     assert gold.short_answer == expected and gold.aliases == aliases
     assert inference.contexts == ["retrieval evidence"]
@@ -77,7 +81,7 @@ def test_musique_paragraph_and_legacy_context_variants() -> None:
                 "plain",
                 {},
             ],
-        }
+        },
     )
     assert record.contexts == ["Title. Body", "Existing title body", "plain"]
     assert record.context_titles == ["Title", "Existing", None]
@@ -90,8 +94,8 @@ def test_musique_paragraph_and_legacy_context_variants() -> None:
                 {"title": "Other", "text": "body"},
                 "standalone",
                 "",
-            ]
-        }
+            ],
+        },
     )
     assert legacy.contexts == ["Title. one two", "Other. body", "standalone"]
 
@@ -106,7 +110,7 @@ def test_medhop_candidates_and_multihoprag_evidence_do_not_include_gold() -> Non
             "answer": "DrugB",
             "supports": ["Source evidence", " "],
             "candidates": ["DrugA", "DrugB", ""],
-        }
+        },
     )
     assert record.options == {"A": "DrugA", "B": "DrugB"}
     assert record.contexts == ["Source evidence"] and gold.short_answer == "drugb"
@@ -121,7 +125,7 @@ def test_medhop_candidates_and_multihoprag_evidence_do_not_include_gold() -> Non
                 None,
                 {"title": "Source", "fact": "Local evidence", "source": "paper"},
             ],
-        }
+        },
     )
     assert binary.options == {"A": "yes", "B": "no"}
     assert "Local evidence" in binary.contexts[0]

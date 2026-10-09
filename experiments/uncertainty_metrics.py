@@ -339,7 +339,9 @@ def _entity_surface_forms(row: ScopedEntity, *, min_name_length: int) -> list[st
         if len(normalized) >= min_name_length:
             surface_forms.add(normalized)
     alias_keys: tuple[
-        Literal["aliases"], Literal["original_ids"], Literal["synonyms"]
+        Literal["aliases"],
+        Literal["original_ids"],
+        Literal["synonyms"],
     ] = ("aliases", "original_ids", "synonyms")
     for alias_key in alias_keys:
         values: object = row.get(alias_key) or []
@@ -350,7 +352,8 @@ def _entity_surface_forms(row: ScopedEntity, *, min_name_length: int) -> list[st
             if len(normalized) >= min_name_length:
                 surface_forms.add(normalized)
     return sorted(
-        surface_forms, key=lambda value: (-len(value.split()), -len(value), value)
+        surface_forms,
+        key=lambda value: (-len(value.split()), -len(value), value),
     )
 
 
@@ -443,7 +446,8 @@ def _match_scoped_entities_to_text(
     scored: list[tuple[float, int, str, ScopedEntity]] = []
     for row in scoped_entities:
         surface_forms: list[str] = _entity_surface_forms(
-            row, min_name_length=min_name_length
+            row,
+            min_name_length=min_name_length,
         )
         score: float = _entity_match_score(
             text_normalized=text_normalized,
@@ -458,7 +462,7 @@ def _match_scoped_entities_to_text(
                 len(surface_forms[0]) if surface_forms else 0,
                 str(row.get("id", "")),
                 row,
-            )
+            ),
         )
 
     scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
@@ -624,7 +628,8 @@ def _cluster_responses_by_nli(
 
         # The existing function object owns these lazily populated attributes.
         cache: _NamedNLIModelCache = cast(
-            _NamedNLIModelCache, _cluster_responses_by_nli
+            _NamedNLIModelCache,
+            _cluster_responses_by_nli,
         )
         if not hasattr(cache, "_model") or cache._model_name != nli_model:
             cache._tokenizer = AutoTokenizer.from_pretrained(nli_model)
@@ -637,7 +642,11 @@ def _cluster_responses_by_nli(
         def _implication(text1: str, text2: str) -> int:
             """Return 0=contradiction, 1=neutral, 2=entailment (DeBERTa convention)."""
             inputs: BatchEncoding = tokenizer(
-                text1, text2, return_tensors="pt", truncation=True, max_length=512
+                text1,
+                text2,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
             )
             with torch.no_grad():
                 logits: torch.Tensor = model(**inputs).logits
@@ -667,7 +676,7 @@ def _cluster_responses_by_nli(
 
     except Exception as e:
         logger.warning(
-            f"NLI clustering failed ({e}), falling back to lexical clustering"
+            f"NLI clustering failed ({e}), falling back to lexical clustering",
         )
         return _cluster_responses_by_lexical_similarity(responses)
 
@@ -828,7 +837,9 @@ def compute_p_true(
 
 
 def compute_embedding_consistency(
-    responses: list[str], nli_model: str = "roberta-large-mnli", max_pairs: int = 50
+    responses: list[str],
+    nli_model: str = "roberta-large-mnli",
+    max_pairs: int = 50,
 ) -> float:
     """Embedding Consistency - Pairwise NLI consistency (SelfCheckGPT)."""
     if len(responses) < 2:
@@ -858,7 +869,11 @@ def compute_embedding_consistency(
             r1, r2 = responses[i], responses[j]
             for text1, text2 in [(r1, r2), (r2, r1)]:
                 inputs: BatchEncoding = tokenizer(
-                    text1, text2, return_tensors="pt", truncation=True, max_length=512
+                    text1,
+                    text2,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=512,
                 )
                 with torch.no_grad():
                     outputs: object = model(**inputs)
@@ -914,7 +929,8 @@ def compute_spuq(
     try:
         model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
         embeddings: EmbeddingArray = model.encode(
-            responses, show_progress_bar=False
+            responses,
+            show_progress_bar=False,
         )  # (R, d)
         embeddings = np.array(embeddings, dtype=float)
 
@@ -926,7 +942,7 @@ def compute_spuq(
             probs = np.ones(len(responses)) / len(responses)
 
         kme: EmbeddingArray = (embeddings * probs[:, None]).sum(
-            axis=0
+            axis=0,
         )  # weighted mean, (d,)
 
         # Gaussian kernel bandwidth
@@ -1018,7 +1034,9 @@ def compute_von_neumann_entropy(
     try:
         model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
         V: EmbeddingArray = model.encode(
-            list(responses), show_progress_bar=False, normalize_embeddings=True
+            list(responses),
+            show_progress_bar=False,
+            normalize_embeddings=True,
         )
         N: int = len(V)
 
@@ -1127,14 +1145,18 @@ def compute_sre_uq(
 
         # Encode responses; optionally encode the prompt as anchor
         V: EmbeddingArray = model.encode(
-            list(responses), show_progress_bar=False, normalize_embeddings=True
+            list(responses),
+            show_progress_bar=False,
+            normalize_embeddings=True,
         )
         N: int = len(V)
 
         if prompt:
             # QA / conditional mode: anchor = question embedding
             q: EmbeddingArray = model.encode(
-                [prompt], show_progress_bar=False, normalize_embeddings=True
+                [prompt],
+                show_progress_bar=False,
+                normalize_embeddings=True,
             )[0]
         else:
             # Anchor-free mode: anchor = normalised mean response embedding
@@ -1254,7 +1276,9 @@ def compute_all_uncertainty_metrics(
     _t0: float = time.perf_counter()
     results["semantic_entropy"] = (
         compute_semantic_entropy(
-            responses, effective_cluster_ids, effective_log_likelihoods
+            responses,
+            effective_cluster_ids,
+            effective_log_likelihoods,
         )
         if effective_cluster_ids
         else 0.0
@@ -1543,14 +1567,15 @@ def compute_graph_path_support_detailed(
                 return {"score": 0.5, "null_reason": null_reason}
             # The internal resolver emits all collections iff its failure reason is absent.
             resolved_entities: ResolvedStructuralEntities = cast(
-                ResolvedStructuralEntities, resolved
+                ResolvedStructuralEntities,
+                resolved,
             )
             question_entity_ids: list[str] = list(
-                resolved_entities["question_entity_ids"]
+                resolved_entities["question_entity_ids"],
             )
             answer_entity_ids: list[str] = list(resolved_entities["answer_entity_ids"])
             question_sources_by_answer: dict[str, list[str]] = dict(
-                resolved_entities["question_sources_by_answer"]
+                resolved_entities["question_sources_by_answer"],
             )
 
             # Step 3: Check reachability per answer entity with LIMIT 1 each.
@@ -1578,7 +1603,7 @@ def compute_graph_path_support_detailed(
                 if question_id:
                     params["question_id"] = question_id
                 res: list[Record] = list(
-                    session.run(per_pair_query, params, timeout=20)
+                    session.run(per_pair_query, params, timeout=20),
                 )
                 if res:
                     reachable_ids.add(a_id)
@@ -1934,10 +1959,14 @@ def compute_evidence_vn_entropy(
         model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
 
         V: EmbeddingArray = model.encode(
-            triple_texts, show_progress_bar=False, normalize_embeddings=True
+            triple_texts,
+            show_progress_bar=False,
+            normalize_embeddings=True,
         )
         q_vec: EmbeddingArray = model.encode(
-            [question], show_progress_bar=False, normalize_embeddings=True
+            [question],
+            show_progress_bar=False,
+            normalize_embeddings=True,
         )[0]
         N: int = len(V)
 
@@ -2049,7 +2078,7 @@ def compute_competing_answer_alternatives(
         from neo4j import GraphDatabase as _GDB
     except ImportError:
         logger.warning(
-            "neo4j driver not available — skipping competing answer alternatives"
+            "neo4j driver not available — skipping competing answer alternatives",
         )
         return 0.0
 
@@ -2357,12 +2386,13 @@ def compute_subgraph_perturbation_stability_detailed(
                 return {"score": 0.5, "null_reason": null_reason}
             # The internal resolver emits all collections iff its failure reason is absent.
             resolved_entities: ResolvedStructuralEntities = cast(
-                ResolvedStructuralEntities, resolved
+                ResolvedStructuralEntities,
+                resolved,
             )
             q_ids: list[str] = list(resolved_entities["question_entity_ids"])
             a_ids: list[str] = list(resolved_entities["answer_entity_ids"])
             question_sources_by_answer: dict[str, list[str]] = dict(
-                resolved_entities["question_sources_by_answer"]
+                resolved_entities["question_sources_by_answer"],
             )
 
             # 3) supporting paths with relationship IDs — capped at max_paths
@@ -2407,7 +2437,7 @@ def compute_subgraph_perturbation_stability_detailed(
             return {"score": 1.0, "null_reason": None}
 
         rel_universe: list[int] = sorted(
-            {rid for row in path_rows for rid in (row.get("rel_ids") or [])}
+            {rid for row in path_rows for rid in (row.get("rel_ids") or [])},
         )
         if not rel_universe:
             # Degenerate case: treat as unsupported if we cannot identify edges.
@@ -2431,7 +2461,7 @@ def compute_subgraph_perturbation_stability_detailed(
             if len(rel_universe_arr) > 0:
                 k = min(len(rel_universe_arr), max(1, k))
                 dropped: set[int] = set(
-                    rng.choice(rel_universe_arr, size=k, replace=False).tolist()
+                    rng.choice(rel_universe_arr, size=k, replace=False).tolist(),
                 )
             else:
                 dropped = set()
@@ -2444,7 +2474,7 @@ def compute_subgraph_perturbation_stability_detailed(
 
             support_cf: float = len(reachable_cf) / answer_count
             stability_terms.append(
-                float(np.clip(support_cf / baseline_reachable, 0.0, 1.0))
+                float(np.clip(support_cf / baseline_reachable, 0.0, 1.0)),
             )
 
         stability: float = (
@@ -2595,7 +2625,7 @@ def compute_subgraph_informativeness(
         from sentence_transformers import SentenceTransformer
     except ImportError:
         logger.warning(
-            "sentence_transformers or neo4j not available — skipping subgraph informativeness"
+            "sentence_transformers or neo4j not available — skipping subgraph informativeness",
         )
         return 0.5
 
@@ -2697,7 +2727,8 @@ def compute_subgraph_informativeness(
 
         # Step 4: normalise to probability distribution
         weights: NDArray[np.float64] = np.array(
-            list(candidate_weight.values()), dtype=float
+            list(candidate_weight.values()),
+            dtype=float,
         )
         weights /= weights.sum()
 
@@ -2731,7 +2762,7 @@ def compute_subgraph_informativeness(
 
         logger.debug(
             f"[subgraph_informativeness] candidates={len(candidate_weight)} "
-            f"H_norm={H_normalized:.3f} A={alignment:.3f} SI={SI:.3f} U={U:.3f}"
+            f"H_norm={H_normalized:.3f} A={alignment:.3f} SI={SI:.3f} U={U:.3f}",
         )
         return float(np.clip(U, 0.0, 1.0))
 
@@ -2753,7 +2784,7 @@ def _get_or_load_sentence_transformer(model_name: str) -> "SentenceTransformer":
             from sentence_transformers import SentenceTransformer
 
             _SENTENCE_TRANSFORMER_CACHE[normalized_name] = SentenceTransformer(
-                normalized_name
+                normalized_name,
             )
     return _SENTENCE_TRANSFORMER_CACHE[normalized_name]
 
@@ -2863,7 +2894,10 @@ def compute_support_entailment_uncertainty(
     0.5  — fallback: no chunks, empty answer, or NLI failure
     """
     labels: list[int] = _classify_chunks_against_answer(
-        chunks, answer, nli_model, max_chunks
+        chunks,
+        answer,
+        nli_model,
+        max_chunks,
     )
     if not labels:
         return 0.5
@@ -2912,7 +2946,10 @@ def compute_evidence_conflict_uncertainty(
     0.0  — fallback: fewer than 2 chunks or NLI failure
     """
     labels: list[int] = _classify_chunks_against_answer(
-        chunks, answer, nli_model, max_chunks
+        chunks,
+        answer,
+        nli_model,
+        max_chunks,
     )
     if len(labels) < 2:
         return 0.0
@@ -3007,7 +3044,7 @@ def compute_precision_at_k(
             continue
 
         y_true: NDArray[np.float64] = np.array(
-            [1.0 if d.get(f"{prefix}_correct", False) else 0.0 for d in system_details]
+            [1.0 if d.get(f"{prefix}_correct", False) else 0.0 for d in system_details],
         )
         n: int = len(y_true)
         output["baseline"][f"error_rate_{prefix}"] = float(1.0 - y_true.mean())
@@ -3026,8 +3063,9 @@ def compute_precision_at_k(
                     for d in system_details
                     if not str(
                         d.get(
-                            f"{prefix}_subgraph_perturbation_stability_null_reason", ""
-                        )
+                            f"{prefix}_subgraph_perturbation_stability_null_reason",
+                            "",
+                        ),
                     )
                 ]
             if len(metric_details) < 4:
@@ -3040,10 +3078,10 @@ def compute_precision_at_k(
                 [
                     1.0 if d.get(f"{prefix}_correct", False) else 0.0
                     for d in metric_details
-                ]
+                ],
             )
             raw: NDArray[np.float64] = np.array(
-                [float(d.get(f"{prefix}_{metric}", 0.0)) for d in metric_details]
+                [float(d.get(f"{prefix}_{metric}", 0.0)) for d in metric_details],
             )
             if metric in _HIGHER_IS_MORE_CERTAIN:
                 uncertainty: NDArray[np.float64] = -raw
@@ -3056,7 +3094,7 @@ def compute_precision_at_k(
                 k: int = max(1, int(np.ceil(len(y_metric) * frac)))
                 top_k_correct: NDArray[np.float64] = y_metric[order[:k]]
                 ppv: float = float(
-                    np.mean(top_k_correct == 0)
+                    np.mean(top_k_correct == 0),
                 )  # fraction wrong in top-k
                 pct = int(round(frac * 100))
                 output[system][f"{metric}_ppv@{pct}"] = ppv
@@ -3147,8 +3185,9 @@ def compute_ece(
                     for d in system_details
                     if not str(
                         d.get(
-                            f"{prefix}_subgraph_perturbation_stability_null_reason", ""
-                        )
+                            f"{prefix}_subgraph_perturbation_stability_null_reason",
+                            "",
+                        ),
                     )
                 ]
             if len(metric_details) < 4:
@@ -3159,11 +3198,11 @@ def compute_ece(
                 [
                     1.0 if d.get(f"{prefix}_correct", False) else 0.0
                     for d in metric_details
-                ]
+                ],
             )
             key: str = f"{prefix}_{metric}"
             raw: NDArray[np.float64] = np.array(
-                [float(d.get(key, 0.0)) for d in metric_details]
+                [float(d.get(key, 0.0)) for d in metric_details],
             )
 
             # Flip certainty-scored metrics so higher always = more uncertain
@@ -3181,7 +3220,8 @@ def compute_ece(
             # Equal-width binning
             bin_edges: NDArray[np.float64] = np.linspace(0.0, 1.0, n_bins + 1)
             bin_indices: NDArray[np.intp] = np.digitize(
-                confidence, bin_edges[1:-1]
+                confidence,
+                bin_edges[1:-1],
             )  # 0-based bucket
 
             total_n: int = len(y_true)
@@ -3297,7 +3337,10 @@ def compute_auroc_aurec(
             ::-1
         ]  # suffix sums
         n_remaining: NDArray[np.float64] = np.arange(
-            n, 0, -1, dtype=float
+            n,
+            0,
+            -1,
+            dtype=float,
         )  # N, N-1, ..., 1
         rejection_errors: NDArray[np.float64] = (
             suffix_errors / n_remaining
@@ -3329,8 +3372,9 @@ def compute_auroc_aurec(
                     for d in system_details
                     if not str(
                         d.get(
-                            f"{prefix}_subgraph_perturbation_stability_null_reason", ""
-                        )
+                            f"{prefix}_subgraph_perturbation_stability_null_reason",
+                            "",
+                        ),
                     )
                 ]
             if len(metric_details) < 2:
@@ -3342,11 +3386,11 @@ def compute_auroc_aurec(
                 [
                     1.0 if d.get(f"{prefix}_correct", False) else 0.0
                     for d in metric_details
-                ]
+                ],
             )
             key: str = f"{prefix}_{metric}"
             raw_scores: NDArray[np.float64] = np.array(
-                [float(d.get(key, 0.0)) for d in metric_details]
+                [float(d.get(key, 0.0)) for d in metric_details],
             )
 
             # Normalise to an "uncertainty" score (higher = less certain)
@@ -3372,7 +3416,7 @@ def compute_auroc_aurec(
                 if any(r == reason for r in null_reasons)
             ]
             for reason in sorted(
-                {r for r in null_reasons if r} - set(observed_reasons)
+                {r for r in null_reasons if r} - set(observed_reasons),
             ):
                 observed_reasons.append(reason)
             for reason in observed_reasons:
@@ -3389,19 +3433,21 @@ def compute_auroc_aurec(
                     [
                         1.0 if d.get(f"{prefix}_correct", False) else 0.0
                         for d in non_null_details
-                    ]
+                    ],
                 )
                 gps_nn: NDArray[np.float64] = np.array(
                     [
                         float(d.get(f"{prefix}_graph_path_support", 0.0))
                         for d in non_null_details
-                    ]
+                    ],
                 )
                 output[system]["graph_path_support_auroc_non_null"] = _auroc(
-                    y_nn, gps_nn
+                    y_nn,
+                    gps_nn,
                 )
                 output[system]["graph_path_support_aurec_non_null"] = _aurec(
-                    y_nn, gps_nn
+                    y_nn,
+                    gps_nn,
                 )
 
         # SPS-UQ null-rate: same abstention accounting as GPS.  The default
@@ -3418,7 +3464,7 @@ def compute_auroc_aurec(
                 if any(r == reason for r in null_reasons)
             ]
             for reason in sorted(
-                {r for r in null_reasons if r} - set(observed_reasons)
+                {r for r in null_reasons if r} - set(observed_reasons),
             ):
                 observed_reasons.append(reason)
             for reason in observed_reasons:
@@ -3438,13 +3484,13 @@ def compute_auroc_aurec(
                     [
                         1.0 if d.get(f"{prefix}_correct", False) else 0.0
                         for d in non_null_details
-                    ]
+                    ],
                 )
                 sps_nn: NDArray[np.float64] = np.array(
                     [
                         float(d.get(f"{prefix}_subgraph_perturbation_stability", 0.0))
                         for d in non_null_details
-                    ]
+                    ],
                 )
                 output[system]["subgraph_perturbation_stability_auroc_non_null"] = (
                     _auroc(y_nn, sps_nn)

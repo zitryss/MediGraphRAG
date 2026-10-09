@@ -146,7 +146,8 @@ def commands(
         Command("pyright-version", [".venv/bin/pyright", "--version"]),
         Command("bindings", audit_argv),
         Command(
-            "format", [".venv/bin/ruff", "format", "--check", "--no-cache", *paths]
+            "format",
+            [".venv/bin/ruff", "format", "--check", "--no-cache", *paths],
         ),
         Command(
             "lint",
@@ -241,13 +242,13 @@ def run(root: Path, output: Path, exceptions: Path | None = None) -> int:
             try:
                 if command.name == "mypy" and mypy_count(receipt.stdout) != len(paths):
                     errors.append(
-                        "mypy checked-file count differs from maintained manifest"
+                        "mypy checked-file count differs from maintained manifest",
                     )
                 if command.name == "pyright" and pyright_count(receipt.stdout) != len(
-                    paths
+                    paths,
                 ):
                     errors.append(
-                        "Pyright analyzed-file count differs from maintained manifest"
+                        "Pyright analyzed-file count differs from maintained manifest",
                     )
                 if command.name == "bindings":
                     errors.extend(audit_errors(output / "bindings.json", manifest))
@@ -294,7 +295,9 @@ def main() -> int:
     args: argparse.Namespace = parser.parse_args()
     try:
         return run(
-            Path(__file__).resolve().parents[1], args.output_dir, args.exceptions
+            Path(__file__).resolve().parents[1],
+            args.output_dir,
+            args.exceptions,
         )
     except (OSError, ValueError) as error:
         parser.error(str(error))

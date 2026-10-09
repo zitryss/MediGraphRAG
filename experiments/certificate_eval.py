@@ -74,13 +74,14 @@ def load_all() -> dict[str, list[CertificateRow]]:
 
 
 def certificate_mask(
-    rows: Sequence[CertificateRow], sd_thresh: float
+    rows: Sequence[CertificateRow],
+    sd_thresh: float,
 ) -> NDArray[np.bool_ | np.float64]:
     return np.array(
         [
             sd <= sd_thresh and seu <= 0.5 and g is not None and g <= 0.5
             for sd, seu, g, _ in rows
-        ]
+        ],
     )
 
 
@@ -118,7 +119,8 @@ def main() -> None:
 
     # (a) matched-coverage baselines at the same pooled coverage
     def gate_baseline(
-        score_fn: Callable[[CertificateRow], float], name: str
+        score_fn: Callable[[CertificateRow], float],
+        name: str,
     ) -> CertificateSummary:
         sel: int
         corr: int
@@ -141,7 +143,7 @@ def main() -> None:
         sd: NDArray[np.float64] = np.array([r[0] for r in rows])
         seu: NDArray[np.float64] = np.array([r[1] for r in rows])
         gpsr: NDArray[np.float64] = np.array(
-            [1.0 if r[2] is None else r[2] for r in rows]
+            [1.0 if r[2] is None else r[2] for r in rows],
         )
 
         def pr(v: NDArray[np.float64]) -> NDArray[np.float64]:

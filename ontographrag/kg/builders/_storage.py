@@ -39,7 +39,9 @@ Neo4jStoredValue: TypeAlias = Neo4jPrimitive | list[Neo4jPrimitive]
 
 class QueryGraph(Protocol):
     def query(
-        self, query: str, params: dict[str, object] = ...
+        self,
+        query: str,
+        params: dict[str, object] = ...,
     ) -> list[dict[str, object]]: ...
 
 
@@ -160,7 +162,8 @@ class StorageMixin:
 
     @classmethod
     def _all_neo4j_primitives(
-        cls, values: list[object]
+        cls,
+        values: list[object],
     ) -> TypeGuard[list[Neo4jPrimitive]]:
         return all(cls._is_neo4j_primitive(item) for item in values)
 
@@ -188,7 +191,8 @@ class StorageMixin:
 
     @classmethod
     def _sanitize_neo4j_properties(
-        cls, properties: Mapping[str, object] | None
+        cls,
+        properties: Mapping[str, object] | None,
     ) -> dict[str, Neo4jStoredValue]:
         """Drop null/NaN values and coerce the rest to Neo4j-safe property values."""
         if not isinstance(properties, dict):
@@ -223,16 +227,16 @@ class StorageMixin:
             enrichment.get("graph_summary") or {}
         )
         component_summaries: list[ComponentSummary] = list(
-            enrichment.get("component_summaries") or []
+            enrichment.get("component_summaries") or [],
         )
         claims: list[ClaimRecord] = list(enrichment.get("claims") or [])
         fragmentation_bridges: list[FragmentationBridge] = list(
-            enrichment.get("fragmentation_bridges") or []
+            enrichment.get("fragmentation_bridges") or [],
         )
 
         chunk_id_by_position: dict[int, str] = {
             int(chunk.get("position", 0)): hashlib.sha1(
-                f"{kg_name}:{file_name}:{chunk['position']}:{chunk['text']}".encode()
+                f"{kg_name}:{file_name}:{chunk['position']}:{chunk['text']}".encode(),
             ).hexdigest()
             for chunk in chunks or []
         }
@@ -363,7 +367,7 @@ class StorageMixin:
 
         for bridge in fragmentation_bridges:
             bridge_key: str = hashlib.sha1(
-                f"{kg_name}:{bridge['source_id']}:{bridge['target_id']}:{bridge['reason']}".encode()
+                f"{kg_name}:{bridge['source_id']}:{bridge['target_id']}:{bridge['reason']}".encode(),
             ).hexdigest()
             graph.query(
                 """
@@ -450,7 +454,7 @@ class StorageMixin:
             except Exception as conn_error:
                 if "APOC" in str(conn_error) or "apoc" in str(conn_error):
                     logging.warning(
-                        f"APOC not available, skipping advanced KG storage: {conn_error}"
+                        f"APOC not available, skipping advanced KG storage: {conn_error}",
                     )
                     return False
                 else:
@@ -476,11 +480,11 @@ class StorageMixin:
                     {"prefix": kg_name_value + "_"},
                 )
                 logging.info(
-                    f"[store_kg] Pre-flight cleanup done for '{kg_name_value}'"
+                    f"[store_kg] Pre-flight cleanup done for '{kg_name_value}'",
                 )
             except Exception as _cleanup_err:
                 logging.warning(
-                    f"[store_kg] Pre-flight cleanup failed (non-fatal): {_cleanup_err}"
+                    f"[store_kg] Pre-flight cleanup failed (non-fatal): {_cleanup_err}",
                 )
 
             try:
@@ -542,25 +546,31 @@ class StorageMixin:
                     "ontologyClasses": kg["metadata"]["ontology_classes"],
                     "ontologyRelationships": kg["metadata"]["ontology_relationships"],
                     "schemaEnforcementDroppedEntities": kg["metadata"].get(
-                        "schema_enforcement_dropped_entities", 0
+                        "schema_enforcement_dropped_entities",
+                        0,
                     ),
                     "schemaEnforcementDroppedRelationships": kg["metadata"].get(
-                        "schema_enforcement_dropped_relationships", 0
+                        "schema_enforcement_dropped_relationships",
+                        0,
                     ),
                     "harmonizationRelationshipsDroppedUnmapped": kg["metadata"].get(
-                        "harmonization_relationships_dropped_unmapped", 0
+                        "harmonization_relationships_dropped_unmapped",
+                        0,
                     ),
                     "harmonizationRelationshipsDroppedSchemaMismatch": kg[
                         "metadata"
                     ].get("harmonization_relationships_dropped_schema_mismatch", 0),
                     "harmonizationRelationshipsDeduped": kg["metadata"].get(
-                        "harmonization_relationships_deduped", 0
+                        "harmonization_relationships_deduped",
+                        0,
                     ),
                     "harmonizationRelationshipContradictionGroups": kg["metadata"].get(
-                        "harmonization_relationship_contradiction_groups", 0
+                        "harmonization_relationship_contradiction_groups",
+                        0,
                     ),
                     "harmonizationRelationshipContradictionEdges": kg["metadata"].get(
-                        "harmonization_relationship_contradiction_edges", 0
+                        "harmonization_relationship_contradiction_edges",
+                        0,
                     ),
                     "contentHash": doc_hash or "",
                     "schemaCard": schema_card_json,
@@ -576,7 +586,8 @@ class StorageMixin:
             # Store document-level metadata from source (e.g. CSV columns like SUBJECT_ID, HADM_ID)
             if doc_metadata:
                 safe_meta: dict[
-                    str, str | int | float | bool | list[str | int | float | bool]
+                    str,
+                    str | int | float | bool | list[str | int | float | bool],
                 ] = self._sanitize_neo4j_properties(doc_metadata)
                 if safe_meta:
                     graph.query(
@@ -593,7 +604,7 @@ class StorageMixin:
             # gets distinct Chunk nodes and retrieval filters are not contaminated.
             for chunk in kg["chunks"]:
                 chunk_id: str = hashlib.sha1(
-                    f"{kg_name_value}:{file_name}:{chunk['position']}:{chunk['text']}".encode()
+                    f"{kg_name_value}:{file_name}:{chunk['position']}:{chunk['text']}".encode(),
                 ).hexdigest()
                 chunk_query: str = """
                 MERGE (c:Chunk {id: $chunk_id})
@@ -617,7 +628,8 @@ class StorageMixin:
                         "text": chunk["text"],
                         "position": chunk["position"],
                         "chunk_local_index": chunk.get(
-                            "chunk_local_index", chunk.get("chunk_id", 0)
+                            "chunk_local_index",
+                            chunk.get("chunk_id", 0),
                         ),
                         "start_pos": chunk["start_pos"],
                         "end_pos": chunk["end_pos"],
@@ -710,11 +722,12 @@ class StorageMixin:
             for node in kg["nodes"]:
                 # Generate content-based deduplication hash (stored as property, not merge key)
                 original_id: object = node.get("properties", {}).get(
-                    "original_id", node["id"]
+                    "original_id",
+                    node["id"],
                 )
                 normalized_content: str = self._normalize_entity_text(original_id)
                 content_hash: str = hashlib.md5(
-                    f"{node['label']}:{normalized_content}".encode()
+                    f"{node['label']}:{normalized_content}".encode(),
                 ).hexdigest()
                 node["content_hash"] = content_hash
 
@@ -729,10 +742,11 @@ class StorageMixin:
                 )
                 # Validate: label must start with a letter, max 64 chars, no injection risk
                 if not re.match(
-                    r"^[A-Za-z][A-Za-z0-9_]{0,63}$", cypher_safe_entity_type
+                    r"^[A-Za-z][A-Za-z0-9_]{0,63}$",
+                    cypher_safe_entity_type,
                 ):
                     logging.warning(
-                        f"Unsafe entity type '{entity_type}' → falling back to 'Concept'"
+                        f"Unsafe entity type '{entity_type}' → falling back to 'Concept'",
                     )
                     cypher_safe_entity_type = "Concept"
                 # Blocklist structural/system labels that must not be applied to entity nodes
@@ -749,7 +763,7 @@ class StorageMixin:
                 }
                 if cypher_safe_entity_type in _RESERVED_LABELS:
                     logging.warning(
-                        f"Entity type '{entity_type}' clashes with structural label — falling back to 'Concept'"
+                        f"Entity type '{entity_type}' clashes with structural label — falling back to 'Concept'",
                     )
                     cypher_safe_entity_type = "Concept"
 
@@ -764,11 +778,11 @@ class StorageMixin:
                     entity_text: object = properties.get("name", node["id"])
                     try:
                         entity_embedding = self.embedding_function.embed_query(
-                            entity_text
+                            entity_text,
                         )
                     except Exception as e:
                         logging.warning(
-                            f"Failed to generate embedding for entity {node['id']}: {e}"
+                            f"Failed to generate embedding for entity {node['id']}: {e}",
                         )
                         entity_embedding = None
 
@@ -801,7 +815,8 @@ class StorageMixin:
                 SET n:{cypher_safe_entity_type}
                 """
                 extra_properties: dict[
-                    str, str | int | float | bool | list[str | int | float | bool]
+                    str,
+                    str | int | float | bool | list[str | int | float | bool],
                 ] = self._sanitize_neo4j_properties(
                     {
                         k: v
@@ -815,7 +830,7 @@ class StorageMixin:
                             "original_ids",
                             "aliases",
                         }
-                    }
+                    },
                 )
                 graph.query(
                     node_query,
@@ -824,11 +839,11 @@ class StorageMixin:
                         "content_hash": node["content_hash"],
                         "kg_name": kg_name_value,
                         "name": self._coerce_neo4j_property_value(
-                            properties.get("name", node["id"])
+                            properties.get("name", node["id"]),
                         ),
                         "type": node["label"],
                         "description": self._coerce_neo4j_property_value(
-                            properties.get("description", "")
+                            properties.get("description", ""),
                         ),
                         "embedding": entity_embedding,
                         "entity_type": entity_type,
@@ -840,12 +855,12 @@ class StorageMixin:
                                         a
                                         for a in (properties.get("aliases") or [])
                                         if isinstance(a, str) and a.strip()
-                                    ]
-                                )
-                            )
+                                    ],
+                                ),
+                            ),
                         ),
                         "original_ids": self._coerce_neo4j_property_value(
-                            list(set(properties.get("original_ids", [node["id"]])))
+                            list(set(properties.get("original_ids", [node["id"]]))),
                         ),
                         "extra_properties": extra_properties,
                     },
@@ -880,7 +895,7 @@ class StorageMixin:
                         if k not in _exclude
                     }
                     original_properties_filtered: dict[str, object] = dict(
-                        properties_filtered
+                        properties_filtered,
                     )
 
                     # Resolve UUIDs to entity names for evidence-grounded confidence check.
@@ -888,10 +903,12 @@ class StorageMixin:
                     _src_id: str = rel.get("from") or rel.get("source", "")
                     _tgt_id: str = rel.get("to") or rel.get("target", "")
                     _src_node: EntityNode | dict[str, Never] = next(
-                        (n for n in kg.get("nodes", []) if n.get("id") == _src_id), {}
+                        (n for n in kg.get("nodes", []) if n.get("id") == _src_id),
+                        {},
                     )
                     _tgt_node: EntityNode | dict[str, Never] = next(
-                        (n for n in kg.get("nodes", []) if n.get("id") == _tgt_id), {}
+                        (n for n in kg.get("nodes", []) if n.get("id") == _tgt_id),
+                        {},
                     )
                     source_type: object = (
                         _src_node.get("label")
@@ -941,7 +958,8 @@ class StorageMixin:
                         or _tgt_id
                     )
                     verification_chunks: Sequence[GraphChunkInput] = kg.get(
-                        "chunks", []
+                        "chunks",
+                        [],
                     )
                     provenance_positions: list[int] = (
                         rel.get("provenance_positions") or []
@@ -1139,7 +1157,7 @@ class StorageMixin:
                             continue
                         try:
                             qual_id: str = hashlib.sha1(
-                                f"{rel.get('from')}|{sanitized_rel_type}|{rel.get('to')}|{q_type}|{q_value}".encode()
+                                f"{rel.get('from')}|{sanitized_rel_type}|{rel.get('to')}|{q_type}|{q_value}".encode(),
                             ).hexdigest()
                             qual_query: str = f"""
                             MATCH (source:__Entity__ {{id: $source_id}})
@@ -1158,17 +1176,19 @@ class StorageMixin:
                                     "qual_id": qual_id,
                                     "q_type": q_type,
                                     "q_value": self._coerce_neo4j_property_value(
-                                        q_value
+                                        q_value,
                                     ),
                                     "kg_name": kg.get("metadata", {}).get(
-                                        "kg_name", ""
+                                        "kg_name",
+                                        "",
                                     ),
                                     "negated": negated,
                                 },
                             )
                         except Exception as _qe:
                             logging.debug(
-                                "QUALIFIED_BY node creation failed (non-fatal): %s", _qe
+                                "QUALIFIED_BY node creation failed (non-fatal): %s",
+                                _qe,
                             )
 
                     relationships_stored += 1
@@ -1176,12 +1196,12 @@ class StorageMixin:
                 except Exception as rel_error:
                     relationship_store_failures += 1
                     logging.error(
-                        f"Failed to store relationship {idx + 1}: {rel} - Error: {rel_error}"
+                        f"Failed to store relationship {idx + 1}: {rel} - Error: {rel_error}",
                     )
                     continue
 
             logging.info(
-                f"Successfully stored {relationships_stored} out of {len(kg['relationships'])} relationships"
+                f"Successfully stored {relationships_stored} out of {len(kg['relationships'])} relationships",
             )
 
             extracted_relationships: int = len(kg["relationships"])
@@ -1290,7 +1310,7 @@ class StorageMixin:
             for chunk in kg["chunks"]:
                 # Must use the same kg-scoped hash as the chunk CREATE step above.
                 chunk_id = hashlib.sha1(
-                    f"{kg_name_value}:{file_name}:{chunk['position']}:{chunk['text']}".encode()
+                    f"{kg_name_value}:{file_name}:{chunk['position']}:{chunk['text']}".encode(),
                 ).hexdigest()
                 chunk_text_lower: str = chunk["text"].lower()
 
@@ -1300,7 +1320,7 @@ class StorageMixin:
                     candidate_names.extend(
                         properties.get("all_names", [])
                         if isinstance(properties.get("all_names", []), list)
-                        else []
+                        else [],
                     )
                     candidate_names.append(properties.get("name", ""))
                     candidate_names.append(properties.get("original_id", ""))
@@ -1329,7 +1349,7 @@ class StorageMixin:
                         # Seed mention_id from node['id'] (the unique key), not content_hash.
                         # content_hash is no longer unique across KGs (Fix 8 changed MERGE to id).
                         mention_id: str = hashlib.sha256(
-                            f"{node['id']}::{chunk_id}".encode()
+                            f"{node['id']}::{chunk_id}".encode(),
                         ).hexdigest()
                         mention_query: str = """
                         MATCH (c:Chunk {id: $chunk_id})
@@ -1355,10 +1375,12 @@ class StorageMixin:
                                 "mention_id": mention_id,
                                 "quote": quote,
                                 "chunk_index": chunk.get(
-                                    "position", chunk.get("chunk_id", 0)
+                                    "position",
+                                    chunk.get("chunk_id", 0),
                                 ),
                                 "chunk_local_index": chunk.get(
-                                    "chunk_local_index", chunk.get("chunk_id", 0)
+                                    "chunk_local_index",
+                                    chunk.get("chunk_id", 0),
                                 ),
                                 "chunk_start": chunk.get("start_pos", 0),
                                 "chunk_end": chunk.get("end_pos", 0),
@@ -1376,11 +1398,13 @@ class StorageMixin:
             )
             if enrichment_stats:
                 kg["metadata"]["component_summary_count"] = enrichment_stats.get(
-                    "component_summaries", 0
+                    "component_summaries",
+                    0,
                 )
                 kg["metadata"]["claim_count"] = enrichment_stats.get("claims", 0)
                 kg["metadata"]["fragmentation_bridge_count"] = enrichment_stats.get(
-                    "fragmentation_bridges", 0
+                    "fragmentation_bridges",
+                    0,
                 )
                 graph.query(
                     """
@@ -1393,11 +1417,11 @@ class StorageMixin:
                         "file_name": file_name,
                         "kg_name": kg_name_value,
                         "component_summary_count": int(
-                            enrichment_stats.get("component_summaries", 0)
+                            enrichment_stats.get("component_summaries", 0),
                         ),
                         "claim_count": int(enrichment_stats.get("claims", 0)),
                         "fragmentation_bridge_count": int(
-                            enrichment_stats.get("fragmentation_bridges", 0)
+                            enrichment_stats.get("fragmentation_bridges", 0),
                         ),
                     },
                 )
@@ -1406,7 +1430,7 @@ class StorageMixin:
             self._create_vector_indexes(graph)
 
             logging.info(
-                f"Successfully stored ontology-guided knowledge graph for {file_name}"
+                f"Successfully stored ontology-guided knowledge graph for {file_name}",
             )
             return True
 
@@ -1542,10 +1566,10 @@ class StorageMixin:
                 pass  # Relationship indexes not supported on all Neo4j versions
 
             logging.info(
-                "Created constraints, vector, keyword, and entity lookup indexes for RAG"
+                "Created constraints, vector, keyword, and entity lookup indexes for RAG",
             )
 
         except Exception as e:
             logging.warning(
-                f"Error creating constraints/indexes (may already exist): {e}"
+                f"Error creating constraints/indexes (may already exist): {e}",
             )

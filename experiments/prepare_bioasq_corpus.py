@@ -35,7 +35,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 NCBI_EUTILS_BASE: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 DEFAULT_BIOASQ_PATH: Path = Path(
-    "MIRAGE/rawdata/bioasq/Task10BGoldenEnriched/10B1_golden.json"
+    "MIRAGE/rawdata/bioasq/Task10BGoldenEnriched/10B1_golden.json",
 )
 DEFAULT_OUTPUT_PATH: Path = Path("MIRAGE/rawdata/bioasq/pubmed_abstracts.jsonl")
 PMID_RE: re.Pattern[str] = re.compile(r"/pubmed/(\d+)")
@@ -94,10 +94,10 @@ def parse_pubmed_article_xml(xml_text: str) -> dict[str, PubMedAbstract]:
             continue
 
         article_title: str = _stringify_xml_text(
-            article.find(".//Article/ArticleTitle")
+            article.find(".//Article/ArticleTitle"),
         )
         abstract_nodes: list[ET.Element] = article.findall(
-            ".//Article/Abstract/AbstractText"
+            ".//Article/Abstract/AbstractText",
         )
         abstract_parts: list[str] = []
         for node in abstract_nodes:
@@ -218,7 +218,9 @@ def build_bioasq_shared_corpus(
         logger.info("Fetching PubMed batch %d (%d PMIDs)", batch_num, len(batch))
         try:
             records: dict[str, PubMedAbstract] = fetch_pubmed_batch(
-                batch, email=email, api_key=api_key
+                batch,
+                email=email,
+                api_key=api_key,
             )
         except Exception as e:
             logger.error("Failed to fetch batch %d: %s", batch_num, e)
@@ -260,7 +262,7 @@ def build_bioasq_shared_corpus(
 
 def main() -> None:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Build a shared PubMed abstract corpus for BioASQ retrieval benchmarking."
+        description="Build a shared PubMed abstract corpus for BioASQ retrieval benchmarking.",
     )
     parser.add_argument(
         "--bioasq-path",
@@ -287,7 +289,10 @@ def main() -> None:
         help="Optional NCBI API key for higher rate limits.",
     )
     parser.add_argument(
-        "--batch-size", type=int, default=100, help="PMIDs to fetch per EFetch request."
+        "--batch-size",
+        type=int,
+        default=100,
+        help="PMIDs to fetch per EFetch request.",
     )
     parser.add_argument(
         "--sleep-seconds",

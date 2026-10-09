@@ -14,7 +14,8 @@ from ontographrag.providers import model_providers as providers
 
 
 @pytest.mark.parametrize(
-    "name", ["openai", "gemini", "huggingface", "ollama", "deepseek", "openrouter"]
+    "name",
+    ["openai", "gemini", "huggingface", "ollama", "deepseek", "openrouter"],
 )
 def test_real_provider_factories(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(providers, "OpenAIClient", Mock())
@@ -41,7 +42,10 @@ def test_real_provider_factories(name: str, monkeypatch: pytest.MonkeyPatch) -> 
     ],
 )
 def test_http_provider_payload_and_http_failure(
-    name: str, key: str, url: str, monkeypatch: pytest.MonkeyPatch
+    name: str,
+    key: str,
+    url: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(key, "unit-token")
     response: Mock = Mock()
@@ -64,7 +68,9 @@ def test_http_provider_payload_and_http_failure(
         ],
     }
     response.raise_for_status.side_effect = httpx.HTTPStatusError(
-        "denied", request=httpx.Request("POST", url), response=httpx.Response(401)
+        "denied",
+        request=httpx.Request("POST", url),
+        response=httpx.Response(401),
     )
     with pytest.raises(httpx.HTTPStatusError):
         provider.generate("s", "q", "m")
@@ -73,7 +79,7 @@ def test_http_provider_payload_and_http_failure(
 def test_openai_constructor_and_generation(monkeypatch: pytest.MonkeyPatch) -> None:
     client: Mock = Mock()
     client.chat.completions.create.return_value = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content="answer"))]
+        choices=[SimpleNamespace(message=SimpleNamespace(content="answer"))],
     )
     factory: Mock = Mock(return_value=client)
     monkeypatch.setattr(providers, "OpenAIClient", factory)
@@ -90,7 +96,9 @@ def test_huggingface_and_gemini_generation(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(providers, "InferenceClient", Mock(return_value=client))
     assert providers.HuggingFaceProvider().generate("s", "u", "m") == "answer"
     client.text_generation.assert_called_once_with(
-        prompt="s\n\nu", model="m", temperature=0
+        prompt="s\n\nu",
+        model="m",
+        temperature=0,
     )
     model: Mock = Mock()
     model.generate_content.return_value = SimpleNamespace(text="gemini answer")
@@ -112,7 +120,10 @@ def test_huggingface_and_gemini_generation(monkeypatch: pytest.MonkeyPatch) -> N
     ],
 )
 def test_ollama_json_contract(
-    monkeypatch: pytest.MonkeyPatch, content: str, force: bool, expected: str
+    monkeypatch: pytest.MonkeyPatch,
+    content: str,
+    force: bool,
+    expected: str,
 ) -> None:
     import ollama
 
@@ -144,7 +155,9 @@ def test_adapter_invocation(input_value: object, system: str, user: str) -> None
     provider: Mock = Mock()
     provider.generate.return_value = "answer"
     adapter: providers.LangChainRunnableAdapter = providers.LangChainRunnableAdapter(
-        provider, "m", temperature=0.3
+        provider,
+        "m",
+        temperature=0.3,
     )
     assert adapter.invoke(input_value) == "answer"
     provider.generate.assert_called_once_with(system, user, "m", temperature=0.3)

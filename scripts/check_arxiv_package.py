@@ -30,11 +30,13 @@ PAPER: Path = REPO / "paper"
 BANNED_SOURCE_PATTERNS: dict[str, re.Pattern[str]] = {
     "future-tense availability": re.compile(r"\bwill be released\b", re.IGNORECASE),
     "unqualified clinical certificate": re.compile(
-        r"\bclinical certificate\b", re.IGNORECASE
+        r"\bclinical certificate\b",
+        re.IGNORECASE,
     ),
     "causal stress-test phrasing": re.compile(r"\bclearest mechanism\b", re.IGNORECASE),
     "deployment-strength certificate": re.compile(
-        r"\bdeployable certificate\b", re.IGNORECASE
+        r"\bdeployable certificate\b",
+        re.IGNORECASE,
     ),
 }
 
@@ -154,11 +156,12 @@ def check_figure_inputs() -> None:
                 fail(f"missing figure/table input: {candidate.relative_to(REPO)}")
         elif not candidate.with_suffix(".tex").exists():
             fail(
-                f"missing figure/table input: {candidate.with_suffix('.tex').relative_to(REPO)}"
+                f"missing figure/table input: {candidate.with_suffix('.tex').relative_to(REPO)}",
             )
 
     graphic_refs: list[str] = re.findall(
-        r"\\includegraphics(?:\[[^\]]*\])?\{figures/([^}]+)\}", text
+        r"\\includegraphics(?:\[[^\]]*\])?\{figures/([^}]+)\}",
+        text,
     )
     for ref in sorted(set(graphic_refs)):
         candidate = PAPER / "figures" / ref
@@ -177,7 +180,11 @@ def check_figure_inputs() -> None:
 def run_tectonic() -> None:
     cmd: list[str] = ["tectonic", "main_arxiv.tex"]
     proc: subprocess.CompletedProcess[str] = subprocess.run(
-        cmd, cwd=PAPER, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        cmd,
+        cwd=PAPER,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
     if proc.returncode != 0:
         print(proc.stdout)
@@ -190,7 +197,7 @@ def main() -> None:
 
     if not PAPER.is_dir():
         print(
-            "arXiv package check passed (paper sources not present locally; skipped paper checks)"
+            "arXiv package check passed (paper sources not present locally; skipped paper checks)",
         )
         return
 

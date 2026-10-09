@@ -238,16 +238,18 @@ def test_multihoprag_uses_shared_corpus_for_fair_retrieval(
                 "category": "business",
                 "published_at": "2023-10-01T12:00:00+00:00",
                 "body": "Reuters reported the event first.",
-            }
+            },
         ]
 
     patch: pytest.MonkeyPatch
     with monkeypatch.context() as patch:
         patch.setattr(
-            dataset_adapters_module, "_load_optional_json_records", fake_loader
+            dataset_adapters_module,
+            "_load_optional_json_records",
+            fake_loader,
         )
         passages: list[ContextPassage] | None = build_global_corpus_passages(
-            "multihoprag"
+            "multihoprag",
         )
 
     assert profile["question_context_role"] == "gold_evidence"
@@ -321,7 +323,7 @@ def test_infer_hop_count_from_raw_uses_question_decomposition_when_present() -> 
             {"q": "step 1"},
             {"q": "step 2"},
             {"q": "step 3"},
-        ]
+        ],
     }
 
     assert infer_hop_count_from_raw("musique", "3hop__example", raw) == 3
@@ -333,19 +335,19 @@ def test_infer_hop_count_from_raw_uses_dataset_specific_evidence_fields() -> Non
             {"fact": "A"},
             {"fact": "B"},
             {"fact": "C"},
-        ]
+        ],
     }
     twowiki_raw: HopCountRecord = {
         "evidences": [
             ["A", "rel", "B"],
             ["B", "rel", "C"],
-        ]
+        ],
     }
     hotpot_raw: HopCountRecord = {
         "supporting_facts": [
             ["Title A", 0],
             ["Title B", 1],
-        ]
+        ],
     }
 
     assert infer_hop_count_from_raw("multihoprag", "mhr_1", multihoprag_raw) == 3
@@ -379,7 +381,8 @@ def test_build_passage_corpus_preserves_question_local_duplicates_when_requested
 
     deduped: list[ContextPassage] = build_passage_corpus(records)
     question_scoped: list[ContextPassage] = build_passage_corpus(
-        records, dedupe_across_questions=False
+        records,
+        dedupe_across_questions=False,
     )
 
     assert len(deduped) == 3
@@ -404,7 +407,8 @@ def test_build_passage_corpus_preserves_structured_titles_with_periods() -> None
     inf: InferenceRecord
     inf, _ = adapt_hotpotqa(raw)
     passages: list[ContextPassage] = build_passage_corpus(
-        [inf], dedupe_across_questions=False
+        [inf],
+        dedupe_across_questions=False,
     )
 
     assert len(passages) == 1

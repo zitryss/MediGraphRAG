@@ -68,11 +68,14 @@ def load_embedding_model(
     # Both selected branches are strings: the first must be truthy, and getenv
     # has a string default. Mypy 2.3.1 loses this narrowing inside the `or`.
     provider_name: str = cast(
-        str, embedding_model_name or os.getenv("EMBEDDING_PROVIDER", "huggingface")
+        str,
+        embedding_model_name or os.getenv("EMBEDDING_PROVIDER", "huggingface"),
     )
     embedding_function, embedding_dimension = _shared_loader(provider_name)
     logging.info(
-        "Using %s embeddings with dimension %s", provider_name, embedding_dimension
+        "Using %s embeddings with dimension %s",
+        provider_name,
+        embedding_dimension,
     )
     return embedding_function, embedding_dimension
 
@@ -90,7 +93,8 @@ def wrap_llm_with_model_name(llm: LLM) -> LLM:
 
 
 def _add_graph_documents_with_merge(
-    graph: GraphQuery, graph_document_list: Sequence[MergeDocument]
+    graph: GraphQuery,
+    graph_document_list: Sequence[MergeDocument],
 ) -> None:
     """
     Custom implementation of add_graph_documents using MERGE instead of CREATE

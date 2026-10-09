@@ -11,7 +11,17 @@ SHORT_ANSWER_DATASETS: set[str] = {
 }
 
 _BINARY_QUESTION_PREFIXES: tuple[
-    str, str, str, str, str, str, str, str, str, str, str
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
 ] = (
     "is ",
     "are ",
@@ -89,7 +99,8 @@ def _strip_short_answer_wrapper(response: str) -> str:
 
     # Prefer the first non-empty line for wrapper-style outputs.
     first_line: str = next(
-        (line.strip() for line in text.splitlines() if line.strip()), text
+        (line.strip() for line in text.splitlines() if line.strip()),
+        text,
     )
 
     wrapper_patterns: list[str] = [
@@ -137,7 +148,7 @@ def _extract_date_like_span(response: str, question: str) -> str:
 
     for pattern in _DATE_PATTERNS:
         matches: list[re.Match[str]] = list(
-            re.finditer(pattern, text, flags=re.IGNORECASE)
+            re.finditer(pattern, text, flags=re.IGNORECASE),
         )
         if matches:
             # Prefer the longest/most specific match. Ties go to the last span.
@@ -168,7 +179,9 @@ def _normalize_football_club_answer(response: str, question: str) -> str:
 
 
 def _normalize_multihop_short_answer(
-    response: str, question: str, task_type: str
+    response: str,
+    question: str,
+    task_type: str,
 ) -> str:
     """Question-aware canonicalizer for short-answer multi-hop benchmarks."""
     text: str = _strip_short_answer_wrapper(response)
@@ -186,7 +199,8 @@ def _normalize_multihop_short_answer(
         return date_span
 
     first_line: str = next(
-        (line.strip() for line in text.splitlines() if line.strip()), text
+        (line.strip() for line in text.splitlines() if line.strip()),
+        text,
     )
     first_sentence: str = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
     if 0 < len(first_sentence.split()) <= 6:
@@ -254,7 +268,8 @@ def _normalize_bioasq_answer(response: str, question: str, task_type: str) -> st
         return numeric_span
 
     first_line: str = next(
-        (line.strip() for line in text.splitlines() if line.strip()), text
+        (line.strip() for line in text.splitlines() if line.strip()),
+        text,
     )
     first_sentence: str = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
 
@@ -299,7 +314,8 @@ def _normalize_generic_answer(response: str, question: str, task_type: str) -> s
 
 
 def _register_normalizer(
-    dataset_names: Iterable[str], fn: Callable[[str, str, str], str]
+    dataset_names: Iterable[str],
+    fn: Callable[[str, str, str], str],
 ) -> None:
     for name in dataset_names:
         _QUESTION_NORMALIZERS[str(name).strip().lower()] = fn
@@ -341,7 +357,7 @@ def build_answer_instructions(
                 "IMPORTANT: 'maybe' is rare — use it only when the abstract explicitly states the evidence is inconclusive or contradictory and no overall conclusion can be drawn. Most abstracts have a clear directional conclusion; choose yes or no in those cases.",
                 "If a study shows mixed results but the authors draw a net conclusion (e.g. 'overall, treatment X was effective'), that counts as yes or no, not maybe.",
                 "When graph paths are present, treat them as auxiliary support only; they must not override the study conclusion stated in the text chunks.",
-            ]
+            ],
         )
         return "\n".join(lines)
 
@@ -352,7 +368,7 @@ def build_answer_instructions(
                 "Respond with exactly one word: yes or no.",
                 "Do not answer with maybe.",
                 "Do not add explanation unless the task-specific context explicitly requires it.",
-            ]
+            ],
         )
         return "\n".join(lines)
 
@@ -364,7 +380,7 @@ def build_answer_instructions(
                 "Do not answer with a single entity, label, or fragment.",
                 "Stay close to the retrieved guideline wording and do not invent extra recommendations.",
                 'Use "Insufficient Information." only as a last resort when the retrieved guideline text contains no plausible grounded recommendation to return.',
-            ]
+            ],
         )
         return "\n".join(lines)
 
@@ -376,7 +392,7 @@ def build_answer_instructions(
                 "Begin your response with the option letter, then the option text.",
                 "Do not invent a new option or answer outside the list.",
                 "Options:",
-            ]
+            ],
         )
         for key, value in normalized_options.items():
             lines.append(f"{key}. {value}")
@@ -390,11 +406,11 @@ def build_answer_instructions(
                 "If the question compares two candidates, return only the selected candidate.",
                 "Prefer returning the shortest best-supported answer span from the retrieved evidence.",
                 'Use "Insufficient Information." only as a last resort when no plausible answer candidate is grounded at all.',
-            ]
+            ],
         )
         if task == "binary":
             lines.append(
-                "For binary questions, begin your response with exactly Yes or No."
+                "For binary questions, begin your response with exactly Yes or No.",
             )
         return "\n".join(lines)
 
@@ -407,7 +423,7 @@ def build_answer_instructions(
                 "Do not restate the question.",
                 "For comparison questions, return only the winning entity/title/person, not an explanation.",
                 "If the answer is a date, location, person, or title, return exactly that span.",
-            ]
+            ],
         )
         return "\n".join(lines)
 
@@ -416,7 +432,7 @@ def build_answer_instructions(
             [
                 "This is a binary question.",
                 "Begin your response with exactly Yes or No as the first word.",
-            ]
+            ],
         )
         return "\n".join(lines)
 
@@ -458,7 +474,8 @@ def normalize_answer_to_contract(
 
     if dataset in _QUESTION_NORMALIZERS:
         normalizer: Callable[[str, str, str], str] = _QUESTION_NORMALIZERS.get(
-            dataset, _normalize_generic_answer
+            dataset,
+            _normalize_generic_answer,
         )
         return normalizer(text, question, task)
 

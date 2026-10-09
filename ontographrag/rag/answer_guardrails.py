@@ -28,7 +28,9 @@ RUNTIME_GUARDRAIL_ABSTENTION: str = "I’m not confident the retrieved evidence 
 
 
 def render_guardrail_context(
-    chunks: Sequence[Mapping[str, object]], max_chunks: int = 8, max_chars: int = 320
+    chunks: Sequence[Mapping[str, object]],
+    max_chunks: int = 8,
+    max_chars: int = 320,
 ) -> str:
     rendered: list[str] = []
     for idx, chunk in enumerate(chunks[:max_chunks], 1):
@@ -82,10 +84,12 @@ def parse_guardrail_verdict(raw: str) -> GuardrailVerdict:
         return default
 
     answers_question: bool = _boolish(
-        payload.get("answers_question"), decision == "keep"
+        payload.get("answers_question"),
+        decision == "keep",
     )
     supported_by_context: bool = _boolish(
-        payload.get("supported_by_context"), decision == "keep"
+        payload.get("supported_by_context"),
+        decision == "keep",
     )
     reason: str = str(payload.get("reason") or text or "").strip()
 
@@ -130,7 +134,7 @@ def evaluate_runtime_answer_guardrail(
                     "Evidence:\n{evidence}"
                 ),
             ),
-        ]
+        ],
     )
 
     evidence: str = render_guardrail_context(chunks)
@@ -141,7 +145,7 @@ def evaluate_runtime_answer_guardrail(
                 "question": question,
                 "answer": answer,
                 "evidence": evidence or "[no retrieved evidence]",
-            }
+            },
         )
         return parse_guardrail_verdict(raw)
     except Exception as exc:

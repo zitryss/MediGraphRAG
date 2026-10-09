@@ -96,7 +96,9 @@ def _cfg_res(name: str, vanilla_acc: float, kg_acc: float) -> ConfigResult:
 
 
 def _dataset_block(
-    dataset: str, track: str, *cfg_res_list: ConfigResult
+    dataset: str,
+    track: str,
+    *cfg_res_list: ConfigResult,
 ) -> DatasetBlock:
     return {
         "dataset": dataset,
@@ -235,7 +237,7 @@ class TestRetrievalConfigSelection:
         ]
 
         selection: RetrievalConfigurationSelection = select_best_retrieval_configs(
-            blocks
+            blocks,
         )
 
         assert (
@@ -311,7 +313,7 @@ class TestRetrievalConfigSelection:
         ]
 
         selection: RetrievalConfigurationSelection = select_best_retrieval_configs(
-            blocks
+            blocks,
         )
 
         assert (
@@ -333,7 +335,11 @@ class TestJudgeIndependent:
     """
 
     def _ji(
-        self, judge_model: str, judge_provider: str, llm_model: str, llm_provider: str
+        self,
+        judge_model: str,
+        judge_provider: str,
+        llm_model: str,
+        llm_provider: str,
     ) -> bool:
         return (judge_model != llm_model) or (judge_provider != llm_provider)
 
@@ -367,14 +373,19 @@ def _gold(
     long_answer: str | None = None,
 ) -> GoldRecord:
     return GoldRecord(
-        id=id_, short_answer=short_answer, aliases=aliases, long_answer=long_answer
+        id=id_,
+        short_answer=short_answer,
+        aliases=aliases,
+        long_answer=long_answer,
     )
 
 
 class TestValidateNoLeakage:
     def test_clean_records_pass(self) -> None:
         inf: InferenceRecord = _inf(
-            "1", "Does aspirin treat fever?", ["Aspirin is an NSAID."]
+            "1",
+            "Does aspirin treat fever?",
+            ["Aspirin is an NSAID."],
         )
         gold: GoldRecord = _gold("1", "yes")
         assert validate_no_leakage([inf], [gold]) is True
@@ -399,7 +410,9 @@ class TestValidateNoLeakage:
     def test_alias_leakage_detected(self) -> None:
         # Gold answer itself is generic but alias appears verbatim in context
         inf: InferenceRecord = _inf(
-            "1", "Who invented the telephone?", ["A.G. Bell invented the telephone."]
+            "1",
+            "Who invented the telephone?",
+            ["A.G. Bell invented the telephone."],
         )
         gold: GoldRecord = _gold("1", "Alexander Graham Bell", aliases=["A.G. Bell"])
         assert validate_no_leakage([inf], [gold]) is False
@@ -422,7 +435,9 @@ class TestValidateNoLeakage:
 
     def test_no_match_passes(self) -> None:
         inf: InferenceRecord = _inf(
-            "1", "What is metformin?", ["Insulin is a hormone."]
+            "1",
+            "What is metformin?",
+            ["Insulin is a hormone."],
         )
         gold: GoldRecord = _gold("1", "biguanide antidiabetic")
         assert validate_no_leakage([inf], [gold]) is True
@@ -572,11 +587,12 @@ class TestComputeHopAccuracyBreakdown:
                 "kg_correct": False,
                 "vanilla_generation_failed": False,
                 "kg_generation_failed": False,
-            }
+            },
         ]
 
         out: dict[str, HopAccuracySummary] = compute_hop_accuracy_breakdown(
-            rows, metric_names=[]
+            rows,
+            metric_names=[],
         )
         assert out["4-hop"]["metrics_by_approach"]["vanilla_rag"] == {}
         assert out["4-hop"]["metrics_by_approach"]["kg_rag"] == {}

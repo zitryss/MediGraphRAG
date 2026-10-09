@@ -118,7 +118,7 @@ def calm_rows_for(slug: str) -> list[ResidueCase]:
                 "gps": row["gps"],
                 "route": row["route"],
                 "route_reason": row["route_reason"],
-            }
+            },
         )
     return found
 
@@ -145,7 +145,7 @@ def main() -> None:
         print(f"   gold: {c['expected']}")
         print(f"   ans : {str(c['response'])[:160]}")
         print(
-            f"   sd={c['sd_uq']!s:.6} seu={c['seu']} gps={c['gps']} route={c['route']}/{c['route_reason']}"
+            f"   sd={c['sd_uq']!s:.6} seu={c['seu']} gps={c['gps']} route={c['route']}/{c['route_reason']}",
         )
     print("\nwrote", os.path.relpath(OUT_PATH, REPO))
 

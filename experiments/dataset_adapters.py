@@ -360,7 +360,8 @@ class HopCountRecord(TypedDict, total=False):
 
 
 def adapt_pubmedqa(
-    raw_data: PubMedQARecord, q_id: str | int | None = None
+    raw_data: PubMedQARecord,
+    q_id: str | int | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt PubMedQA format.
@@ -419,19 +420,20 @@ def _is_realmedqa_ideal_record(raw_data: RealMedQARecord) -> bool:
         raw_data.get(
             "_normalized_plausible",
             raw_data.get("Plausible", raw_data.get("plausible", "")),
-        )
+        ),
     )
     answered: str = _normalize_realmedqa_verdict(
         raw_data.get(
             "_normalized_answered",
             raw_data.get("Answered", raw_data.get("answered", "")),
-        )
+        ),
     )
     return plausible == "completely" and answered == "completely"
 
 
 def adapt_realmedqa(
-    raw_data: RealMedQARecord, q_id: str | None = None
+    raw_data: RealMedQARecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt RealMedQA format.
@@ -452,9 +454,10 @@ def adapt_realmedqa(
         raw_data.get(
             "Recommendation",
             raw_data.get(
-                "recommendation", raw_data.get("Answer", raw_data.get("answer", ""))
+                "recommendation",
+                raw_data.get("Answer", raw_data.get("answer", "")),
             ),
-        )
+        ),
     ).strip()
 
     if q_id is None:
@@ -484,7 +487,8 @@ def adapt_realmedqa(
 
 
 def adapt_bioasq(
-    raw_data: BioASQRecord, q_id: str | None = None
+    raw_data: BioASQRecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt BioASQ format.
@@ -561,7 +565,8 @@ def adapt_bioasq(
 
 
 def adapt_medqa(
-    raw_data: MedQARecord, q_id: str | None = None
+    raw_data: MedQARecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedQA (USMLE) format.
@@ -622,13 +627,17 @@ def adapt_medqa(
             task_type=TaskType.MCQ.value,
         ),
         GoldRecord(
-            id=str(q_id), short_answer=short_answer, long_answer=None, aliases=None
+            id=str(q_id),
+            short_answer=short_answer,
+            long_answer=None,
+            aliases=None,
         ),
     )
 
 
 def adapt_medmcqa(
-    raw_data: MedMCQARecord, q_id: str | None = None
+    raw_data: MedMCQARecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedMCQA format.
@@ -661,13 +670,17 @@ def adapt_medmcqa(
             task_type=TaskType.MCQ.value,
         ),
         GoldRecord(
-            id=str(q_id), short_answer=short_answer, long_answer=None, aliases=None
+            id=str(q_id),
+            short_answer=short_answer,
+            long_answer=None,
+            aliases=None,
         ),
     )
 
 
 def adapt_mmlu(
-    raw_data: MMLURecord, q_id: str | None = None
+    raw_data: MMLURecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MMLU format (single row).
@@ -699,13 +712,17 @@ def adapt_mmlu(
             task_type=TaskType.MCQ.value,
         ),
         GoldRecord(
-            id=str(q_id), short_answer=short_answer, long_answer=None, aliases=None
+            id=str(q_id),
+            short_answer=short_answer,
+            long_answer=None,
+            aliases=None,
         ),
     )
 
 
 def adapt_hotpotqa(
-    raw_data: HotpotQARecord, q_id: str | None = None
+    raw_data: HotpotQARecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt HotpotQA (fullwiki) format.
@@ -760,7 +777,8 @@ def adapt_hotpotqa(
 
 
 def adapt_hotpotqa_fullwiki(
-    raw_data: HotpotQARecord, q_id: str | None = None
+    raw_data: HotpotQARecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """Adapt HotpotQA FullWiki while keeping a distinct dataset label."""
     inf_rec, gold_rec = adapt_hotpotqa(raw_data, q_id=q_id)
@@ -769,7 +787,8 @@ def adapt_hotpotqa_fullwiki(
 
 
 def adapt_2wikimultihopqa(
-    raw_data: TwoWikiRecord, q_id: str | None = None
+    raw_data: TwoWikiRecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt 2WikiMultiHopQA format.
@@ -831,7 +850,8 @@ def adapt_2wikimultihopqa(
 
 
 def adapt_musique(
-    raw_data: MuSiQueRecord, q_id: str | None = None
+    raw_data: MuSiQueRecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MuSiQue format.
@@ -864,7 +884,7 @@ def adapt_musique(
 
         title: str = str(p.get("title", "")).strip()
         paragraph_text: str = str(
-            p.get("paragraph_text", p.get("paragraph", p.get("context", "")))
+            p.get("paragraph_text", p.get("paragraph", p.get("context", ""))),
         ).strip()
 
         if paragraph_text:
@@ -890,7 +910,7 @@ def adapt_musique(
                 elif isinstance(entry, dict):
                     title = str(entry.get("title", "")).strip()
                     body = str(
-                        entry.get("text", entry.get("paragraph_text", ""))
+                        entry.get("text", entry.get("paragraph_text", "")),
                     ).strip()
                     if body:
                         contexts.append(f"{title}. {body}" if title else body)
@@ -928,7 +948,8 @@ def adapt_musique(
 
 
 def adapt_medhop(
-    raw_data: MedHopRecord, q_id: str | None = None
+    raw_data: MedHopRecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MedHop format.
@@ -1047,7 +1068,8 @@ def _format_multihoprag_corpus_document(doc: MultiHopRAGDocument) -> str:
 
 
 def adapt_multihoprag(
-    raw_data: MultiHopRAGRecord, q_id: str | None = None
+    raw_data: MultiHopRAGRecord,
+    q_id: str | None = None,
 ) -> tuple[InferenceRecord, GoldRecord]:
     """
     Adapt MultiHop-RAG format.
@@ -1203,7 +1225,8 @@ def infer_hop_count_from_raw(
                 return len(supporting_facts)
 
     match: re.Match[str] | None = re.match(
-        r"(?i)^(\d+)hop", str(question_id or "").strip()
+        r"(?i)^(\d+)hop",
+        str(question_id or "").strip(),
     )
     if match:
         return int(match.group(1))
@@ -1277,11 +1300,12 @@ def load_raw_dataset(dataset_name: str) -> object:
             "MIRAGE/rawdata/realmedqa/train.csv",
         ]
         rows: list[NormalizedRealMedQARecord] | None = _load_realmedqa_records(
-            candidates
+            candidates,
         )
         if rows is None:
             raise FileNotFoundError(
-                "RealMedQA dataset file not found. Looked for: " + ", ".join(candidates)
+                "RealMedQA dataset file not found. Looked for: "
+                + ", ".join(candidates),
             )
         ideal_rows: list[NormalizedRealMedQARecord] = [
             row for row in rows if _is_realmedqa_ideal_record(row)
@@ -1289,8 +1313,9 @@ def load_raw_dataset(dataset_name: str) -> object:
         return {
             str(
                 row.get(
-                    "id", row.get("_id", row.get("_fallback_id", f"realmedqa_{idx}"))
-                )
+                    "id",
+                    row.get("_id", row.get("_fallback_id", f"realmedqa_{idx}")),
+                ),
             ): row
             for idx, row in enumerate(ideal_rows)
         }
@@ -1309,7 +1334,7 @@ def load_raw_dataset(dataset_name: str) -> object:
             file_path = existing
         else:
             raise FileNotFoundError(
-                "MuSiQue dataset file not found. Looked for: " + ", ".join(candidates)
+                "MuSiQue dataset file not found. Looked for: " + ", ".join(candidates),
             )
 
     if not os.path.exists(file_path):
@@ -1368,7 +1393,8 @@ def load_raw_dataset(dataset_name: str) -> object:
             full_path: str = os.path.join(mmlu_dir, domain_file)
             if os.path.exists(full_path):
                 df: pd.DataFrame = pd.read_csv(
-                    full_path, names=["question", "A", "B", "C", "D", "answer"]
+                    full_path,
+                    names=["question", "A", "B", "C", "D", "answer"],
                 )
                 domain: str = domain_file.replace("_test.csv", "")
                 for idx, row in df.iterrows():
@@ -1461,7 +1487,7 @@ def normalize_dataset(
 
     if dataset_name not in ADAPTERS:
         raise ValueError(
-            f"Unknown dataset: {dataset_name}. Available: {list(ADAPTERS.keys())}"
+            f"Unknown dataset: {dataset_name}. Available: {list(ADAPTERS.keys())}",
         )
 
     adapter: Adapter = ADAPTERS[dataset_name]
@@ -1488,15 +1514,15 @@ def normalize_dataset(
         missing_inf: set[str] = gold_ids - inf_ids
         if missing_gold:
             logger.warning(
-                f"Missing gold records for {len(missing_gold)} inference records"
+                f"Missing gold records for {len(missing_gold)} inference records",
             )
         if missing_inf:
             logger.warning(
-                f"Missing inference records for {len(missing_inf)} gold records"
+                f"Missing inference records for {len(missing_inf)} gold records",
             )
 
     logger.info(
-        f"Normalized {dataset_name}: {len(inference_records)} inference, {len(gold_records)} gold records"
+        f"Normalized {dataset_name}: {len(inference_records)} inference, {len(gold_records)} gold records",
     )
 
     return inference_records, gold_records
@@ -1552,7 +1578,7 @@ def build_passage_corpus(
                         question_id=rec.id,
                         passage_index=idx,
                         source_title=rec_titles[idx] if idx < len(rec_titles) else None,
-                    )
+                    ),
                 )
     return passages
 
@@ -1621,20 +1647,23 @@ def _load_realmedqa_records(
             row.get(
                 "Recommendation",
                 row.get("recommendation", row.get("Answer", row.get("answer", ""))),
-            )
+            ),
         ).strip()
         if not question or not recommendation:
             continue
 
         item: NormalizedRealMedQARecord = dict(row)
         item["_normalized_plausible"] = _normalize_realmedqa_verdict(
-            row.get("Plausible", row.get("plausible", ""))
+            row.get("Plausible", row.get("plausible", "")),
         )
         item["_normalized_answered"] = _normalize_realmedqa_verdict(
-            row.get("Answered", row.get("answered", ""))
+            row.get("Answered", row.get("answered", "")),
         )
         item["_fallback_id"] = _stable_record_id(
-            "realmedqa", idx, question, recommendation
+            "realmedqa",
+            idx,
+            question,
+            recommendation,
         )
         normalized.append(item)
     return normalized
@@ -1645,7 +1674,7 @@ def _format_realmedqa_recommendation_document(doc: RealMedQARecord) -> str:
         doc.get(
             "Recommendation",
             doc.get("recommendation", doc.get("Answer", doc.get("answer", ""))),
-        )
+        ),
     ).strip()
     return f"Recommendation:\n{recommendation}" if recommendation else ""
 
@@ -1654,7 +1683,7 @@ def _format_biomedical_corpus_document(doc: BiomedicalDocument) -> str:
     """Format a generic biomedical abstract/document record for indexing."""
     title: str = str(doc.get("title", "")).strip()
     abstract: str = str(
-        doc.get("abstract", doc.get("text", doc.get("body", doc.get("contents", ""))))
+        doc.get("abstract", doc.get("text", doc.get("body", doc.get("contents", "")))),
     ).strip()
     pmid: str = str(doc.get("pmid", doc.get("PMID", doc.get("id", "")))).strip()
 
@@ -1707,10 +1736,10 @@ def _build_optional_shared_corpus_passages(
                     text=text,
                     dataset=dataset_name,
                     question_id=str(
-                        doc.get("pmid", doc.get("PMID", doc.get("id", f"doc_{idx}")))
+                        doc.get("pmid", doc.get("PMID", doc.get("id", f"doc_{idx}"))),
                     ),
                     passage_index=idx,
-                )
+                ),
             )
     return passages
 
@@ -1753,7 +1782,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
                 "MIRAGE/rawdata/realmedqa/train.jsonl",
                 "MIRAGE/rawdata/realmedqa/RealMedQA.csv",
                 "MIRAGE/rawdata/realmedqa/train.csv",
-            ]
+            ],
         )
         if realmed_docs is None:
             return None
@@ -1777,10 +1806,10 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
                                     "_id",
                                     doc.get("_fallback_id", f"realmedqa_doc_{idx}"),
                                 ),
-                            )
+                            ),
                         ),
                         passage_index=idx,
-                    )
+                    ),
                 )
         return passages
     if dataset_name == "hotpotqa_fullwiki":
@@ -1790,7 +1819,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
                 "MIRAGE/rawdata/hotpotqa/hotpotqa_fullwiki_corpus.jsonl",
                 "MIRAGE/rawdata/hotpotqa/fullwiki_corpus.json",
                 "MIRAGE/rawdata/hotpotqa/hotpotqa_fullwiki_corpus.json",
-            ]
+            ],
         )
         if docs is None:
             return None
@@ -1807,14 +1836,14 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
                     text=text,
                     dataset="hotpotqa_fullwiki",
                     question_id=str(
-                        doc.get("id", doc.get("doc_id", f"hotpot_doc_{idx}"))
+                        doc.get("id", doc.get("doc_id", f"hotpot_doc_{idx}")),
                     ),
                     passage_index=idx,
                     source_title=str(
-                        doc.get("title", doc.get("source_title", ""))
+                        doc.get("title", doc.get("source_title", "")),
                     ).strip()
                     or None,
-                )
+                ),
             )
         return passages
     if dataset_name != "multihoprag":
@@ -1824,7 +1853,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
         [
             "MIRAGE/rawdata/multihoprag/corpus.json",
             "MIRAGE/rawdata/multihoprag/corpus.jsonl",
-        ]
+        ],
     )
     if docs is None:
         return None
@@ -1843,7 +1872,7 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
                     dataset="multihoprag",
                     question_id=f"doc_{idx}",
                     passage_index=idx,
-                )
+                ),
             )
     return passages
 
@@ -1854,7 +1883,8 @@ def build_global_corpus_passages(dataset_name: str) -> list[ContextPassage] | No
 
 
 def validate_no_leakage(
-    inference_records: list[InferenceRecord], gold_records: list[GoldRecord]
+    inference_records: list[InferenceRecord],
+    gold_records: list[GoldRecord],
 ) -> bool:
     """
     Validate that inference records don't contain gold fields and that gold
@@ -1894,7 +1924,7 @@ def validate_no_leakage(
             continue
         # Collect all answer surface forms from the gold record
         primary: str = str(
-            getattr(gold, "short_answer", "") or getattr(gold, "answer", "") or ""
+            getattr(gold, "short_answer", "") or getattr(gold, "answer", "") or "",
         ).strip()
         long_ans: str = str(getattr(gold, "long_answer", "") or "").strip()
         aliases: list[str] = list(getattr(gold, "aliases", None) or [])
@@ -1913,7 +1943,7 @@ def validate_no_leakage(
             if any(surface in ctx for ctx in ctx_texts):
                 logger.warning(
                     f"Possible answer leakage in record {rec.id}: "
-                    f"surface form '{surface[:60]}' found verbatim in a context passage"
+                    f"surface form '{surface[:60]}' found verbatim in a context passage",
                 )
                 leakage_count += 1
                 break  # one warning per record is enough
@@ -1921,7 +1951,7 @@ def validate_no_leakage(
     if leakage_count:
         logger.error(
             f"Answer leakage detected in {leakage_count}/{len(inference_records)} records. "
-            "Results may over-estimate retrieval quality."
+            "Results may over-estimate retrieval quality.",
         )
         return False
 

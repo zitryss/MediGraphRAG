@@ -8,14 +8,15 @@ from experiments import hop_stratified_analysis as hop
 
 
 def test_load_details_raises_on_ambiguous_multi_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(hop, "PREFERRED_CONFIG_NAME", None)
     payload: hop.HopDocument = {
         "config_results": [
             {"config": {"name": "cfg_a"}, "details": [{"id": 1}]},
             {"config": {"name": "cfg_b"}, "details": [{"id": 2}]},
-        ]
+        ],
     }
     path: Path = tmp_path / "results.json"
     path.write_text(json.dumps(payload))
@@ -25,14 +26,15 @@ def test_load_details_raises_on_ambiguous_multi_config(
 
 
 def test_load_details_prefers_default_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(hop, "PREFERRED_CONFIG_NAME", None)
     payload: hop.HopDocument = {
         "config_results": [
             {"config": {"name": "sweep"}, "details": [{"id": "wrong"}]},
             {"config": {"name": "default"}, "details": [{"id": "right"}]},
-        ]
+        ],
     }
     path: Path = tmp_path / "results.json"
     path.write_text(json.dumps(payload))

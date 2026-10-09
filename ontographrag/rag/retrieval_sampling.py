@@ -8,7 +8,10 @@ from numpy.typing import NDArray
 
 class ScoredItem(Protocol):
     def get(
-        self, key: Literal["score"], default: float, /
+        self,
+        key: Literal["score"],
+        default: float,
+        /,
     ) -> SupportsFloat | str | bytes | bytearray: ...
 
 
@@ -121,7 +124,8 @@ def select_ranked_subset(
         _default_score,
     )
     scores: NDArray[np.float64] = np.asarray(
-        [float(get_score(item)) for item in candidates], dtype=float
+        [float(get_score(item)) for item in candidates],
+        dtype=float,
     )
     if not np.all(np.isfinite(scores)):
         scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
@@ -129,7 +133,7 @@ def select_ranked_subset(
     temp = max(temp, 1e-6)
     logits: NDArray[np.float64] = scores / temp
     rng: np.random.Generator = np.random.default_rng(
-        stable_sample_seed(*(seed_parts or ()), sample_id)
+        stable_sample_seed(*(seed_parts or ()), sample_id),
     )
     gumbels: NDArray[np.float64] = rng.gumbel(size=len(candidates))
     sampled_order: NDArray[np.intp] = np.argsort(-(logits + gumbels))

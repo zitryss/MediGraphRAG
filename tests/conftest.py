@@ -25,7 +25,10 @@ from ontographrag.rag.systems._records import (
 
 
 def make_chunk(
-    text: str, kg_name: str = "test_kg", file_name: str = "doc.txt", score: float = 1.0
+    text: str,
+    kg_name: str = "test_kg",
+    file_name: str = "doc.txt",
+    score: float = 1.0,
 ) -> RetrievedChunk:
     chunk_id: str = hashlib.sha1(f"{kg_name}:{file_name}:{text}".encode()).hexdigest()
     return {
@@ -40,7 +43,10 @@ def make_chunk(
 
 
 def make_entity(
-    eid: str, source: str = "entity_lookup", min_hops: int = 0, etype: str = "Disease"
+    eid: str,
+    source: str = "entity_lookup",
+    min_hops: int = 0,
+    etype: str = "Disease",
 ) -> RetrievedEntity:
     return {
         "id": eid,
@@ -85,7 +91,8 @@ class StubGraph:
     """
 
     def __init__(
-        self, query_results: Sequence[list[dict[str, object]]] | None = None
+        self,
+        query_results: Sequence[list[dict[str, object]]] | None = None,
     ) -> None:
         self._results: list[list[dict[str, object]]] = list(query_results or [])
         self.queries: list[
@@ -93,7 +100,9 @@ class StubGraph:
         ] = []  # recorded (query_str, params) pairs
 
     def query(
-        self, query: str, params: dict[str, object] | None = None
+        self,
+        query: str,
+        params: dict[str, object] | None = None,
     ) -> list[dict[str, object]]:
         self.queries.append((query, params or {}))
         if self._results:

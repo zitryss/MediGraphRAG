@@ -206,7 +206,7 @@ _GENERIC_HUB_ENTITY_BLOCKLIST: frozenset[str] = frozenset(
         "no",
         "not",
         "yes",
-    }
+    },
 )
 
 

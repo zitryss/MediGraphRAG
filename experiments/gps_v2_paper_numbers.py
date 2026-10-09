@@ -163,7 +163,8 @@ def v2_scores(art: ScoreArtifact, side: str) -> list[tuple[str, float | None, bo
 
 
 def auroc_ci(
-    scores: ArrayLike, wrong: ArrayLike
+    scores: ArrayLike,
+    wrong: ArrayLike,
 ) -> tuple[float | None, float | None, float | None]:
     s, w = np.asarray(scores, float), np.asarray(wrong, int)
     if len(set(w)) < 2:
@@ -211,7 +212,7 @@ def main() -> None:
     }
 
     manifest: dict[str, dict[str, str]] = json.load(
-        open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
+        open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
     )
     key_for: dict[str, str] = {
         "pubmedqa": "Pubmedqa",
@@ -226,7 +227,7 @@ def main() -> None:
     for slug in SLUGS:
         art: V2ReplayArtifact = json.load(open(latest_artifact(slug)))
         run_doc: PaperDocument = json.load(
-            open(os.path.join(REPO, manifest[key_for[slug]]["result_path"]))
+            open(os.path.join(REPO, manifest[key_for[slug]]["result_path"])),
         )
         kg_rows: dict[str, PaperDetail] = {}
         for cfg in run_doc["config_results"]:
@@ -264,7 +265,7 @@ def main() -> None:
                 pooled["seu"].append(float(seu))
                 pooled["gps"].append(float(s))
             comp_rows.append(
-                (float(sd), float(seu), 1.0 if s is None else float(s), bool(c))
+                (float(sd), float(seu), 1.0 if s is None else float(s), bool(c)),
             )
         if len(comp_rows) >= 12:
             sd_r: list[float] = percentile_ranks([r[0] for r in comp_rows])
@@ -320,10 +321,10 @@ def main() -> None:
     # 2wiki hop-wise GPS AUC per policy
     adaptive_art: V2ReplayArtifact = json.load(open(latest_artifact("2wikimultihopqa")))
     strict_art: V2ReplayArtifact = json.load(
-        open(latest_artifact("2wikimultihopqa", strict=True))
+        open(latest_artifact("2wikimultihopqa", strict=True)),
     )
     run_doc = json.load(
-        open(os.path.join(REPO, manifest["2Wikimultihopqa"]["result_path"]))
+        open(os.path.join(REPO, manifest["2Wikimultihopqa"]["result_path"])),
     )
     hop_by_qid: dict[str, int | None] = {}
     for cfg in run_doc["config_results"]:
@@ -368,7 +369,7 @@ def main() -> None:
         for q in art["questions"]:
             if needle.lower() in qtext.get(str(q["question_id"]), "").lower():
                 st: ReplayStore | V2ReplayStore | None = (q.get("store") or {}).get(
-                    "kg"
+                    "kg",
                 )
                 res: ReplayScore | CaseReplayScore = (
                     score_from_store(st, TAU, GAMMA)

@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def isolated_app(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> Iterator[AppExports]:
     def blocked(*args: object, **kwargs: object) -> None:
         raise AssertionError("Unexpected external connection")
@@ -34,7 +35,7 @@ def isolated_app(
     monkeypatch.setattr(socket, "getaddrinfo", blocked)
     env_file: Path = tmp_path / ".env"
     env_file.write_text(
-        "ONTOGRAPHRAG_REQUEST_TIMEOUT_SECONDS=240\nALLOWED_ORIGINS=https://baseline.invalid\n"
+        "ONTOGRAPHRAG_REQUEST_TIMEOUT_SECONDS=240\nALLOWED_ORIGINS=https://baseline.invalid\n",
     )
     real_load: Callable[[Path], bool] = dotenv.load_dotenv
 
@@ -47,11 +48,13 @@ def isolated_app(
     monkeypatch.setenv("ONTOGRAPHRAG_DEBUG_ERRORS", "0")
     monkeypatch.setenv("ONTOGRAPHRAG_REQUEST_TIMEOUT_SECONDS", "5")
     monkeypatch.setenv(
-        "ONTOGRAPHRAG_RUNTIME_ANSWER_GUARDRAIL_MODE", "retry_then_abstain"
+        "ONTOGRAPHRAG_RUNTIME_ANSWER_GUARDRAIL_MODE",
+        "retry_then_abstain",
     )
     path: Path = Path(__file__).parents[1] / "ontographrag/api/app.py"
     spec: ModuleSpec | None = importlib.util.spec_from_file_location(
-        "quality_baseline_app", path
+        "quality_baseline_app",
+        path,
     )
     assert spec is not None and spec.loader is not None
     module: ModuleType = importlib.util.module_from_spec(spec)
@@ -70,7 +73,8 @@ def test_openapi_contract(isolated_app: AppExports) -> None:
 
 
 def test_import_configuration(
-    isolated_app: AppExports, monkeypatch: pytest.MonkeyPatch
+    isolated_app: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert isolated_app._REQUEST_TIMEOUT_SECONDS == 15
     assert isolated_app._cors_origins == ["https://baseline.invalid"]
@@ -103,7 +107,12 @@ def test_http_health_error_and_validation(isolated_app: AppExports) -> None:
         "status": "error",
         "detail": "Request validation failed",
         "errors": [
-            {"type": "missing", "loc": ["body"], "msg": "Field required", "input": None}
+            {
+                "type": "missing",
+                "loc": ["body"],
+                "msg": "Field required",
+                "input": None,
+            },
         ],
         "request_id": "baseline-request",
     }
@@ -111,7 +120,8 @@ def test_http_health_error_and_validation(isolated_app: AppExports) -> None:
 
 
 def test_completed_progress_stream(
-    isolated_app: AppExports, monkeypatch: pytest.MonkeyPatch
+    isolated_app: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(isolated_app, "_kg_progress", deque(["first", "second"]))
     client: TestClient = TestClient(isolated_app.app)
@@ -126,7 +136,8 @@ def test_completed_progress_stream(
 
 
 def test_startup_and_health_graph_calls(
-    isolated_app: AppExports, monkeypatch: pytest.MonkeyPatch
+    isolated_app: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     driver: MagicMock = MagicMock()
     factory: MagicMock = MagicMock(return_value=driver)
@@ -143,7 +154,10 @@ def test_startup_and_health_graph_calls(
     isolated_app.check_neo4j_connection()
     assert isolated_app.neo4j_ready is True
     factory.assert_called_once_with(
-        "bolt://baseline.invalid", "baseline", "fake", "baseline"
+        "bolt://baseline.invalid",
+        "baseline",
+        "fake",
+        "baseline",
     )
     session.run.assert_called_once_with("RETURN 1")
     session.run.reset_mock()
@@ -176,7 +190,9 @@ def test_chat_validation(
     monkeypatch.setattr(isolated_app, "neo4j_ready", True)
     client: TestClient = TestClient(isolated_app.app)
     response: httpx.Response = client.post(
-        "/chat", json=body, headers={"X-Request-ID": "baseline"}
+        "/chat",
+        json=body,
+        headers={"X-Request-ID": "baseline"},
     )
     assert response.status_code == 422
     assert response.json() == {
@@ -188,7 +204,8 @@ def test_chat_validation(
 
 
 def test_chat_success_contract(
-    isolated_app: AppExports, monkeypatch: pytest.MonkeyPatch
+    isolated_app: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(isolated_app, "neo4j_ready", True)
     rag: MagicMock = MagicMock()

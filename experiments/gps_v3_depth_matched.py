@@ -144,7 +144,7 @@ def load_artifact(slug: str, strict: bool = False) -> ReplayArtifact:
     path: str | None = latest_artifact(slug, strict=strict)
     if not path:
         raise FileNotFoundError(
-            f"missing GPS replay artifact for {slug} strict={strict}"
+            f"missing GPS replay artifact for {slug} strict={strict}",
         )
     with open(path) as f:
         artifact: ReplayArtifact = json.load(f)
@@ -207,7 +207,9 @@ def score_from_store_depth_matched(
 
 
 def scores_for(
-    slug: str, strict: bool = False, side: str = "kg"
+    slug: str,
+    strict: bool = False,
+    side: str = "kg",
 ) -> dict[str, float | None]:
     artifact: ReplayArtifact = load_artifact(slug, strict=strict)
     rows: dict[str, HopRow] = row_map(artifact["source_result"])
@@ -218,14 +220,17 @@ def scores_for(
         if store is None or store.get("null_reason") == "generation_failed":
             continue
         res: ReplayScore = score_from_store_depth_matched(
-            store, expected_hop(slug, rows.get(qid))
+            store,
+            expected_hop(slug, rows.get(qid)),
         )
         out[qid] = None if res["null_reason"] else res["score"]
     return out
 
 
 def scored_rows(
-    slug: str, strict: bool = False, side: str = "kg"
+    slug: str,
+    strict: bool = False,
+    side: str = "kg",
 ) -> list[tuple[str, float | None, bool]]:
     artifact: ReplayArtifact = load_artifact(slug, strict=strict)
     rows: dict[str, HopRow] = row_map(artifact["source_result"])
@@ -236,7 +241,8 @@ def scored_rows(
         if store is None or store.get("null_reason") == "generation_failed":
             continue
         res: ReplayScore = score_from_store_depth_matched(
-            store, expected_hop(slug, rows.get(qid))
+            store,
+            expected_hop(slug, rows.get(qid)),
         )
         score: float | None = None if res["null_reason"] else res["score"]
         out.append((qid, score, bool(q.get(f"{side}_correct"))))
@@ -244,7 +250,8 @@ def scored_rows(
 
 
 def auroc_ci(
-    scores: Iterable[float], wrong: Iterable[bool]
+    scores: Iterable[float],
+    wrong: Iterable[bool],
 ) -> tuple[float | None, float | None, float | None]:
     s: NDArray[np.float64] = np.asarray(list(scores), float)
     w: NDArray[np.int64] = np.asarray(list(wrong), int)
@@ -274,7 +281,9 @@ def aurec(correct: Iterable[bool], uncertainty: Iterable[float]) -> float | None
 
 def summarise(slug: str, strict: bool = False, side: str = "kg") -> ScoreSummary:
     rows: list[tuple[str, float | None, bool]] = scored_rows(
-        slug, strict=strict, side=side
+        slug,
+        strict=strict,
+        side=side,
     )
     defined: list[tuple[float, bool]] = [
         (s, not c) for _, s, c in rows if s is not None
@@ -293,7 +302,7 @@ def summarise(slug: str, strict: bool = False, side: str = "kg") -> ScoreSummary
 
 def metric_rows(slug: str, policy: str) -> list[MetricRow]:
     manifest: dict[str, ManifestEntry] = json.load(
-        open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json"))
+        open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
     )
     key: str = {
         "pubmedqa": "Pubmedqa",
@@ -320,7 +329,9 @@ def metric_rows(slug: str, policy: str) -> list[MetricRow]:
     )["details"]
     out: list[MetricRow] = []
     gps: dict[str, float | None] = scores_for(
-        slug, strict=(policy == "strict"), side=prefix
+        slug,
+        strict=(policy == "strict"),
+        side=prefix,
     )
     for row in details:
         if (
@@ -338,7 +349,7 @@ def metric_rows(slug: str, policy: str) -> list[MetricRow]:
                         row.get("kg_correct")
                         if prefix == "kg"
                         else row.get("vanilla_correct")
-                    )
+                    ),
                 ),
                 "sd": (
                     row.get("kg_sd_uq") if prefix == "kg" else row.get("vanilla_sd_uq")
@@ -349,7 +360,7 @@ def metric_rows(slug: str, policy: str) -> list[MetricRow]:
                     else row.get("vanilla_support_entailment_uncertainty")
                 ),
                 "gps": gps.get(qid),
-            }
+            },
         )
     return out
 
@@ -398,7 +409,7 @@ def main() -> None:
             sd_r: list[float] = percentile_ranks([float(r["sd"]) for r in rows])
             seu_r: list[float] = percentile_ranks([float(r["seu"]) for r in rows])
             gps_r: list[float] = percentile_ranks(
-                [1.0 if r["gps"] is None else float(r["gps"]) for r in rows]
+                [1.0 if r["gps"] is None else float(r["gps"]) for r in rows],
             )
             combined: list[float] = [
                 (a + b + c) / 3 for a, b, c in zip(sd_r, seu_r, gps_r)
@@ -410,7 +421,8 @@ def main() -> None:
                 "sd_auc": auroc_ci([float(r["sd"]) for r in rows], wrong)[0],
                 "seu_auc": auroc_ci([float(r["seu"]) for r in rows], wrong)[0],
                 "gps_risk_auc": auroc_ci(
-                    [1.0 if r["gps"] is None else float(r["gps"]) for r in rows], wrong
+                    [1.0 if r["gps"] is None else float(r["gps"]) for r in rows],
+                    wrong,
                 )[0],
                 "combined_auc": auroc_ci(combined, wrong)[0],
                 "combined_aurec": aurec(correct, combined),

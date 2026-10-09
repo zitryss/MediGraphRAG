@@ -55,7 +55,10 @@ if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
 
 CorrectnessClass: TypeAlias = Literal[
-    "both_correct", "vanilla_only", "kg_only", "neither"
+    "both_correct",
+    "vanilla_only",
+    "kg_only",
+    "neither",
 ]
 RecallKey: TypeAlias = Literal[
     "sf_extraction_recall",
@@ -246,7 +249,9 @@ def _make_driver(uri: str, user: str, password: str) -> Driver:
 
 
 def _run_query(
-    driver: Driver, cypher: LiteralString, params: dict[str, object] | None = None
+    driver: Driver,
+    cypher: LiteralString,
+    params: dict[str, object] | None = None,
 ) -> list[dict[str, object]]:
     with driver.session() as session:
         result: Result = session.run(cypher, params or {})
@@ -275,7 +280,8 @@ def _get_supporting_facts(raw_q: SupportingFactsQuestion) -> list[tuple[str, int
     """
     empty_supporting_facts: SupportingFacts = {}
     sf: SupportingFacts | list[list[str | int]] | None = raw_q.get(
-        "supporting_facts", empty_supporting_facts
+        "supporting_facts",
+        empty_supporting_facts,
     )
     if isinstance(sf, dict):
         titles: list[str] = sf.get("title", [])
@@ -497,7 +503,10 @@ def _check_passage_reachable_via_entity_traversal(
         return bool(rows and rows[0]["n"] > 0)
     except Exception as e:
         log.debug(
-            "Graph traversal check failed for %s p%d: %s", question_id, passage_index, e
+            "Graph traversal check failed for %s p%d: %s",
+            question_id,
+            passage_index,
+            e,
         )
         return False
 
@@ -546,7 +555,10 @@ def _audit_question(
 
     # Graph presence check
     graph_checks: dict[int, GraphPresence] = _check_chunks_in_graph(
-        driver, question_id, unique_sf_passage_indices, kg_name
+        driver,
+        question_id,
+        unique_sf_passage_indices,
+        kg_name,
     )
 
     # Embedding for vector retrievability check
@@ -557,7 +569,8 @@ def _audit_question(
     sf_details: list[SupportingFactDetail] = []
     for title, pidx in sf_titles_in_context.items():
         gc: GraphPresence = graph_checks.get(
-            pidx, {"chunk_count": 0, "entity_count": 0, "has_embedding": False}
+            pidx,
+            {"chunk_count": 0, "entity_count": 0, "has_embedding": False},
         )
         in_graph: bool = gc["chunk_count"] > 0
 
@@ -566,7 +579,11 @@ def _audit_question(
         vector_found, vector_score = False, None
         if in_graph and query_embedding:
             vector_found, vector_score = _check_chunk_retrievable_via_vector(
-                driver, question_id, pidx, query_embedding, kg_name
+                driver,
+                question_id,
+                pidx,
+                query_embedding,
+                kg_name,
             )
 
         sf_details.append(
@@ -578,7 +595,7 @@ def _audit_question(
                 "has_embedding": gc["has_embedding"],
                 "vector_retrievable_top40": vector_found,
                 "vector_score": vector_score,
-            }
+            },
         )
 
     # Summary booleans
@@ -732,22 +749,22 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
     lines.append(
         f"  SF passages in graph (extraction recall):  {ov.get('avg_sf_extraction_recall', 'N/A'):.1%}"
         if ov.get("avg_sf_extraction_recall") is not None
-        else "  SF extraction recall: N/A"
+        else "  SF extraction recall: N/A",
     )
     lines.append(
         f"  SF fully in graph (all SF present):        {ov.get('sf_fully_in_graph_pct', 'N/A'):.1%}"
         if ov.get("sf_fully_in_graph_pct") is not None
-        else "  SF fully in graph: N/A"
+        else "  SF fully in graph: N/A",
     )
     lines.append(
         f"  SF vector-retrievable (top-40 recall):     {ov.get('avg_sf_vector_retrieval_recall', 'N/A'):.1%}"
         if ov.get("avg_sf_vector_retrieval_recall") is not None
-        else "  SF vector retrieval recall: N/A"
+        else "  SF vector retrieval recall: N/A",
     )
     lines.append(
         f"  SF fully vector-retrievable:               {ov.get('sf_fully_vector_retrievable_pct', 'N/A'):.1%}"
         if ov.get("sf_fully_vector_retrievable_pct") is not None
-        else "  SF fully vector-retrievable: N/A"
+        else "  SF fully vector-retrievable: N/A",
     )
 
     lines.append("\nBy correctness class:")
@@ -756,7 +773,7 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
         if not class_summary:
             continue
         lines.append(
-            f"\n  [{cls.upper()}] n={cast(ClassAggregate, class_summary)['n']}"
+            f"\n  [{cls.upper()}] n={cast(ClassAggregate, class_summary)['n']}",
         )
         er: float | None = class_summary.get("avg_sf_extraction_recall")
         vr: float | None = class_summary.get("avg_sf_vector_retrieval_recall")
@@ -764,41 +781,41 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
         lines.append(
             f"    SF extraction recall:      {er:.1%}"
             if er is not None
-            else "    SF extraction recall:      N/A"
+            else "    SF extraction recall:      N/A",
         )
         lines.append(
             f"    SF vector retrieval recall:{vr:.1%}"
             if vr is not None
-            else "    SF vector retrieval recall: N/A"
+            else "    SF vector retrieval recall: N/A",
         )
         lines.append(
             f"    All SF vector-retrievable: {af:.1%}"
             if af is not None
-            else "    All SF vector-retrievable:  N/A"
+            else "    All SF vector-retrievable:  N/A",
         )
         lines.append(
             f"    Avg grounding_quality:     {class_summary.get('avg_grounding_quality', 'N/A'):.3f}"
             if class_summary.get("avg_grounding_quality") is not None
-            else "    Avg grounding_quality:     N/A"
+            else "    Avg grounding_quality:     N/A",
         )
         lines.append(
             f"    Avg seed entity count:     {class_summary.get('avg_seed_entity_count', 'N/A'):.1f}"
             if class_summary.get("avg_seed_entity_count") is not None
-            else "    Avg seed entity count:     N/A"
+            else "    Avg seed entity count:     N/A",
         )
 
     fa: FailureReportSummary = agg.get("vanilla_only_failure_analysis", {})
     lines.append("\nVanilla-only failure analysis:")
     lines.append(f"  Total vanilla-only questions: {fa.get('total_vanilla_only', 0)}")
     lines.append(
-        f"  Extraction failures (SF not in graph): {fa.get('extraction_failures', 0)}"
+        f"  Extraction failures (SF not in graph): {fa.get('extraction_failures', 0)}",
     )
     lines.append(
-        f"  Retrieval failures (in graph, not retrieved): {fa.get('retrieval_failures_given_in_graph', 0)}"
+        f"  Retrieval failures (in graph, not retrieved): {fa.get('retrieval_failures_given_in_graph', 0)}",
     )
     if fa.get("retrieval_failure_qids"):
         lines.append(
-            f"  Retrieval-failure QIDs: {cast(FailureAnalysis, fa)['retrieval_failure_qids']}"
+            f"  Retrieval-failure QIDs: {cast(FailureAnalysis, fa)['retrieval_failure_qids']}",
         )
 
     lines.append("\nVanilla-only question details:")
@@ -810,7 +827,7 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
         lines.append(f"  Q:   {q['question'][:90]}")
         lines.append(f"  SF in context: {q['sf_titles_in_context']}")
         lines.append(
-            f"  SF missing from context: {q['sf_titles_missing_from_context']}"
+            f"  SF missing from context: {q['sf_titles_missing_from_context']}",
         )
         for d in q["sf_details"]:
             lines.append(
@@ -823,7 +840,7 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
                 if d["vector_score"] is not None
                 else f"    p{d['passage_index']} '{d['title'][:40]}': "
                 f"in_graph={d['in_graph']}, entities={d['entity_count']}, "
-                f"emb={d['has_embedding']}, vector_top40={d['vector_retrievable_top40']}"
+                f"emb={d['has_embedding']}, vector_top40={d['vector_retrievable_top40']}",
             )
 
     lines.append("\n" + "=" * 70)
@@ -837,13 +854,17 @@ def _print_report(agg: AuditAggregate, results: list[QuestionAudit]) -> str:
 
 def main() -> None:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Evidence-level retrieval audit for KG vs vanilla recall gap"
+        description="Evidence-level retrieval audit for KG vs vanilla recall gap",
     )
     parser.add_argument(
-        "--run-dir", required=True, help="Path to evaluation run directory"
+        "--run-dir",
+        required=True,
+        help="Path to evaluation run directory",
     )
     parser.add_argument(
-        "--questions-file", required=True, help="Path to per-config questions JSON"
+        "--questions-file",
+        required=True,
+        help="Path to per-config questions JSON",
     )
     parser.add_argument(
         "--raw-data",
@@ -851,11 +872,13 @@ def main() -> None:
         help="Path to raw HotpotQA dev data",
     )
     parser.add_argument(
-        "--neo4j-uri", default=os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        "--neo4j-uri",
+        default=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
     )
     parser.add_argument("--neo4j-user", default=os.getenv("NEO4J_USERNAME", "neo4j"))
     parser.add_argument(
-        "--neo4j-password", default=os.getenv("NEO4J_PASSWORD", "password")
+        "--neo4j-password",
+        default=os.getenv("NEO4J_PASSWORD", "password"),
     )
     parser.add_argument("--kg-name", default="hotpotqa")
     parser.add_argument(
@@ -908,7 +931,7 @@ def main() -> None:
             embed_model = SentenceTransformer(args.embedding_model)
         except ImportError:
             log.warning(
-                "sentence-transformers not installed; skipping vector retrievability check"
+                "sentence-transformers not installed; skipping vector retrievability check",
             )
 
     # Audit each question
@@ -921,7 +944,11 @@ def main() -> None:
             continue
         log.info("[%d/%d] Auditing %s", i + 1, len(eval_questions), qid)
         result: QuestionAudit = _audit_question(
-            raw_q, eval_q, driver, embed_model, args.kg_name
+            raw_q,
+            eval_q,
+            driver,
+            embed_model,
+            args.kg_name,
         )
         results.append(result)
 

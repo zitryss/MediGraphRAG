@@ -506,7 +506,7 @@ def load_results(results_path: str) -> VisualizationResults:
 def aggregate_by_config(results: VisualizationResults) -> AggregatedMetrics:
     """Aggregate metrics by configuration (similarity_threshold, max_chunks)."""
     config_metrics: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(
-        lambda: {"vanilla_rag": defaultdict(list), "kg_rag": defaultdict(list)}
+        lambda: {"vanilla_rag": defaultdict(list), "kg_rag": defaultdict(list)},
     )
     metric_names: Sequence[str] = _get_metric_names(results)
 
@@ -525,7 +525,7 @@ def aggregate_by_config(results: VisualizationResults) -> AggregatedMetrics:
                     system_metrics: MetricValues = metric_groups.get(system_key, {})
                     for metric_name in metric_names:
                         config_metrics[config_name][system_key][metric_name].append(
-                            float(system_metrics.get(metric_name, 0.0))
+                            float(system_metrics.get(metric_name, 0.0)),
                         )
 
         aggregated: AggregatedMetrics = {}
@@ -554,7 +554,7 @@ def aggregate_by_config(results: VisualizationResults) -> AggregatedMetrics:
                     metrics: MetricValues = result["evaluation"]["vanilla_rag_metrics"]
                     for metric_name, value in metrics.items():
                         config_metrics[config_key]["vanilla_rag"][metric_name].append(
-                            value
+                            value,
                         )
 
                 # KG-RAG metrics
@@ -612,7 +612,7 @@ def aggregate_overall(results: VisualizationResults) -> OverallMetrics:
                     system_metrics: MetricValues = metric_groups.get(system_key, {})
                     for metric_name in metric_names:
                         overall[system_key][metric_name].append(
-                            float(system_metrics.get(metric_name, 0.0))
+                            float(system_metrics.get(metric_name, 0.0)),
                         )
 
         return {
@@ -684,7 +684,8 @@ def print_per_dataset_summary(results: VisualizationResults) -> None:
 
     print("\n=== Per Dataset Summary ===")
     per_dataset: dict[str, DatasetAnalysis] = results.get("combined_analysis", {}).get(
-        "per_dataset", {}
+        "per_dataset",
+        {},
     )
 
     for dataset_name, analysis in per_dataset.items():
@@ -704,7 +705,7 @@ def print_per_dataset_summary(results: VisualizationResults) -> None:
         print(
             f"  Comparisons: vanilla_better={comparisons.get('vanilla_better', 0)}, "
             f"kg_better={comparisons.get('kg_better', 0)}, "
-            f"tie={comparisons.get('tie', 0)}"
+            f"tie={comparisons.get('tie', 0)}",
         )
 
 
@@ -764,7 +765,10 @@ def create_comparison_chart(
         ax.set_title(f"{metric.replace('_', ' ').title()} by Configuration")
         ax.set_xticks(x)
         ax.set_xticklabels(
-            [c.replace("_", "\n") for c in configs], rotation=45, ha="right", fontsize=8
+            [c.replace("_", "\n") for c in configs],
+            rotation=45,
+            ha="right",
+            fontsize=8,
         )
         ax.legend(fontsize=8)
         ax.grid(axis="y", alpha=0.3)
@@ -783,7 +787,9 @@ def create_comparison_chart(
 
 
 def create_overall_comparison_chart(
-    overall: OverallMetrics, metric_names: Sequence[str], output_path: str | None = None
+    overall: OverallMetrics,
+    metric_names: Sequence[str],
+    output_path: str | None = None,
 ) -> "Figure | None":
     """Create overall comparison bar chart."""
     if not HAS_MATPLOTLIB:
@@ -803,10 +809,18 @@ def create_overall_comparison_chart(
     fig, ax = plt.subplots(figsize=(12, 6))
 
     bars1: BarContainer = ax.bar(
-        x - width / 2, vanilla_values, width, label="Vanilla RAG", color="#1f77b4"
+        x - width / 2,
+        vanilla_values,
+        width,
+        label="Vanilla RAG",
+        color="#1f77b4",
     )
     bars2: BarContainer = ax.bar(
-        x + width / 2, kg_values, width, label="KG-RAG", color="#ff7f0e"
+        x + width / 2,
+        kg_values,
+        width,
+        label="KG-RAG",
+        color="#ff7f0e",
     )
 
     ax.set_xlabel("Metric")
@@ -867,7 +881,7 @@ def plot_metric_bar_charts(
         return []
 
     panels: list[tuple[str, SummaryMetricKey, SummaryMetricKey, bool]] = [
-        ("Accuracy", "vanilla_accuracy", "kg_accuracy", False)
+        ("Accuracy", "vanilla_accuracy", "kg_accuracy", False),
     ]
     for metric_name, display_name, _, lower_is_better in UNCERTAINTY_METRIC_SPECS:
         panels.append(
@@ -876,7 +890,7 @@ def plot_metric_bar_charts(
                 cast(SummaryMetricKey, f"vanilla_avg_{metric_name}"),
                 cast(SummaryMetricKey, f"kg_avg_{metric_name}"),
                 lower_is_better,
-            )
+            ),
         )
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -896,10 +910,10 @@ def plot_metric_bar_charts(
                 kg_val: float | None = cfg_res.get(k_key)
                 bar_data[title]["labels"].append(label)
                 bar_data[title]["vanilla"].append(
-                    float(vanilla_val) if vanilla_val is not None else np.nan
+                    float(vanilla_val) if vanilla_val is not None else np.nan,
                 )
                 bar_data[title]["kg"].append(
-                    float(kg_val) if kg_val is not None else np.nan
+                    float(kg_val) if kg_val is not None else np.nan,
                 )
 
     n_cols: int = 4
@@ -1038,13 +1052,13 @@ def plot_auroc_aurec_heatmaps(
                     {
                         m: _display_eval_metric_value(sys_data, m, "auroc")
                         for m in metric_order
-                    }
+                    },
                 )
                 aurec_cols.append(
                     {
                         m: _display_eval_metric_value(sys_data, m, "aurec")
                         for m in metric_order
-                    }
+                    },
                 )
 
     if not col_labels:
@@ -1065,7 +1079,9 @@ def plot_auroc_aurec_heatmaps(
 
     # ── Plot ──────────────────────────────────────────────────────────────
     fig, axes = plt.subplots(
-        1, 2, figsize=(max(8, n_cols * 1.6 + 3), n_metrics * 0.75 + 2.5)
+        1,
+        2,
+        figsize=(max(8, n_cols * 1.6 + 3), n_metrics * 0.75 + 2.5),
     )
     fig.suptitle(
         "Uncertainty Metric Quality: AUROC & AUREC\n(Vanilla RAG vs KG-RAG)",
@@ -1095,7 +1111,8 @@ def plot_auroc_aurec_heatmaps(
         cbar_label: str,
     ) -> None:
         masked: np.ma.MaskedArray[tuple[int, ...], np.dtype[np.float64]] = cast(
-            FloatMaskModule, np.ma
+            FloatMaskModule,
+            np.ma,
         ).array(mat, mask=np.isnan(mat))
         cmap_obj: Colormap = plt.get_cmap(cmap).copy()
         cmap_obj.set_bad(color="#cccccc")
@@ -1223,7 +1240,7 @@ def plot_metric_correlation_matrix(
                     for prefix in ("vanilla", "kg"):
                         # Both loops enumerate the finite declared metric/prefix sets.
                         val: float | str | None = detail.get(
-                            cast(DetailMetricKey, f"{prefix}_{m}")
+                            cast(DetailMetricKey, f"{prefix}_{m}"),
                         )
                         if val is not None:
                             scores[m].append(float(val))
@@ -1334,7 +1351,7 @@ def plot_reliability_diagrams(
                     for m in metric_order:
                         # Both loops enumerate the finite declared metric/prefix sets.
                         val: float | str | None = detail.get(
-                            cast(DetailMetricKey, f"{prefix}_{m}")
+                            cast(DetailMetricKey, f"{prefix}_{m}"),
                         )
                         if val is not None:
                             data[m]["scores"].append(float(val))
@@ -1353,7 +1370,9 @@ def plot_reliability_diagrams(
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, max(10, n_rows * 3.0)))
     axes = np.atleast_1d(axes).flatten()
     fig.suptitle(
-        "Reliability Diagrams — Uncertainty Calibration", fontsize=13, fontweight="bold"
+        "Reliability Diagrams — Uncertainty Calibration",
+        fontsize=13,
+        fontweight="bold",
     )
 
     for idx, m in enumerate(metric_order):
@@ -1597,10 +1616,14 @@ def plot_auroc_vs_compute_time(
                 v_t: float | None = cfg_res.get("vanilla_avg_compute_times", {}).get(m)
                 k_t: float | None = cfg_res.get("kg_avg_compute_times", {}).get(m)
                 v_auroc: float = _display_eval_metric_value(
-                    auroc_aurec.get("vanilla_rag", {}), m, "auroc"
+                    auroc_aurec.get("vanilla_rag", {}),
+                    m,
+                    "auroc",
                 )
                 k_auroc: float = _display_eval_metric_value(
-                    auroc_aurec.get("kg_rag", {}), m, "auroc"
+                    auroc_aurec.get("kg_rag", {}),
+                    m,
+                    "auroc",
                 )
                 if (
                     v_t is not None
@@ -1659,7 +1682,11 @@ def plot_auroc_vs_compute_time(
             zorder=3,
         )
         ax.annotate(
-            label, (log_t, auroc), textcoords="offset points", xytext=(5, 4), fontsize=7
+            label,
+            (log_t, auroc),
+            textcoords="offset points",
+            xytext=(5, 4),
+            fontsize=7,
         )
 
     # Pareto frontier: points where no other point has both lower log_t AND higher auroc
@@ -1681,7 +1708,8 @@ def plot_auroc_vs_compute_time(
     ]
     if pareto_pts:
         pareto_pts_sorted: list[tuple[np.float64, np.float64]] = sorted(
-            pareto_pts, key=lambda p: p[0]
+            pareto_pts,
+            key=lambda p: p[0],
         )
         px, py = zip(*pareto_pts_sorted)
         ax.step(
@@ -1701,7 +1729,9 @@ def plot_auroc_vs_compute_time(
     ax.set_xlabel("log\u2081\u2080(Compute time per question / s)", fontsize=10)
     ax.set_ylabel("AUROC", fontsize=10)
     ax.set_title(
-        "AUROC vs Computation Time (Pareto Frontier)", fontsize=12, fontweight="bold"
+        "AUROC vs Computation Time (Pareto Frontier)",
+        fontsize=12,
+        fontweight="bold",
     )
     ax.legend(fontsize=8, loc="lower right")
     ax.grid(alpha=0.3)
@@ -1751,7 +1781,7 @@ def plot_complementarity_matrix(
         dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
             comp: ComplementarityView | MetricValues | None = cfg_res.get(
-                "complementarity"
+                "complementarity",
             )
             if not comp:
                 continue
@@ -1772,7 +1802,11 @@ def plot_complementarity_matrix(
 
             fig, ax = plt.subplots(figsize=(6, 4))
             bars: BarContainer = ax.bar(
-                labels, values, color=colors, edgecolor="white", linewidth=1.2
+                labels,
+                values,
+                color=colors,
+                edgecolor="white",
+                linewidth=1.2,
             )
             for bar, pct in zip(bars, values):
                 ax.text(
@@ -1800,9 +1834,9 @@ def plot_complementarity_matrix(
                 wandb_run.log(
                     {
                         f"charts/{dataset_name}/{cfg_name}/complementarity": _wandb.Image(
-                            fig
-                        )
-                    }
+                            fig,
+                        ),
+                    },
                 )
             plt.close(fig)
 
@@ -1838,7 +1872,7 @@ def plot_query_type_stratification(
         dataset_name: str = dataset_block.get("dataset", "unknown")
         for cfg_res in dataset_block.get("config_results", []):
             by_type: Mapping[str, TaskTypeMetricsView] | None = cfg_res.get(
-                "accuracy_by_task_type"
+                "accuracy_by_task_type",
             )
             if not by_type or len(by_type) < 2:
                 # Only one task type — nothing interesting to stratify
@@ -1847,7 +1881,8 @@ def plot_query_type_stratification(
             cfg_name: str = cfg_res.get("config", {}).get("name", "default")
             # Sort types by descending n so most common come first
             sorted_types: list[str] = sorted(
-                by_type.keys(), key=lambda t: -by_type[t].get("n", 0)
+                by_type.keys(),
+                key=lambda t: -by_type[t].get("n", 0),
             )
 
             x: list[int] = list(range(len(sorted_types)))
@@ -1898,15 +1933,19 @@ def plot_query_type_stratification(
                 auroc_data: SystemMetrics = by_type[t].get("auroc_aurec", {})
                 v_auroc.append(
                     _display_eval_metric_value(
-                        auroc_data.get("vanilla_rag", {}), _AUROC_METRIC, "auroc"
+                        auroc_data.get("vanilla_rag", {}),
+                        _AUROC_METRIC,
+                        "auroc",
                     )
-                    or 0
+                    or 0,
                 )
                 k_auroc.append(
                     _display_eval_metric_value(
-                        auroc_data.get("kg_rag", {}), _AUROC_METRIC, "auroc"
+                        auroc_data.get("kg_rag", {}),
+                        _AUROC_METRIC,
+                        "auroc",
                     )
-                    or 0
+                    or 0,
                 )
 
             ax2: Axes = axes[1]
@@ -1927,7 +1966,11 @@ def plot_query_type_stratification(
                 alpha=0.85,
             )
             ax2.axhline(
-                0.5, color="gray", linestyle="--", linewidth=0.8, label="random"
+                0.5,
+                color="gray",
+                linestyle="--",
+                linewidth=0.8,
+                label="random",
             )
             ax2.set_title(f"SE AUROC by task type — {dataset_name}", fontsize=12)
             ax2.set_ylabel("AUROC")
@@ -1951,9 +1994,9 @@ def plot_query_type_stratification(
                 wandb_run.log(
                     {
                         f"charts/{dataset_name}/{cfg_name}/query_type_stratification": _wandb.Image(
-                            fig
-                        )
-                    }
+                            fig,
+                        ),
+                    },
                 )
             plt.close(fig)
 
@@ -1977,14 +2020,17 @@ def log_to_wandb(
 
     # Log overall metrics as a table
     metrics_table: MetricsTable = wandb.Table(
-        columns=["Metric", "Vanilla RAG", "KG-RAG", "Difference"]
+        columns=["Metric", "Vanilla RAG", "KG-RAG", "Difference"],
     )
     for metric in metric_names:
         v: float | np.float64 = overall["vanilla_rag"].get(metric, 0)
         k: float | np.float64 = overall["kg_rag"].get(metric, 0)
         diff: float | np.float64 = v - k
         metrics_table.add_data(
-            metric.replace("_", " ").title(), f"{v:.2f}", f"{k:.2f}", f"{diff:+.2f}"
+            metric.replace("_", " ").title(),
+            f"{v:.2f}",
+            f"{k:.2f}",
+            f"{diff:+.2f}",
         )
 
     wandb.log({"overall_metrics": metrics_table})
@@ -1997,7 +2043,8 @@ def log_to_wandb(
                 "vanilla_rag"
             ].get(metric, 0)
             payload[f"config/{config}/kg_rag_{metric}"] = systems["kg_rag"].get(
-                metric, 0
+                metric,
+                0,
             )
         wandb.log(payload)
 
@@ -2025,10 +2072,11 @@ def log_to_wandb(
         {
             "experiment_id": results.get("experiment_id", "unknown"),
             "total_experiments": results.get("combined_analysis", {}).get(
-                "total_experiments", 0
+                "total_experiments",
+                0,
             )
             or results.get("analysis", {}).get("total_experiments", 0),
-        }
+        },
     )
 
     run.finish()
@@ -2037,10 +2085,13 @@ def log_to_wandb(
 
 def main() -> None:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Visualize RAG experiment results"
+        description="Visualize RAG experiment results",
     )
     parser.add_argument(
-        "--results", type=str, required=True, help="Path to results JSON file"
+        "--results",
+        type=str,
+        required=True,
+        help="Path to results JSON file",
     )
     parser.add_argument(
         "--output-dir",
@@ -2049,7 +2100,10 @@ def main() -> None:
         help="Output directory for charts",
     )
     parser.add_argument(
-        "--project", type=str, default="kg-rag-evaluation", help="Wandb project name"
+        "--project",
+        type=str,
+        default="kg-rag-evaluation",
+        help="Wandb project name",
     )
     parser.add_argument("--no-wandb", action="store_true", help="Skip wandb logging")
 
@@ -2081,10 +2135,10 @@ def main() -> None:
     for config, systems in sorted(aggregated.items()):
         print(f"\n{config}:")
         vanilla_preview: str = ", ".join(
-            [f"{m}={systems['vanilla_rag'].get(m, 0):.4f}" for m in metric_names[:3]]
+            [f"{m}={systems['vanilla_rag'].get(m, 0):.4f}" for m in metric_names[:3]],
         )
         kg_preview: str = ", ".join(
-            [f"{m}={systems['kg_rag'].get(m, 0):.4f}" for m in metric_names[:3]]
+            [f"{m}={systems['kg_rag'].get(m, 0):.4f}" for m in metric_names[:3]],
         )
         print(f"  Vanilla RAG: {vanilla_preview}")
         print(f"  KG-RAG:      {kg_preview}")
@@ -2265,10 +2319,10 @@ def plot_per_system_auroc_comparison(
 
             for xi, metric in enumerate(present):
                 v_val: float = float(
-                    _display_eval_metric_value(v_data, metric, "auroc")
+                    _display_eval_metric_value(v_data, metric, "auroc"),
                 )
                 k_val: float = float(
-                    _display_eval_metric_value(k_data, metric, "auroc")
+                    _display_eval_metric_value(k_data, metric, "auroc"),
                 )
                 family: str = _METRIC_FAMILY.get(metric, "output")
                 fc: str = _FAMILY_COLOR[family]
@@ -2340,7 +2394,7 @@ def plot_per_system_auroc_comparison(
                 import wandb as _wandb
 
                 wandb_run.log(
-                    {f"charts/{dataset_name}/per_system_auroc": _wandb.Image(fig)}
+                    {f"charts/{dataset_name}/per_system_auroc": _wandb.Image(fig)},
                 )
             plt.close(fig)
 
@@ -2386,18 +2440,22 @@ def plot_metric_spearman_matrix(
                 vanilla_rows.append(
                     {
                         m: _metric_score_for_correlation(
-                            detail, prefix="vanilla", metric_name=m
+                            detail,
+                            prefix="vanilla",
+                            metric_name=m,
                         )
                         for m in metric_order
-                    }
+                    },
                 )
                 kg_rows.append(
                     {
                         m: _metric_score_for_correlation(
-                            detail, prefix="kg", metric_name=m
+                            detail,
+                            prefix="kg",
+                            metric_name=m,
                         )
                         for m in metric_order
-                    }
+                    },
                 )
 
     n_metrics: int = len(metric_order)
@@ -2451,7 +2509,12 @@ def plot_metric_spearman_matrix(
         prev_family = fam
 
     for ax, mat, title, cmap, vmin, vmax in zip(
-        axes, matrices, titles, cmaps, vmins, vmaxs
+        axes,
+        matrices,
+        titles,
+        cmaps,
+        vmins,
+        vmaxs,
     ):
         im: AxesImage = ax.imshow(mat, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto")
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)

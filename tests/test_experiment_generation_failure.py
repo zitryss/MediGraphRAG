@@ -11,7 +11,7 @@ import pytest
 
 def _make_pipeline(experiment_module: ExperimentModule) -> "MIRAGEEvaluationPipeline":
     return experiment_module.MIRAGEEvaluationPipeline.__new__(
-        experiment_module.MIRAGEEvaluationPipeline
+        experiment_module.MIRAGEEvaluationPipeline,
     )
 
 
@@ -99,7 +99,7 @@ def test_temporary_env_restores_original_values(
     monkeypatch.setenv("ONTOGRAPHRAG_QUERY_FUSION", "1")
 
     with experiment_module.MIRAGEEvaluationPipeline._temporary_env(
-        {"ONTOGRAPHRAG_QUERY_FUSION": "0"}
+        {"ONTOGRAPHRAG_QUERY_FUSION": "0"},
     ):
         assert os.environ["ONTOGRAPHRAG_QUERY_FUSION"] == "0"
 

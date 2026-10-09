@@ -25,7 +25,8 @@ pytest.importorskip(
     reason="langchain_neo4j not installed — skipping iterative retrieval tests",
 )
 pytest.importorskip(
-    "langchain", reason="langchain not installed — skipping iterative retrieval tests"
+    "langchain",
+    reason="langchain not installed — skipping iterative retrieval tests",
 )
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -163,7 +164,9 @@ class _StubGraph:
         self._ctxs: list[RetrievalContext | None] = list(hop_ctxs)
 
     def query(
-        self, q: str, params: dict[str, object] | None = None
+        self,
+        q: str,
+        params: dict[str, object] | None = None,
     ) -> list[dict[str, object]]:
         return []
 
@@ -268,7 +271,9 @@ class TestReturnsNoneOnEmptyHops:
 
     def test_none_when_no_chunks(self) -> None:
         result: ProducedGraphRetrievalContext | None = _run_iterative(
-            self.sys_, hop_contexts=[None, None], sub_questions=["Q1?", "Q2?"]
+            self.sys_,
+            hop_contexts=[None, None],
+            sub_questions=["Q1?", "Q2?"],
         )
         assert result is None
 
@@ -276,7 +281,9 @@ class TestReturnsNoneOnEmptyHops:
         hop1: RetrievalContext = _hop_ctx(chunks=[])
         hop2: RetrievalContext = _hop_ctx(chunks=[])
         result: ProducedGraphRetrievalContext | None = _run_iterative(
-            self.sys_, hop_contexts=[hop1, hop2], sub_questions=["Q1?", "Q2?"]
+            self.sys_,
+            hop_contexts=[hop1, hop2],
+            sub_questions=["Q1?", "Q2?"],
         )
         assert result is None
 
@@ -290,7 +297,9 @@ class TestBridgeAnswerRejection:
     sys_: EnhancedRAGSystem = _make_system()
 
     def _run(
-        self, bridge_response: str, sub_questions: list[str] | None = None
+        self,
+        bridge_response: str,
+        sub_questions: list[str] | None = None,
     ) -> RetrievalContext | None:
         c1: RetrievedChunk = _chunk("Aspirin reduces fever.", score=0.9)
         c2: RetrievedChunk = _chunk("Fever is a common symptom.", score=0.8)
@@ -345,16 +354,20 @@ class TestCrossHopDedup:
         # Hop 1's entity e2 must appear in the output because hop 1's all_chunk_ids
         # includes chunk A's ID, which is in retained_cids.
         c_a: RetrievedChunk = _chunk(
-            "Aspirin reduces fever.", score=0.9, linked_entity_ids=["e1"]
+            "Aspirin reduces fever.",
+            score=0.9,
+            linked_entity_ids=["e1"],
         )
         c_b: RetrievedChunk = _chunk(
-            "Fever is a symptom.", score=0.8, linked_entity_ids=["e2"]
+            "Fever is a symptom.",
+            score=0.8,
+            linked_entity_ids=["e2"],
         )
 
         hop0_ctx: RetrievalContext = _hop_ctx(
             chunks=[c_a],
             entities={
-                "e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"}
+                "e1": {"id": "Aspirin", "type": "Drug", "source": "entity_lookup"},
             },
         )
         # Hop 1 returns the same chunk A and fresh chunk B
@@ -370,7 +383,7 @@ class TestCrossHopDedup:
                     "target": "e2",
                     "type": "CAUSES",
                     "key": "e1-CAUSES-e2",
-                }
+                },
             ],
         )
 
@@ -404,10 +417,14 @@ class TestGroundingAnchoredToHop0:
         c1: RetrievedChunk = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
         c2: RetrievedChunk = _chunk("Fever is a symptom.", linked_entity_ids=["e2"])
         hop0: RetrievalContext = _hop_ctx(
-            [c1], grounding_quality=0.3, seed_entity_count=1
+            [c1],
+            grounding_quality=0.3,
+            seed_entity_count=1,
         )
         hop1: RetrievalContext = _hop_ctx(
-            [c2], grounding_quality=0.9, seed_entity_count=10
+            [c2],
+            grounding_quality=0.9,
+            seed_entity_count=10,
         )
 
         result: ProducedGraphRetrievalContext | None = _run_iterative(
@@ -423,7 +440,9 @@ class TestGroundingAnchoredToHop0:
     def test_grounding_not_overwritten_by_empty_hop(self) -> None:
         c1: RetrievedChunk = _chunk("Aspirin is a drug.", linked_entity_ids=["e1"])
         hop0: RetrievalContext = _hop_ctx(
-            [c1], grounding_quality=0.5, seed_entity_count=2
+            [c1],
+            grounding_quality=0.5,
+            seed_entity_count=2,
         )
         hop1: RetrievalContext = _hop_ctx([])  # empty hop
 
@@ -518,10 +537,10 @@ class TestHybridRetrievalRouting:
                 "e_cal": {
                     "id": "Riding the California Trail",
                     "description": "Riding the California Trail",
-                }
+                },
             },
             traversal_paths=[
-                {"path": "William Nigh --DIRECTED_BY--> Riding the California Trail"}
+                {"path": "William Nigh --DIRECTED_BY--> Riding the California Trail"},
             ],
             grounding_quality=0.9,
             seed_entity_count=2,
@@ -532,7 +551,7 @@ class TestHybridRetrievalRouting:
                 "e_lost": {
                     "id": "Lost and Delirious",
                     "description": "Lost and Delirious",
-                }
+                },
             },
         )
 
@@ -541,7 +560,7 @@ class TestHybridRetrievalRouting:
             hop_contexts=[graph_ctx],
             vector_hop_contexts=[vector_ctx],
             sub_questions=[
-                "Which film has the director born later, Riding The California Trail or Lost And Delirious?"
+                "Which film has the director born later, Riding The California Trail or Lost And Delirious?",
             ],
             question="Which film has the director born later, Riding The California Trail or Lost And Delirious?",
             max_chunks=6,
@@ -559,16 +578,16 @@ class TestHybridRetrievalRouting:
                 _chunk(
                     "Riding the California Trail is directed by William Nigh.",
                     linked_entity_ids=["e_cal"],
-                )
+                ),
             ],
             entities={
                 "e_cal": {
                     "id": "Riding the California Trail",
                     "description": "Riding the California Trail",
-                }
+                },
             },
             traversal_paths=[
-                {"path": "William Nigh --DIRECTED_BY--> Riding the California Trail"}
+                {"path": "William Nigh --DIRECTED_BY--> Riding the California Trail"},
             ],
             grounding_quality=0.9,
             seed_entity_count=2,
@@ -616,10 +635,14 @@ class TestEntityAndPathPruning:
     def test_entity_not_linked_to_retained_chunk_is_dropped(self) -> None:
         # We set max_chunks=1, so only the higher-score chunk survives.
         c_high: RetrievedChunk = _chunk(
-            "Aspirin reduces fever.", score=1.0, linked_entity_ids=["e_keep"]
+            "Aspirin reduces fever.",
+            score=1.0,
+            linked_entity_ids=["e_keep"],
         )
         c_low: RetrievedChunk = _chunk(
-            "Metformin treats diabetes.", score=0.1, linked_entity_ids=["e_drop"]
+            "Metformin treats diabetes.",
+            score=0.1,
+            linked_entity_ids=["e_drop"],
         )
 
         hop_ctx: RetrievalContext = _hop_ctx(
@@ -647,10 +670,14 @@ class TestEntityAndPathPruning:
 
     def test_relationship_dropped_when_either_endpoint_pruned(self) -> None:
         c_high: RetrievedChunk = _chunk(
-            "Aspirin reduces fever.", score=1.0, linked_entity_ids=["e1"]
+            "Aspirin reduces fever.",
+            score=1.0,
+            linked_entity_ids=["e1"],
         )
         c_low: RetrievedChunk = _chunk(
-            "Metformin treats diabetes.", score=0.1, linked_entity_ids=["e2"]
+            "Metformin treats diabetes.",
+            score=0.1,
+            linked_entity_ids=["e2"],
         )
 
         hop_ctx: RetrievalContext = _hop_ctx(
@@ -704,7 +731,7 @@ class TestEntityAndPathPruning:
                     "path": "Aspirin -> Fever",
                     "hops": 1,
                     "node_ids": ["e1", "e_unknown"],  # e_unknown not in any chunk
-                }
+                },
             ],
         )
         result: ProducedGraphRetrievalContext | None = _run_iterative(
@@ -720,7 +747,8 @@ class TestEntityAndPathPruning:
 
     def test_path_with_all_retained_node_ids_kept(self) -> None:
         c: RetrievedChunk = _chunk(
-            "Aspirin reduces fever.", linked_entity_ids=["e1", "e2"]
+            "Aspirin reduces fever.",
+            linked_entity_ids=["e1", "e2"],
         )
         hop_ctx: RetrievalContext = _hop_ctx(
             chunks=[c],
@@ -729,7 +757,7 @@ class TestEntityAndPathPruning:
                     "path": "Aspirin -> Fever",
                     "hops": 1,
                     "node_ids": ["e1", "e2"],  # both in linked_entity_ids
-                }
+                },
             ],
         )
         result: ProducedGraphRetrievalContext | None = _run_iterative(

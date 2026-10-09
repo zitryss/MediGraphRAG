@@ -14,7 +14,7 @@ from ontographrag.rag.answer_guardrails import (
 
 def test_parse_guardrail_verdict_from_json() -> None:
     verdict: GuardrailVerdict = parse_guardrail_verdict(
-        '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}'
+        '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}',
     )
     assert verdict["decision"] == "retry"
     assert verdict["answers_question"] is False
@@ -24,7 +24,7 @@ def test_parse_guardrail_verdict_from_json() -> None:
 
 def test_parse_guardrail_verdict_from_embedded_json() -> None:
     verdict: GuardrailVerdict = parse_guardrail_verdict(
-        'verdict: {"decision":"abstain","answers_question":false,"supported_by_context":false,"reason":"insufficient evidence"}'
+        'verdict: {"decision":"abstain","answers_question":false,"supported_by_context":false,"reason":"insufficient evidence"}',
     )
     assert verdict["decision"] == "abstain"
     assert verdict["answers_question"] is False
@@ -62,7 +62,7 @@ def test_evaluate_runtime_answer_guardrail_uses_llm_json() -> None:
     llm: RunnableLambda[object, str] = RunnableLambda(
         lambda _: (
             '{"decision":"retry","answers_question":false,"supported_by_context":true,"reason":"off target"}'
-        )
+        ),
     )
     verdict: GuardrailVerdict = evaluate_runtime_answer_guardrail(
         question="Who directed Lost and Delirious?",
@@ -71,7 +71,7 @@ def test_evaluate_runtime_answer_guardrail_uses_llm_json() -> None:
             {
                 "document": "2wikimultihopqa",
                 "text": "Lost and Delirious is a 2001 Canadian drama film directed by Léa Pool.",
-            }
+            },
         ],
         llm=llm,
     )

@@ -99,17 +99,17 @@ def test_sentence_transformer_helper_reuses_normalized_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_module: types.SimpleNamespace = types.SimpleNamespace(
-        SentenceTransformer=_FakeSentenceTransformer
+        SentenceTransformer=_FakeSentenceTransformer,
     )
     monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
     monkeypatch.setattr(um, "_SENTENCE_TRANSFORMER_CACHE", {})
     _FakeSentenceTransformer.init_calls.clear()
 
     model_a: SentenceTransformer = um._get_or_load_sentence_transformer(
-        "sentence-transformers/all-MiniLM-L6-v2"
+        "sentence-transformers/all-MiniLM-L6-v2",
     )
     model_b: SentenceTransformer = um._get_or_load_sentence_transformer(
-        "all-MiniLM-L6-v2"
+        "all-MiniLM-L6-v2",
     )
 
     assert model_a is model_b
@@ -134,7 +134,9 @@ def test_evidence_vn_entropy_query_checks_tail_reachability(
             return False
 
         def run(
-            self, query: str, params: QueryParameters | None = None
+            self,
+            query: str,
+            params: QueryParameters | None = None,
         ) -> list[QueryRow]:
             captured_queries.append(query)
             if "RETURN DISTINCT e.id AS id" in query:
@@ -154,10 +156,10 @@ def test_evidence_vn_entropy_query_checks_tail_reachability(
             return FakeDriver()
 
     fake_sentence_module: types.SimpleNamespace = types.SimpleNamespace(
-        SentenceTransformer=_FakeSentenceTransformer
+        SentenceTransformer=_FakeSentenceTransformer,
     )
     fake_neo4j_module: types.SimpleNamespace = types.SimpleNamespace(
-        GraphDatabase=FakeGraphDatabase
+        GraphDatabase=FakeGraphDatabase,
     )
     monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_module)
     monkeypatch.setitem(sys.modules, "neo4j", fake_neo4j_module)
@@ -234,7 +236,7 @@ def test_graph_path_support_query_applies_question_local_scope(
             return FakeDriver()
 
     fake_neo4j_module: types.SimpleNamespace = types.SimpleNamespace(
-        GraphDatabase=FakeGraphDatabase
+        GraphDatabase=FakeGraphDatabase,
     )
     monkeypatch.setitem(sys.modules, "neo4j", fake_neo4j_module)
 
@@ -310,7 +312,9 @@ def test_graph_path_support_matches_aliases_without_abstaining(
             return FakeDriver()
 
     monkeypatch.setitem(
-        sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase)
+        sys.modules,
+        "neo4j",
+        types.SimpleNamespace(GraphDatabase=FakeGraphDatabase),
     )
 
     detail: GraphPathSupportDetail = um.compute_graph_path_support_detailed(
@@ -382,7 +386,9 @@ def test_graph_path_support_uses_non_self_question_entities_for_overlap(
             return FakeDriver()
 
     monkeypatch.setitem(
-        sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase)
+        sys.modules,
+        "neo4j",
+        types.SimpleNamespace(GraphDatabase=FakeGraphDatabase),
     )
 
     detail: GraphPathSupportDetail = um.compute_graph_path_support_detailed(
@@ -454,7 +460,9 @@ def test_sps_uses_non_self_question_entities_for_overlap(
             return FakeDriver()
 
     monkeypatch.setitem(
-        sys.modules, "neo4j", types.SimpleNamespace(GraphDatabase=FakeGraphDatabase)
+        sys.modules,
+        "neo4j",
+        types.SimpleNamespace(GraphDatabase=FakeGraphDatabase),
     )
 
     detail: GraphPathSupportDetail = (
@@ -497,7 +505,9 @@ def test_competing_answer_alternatives_counts_reverse_edges(
             return False
 
         def run(
-            self, query: str, params: QueryParameters | None = None
+            self,
+            query: str,
+            params: QueryParameters | None = None,
         ) -> list[QueryRow] | FakeSingleResult:
             captured_queries.append(query)
             if "$question_lower CONTAINS toLower(e.name)" in query:
@@ -525,7 +535,7 @@ def test_competing_answer_alternatives_counts_reverse_edges(
             return FakeDriver()
 
     fake_neo4j_module: types.SimpleNamespace = types.SimpleNamespace(
-        GraphDatabase=FakeGraphDatabase
+        GraphDatabase=FakeGraphDatabase,
     )
     monkeypatch.setitem(sys.modules, "neo4j", fake_neo4j_module)
 
@@ -581,7 +591,8 @@ def test_compute_auroc_aurec_excludes_generation_failures_by_default() -> None:
     ]
 
     clean_only: dict[str, dict[str, float]] = um.compute_auroc_aurec(
-        details, metric_names=["graph_path_support"]
+        details,
+        metric_names=["graph_path_support"],
     )
     all_rows: dict[str, dict[str, float]] = um.compute_auroc_aurec(
         details,
@@ -674,7 +685,8 @@ def test_compute_auroc_aurec_reports_all_observed_gps_null_reasons() -> None:
     ]
 
     metrics: dict[str, dict[str, float]] = um.compute_auroc_aurec(
-        details, metric_names=["graph_path_support"]
+        details,
+        metric_names=["graph_path_support"],
     )
 
     assert metrics["vanilla_rag"]["graph_path_support_null_rate"] == 0.25

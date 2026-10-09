@@ -60,7 +60,11 @@ class SamplingOptions(TypedDict):
     ],
 )
 def test_candidate_limits(
-    max_chunks: int, temp: float, factor: int, cap: int, expected: int
+    max_chunks: int,
+    temp: float,
+    factor: int,
+    cap: int,
+    expected: int,
 ) -> None:
     assert compute_candidate_limit(max_chunks, temp, factor, hard_cap=cap) == expected
 
@@ -84,13 +88,19 @@ def test_ranked_sampling_is_stable_bounded_and_order_preserving() -> None:
     assert select_ranked_subset([], **opts) == []
     assert (
         select_ranked_subset(
-            items, max_items=2, retrieval_temperature=0, shortlist_factor=2
+            items,
+            max_items=2,
+            retrieval_temperature=0,
+            shortlist_factor=2,
         )
         == items[:2]
     )
     assert (
         select_ranked_subset(
-            items, max_items=2, retrieval_temperature=1, shortlist_factor=1
+            items,
+            max_items=2,
+            retrieval_temperature=1,
+            shortlist_factor=1,
         )
         == items[:2]
     )
@@ -116,7 +126,9 @@ def test_ranked_sampling_is_stable_bounded_and_order_preserving() -> None:
     ],
 )
 def test_entropy_known_distributions(
-    labels: list[str], entropy: float, normalized: float
+    labels: list[str],
+    entropy: float,
+    normalized: float,
 ) -> None:
     assert shannon_entropy(labels) == pytest.approx(entropy)
     assert normalized_entropy(labels) == pytest.approx(normalized)
@@ -164,7 +176,7 @@ def test_symbolic_state_normalizes_deduplicates_and_measures_diversity() -> None
                 None,
             ],
             "traversal_paths": [{"node_ids": ["a", "b"]}, {"path": "fallback"}, None],
-        }
+        },
     )
     assert state["entity_ids"] == ["a", "b"]
     assert state["seed_entity_ids"] == ["a"]
@@ -172,7 +184,7 @@ def test_symbolic_state_normalizes_deduplicates_and_measures_diversity() -> None
     assert state["relationship_count"] == 3
     assert state["chunk_ids"] == ["c", "fallback"]
     result: EmptyGraphStateDiversity | GraphStateDiversity = graph_state_diversity(
-        [state, state]
+        [state, state],
     )
     assert result["chunk_entropy"] == 0
     assert result["subgraph_jaccard"] == 1
@@ -225,7 +237,9 @@ def test_source_create_update_parameters_and_status(
     ],
 )
 def test_scoped_graph_reads_parameterize_untrusted_names(
-    method: str, args: tuple[object, ...], params: dict[str, object]
+    method: str,
+    args: tuple[object, ...],
+    params: dict[str, object],
 ) -> None:
     graph: Mock = Mock(_database="unit")
     graph.query.return_value = []
@@ -285,10 +299,13 @@ def test_gds_detection(rows: list[dict[str, int]], expected: bool) -> None:
 
 @pytest.mark.parametrize("state", ["indexed", "empty", "unembedded", "embedded"])
 def test_connection_reports_index_and_chunk_readiness(
-    monkeypatch: pytest.MonkeyPatch, state: str
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
 ) -> None:
     monkeypatch.setattr(
-        graph_db_access, "load_embedding_model", Mock(return_value=(Mock(), 3))
+        graph_db_access,
+        "load_embedding_model",
+        Mock(return_value=(Mock(), 3)),
     )
     index: list[dict[str, int]] = (
         [{"vector_dimensions": 3}] if state == "indexed" else []
@@ -306,11 +323,11 @@ def test_connection_reports_index_and_chunk_readiness(
                 chunks,
                 [{"totalGdsProcedures": 1}],
                 [{"edition": "community"}],
-            ]
+            ],
         ),
     )
     result: ConnectionInfo | None = graphDBdataAccess(
-        graph
+        graph,
     ).connection_check_and_get_vector_dimensions("unit")
     assert result is not None
     assert result["message"] == "Connection Successful"
@@ -330,7 +347,9 @@ def test_knn_and_index_rebuild_pass_configured_dimensions(
 ) -> None:
     monkeypatch.setenv("KNN_MIN_SCORE", "0.82")
     monkeypatch.setattr(
-        graph_db_access, "load_embedding_model", Mock(return_value=(Mock(), 3))
+        graph_db_access,
+        "load_embedding_model",
+        Mock(return_value=(Mock(), 3)),
     )
     graph: Mock = Mock(_database="unit", query=Mock(return_value=[{"name": "vector"}]))
     db: graphDBdataAccess = graphDBdataAccess(graph)
@@ -347,7 +366,9 @@ def test_knn_and_index_rebuild_pass_configured_dimensions(
 
 @pytest.mark.parametrize("delete_entities", ["true", "false"])
 def test_document_deletion_preserves_shared_entity_filter(
-    delete_entities: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    delete_entities: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     graph: Mock = Mock(_database="unit", query=Mock(return_value=[]))
     db: graphDBdataAccess = graphDBdataAccess(graph)
@@ -380,7 +401,8 @@ def test_orphan_and_duplicate_maintenance_records_explicit_ids(
     monkeypatch.setenv("DUPLICATE_SCORE_VALUE", "0.9")
     monkeypatch.setenv("DUPLICATE_TEXT_DISTANCE", "3")
     graph: Mock = Mock(
-        _database="unit", query=Mock(side_effect=[[{"id": "a"}], [{"total": 1}]])
+        _database="unit",
+        query=Mock(side_effect=[[{"id": "a"}], [{"total": 1}]]),
     )
     db: graphDBdataAccess = graphDBdataAccess(graph)
     assert db.list_unconnected_nodes() == ([{"id": "a"}], {"total": 1})
@@ -393,7 +415,7 @@ def test_orphan_and_duplicate_maintenance_records_explicit_ids(
     graph.query.side_effect = None
     graph.query.return_value = [{"totalMerged": 2}]
     assert db.merge_duplicate_nodes(
-        '[{"firstElementId":"a","similarElementIds":["b"]}]'
+        '[{"firstElementId":"a","similarElementIds":["b"]}]',
     ) == [{"totalMerged": 2}]
     assert graph.query.call_args.args[1]["rows"][0]["similarElementIds"] == ["b"]
     db.delete_unconnected_nodes('[" a "," b "]')
@@ -418,14 +440,14 @@ def test_count_update_sums_real_record_components(community: bool) -> None:
                         "entityEntityRelCount": 4,
                         "communityNodeCount": 5,
                         "communityRelCount": 6,
-                    }
+                    },
                 ],
                 [],
-            ]
+            ],
         ),
     )
     result: dict[str | None, NodeRelationshipCounts] | list[Never] = graphDBdataAccess(
-        graph
+        graph,
     ).update_node_relationship_count(None if community else "doc")
     assert isinstance(result, dict)
     assert result["doc"]["nodeCount"] == (10 if community else 5)

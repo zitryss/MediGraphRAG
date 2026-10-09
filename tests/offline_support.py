@@ -88,12 +88,14 @@ def experiment_module(
     disable_dotenv: DotenvDisabled = lambda *a, **kw: False
     monkeypatch.setattr(dotenv, "load_dotenv", disable_dotenv)
     monkeypatch.setenv(
-        "EMBEDDING_PROVIDER", os.getenv("EMBEDDING_PROVIDER", "huggingface")
+        "EMBEDDING_PROVIDER",
+        os.getenv("EMBEDDING_PROVIDER", "huggingface"),
     )
     old_path: list[str] = sys.path[:]
     path: Path = Path(__file__).parents[1] / "experiments/experiment.py"
     spec: ModuleSpec | None = importlib.util.spec_from_file_location(
-        "isolated_experiment", path
+        "isolated_experiment",
+        path,
     )
     assert spec is not None and spec.loader is not None
     module: ModuleType = importlib.util.module_from_spec(spec)
@@ -121,7 +123,8 @@ class ManifestOpener(Protocol[OpenFile_contra, OpenParameters, OpenResult_co]):
 
 def manifest_opener(
     original_open: Callable[
-        Concatenate[OpenFile_contra, OpenParameters], OpenResult_co
+        Concatenate[OpenFile_contra, OpenParameters],
+        OpenResult_co,
     ],
 ) -> ManifestOpener[OpenFile_contra, OpenParameters, OpenResult_co]:
     def fixture_open(
@@ -153,7 +156,8 @@ def analysis_import(
     def load(name: str) -> ModuleType:
         path: Path = Path(__file__).parents[1] / "experiments" / f"{name}.py"
         spec: ModuleSpec | None = importlib.util.spec_from_file_location(
-            f"analysis_{name}", path
+            f"analysis_{name}",
+            path,
         )
         assert spec is not None and spec.loader is not None
         module: ModuleType = importlib.util.module_from_spec(spec)

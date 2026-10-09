@@ -39,10 +39,12 @@ from ontographrag.kg.chunking import ChunkGroundingInput, TextChunk
 # The project venv includes all of these; this guard is for CI environments
 # that only install a subset of requirements.
 pytest.importorskip(
-    "langchain_neo4j", reason="langchain_neo4j not installed — skipping KG build tests"
+    "langchain_neo4j",
+    reason="langchain_neo4j not installed — skipping KG build tests",
 )
 pytest.importorskip(
-    "langchain", reason="langchain not installed — skipping KG build tests"
+    "langchain",
+    reason="langchain not installed — skipping KG build tests",
 )
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -137,7 +139,7 @@ class _Passage:
 def _make_creator() -> OntologyGuidedKGCreator:
     """Instantiate with minimal config — no Neo4j, no embeddings required."""
     c: OntologyGuidedKGCreator = OntologyGuidedKGCreator.__new__(
-        OntologyGuidedKGCreator
+        OntologyGuidedKGCreator,
     )
     c.chunk_size = 500
     c.chunk_overlap = 50
@@ -279,7 +281,7 @@ class TestPassageProvenanceStorage:
                         "original_id": "Alice",
                     },
                     "embedding": None,
-                }
+                },
             ],
             "relationships": [],
             "chunks": [
@@ -295,7 +297,7 @@ class TestPassageProvenanceStorage:
                     "question_id": "q1",
                     "passage_index": 0,
                     "embedding": None,
-                }
+                },
             ],
             "metadata": {
                 "total_chunks": 1,
@@ -308,7 +310,8 @@ class TestPassageProvenanceStorage:
         }
 
     def test_chunk_storage_includes_passage_provenance(
-        self, stub_graph: "StubGraph"
+        self,
+        stub_graph: "StubGraph",
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
@@ -334,7 +337,8 @@ class TestPassageProvenanceStorage:
         assert params["passage_index"] == 0
 
     def test_mentions_use_global_chunk_index_and_source(
-        self, stub_graph: "StubGraph"
+        self,
+        stub_graph: "StubGraph",
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
@@ -403,13 +407,15 @@ class TestCrossPassageRecoveryScoping:
 
 class TestPassageSourceTitlePropagation:
     def test_passage_aware_build_prefers_structured_source_title(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
         captured: dict[str, str | None] = {}
 
         def fake_chunk_text_with_section_boundaries(
-            text: "str", section_headers: "object" = None
+            text: "str",
+            section_headers: "object" = None,
         ) -> "list[GraphChunkInput]":
             return [
                 {
@@ -419,7 +425,7 @@ class TestPassageSourceTitlePropagation:
                     "start_pos": 0,
                     "end_pos": len(text),
                     "embedding": None,
-                }
+                },
             ]
 
         monkeypatch.setattr(
@@ -432,18 +438,23 @@ class TestPassageSourceTitlePropagation:
             return []
 
         monkeypatch.setattr(
-            creator, "_detect_section_headers", fake_detect_section_headers
+            creator,
+            "_detect_section_headers",
+            fake_detect_section_headers,
         )
 
         def fake_get_section_for_position(pos: "object", headers: "object") -> "None":
             return None
 
         monkeypatch.setattr(
-            creator, "_get_section_for_position", fake_get_section_for_position
+            creator,
+            "_get_section_for_position",
+            fake_get_section_for_position,
         )
 
         def fake_prepare_chunk_text_for_extraction(
-            text: "str", **kwargs: object
+            text: "str",
+            **kwargs: object,
         ) -> "str":
             return text
 
@@ -472,7 +483,8 @@ class TestPassageSourceTitlePropagation:
         )
 
         def _capture_grounding(
-            chunk_kg: ExtractionResult, chunk: GraphChunkInput
+            chunk_kg: ExtractionResult,
+            chunk: GraphChunkInput,
         ) -> ExtractionResult:
             captured["source_title"] = chunk.get("source_title")
             return chunk_kg
@@ -480,7 +492,8 @@ class TestPassageSourceTitlePropagation:
         monkeypatch.setattr(creator, "_ground_chunk_extraction", _capture_grounding)
 
         def fake_extract_relationships_for_segment_windows(
-            *args: object, **kwargs: "object"
+            *args: object,
+            **kwargs: "object",
         ) -> "list[GraphRelationship]":
             return []
 
@@ -491,7 +504,8 @@ class TestPassageSourceTitlePropagation:
         )
 
         def fake_recover_cross_section_relationships(
-            *args: object, **kwargs: "object"
+            *args: object,
+            **kwargs: "object",
         ) -> "list[GraphRelationship]":
             return []
 
@@ -573,10 +587,10 @@ class TestPassageSourceTitlePropagation:
                         "schema_hint": {
                             "name": "devotees",
                             "description": "Individuals who are dedicated to a particular religion or deity.",
-                        }
+                        },
                     },
                     "provenance_positions": [7],
-                }
+                },
             ],
             "chunks": [
                 {
@@ -591,7 +605,7 @@ class TestPassageSourceTitlePropagation:
                     "question_id": "q1",
                     "passage_index": 0,
                     "embedding": None,
-                }
+                },
             ],
             "metadata": {
                 "total_chunks": 1,
@@ -694,7 +708,7 @@ class TestPassageSourceTitlePropagation:
                     "negated": False,
                     "properties": {},
                     "provenance_positions": [7],
-                }
+                },
             ],
             "chunks": [
                 {
@@ -740,7 +754,8 @@ class TestPassageSourceTitlePropagation:
         assert [chunk["position"] for chunk in captured["chunks"]] == [7]
 
     def test_relationship_store_failure_returns_false(
-        self, stub_graph: "StubGraph"
+        self,
+        stub_graph: "StubGraph",
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
@@ -756,11 +771,13 @@ class TestPassageSourceTitlePropagation:
         creator._verify_triple_confidence = fake_verify_triple_confidence
 
         original_query: Callable[
-            [str, dict[str, object] | None], list[dict[str, object]]
+            [str, dict[str, object] | None],
+            list[dict[str, object]],
         ] = stub_graph.query
 
         def flaky_query(
-            query: str, params: dict[str, object] | None = None
+            query: str,
+            params: dict[str, object] | None = None,
         ) -> list[dict[str, object]]:
             if "MERGE (source)-[r:" in query:
                 raise RuntimeError("forced relationship store failure")
@@ -803,7 +820,7 @@ class TestPassageSourceTitlePropagation:
                     "negated": False,
                     "properties": {},
                     "provenance_positions": [7],
-                }
+                },
             ],
             "chunks": [
                 {
@@ -818,7 +835,7 @@ class TestPassageSourceTitlePropagation:
                     "question_id": "q1",
                     "passage_index": 0,
                     "embedding": None,
-                }
+                },
             ],
             "metadata": {
                 "total_chunks": 1,
@@ -854,12 +871,14 @@ class TestPassageSourceTitlePropagation:
         creator._verify_triple_confidence = fake_verify_triple_confidence
 
         original_query: Callable[
-            [str, dict[str, object] | None], list[dict[str, object]]
+            [str, dict[str, object] | None],
+            list[dict[str, object]],
         ] = stub_graph.query
         failed_once: dict[str, bool] = {"done": False}
 
         def flaky_query(
-            query: str, params: dict[str, object] | None = None
+            query: str,
+            params: dict[str, object] | None = None,
         ) -> list[dict[str, object]]:
             if "MERGE (source)-[r:" in query and not failed_once["done"]:
                 failed_once["done"] = True
@@ -912,7 +931,7 @@ class TestPassageSourceTitlePropagation:
                     "question_id": None,
                     "passage_index": 0,
                     "embedding": None,
-                }
+                },
             ],
             "metadata": {
                 "total_chunks": 1,
@@ -931,7 +950,7 @@ class TestPassageSourceTitlePropagation:
         assert kg["metadata"]["stored_relationships"] == 199
         assert kg["metadata"]["relationship_store_degraded"] is True
         assert kg["metadata"]["relationship_store_failure_ratio"] == pytest.approx(
-            0.005
+            0.005,
         )
 
 
@@ -942,7 +961,8 @@ class TestPassageSourceTitlePropagation:
 
 class TestCrossWindowRelationRecovery:
     def test_extract_relationships_for_segment_windows_uses_three_chunk_window(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
 
@@ -954,7 +974,10 @@ class TestCrossWindowRelationRecovery:
         captured_texts: list[str] = []
 
         def _fake_extract(
-            text: str, entities: list[GraphNode], llm: object, model_name: str
+            text: str,
+            entities: list[GraphNode],
+            llm: object,
+            model_name: str,
         ) -> list[GraphRelationship]:
             captured_texts.append(text)
             if "chunk one" in text and "chunk two" in text and "chunk three" in text:
@@ -1085,7 +1108,8 @@ class TestGraphEnrichmentBuilder:
         }
 
         merged_entities, merged_map = creator._apply_soft_entity_linking(
-            entities, entity_map
+            entities,
+            entity_map,
         )
 
         assert len(merged_entities) == 1
@@ -1104,7 +1128,7 @@ class TestGraphEnrichmentBuilder:
         creator.enable_claim_extraction = True
 
         enrichment: GraphEnrichment = creator._build_graph_enrichment_records(
-            self._kg()
+            self._kg(),
         )
 
         assert enrichment["component_summaries"] == []
@@ -1119,7 +1143,7 @@ class TestGraphEnrichmentBuilder:
         creator.fragmentation_bridge_similarity_threshold = 0.8
 
         enrichment: GraphEnrichment = creator._build_graph_enrichment_records(
-            self._kg()
+            self._kg(),
         )
 
         assert enrichment["graph_summary"]["component_count"] == 2
@@ -1151,7 +1175,8 @@ class TestGraphEnrichmentBuilder:
         assert claim_confidences == [0.6, 0.95]
 
     def test_store_graph_enrichment_persists_all_record_types(
-        self, stub_graph: "StubGraph"
+        self,
+        stub_graph: "StubGraph",
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
         creator.enable_graph_summaries = True
@@ -1160,7 +1185,7 @@ class TestGraphEnrichmentBuilder:
         creator.fragmentation_bridge_similarity_threshold = 0.8
 
         enrichment: GraphEnrichment = creator._build_graph_enrichment_records(
-            self._kg()
+            self._kg(),
         )
         stats: dict[str, int] = creator._store_graph_enrichment(
             stub_graph,
@@ -1189,7 +1214,8 @@ class TestGraphEnrichmentBuilder:
 
 class TestSectionAwareChunking:
     def test_section_chunking_preserves_boundaries_and_offsets(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
 
@@ -1208,7 +1234,7 @@ class TestSectionAwareChunking:
                     "start_pos": 0,
                     "end_pos": len(text),
                     "embedding": None,
-                }
+                },
             ]
 
         from ontographrag.kg.builders import _extraction as extraction_mod
@@ -1323,7 +1349,7 @@ class TestSectionAwareChunking:
                             "name": "Aspirin",
                             "description": "Drug: Aspirin",
                         },
-                    }
+                    },
                 ],
                 "relationships": [],
             },
@@ -1343,7 +1369,7 @@ class TestHeuristicCoreference:
         rewritten: str = creator._prepare_chunk_text_for_extraction(
             "This disease progresses rapidly.",
             previous_entities=[
-                {"id": "amyotrophic lateral sclerosis", "type": "Disease"}
+                {"id": "amyotrophic lateral sclerosis", "type": "Disease"},
             ],
             previous_texts=["amyotrophic lateral sclerosis is discussed above"],
             llm=None,
@@ -1402,10 +1428,13 @@ class TestVerifyTripleConfidence:
 
     def test_same_sentence_returns_1_0(self) -> None:
         chunks: list[GraphChunkInput] = self._chunks(
-            "Metformin treats type 2 diabetes in patients."
+            "Metformin treats type 2 diabetes in patients.",
         )
         score: float = self.creator._verify_triple_confidence(
-            "Metformin", "type 2 diabetes", "TREATS", chunks
+            "Metformin",
+            "type 2 diabetes",
+            "TREATS",
+            chunks,
         )
         assert score == 1.0
 
@@ -1414,44 +1443,60 @@ class TestVerifyTripleConfidence:
         text: str = "Metformin is a biguanide drug. Type 2 diabetes affects millions."
         chunks: list[GraphChunkInput] = self._chunks(text)
         score: float = self.creator._verify_triple_confidence(
-            "Metformin", "type 2 diabetes", "TREATS", chunks
+            "Metformin",
+            "type 2 diabetes",
+            "TREATS",
+            chunks,
         )
         assert score == 0.7
 
     def test_cross_chunk_both_found_returns_0_4(self) -> None:
         chunks: list[GraphChunkInput] = self._chunks(
-            "Metformin is a biguanide.", "Type 2 diabetes affects millions."
+            "Metformin is a biguanide.",
+            "Type 2 diabetes affects millions.",
         )
         score: float = self.creator._verify_triple_confidence(
-            "Metformin", "type 2 diabetes", "TREATS", chunks
+            "Metformin",
+            "type 2 diabetes",
+            "TREATS",
+            chunks,
         )
         assert score == 0.4
 
     def test_only_source_found_returns_0_3(self) -> None:
         chunks: list[GraphChunkInput] = self._chunks("Metformin is a biguanide drug.")
         score: float = self.creator._verify_triple_confidence(
-            "Metformin", "type 2 diabetes", "TREATS", chunks
+            "Metformin",
+            "type 2 diabetes",
+            "TREATS",
+            chunks,
         )
         assert score == 0.3
 
     def test_neither_found_returns_0_1(self) -> None:
         chunks: list[GraphChunkInput] = self._chunks(
-            "Paracetamol reduces inflammation."
+            "Paracetamol reduces inflammation.",
         )
         score: float = self.creator._verify_triple_confidence(
-            "Metformin", "type 2 diabetes", "TREATS", chunks
+            "Metformin",
+            "type 2 diabetes",
+            "TREATS",
+            chunks,
         )
         assert score == 0.1
 
     def test_empty_chunks_returns_neutral(self) -> None:
         score: float = self.creator._verify_triple_confidence(
-            "Metformin", "type 2 diabetes", "TREATS", []
+            "Metformin",
+            "type 2 diabetes",
+            "TREATS",
+            [],
         )
         assert score == 0.5
 
     def test_score_in_unit_interval(self) -> None:
         chunks: list[GraphChunkInput] = self._chunks(
-            "Some irrelevant text about nothing."
+            "Some irrelevant text about nothing.",
         )
         score: float = self.creator._verify_triple_confidence("A", "B", "REL", chunks)
         assert 0.0 <= score <= 1.0
@@ -1519,7 +1564,7 @@ class TestAnchorGroundingAndRestoration:
                         "anchor_text": "inhibits",
                         "description": "inhibits",
                     },
-                }
+                },
             ],
         }
 
@@ -1527,7 +1572,8 @@ class TestAnchorGroundingAndRestoration:
 
         # The grounder writes AnchorSpan records under this reserved extension key.
         entity_spans: list[AnchorSpan] = cast(
-            list[AnchorSpan], grounded["entities"][0]["properties"]["anchor_spans"]
+            list[AnchorSpan],
+            grounded["entities"][0]["properties"]["anchor_spans"],
         )
         assert entity_spans[0]["text"] == "Metformin"
         assert entity_spans[0]["start"] == 100
@@ -1535,7 +1581,8 @@ class TestAnchorGroundingAndRestoration:
 
         # These reserved fields are populated together by _ground_chunk_extraction.
         rel_props: GroundedProperties = cast(
-            GroundedProperties, grounded["relationships"][0]["properties"]
+            GroundedProperties,
+            grounded["relationships"][0]["properties"],
         )
         assert rel_props["restoration_status"] == "full"
         assert rel_props["restoration_verified"] is True
@@ -1558,7 +1605,7 @@ class TestAnchorGroundingAndRestoration:
                 "position": 0,
                 "start_pos": 0,
                 "end_pos": 52,
-            }
+            },
         ]
 
         restoration: RestorationRecord = creator._verify_relationship_restoration(
@@ -1580,7 +1627,10 @@ class TestAnchorGroundingAndRestoration:
                 self._responses: list[str] = list(responses)
 
             def generate(
-                self, prompt: str, system_message: str, model_name: str
+                self,
+                prompt: str,
+                system_message: str,
+                model_name: str,
             ) -> str:
                 assert self._responses, "unexpected extra LLM call"
                 return self._responses.pop(0)
@@ -1594,10 +1644,10 @@ class TestAnchorGroundingAndRestoration:
                             {"text": "AMPK", "type": "Protein"},
                         ],
                         "relation_anchors": [
-                            {"text": "inhibits", "type_hint": "INHIBITS"}
+                            {"text": "inhibits", "type_hint": "INHIBITS"},
                         ],
                         "attribute_anchors": [],
-                    }
+                    },
                 ),
                 json.dumps(
                     {
@@ -1614,13 +1664,13 @@ class TestAnchorGroundingAndRestoration:
                                     "quantitative": None,
                                     "confidence": "demonstrated",
                                 },
-                            }
+                            },
                         ],
                         "entities": [],
-                    }
+                    },
                 ),
                 json.dumps({"new_entities": []}),
-            ]
+            ],
         )
 
         result: ExtractionResult | None = (
@@ -1652,7 +1702,7 @@ class TestVerifyTripleConfidenceAliases:
 
     def test_alias_used_for_same_sentence_match(self) -> None:
         chunks: list[GraphChunkInput] = [
-            {"text": "MET lowers blood glucose in diabetic patients."}
+            {"text": "MET lowers blood glucose in diabetic patients."},
         ]
         score: float = self.creator._verify_triple_confidence(
             "Metformin",
@@ -1742,7 +1792,7 @@ class TestHarmonizeEntities:
                 "passage_index": passage_index,
                 "source_title": source_title,
                 "source_scope_key": f"{dataset}/{question_id}/p{passage_index}",
-            }
+            },
         )
         return entity
 
@@ -1836,13 +1886,13 @@ class TestHarmonizeEntities:
             [
                 self._ent("Prostate Cancer", "Disease"),
                 self._ent("Prostate Cancer", "Concept"),
-            ]
+            ],
         )
         rev: list[NormalizedNode] = self.creator._harmonize_entities(
             [
                 self._ent("Prostate Cancer", "Concept"),
                 self._ent("Prostate Cancer", "Disease"),
-            ]
+            ],
         )
         assert len(fwd) == 1
         assert len(rev) == 1
@@ -1870,7 +1920,8 @@ class TestHarmonizeEntities:
             },
         ]
         result, entity_map = self.creator._harmonize_entities(
-            entities, return_id_map=True
+            entities,
+            return_id_map=True,
         )
         harmonized_rels: list[NormalizedRelationship] = (
             self.creator._harmonize_relationships(relationships, entity_map)
@@ -1917,10 +1968,12 @@ class TestHarmonizeEntities:
         _, map_fwd = self.creator._harmonize_entities(entities_fwd, return_id_map=True)
         _, map_rev = self.creator._harmonize_entities(entities_rev, return_id_map=True)
         rels_fwd: list[NormalizedRelationship] = self.creator._harmonize_relationships(
-            relationships, map_fwd
+            relationships,
+            map_fwd,
         )
         rels_rev: list[NormalizedRelationship] = self.creator._harmonize_relationships(
-            relationships, map_rev
+            relationships,
+            map_rev,
         )
 
         assert len(rels_fwd) == 1 and len(rels_rev) == 1
@@ -1933,7 +1986,8 @@ class TestHarmonizeEntities:
         entity["properties"]["all_names"] = ["TBK1", "TANK-binding kinase 1"]
 
         resolved: str | None = self.creator._resolve_relationship_endpoint(
-            "TBK1", [entity]
+            "TBK1",
+            [entity],
         )
 
         assert resolved == "TBK1 kinase"
@@ -1962,7 +2016,8 @@ class TestHarmonizeEntities:
 
         _, entity_map = self.creator._harmonize_entities(entities, return_id_map=True)
         rels: list[NormalizedRelationship] = self.creator._harmonize_relationships(
-            relationships, entity_map
+            relationships,
+            entity_map,
         )
 
         assert len(rels) == 2, (
@@ -2040,10 +2095,12 @@ class TestHarmonizeEntities:
         ]
 
         result, entity_map = self.creator._harmonize_entities(
-            entities, return_id_map=True
+            entities,
+            return_id_map=True,
         )
         rels: list[NormalizedRelationship] = self.creator._harmonize_relationships(
-            relationships, entity_map
+            relationships,
+            entity_map,
         )
 
         assert len(rels) == 2
@@ -2149,7 +2206,8 @@ class TestRelationshipLocalProvenance:
         ]
 
         provenance: RelationshipProvenance = creator._relationship_local_provenance(
-            rel, chunks
+            rel,
+            chunks,
         )
 
         assert provenance["provenance_positions"] == [7, 8]
@@ -2164,7 +2222,9 @@ class TestRelationshipLocalProvenance:
 
 class TestStrictOntologyLoading:
     def test_constructor_raises_when_requested_ontology_fails_to_load(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         ontology_path: Path = tmp_path / "broken.json"
         ontology_path.write_text("{}", encoding="utf-8")
@@ -2177,14 +2237,18 @@ class TestStrictOntologyLoading:
             return (emb, 3)
 
         monkeypatch.setattr(
-            builder_mod, "load_embedding_model", fake_load_embedding_model
+            builder_mod,
+            "load_embedding_model",
+            fake_load_embedding_model,
         )
 
         def _boom(self: OntologyGuidedKGCreator, path: str) -> None:
             raise ValueError("bad ontology")
 
         monkeypatch.setattr(
-            builder_mod.OntologyGuidedKGCreator, "_load_ontology", _boom
+            builder_mod.OntologyGuidedKGCreator,
+            "_load_ontology",
+            _boom,
         )
 
         with pytest.raises(ValueError):
@@ -2194,7 +2258,9 @@ class TestStrictOntologyLoading:
             )
 
     def test_constructor_can_fall_back_when_strict_ontology_disabled(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         ontology_path: Path = tmp_path / "broken.json"
         ontology_path.write_text("{}", encoding="utf-8")
@@ -2207,14 +2273,18 @@ class TestStrictOntologyLoading:
             return (emb, 3)
 
         monkeypatch.setattr(
-            builder_mod, "load_embedding_model", fake_load_embedding_model
+            builder_mod,
+            "load_embedding_model",
+            fake_load_embedding_model,
         )
 
         def _boom(self: OntologyGuidedKGCreator, path: str) -> None:
             raise ValueError("bad ontology")
 
         monkeypatch.setattr(
-            builder_mod.OntologyGuidedKGCreator, "_load_ontology", _boom
+            builder_mod.OntologyGuidedKGCreator,
+            "_load_ontology",
+            _boom,
         )
 
         creator: OntologyGuidedKGCreator = builder_mod.OntologyGuidedKGCreator(
@@ -2236,7 +2306,10 @@ class TestOntologySchemaEnforcement:
             ],
             relationship_types=[
                 RelationshipType(
-                    id="TREATS", label="TREATS", domain="Drug", range="Disease"
+                    id="TREATS",
+                    label="TREATS",
+                    domain="Drug",
+                    range="Disease",
                 ),
             ],
         )
@@ -2302,7 +2375,8 @@ class TestOntologySchemaEnforcement:
         )
 
     def test_storage_skips_schema_mismatch_relationships(
-        self, stub_graph: "StubGraph"
+        self,
+        stub_graph: "StubGraph",
     ) -> None:
         creator: OntologyGuidedKGCreator = self._schema_creator()
         creator._create_neo4j_connection = lambda: stub_graph
@@ -2347,7 +2421,7 @@ class TestOntologySchemaEnforcement:
                     "negated": False,
                     "properties": {},
                     "provenance_positions": [0],
-                }
+                },
             ],
             "chunks": [
                 {
@@ -2362,7 +2436,7 @@ class TestOntologySchemaEnforcement:
                     "question_id": "q1",
                     "passage_index": 0,
                     "embedding": None,
-                }
+                },
             ],
             "metadata": {
                 "total_chunks": 1,
@@ -2422,8 +2496,11 @@ class TestOntologySchemaEnforcement:
         ]
         creator._ontology_schema.relationship_types.append(
             RelationshipType(
-                id="INHIBITS", label="inhibits", domain="Drug", range="Disease"
-            )
+                id="INHIBITS",
+                label="inhibits",
+                domain="Drug",
+                range="Disease",
+            ),
         )
 
         assert (
@@ -2473,7 +2550,7 @@ class TestConfidenceThresholdAndReverification:
                     "negated": False,
                     "properties": {},
                     "provenance_positions": [0],
-                }
+                },
             ],
             "chunks": [
                 {
@@ -2488,7 +2565,7 @@ class TestConfidenceThresholdAndReverification:
                     "question_id": "q1",
                     "passage_index": 0,
                     "embedding": None,
-                }
+                },
             ],
             "metadata": {
                 "total_chunks": 1,
@@ -2501,7 +2578,8 @@ class TestConfidenceThresholdAndReverification:
         }
 
     def test_storage_uses_configurable_confidence_threshold(
-        self, stub_graph: "StubGraph"
+        self,
+        stub_graph: "StubGraph",
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
         creator.min_triple_confidence = 0.5
@@ -2525,7 +2603,8 @@ class TestConfidenceThresholdAndReverification:
         assert kg["metadata"]["relationships_skipped_low_confidence"] == 1
 
     def test_low_confidence_reverification_can_keep_relation(
-        self, stub_graph: "StubGraph"
+        self,
+        stub_graph: "StubGraph",
     ) -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
         creator.min_triple_confidence = 0.5
@@ -2545,7 +2624,10 @@ class TestConfidenceThresholdAndReverification:
 
         class FakeLLM:
             def generate(
-                self, prompt: str, system_message: str, model_name: str
+                self,
+                prompt: str,
+                system_message: str,
+                model_name: str,
             ) -> str:
                 return "YES"
 
@@ -2611,18 +2693,18 @@ class TestConfidenceThresholdAndReverification:
 
         kg: FixtureKnowledgeGraph = self._kg()
         kg["nodes"][0]["properties"]["anchor_spans"] = [
-            {"text": "Metformin", "start": 0, "end": 10, "chunk_position": 0}
+            {"text": "Metformin", "start": 0, "end": 10, "chunk_position": 0},
         ]
         kg["relationships"][0]["properties"] = {
             "anchor_grounding": {
                 "source": [
-                    {"text": "Metformin", "start": 0, "end": 10, "chunk_position": 0}
+                    {"text": "Metformin", "start": 0, "end": 10, "chunk_position": 0},
                 ],
                 "target": [
-                    {"text": "diabetes", "start": 18, "end": 26, "chunk_position": 0}
+                    {"text": "diabetes", "start": 18, "end": 26, "chunk_position": 0},
                 ],
                 "relation": [
-                    {"text": "treats", "start": 11, "end": 17, "chunk_position": 0}
+                    {"text": "treats", "start": 11, "end": 17, "chunk_position": 0},
                 ],
             },
             "restoration_status": "full",
@@ -2721,7 +2803,7 @@ class TestContradictionDetection:
                     "negated": True,
                     "properties": {},
                 },
-            ]
+            ],
         )
 
         assert all(rel["properties"]["contradiction_detected"] is True for rel in rels)
@@ -2763,9 +2845,9 @@ class TestContradictionDetection:
                                     "start": 10,
                                     "end": 18,
                                     "chunk_position": 0,
-                                }
-                            ]
-                        }
+                                },
+                            ],
+                        },
                     },
                     "provenance_positions": [0],
                 },
@@ -2781,9 +2863,9 @@ class TestContradictionDetection:
                                     "start": 40,
                                     "end": 50,
                                     "chunk_position": 1,
-                                }
-                            ]
-                        }
+                                },
+                            ],
+                        },
                     },
                     "provenance_positions": [1],
                 },
@@ -2795,7 +2877,8 @@ class TestContradictionDetection:
         assert rels[0]["provenance_positions"] == [0, 1]
         # Relationship harmonization writes the producer-owned grounding record.
         relation_spans: list[AnchorSpan] = cast(
-            AnchorGrounding, rels[0]["properties"]["anchor_grounding"]
+            AnchorGrounding,
+            rels[0]["properties"]["anchor_grounding"],
         )["relation"]
         assert len(relation_spans) == 2
 
@@ -2811,7 +2894,8 @@ class TestNodeSpecificityScoping:
         creator._create_vector_indexes = fake_create_vector_indexes
 
         ok: bool = creator.store_knowledge_graph_with_embeddings(
-            TestPassageProvenanceStorage()._kg(), "musique"
+            TestPassageProvenanceStorage()._kg(),
+            "musique",
         )
 
         assert ok is True
@@ -2873,7 +2957,9 @@ class TestSynonymMergeTypeProperty:
             src: str = f.read()
         # Find the fetch_q assignment inside merge_synonym_entities
         m: re.Match[str] | None = re.search(
-            r"fetch_q\s*(?::\s*str\s*)?=\s*f?\"\"\"(.*?)\"\"\"", src, re.DOTALL
+            r"fetch_q\s*(?::\s*str\s*)?=\s*f?\"\"\"(.*?)\"\"\"",
+            src,
+            re.DOTALL,
         )
         return m.group(1) if m else ""
 
@@ -2900,7 +2986,9 @@ class TestSynonymMergeExecution:
                 self.queries: list[tuple[str, dict[str, object]]] = []
 
             def query(
-                self, query: str, params: dict[str, object] | None = None
+                self,
+                query: str,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 self.queries.append((query, params or {}))
                 if "RETURN elementId(e) AS eid" in query:
@@ -2926,7 +3014,9 @@ class TestSynonymMergeExecution:
 
         graph: FakeGraph = FakeGraph()
         merged: int = creator.merge_synonym_entities(
-            graph, similarity_threshold=0.8, kg_name="bioasq"
+            graph,
+            similarity_threshold=0.8,
+            kg_name="bioasq",
         )
 
         assert merged == 1
@@ -3056,7 +3146,8 @@ class TestEvaluateKnowledgeGraph:
     def test_summary_counts_match_kg(self) -> None:
         kg: FixtureKnowledgeGraph = self._minimal_kg()
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            kg, print_report=False
+            kg,
+            print_report=False,
         )
         assert report["summary"]["entities"] == 3
         assert report["summary"]["relationships"] == 3
@@ -3065,7 +3156,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_entity_metrics_anchor_and_umls(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         em: EntityMetrics = report["entity_metrics"]
         assert em["anchor_grounded"] == 1
@@ -3074,7 +3166,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_entity_metrics_isolated_and_degree(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         em: EntityMetrics = report["entity_metrics"]
         # u3 has one edge (CAUSES), u1 has 3 edges, u2 has 2 edges → no isolated
@@ -3086,7 +3179,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_entity_type_distribution(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         td: dict[str, int] = report["entity_metrics"]["type_distribution"]
         assert td["Disease"] == 2
@@ -3094,7 +3188,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_relationship_metrics_negated_and_contradiction(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         rm: RelationshipMetrics = report["relationship_metrics"]
         assert rm["negated"] == 1
@@ -3104,7 +3199,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_relationship_metrics_conditioned_and_quantified(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         rm: RelationshipMetrics = report["relationship_metrics"]
         assert rm["conditioned"] == 1
@@ -3112,7 +3208,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_evidence_scope_distribution(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         scopes: dict[str, int] = report["relationship_metrics"][
             "evidence_scope_distribution"
@@ -3123,7 +3220,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_confidence_stats(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         rm: RelationshipMetrics = report["relationship_metrics"]
         assert rm["mean_confidence"] == round((1.0 + 0.3 + 0.7) / 3, 4)
@@ -3132,7 +3230,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_restoration_counts(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         rm: RelationshipMetrics = report["relationship_metrics"]
         assert rm["restoration_full"] == 1
@@ -3141,16 +3240,19 @@ class TestEvaluateKnowledgeGraph:
 
     def test_anchor_relation_phrase_pct(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         # 1 of 3 rels has anchor_text
         assert report["relationship_metrics"]["anchor_relation_phrase_pct"] == round(
-            100 / 3, 1
+            100 / 3,
+            1,
         )
 
     def test_grounding_metrics_section_tags(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         gm: GroundingMetrics = report["grounding_metrics"]
         assert gm["chunks_with_section_tags"] == 2
@@ -3159,7 +3261,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_pipeline_metrics(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         pm: PipelineMetrics = report["pipeline_metrics"]
         assert pm["schema_enforcement_dropped_entities"] == 1
@@ -3183,7 +3286,9 @@ class TestEvaluateKnowledgeGraph:
             {"source": "u1", "type": "CAUSES", "target": "u3"},
         ]
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            kg, reference_triples=gold, print_report=False
+            kg,
+            reference_triples=gold,
+            print_report=False,
         )
         pr: RelationshipPrecisionRecallReport = report["precision_recall"]
         # predicted unique keys: TREATS(u1→u2 negated=False), TREATS(u1→u2 negated=True), CAUSES(u1→u3)
@@ -3242,10 +3347,12 @@ class TestEvaluateKnowledgeGraph:
     def test_precision_recall_no_overlap(self) -> None:
         kg: FixtureKnowledgeGraph = self._minimal_kg()
         gold: list[GraphRelationship] = [
-            {"source": "X", "type": "INHIBITS", "target": "Y"}
+            {"source": "X", "type": "INHIBITS", "target": "Y"},
         ]
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            kg, reference_triples=gold, print_report=False
+            kg,
+            reference_triples=gold,
+            print_report=False,
         )
         pr: RelationshipPrecisionRecallReport = report["precision_recall"]
         assert pr["true_positives"] == 0
@@ -3255,7 +3362,8 @@ class TestEvaluateKnowledgeGraph:
 
     def test_no_precision_recall_when_no_gold(self) -> None:
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            self._minimal_kg(), print_report=False
+            self._minimal_kg(),
+            print_report=False,
         )
         assert "precision_recall" not in report
 
@@ -3267,7 +3375,8 @@ class TestEvaluateKnowledgeGraph:
             "metadata": {},
         }
         report: KGEvaluation = _make_creator().evaluate_knowledge_graph(
-            empty_kg, print_report=False
+            empty_kg,
+            print_report=False,
         )
         assert report["summary"]["entities"] == 0
         assert report["summary"]["relationships"] == 0
@@ -3275,7 +3384,8 @@ class TestEvaluateKnowledgeGraph:
         assert report["relationship_metrics"]["mean_confidence"] is None
 
     def test_print_report_runs_without_error(
-        self, capsys: pytest.CaptureFixture[str]
+        self,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         _make_creator().evaluate_knowledge_graph(self._minimal_kg(), print_report=True)
         captured: CaptureResult[str] = capsys.readouterr()

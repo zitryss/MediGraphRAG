@@ -191,7 +191,7 @@ class EvaluationMixin:
                 or node.get("type")
                 or props.get("type")
                 or props.get("ontology_class")
-                or "Unknown"
+                or "Unknown",
             ).strip()
             lookup[entity_id] = {
                 "id": entity_id,
@@ -244,20 +244,20 @@ class EvaluationMixin:
             source_name: str = str(
                 props.get("source_name")
                 or entity_lookup.get(source_ref, {}).get("name")
-                or source_ref
+                or source_ref,
             ).strip()
             target_name: str = str(
                 props.get("target_name")
                 or entity_lookup.get(target_ref, {}).get("name")
-                or target_ref
+                or target_ref,
             ).strip()
 
             negated: bool = bool(rel.get("negated", props.get("negated", False)))
             condition: str = str(
-                rel.get("condition") or props.get("condition") or ""
+                rel.get("condition") or props.get("condition") or "",
             ).strip()
             quantitative: str = str(
-                rel.get("quantitative") or props.get("quantitative") or ""
+                rel.get("quantitative") or props.get("quantitative") or "",
             ).strip()
 
             base_key: str = "||".join(
@@ -265,7 +265,7 @@ class EvaluationMixin:
                     cls._kg_eval_normalize_text(source_name),
                     rel_type.strip().upper(),
                     cls._kg_eval_normalize_text(target_name),
-                )
+                ),
             )
             qualified_key: str = "||".join(
                 (
@@ -273,7 +273,7 @@ class EvaluationMixin:
                     "1" if negated else "0",
                     cls._kg_eval_normalize_text(condition),
                     cls._kg_eval_normalize_text(quantitative),
-                )
+                ),
             )
             records.append(
                 {
@@ -285,7 +285,7 @@ class EvaluationMixin:
                     "negated": negated,
                     "condition": condition,
                     "quantitative": quantitative,
-                }
+                },
             )
         return records
 
@@ -411,7 +411,7 @@ class EvaluationMixin:
                     "name": info.get("name") or entity_id,
                     "type": info.get("type") or "Unknown",
                     "degree": int(node_degree),
-                }
+                },
             )
 
         # ── Relationship metrics ────────────────────────────────────────────
@@ -487,31 +487,38 @@ class EvaluationMixin:
         # ── Pipeline health metrics ─────────────────────────────────────────
         dropped_entities: int = meta.get("schema_enforcement_dropped_entities", 0)
         dropped_rels_schema: int = meta.get(
-            "schema_enforcement_dropped_relationships", 0
+            "schema_enforcement_dropped_relationships",
+            0,
         )
         dropped_rels_unmapped: int = meta.get(
-            "harmonization_relationships_dropped_unmapped", 0
+            "harmonization_relationships_dropped_unmapped",
+            0,
         )
         deduped_rels: int = meta.get("harmonization_relationships_deduped", 0)
         contradiction_groups: int = meta.get(
-            "harmonization_relationship_contradiction_groups", 0
+            "harmonization_relationship_contradiction_groups",
+            0,
         )
         stored_relationships: int | None = meta.get("stored_relationships")
         relationship_store_failures: int = meta.get("relationship_store_failures", 0)
         relationships_skipped_low_confidence: int = meta.get(
-            "relationships_skipped_low_confidence", 0
+            "relationships_skipped_low_confidence",
+            0,
         )
         relationships_skipped_schema_mismatch: int = meta.get(
-            "relationships_skipped_schema_mismatch", 0
+            "relationships_skipped_schema_mismatch",
+            0,
         )
         relationships_reverified_kept: int = meta.get(
-            "relationships_reverified_kept", 0
+            "relationships_reverified_kept",
+            0,
         )
         relationships_reverified_rejected: int = meta.get(
-            "relationships_reverified_rejected", 0
+            "relationships_reverified_rejected",
+            0,
         )
         relationship_store_ratio: float | str | None = meta.get(
-            "relationship_store_ratio"
+            "relationship_store_ratio",
         )
 
         raw_entities_approx: int = n_entities + dropped_entities
@@ -529,16 +536,16 @@ class EvaluationMixin:
         reference_relationships: Sequence[RelationshipRecord] = []
         if isinstance(reference, dict):
             reference_nodes = list(
-                reference.get("nodes") or reference.get("entities") or []
+                reference.get("nodes") or reference.get("entities") or [],
             )
             reference_relationships = list(
-                reference.get("relationships") or reference.get("triples") or []
+                reference.get("relationships") or reference.get("triples") or [],
             )
         elif isinstance(reference, list):
             reference_relationships = list(reference)
         if reference_triples:
             reference_relationships = list(reference_relationships) + list(
-                reference_triples
+                reference_triples,
             )
 
         if reference_nodes:
@@ -549,10 +556,10 @@ class EvaluationMixin:
                 gold_entity_keys,
             )
             entity_precision_recall["gold_entities"] = entity_precision_recall.pop(
-                "gold_count"
+                "gold_count",
             )
             entity_precision_recall["predicted_entities"] = entity_precision_recall.pop(
-                "predicted_count"
+                "predicted_count",
             )
 
         if reference_relationships:
@@ -626,7 +633,8 @@ class EvaluationMixin:
                 "type_distribution": dict(type_counts.most_common()),
                 "anchor_grounded": anchor_grounded,
                 "anchor_grounded_pct": round(
-                    100 * anchor_grounded / max(1, n_entities), 1
+                    100 * anchor_grounded / max(1, n_entities),
+                    1,
                 ),
                 "umls_linked": umls_linked,
                 "umls_linked_pct": round(100 * umls_linked / max(1, n_entities), 1),
@@ -645,7 +653,8 @@ class EvaluationMixin:
                 "contradiction_flagged": contradiction_count,
                 "contradiction_groups": contradiction_groups,
                 "contradiction_rate_pct": round(
-                    100 * contradiction_count / max(1, n_rels), 1
+                    100 * contradiction_count / max(1, n_rels),
+                    1,
                 ),
                 "conditioned": conditioned_count,
                 "conditioned_pct": round(100 * conditioned_count / max(1, n_rels), 1),
@@ -656,19 +665,23 @@ class EvaluationMixin:
                 if mean_confidence is not None
                 else None,
                 "high_confidence_pct": round(
-                    100 * high_conf_rels / max(1, len(confidence_values)), 1
+                    100 * high_conf_rels / max(1, len(confidence_values)),
+                    1,
                 ),
                 "low_confidence_pct": round(
-                    100 * low_conf_rels / max(1, len(confidence_values)), 1
+                    100 * low_conf_rels / max(1, len(confidence_values)),
+                    1,
                 ),
                 "restoration_full": restoration_full,
                 "restoration_partial": restoration_partial,
                 "restoration_failed": restoration_failed,
                 "anchor_relation_phrase_pct": round(
-                    100 * anchor_rel_count / max(1, n_rels), 1
+                    100 * anchor_rel_count / max(1, n_rels),
+                    1,
                 ),
                 "anchor_grounding_pct": round(
-                    100 * anchor_grounding_count / max(1, n_rels), 1
+                    100 * anchor_grounding_count / max(1, n_rels),
+                    1,
                 ),
             },
             "grounding_metrics": {
@@ -698,16 +711,19 @@ class EvaluationMixin:
         }
         if entity_precision_recall is not None:
             report["entity_precision_recall"] = cast(
-                EntityPrecisionRecallReport, entity_precision_recall
+                EntityPrecisionRecallReport,
+                entity_precision_recall,
             )
         if relationship_precision_recall is not None:
             report["relationship_precision_recall"] = cast(
-                RelationshipPrecisionRecallReport, relationship_precision_recall
+                RelationshipPrecisionRecallReport,
+                relationship_precision_recall,
             )
             # Backward-compatible alias for earlier callers that only expected
             # relationship-level precision / recall.
             report["precision_recall"] = cast(
-                RelationshipPrecisionRecallReport, relationship_precision_recall
+                RelationshipPrecisionRecallReport,
+                relationship_precision_recall,
             )
         if qualified_relationship_precision_recall is not None:
             report["qualified_relationship_precision_recall"] = cast(
@@ -775,7 +791,8 @@ class EvaluationMixin:
             "  Evidence scope:",
         ]
         for scope, cnt in sorted(
-            rm["evidence_scope_distribution"].items(), key=lambda x: -x[1]
+            rm["evidence_scope_distribution"].items(),
+            key=lambda x: -x[1],
         ):
             pct: float = round(100 * cnt / max(1, s["relationships"]), 1)
             lines.append(f"    {scope:<25} {cnt}  ({pct}%)")

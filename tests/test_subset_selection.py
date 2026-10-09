@@ -20,10 +20,14 @@ def test_deterministic_subset_ids_is_seeded_and_order_preserving() -> None:
     ordered_ids: list[str] = [f"q{i}" for i in range(10)]
 
     selected_once: list[str] = deterministic_subset_ids(
-        ordered_ids, num_samples=4, subset_seed=7
+        ordered_ids,
+        num_samples=4,
+        subset_seed=7,
     )
     selected_twice: list[str] = deterministic_subset_ids(
-        ordered_ids, num_samples=4, subset_seed=7
+        ordered_ids,
+        num_samples=4,
+        subset_seed=7,
     )
 
     assert selected_once == selected_twice
@@ -36,10 +40,16 @@ def test_deterministic_subset_ids_is_seeded_and_order_preserving() -> None:
 
 def test_selection_file_path_is_seed_specific(tmp_path: Path) -> None:
     seed_1: Path = selection_file_path(
-        tmp_path, "musique", num_samples=100, subset_seed=1
+        tmp_path,
+        "musique",
+        num_samples=100,
+        subset_seed=1,
     )
     seed_2: Path = selection_file_path(
-        tmp_path, "musique", num_samples=100, subset_seed=2
+        tmp_path,
+        "musique",
+        num_samples=100,
+        subset_seed=2,
     )
 
     assert seed_1 != seed_2

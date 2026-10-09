@@ -102,7 +102,11 @@ def get_client() -> "OpenAI":
 
 
 def judge_one(
-    client: "OpenAI", q: str, expected: str, response: str, retries: int = 3
+    client: "OpenAI",
+    q: str,
+    expected: str,
+    response: str,
+    retries: int = 3,
 ) -> bool | None:
     for attempt in range(retries):
         try:
@@ -115,7 +119,9 @@ def judge_one(
                     {
                         "role": "user",
                         "content": USER_TMPL.format(
-                            question=q, expected=expected, response=response
+                            question=q,
+                            expected=expected,
+                            response=response,
                         ),
                     },
                 ],
@@ -134,7 +140,7 @@ def load_run(policy: str) -> list[JudgedAnswer]:
     """Return rows with question/expected/response/original label for RealMedQA."""
     if policy == "strict":
         doc: JudgeDocument = json.load(
-            open(os.path.join(REPO, STRICT_RUNS["realmedqa"]))
+            open(os.path.join(REPO, STRICT_RUNS["realmedqa"])),
         )
         details: list[JudgeDetail] = doc["config_results"][0]["details"]
         out: list[JudgedAnswer] = [
@@ -169,14 +175,18 @@ def load_run(policy: str) -> list[JudgedAnswer]:
 
 
 def metric_aurocs(
-    policy: str, labels_by_qid: Mapping[str, bool | None]
+    policy: str,
+    labels_by_qid: Mapping[str, bool | None],
 ) -> dict[str, tuple[float | None, int]]:
     """Recompute SD-UQ / SEU / GPS AUROC under given labels (KG side)."""
     rows: list[TrustRow] = rows_for(
-        "realmedqa", policy if policy != "adaptive" else "kg"
+        "realmedqa",
+        policy if policy != "adaptive" else "kg",
     )
     gps: dict[str, float | None] = gps_v3_scores_for(
-        "realmedqa", strict=(policy == "strict"), side="kg"
+        "realmedqa",
+        strict=(policy == "strict"),
+        side="kg",
     )
     out: dict[str, tuple[float | None, int]] = {}
     getters: list[tuple[str, Callable[[TrustRow], float | None]]] = [
@@ -207,7 +217,7 @@ def main() -> None:
         print(f"[{policy}] judging {len(rows)} answers with {JUDGE_MODEL} ...")
         with ThreadPoolExecutor(max_workers=8) as ex:
             verdicts: list[bool | None] = list(
-                ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows)
+                ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows),
             )
         ok: list[tuple[JudgedAnswer, bool]] = [
             (r, v) for r, v in zip(rows, verdicts) if v is not None
@@ -231,11 +241,11 @@ def main() -> None:
         }
         print(
             f"[{policy}] agreement={agree:.3f} kappa={kappa:.3f} "
-            f"acc orig={orig.mean():.3f} indep={new.mean():.3f}"
+            f"acc orig={orig.mean():.3f} indep={new.mean():.3f}",
         )
         for k, v in aurocs.items():
             print(
-                f"[{policy}]   {k}: AUROC={v[0] if v[0] is None else round(v[0], 3)} (n={v[1]})"
+                f"[{policy}]   {k}: AUROC={v[0] if v[0] is None else round(v[0], 3)} (n={v[1]})",
             )
     dest: str = os.path.join(REPO, "results", "analyses", "rejudge_independent.json")
     json.dump(results, open(dest, "w"), indent=1, default=float)

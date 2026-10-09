@@ -268,7 +268,9 @@ class CountedGraphRetrievalContext(RetrievalContextExtensions, RetrievalCore):
 
 
 class ScoredCompleteRetrievalContext(
-    RetrievalContextExtensions, ScoredRetrievalCore, total=False
+    RetrievalContextExtensions,
+    ScoredRetrievalCore,
+    total=False,
 ):
     entities: dict[str, RetrievedEntity]
     relationships: list[RetrievedRelationship]

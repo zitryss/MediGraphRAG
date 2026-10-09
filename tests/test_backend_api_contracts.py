@@ -55,11 +55,14 @@ class AppExports(Protocol):
     _APP_API_KEY: str
 
     def get_rag_system(
-        self, embedding_model: str | None = None
+        self,
+        embedding_model: str | None = None,
     ) -> EnhancedRAGSystem: ...
     def invalidate_rag_system(self, reason: str = "") -> None: ...
     def validate_ontology_schema(
-        self, ontology_bytes: bytes, filename: str
+        self,
+        ontology_bytes: bytes,
+        filename: str,
     ) -> list[str]: ...
     def validate_file_upload(
         self,
@@ -68,7 +71,9 @@ class AppExports(Protocol):
         allowed_extensions: set[str] | None = None,
     ) -> None: ...
     def _extract_text_from_bytes(
-        self, data: bytes, filename: str
+        self,
+        data: bytes,
+        filename: str,
     ) -> tuple[str, str]: ...
     def check_neo4j_connection(self) -> None: ...
     def neo4j_health(self) -> Neo4jHealthReport: ...
@@ -144,7 +149,8 @@ def app_module(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> AppExports:
     monkeypatch.setenv("ONTOGRAPHRAG_DEBUG_ERRORS", "0")
     path: Path = Path(__file__).parents[1] / "ontographrag/api/app.py"
     spec: ModuleSpec | None = importlib.util.spec_from_file_location(
-        "backend_contract_app", path
+        "backend_contract_app",
+        path,
     )
     assert spec is not None and spec.loader is not None
     module: ModuleType = importlib.util.module_from_spec(spec)
@@ -162,14 +168,18 @@ def client(app_module: AppExports) -> TestClient:
 
 
 def test_authentication_public_route_remains_public(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app_module, "_APP_API_KEY", "unit-secret")
     assert client.get("/health").status_code == 200
 
 
 @pytest.mark.parametrize(
-    "headers", [{}, {"X-API-Key": "wrong"}], ids=["missing", "wrong"]
+    "headers",
+    [{}, {"X-API-Key": "wrong"}],
+    ids=["missing", "wrong"],
 )
 @pytest.mark.xfail(
     strict=True,
@@ -177,7 +187,9 @@ def test_authentication_public_route_remains_public(
     reason="The precise intended 401 escapes auth middleware and becomes HTTP 500",
 )
 def test_unauthorized_request_returns_401(
-    app_module: AppExports, monkeypatch: pytest.MonkeyPatch, headers: dict[str, str]
+    app_module: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
 ) -> None:
     monkeypatch.setattr(app_module, "_APP_API_KEY", "unit-secret")
     # Propagate the server exception to distinguish this known 500 from an unrelated
@@ -188,14 +200,15 @@ def test_unauthorized_request_returns_401(
     except HTTPException as exc:
         if exc.status_code == 401 and exc.detail == "Invalid or missing API key":
             raise AuthMiddlewareDefect(
-                "Intended unauthorized response escaped middleware"
+                "Intended unauthorized response escaped middleware",
             ) from exc
         raise
     assert response.status_code == 401
 
 
 def test_cached_rag_model_switch_and_invalidation(
-    app_module: AppExports, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     first_fake: Mock = Mock()
     second_fake: Mock = Mock()
@@ -226,8 +239,8 @@ INVALID_ONTOLOGIES: list[tuple[OntologyFixture, str]] = [
                 {
                     "id": "A",
                     "properties": [{"name": "x", "identifier": True, "type": "enum"}],
-                }
-            ]
+                },
+            ],
         },
         "no enum_values",
     ),
@@ -239,12 +252,15 @@ INVALID_ONTOLOGIES: list[tuple[OntologyFixture, str]] = [
     INVALID_ONTOLOGIES,
 )
 def test_ontology_rejects_malformed_entries(
-    app_module: AppExports, payload: OntologyFixture, fragment: str
+    app_module: AppExports,
+    payload: OntologyFixture,
+    fragment: str,
 ) -> None:
     assert any(
         fragment in e
         for e in app_module.validate_ontology_schema(
-            json.dumps(payload).encode(), "schema.json"
+            json.dumps(payload).encode(),
+            "schema.json",
         )
     )
 
@@ -268,7 +284,8 @@ def test_ontology_relationship_validation_and_formats(app_module: AppExports) ->
         ],
     }
     errors: list[str] = app_module.validate_ontology_schema(
-        json.dumps(schema).encode(), "ontology.json"
+        json.dumps(schema).encode(),
+        "ontology.json",
     )
     for fragment in [
         "type conflict",
@@ -304,7 +321,9 @@ def test_upload_extension_and_text_decoding(app_module: AppExports) -> None:
 
 
 def test_readiness_success_and_runtime_failure(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app_module, "neo4j_ready", True)
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
@@ -322,7 +341,9 @@ def test_readiness_success_and_runtime_failure(
 
 
 def test_startup_and_database_health(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     driver: MagicMock = MagicMock()
     session: MagicMock = driver.session.return_value.__enter__.return_value
@@ -332,13 +353,17 @@ def test_startup_and_database_health(
     assert app_module.neo4j_ready
     assert client.get("/health/neo4j").json() == {"status": "ok", "nodeCount": 7}
     monkeypatch.setattr(
-        app_module, "get_graphDB_driver", Mock(side_effect=RuntimeError("unavailable"))
+        app_module,
+        "get_graphDB_driver",
+        Mock(side_effect=RuntimeError("unavailable")),
     )
     assert client.get("/health/neo4j").status_code == 500
 
 
 def test_named_kg_crud_and_failure(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import langchain_neo4j
 
@@ -354,7 +379,7 @@ def test_named_kg_crud_and_failure(
     monkeypatch.setattr(graph_db_access, "graphDBdataAccess", Mock(return_value=db))
     monkeypatch.setattr(app_module, "neo4j_ready", True)
     assert client.post("/kg/create", data={"kg_name": "unit"}).json()["kg"] == {
-        "name": "unit"
+        "name": "unit",
     }
     assert client.get("/kg/unit").json()["stats"] == {"documentCount": 2}
     assert client.get("/kg/unit/entities?limit=2").json()["count"] == 1
@@ -372,10 +397,13 @@ def test_named_kg_crud_and_failure(
 
 
 def test_csv_validation_cleans_temporary_file(
-    app_module: AppExports, client: TestClient, tmp_path: Path
+    app_module: AppExports,
+    client: TestClient,
+    tmp_path: Path,
 ) -> None:
     response: httpx.Response = client.post(
-        "/validate_csv", files={"csv_file": ("bad.csv", b"a|b\nx|y\n")}
+        "/validate_csv",
+        files={"csv_file": ("bad.csv", b"a|b\nx|y\n")},
     )
     assert response.status_code == 200
     assert not response.json()["is_valid"]
@@ -384,7 +412,9 @@ def test_csv_validation_cleans_temporary_file(
 
 
 def test_save_graph_filters_properties_and_handles_missing_state(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app_module, "neo4j_ready", True)
     monkeypatch.setattr(app_module, "current_graph_data", None)
@@ -424,7 +454,7 @@ def test_save_graph_filters_properties_and_handles_missing_state(
 def test_progress_stream_completion_and_disconnect(app_module: AppExports) -> None:
     async def consume(disconnected: bool) -> list[str | bytes | memoryview]:
         response: StreamingResponse = await app_module.kg_progress_stream(
-            SimpleNamespace(is_disconnected=AsyncMock(return_value=disconnected))
+            SimpleNamespace(is_disconnected=AsyncMock(return_value=disconnected)),
         )
         return [event async for event in response.body_iterator]
 
@@ -445,7 +475,10 @@ def test_progress_stream_completion_and_disconnect(app_module: AppExports) -> No
     ],
 )
 def test_provider_probe_transport(
-    app_module: AppExports, monkeypatch: pytest.MonkeyPatch, provider: str, key: str
+    app_module: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    key: str,
 ) -> None:
     probe: Callable[[], str] = getattr(app_module, f"_probe_{provider}_models")
     monkeypatch.delenv(key, raising=False)
@@ -480,7 +513,7 @@ def test_doctor_local_success_and_dependency_failure(
     monkeypatch.setattr(app_module, "_UI_DIST_DIR", ui)
     driver: MagicMock = MagicMock()
     driver.session.return_value.__enter__.return_value.run.return_value.single.return_value = {
-        "c": 2
+        "c": 2,
     }
     monkeypatch.setattr(
         app_module,
@@ -501,7 +534,9 @@ def test_doctor_local_success_and_dependency_failure(
         ),
     )
     monkeypatch.setattr(
-        ollama, "list", Mock(side_effect=RuntimeError("no local service"))
+        ollama,
+        "list",
+        Mock(side_effect=RuntimeError("no local service")),
     )
     for key in [
         "OPENAI_API_KEY",
@@ -513,10 +548,13 @@ def test_doctor_local_success_and_dependency_failure(
     if healthy:
         monkeypatch.setenv("OPENAI_API_KEY", "unit")
     monkeypatch.setattr(
-        app_module, "_probe_openai_models", Mock(return_value="unit reachable")
+        app_module,
+        "_probe_openai_models",
+        Mock(return_value="unit reachable"),
     )
     result: DoctorReport = client.get(
-        "/doctor", params={"write_probe_dir": str(tmp_path), "probe_models": "true"}
+        "/doctor",
+        params={"write_probe_dir": str(tmp_path), "probe_models": "true"},
     ).json()
     checks: dict[str, DoctorCheck] = {c["check"]: c for c in result["checks"]}
     assert checks["write_permissions"]["status"] == "ok"
@@ -528,7 +566,9 @@ def test_doctor_local_success_and_dependency_failure(
 
 
 def test_authenticated_request_reaches_readiness_guard(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app_module, "_APP_API_KEY", "unit")
     assert client.get("/kg/list", headers={"X-API-Key": "unit"}).status_code == 503
@@ -555,7 +595,9 @@ def test_kg_build_lifecycle_and_cleanup(
     )
     monkeypatch.setattr(app_module, "get_graphDB_driver", Mock(return_value=driver))
     builder: Mock = Mock(
-        ontology_path=None, ontology_classes=[], ontology_relationships=[]
+        ontology_path=None,
+        ontology_classes=[],
+        ontology_relationships=[],
     )
     built: BuiltGraph = {
         "nodes": [{"id": "new"}],
@@ -568,7 +610,7 @@ def test_kg_build_lifecycle_and_cleanup(
     builder.generate_knowledge_graph.return_value = built
     if outcome == "builder_failed":
         builder.generate_knowledge_graph.side_effect = RuntimeError(
-            "write transaction failed"
+            "write transaction failed",
         )
     factory: Mock = Mock(return_value=builder)
     monkeypatch.setattr(app_module, "UnifiedOntologyGuidedKGCreator", factory)
@@ -583,7 +625,7 @@ def test_kg_build_lifecycle_and_cleanup(
     loader: Mock = Mock(load_from_neo4j=Mock(return_value=loaded))
     monkeypatch.setattr(kg_loader, "KGLoader", Mock(return_value=loader))
     ontology: OntologyFixture = {
-        "classes": [{"id": "Drug", "properties": [{"name": "id", "identifier": True}]}]
+        "classes": [{"id": "Drug", "properties": [{"name": "id", "identifier": True}]}],
     }
     if outcome == "invalid_ontology":
         ontology = {"classes": [{}]}
@@ -619,7 +661,9 @@ def test_kg_build_lifecycle_and_cleanup(
 
 
 def test_kg_empty_input_and_chunk_limits_fail_before_build(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
     monkeypatch.setattr(
@@ -653,7 +697,9 @@ def test_file_build_readback_and_worker_failure(
     if fails:
         builder.generate_knowledge_graph.side_effect = RuntimeError("worker failed")
     monkeypatch.setattr(
-        app_module, "UnifiedOntologyGuidedKGCreator", Mock(return_value=builder)
+        app_module,
+        "UnifiedOntologyGuidedKGCreator",
+        Mock(return_value=builder),
     )
     driver: MagicMock = MagicMock()
     driver.session.return_value.__enter__.return_value.run.return_value = []
@@ -688,12 +734,14 @@ def test_bulk_job_cleans_csv_and_invalidates_only_success(
     monkeypatch.setattr(app_module, "get_llm_provider", Mock(return_value=Mock()))
     builder: Mock = Mock()
     builder.bulk_process_documents.return_value = {
-        "metadata": {"total_documents_processed": 1, "total_knowledge_graphs": 1}
+        "metadata": {"total_documents_processed": 1, "total_knowledge_graphs": 1},
     }
     if outcome == "worker_failure":
         builder.bulk_process_documents.side_effect = RuntimeError("worker unavailable")
     monkeypatch.setattr(
-        app_module, "UnifiedOntologyGuidedKGCreator", Mock(return_value=builder)
+        app_module,
+        "UnifiedOntologyGuidedKGCreator",
+        Mock(return_value=builder),
     )
     invalidate: Mock = Mock()
     monkeypatch.setattr(app_module, "invalidate_rag_system", invalidate)
@@ -716,7 +764,9 @@ def test_bulk_job_cleans_csv_and_invalidates_only_success(
 
 
 def test_preview_never_requests_persistence(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app_module, "require_neo4j", lambda: None)
     monkeypatch.setattr(app_module, "get_llm_provider", Mock(return_value=Mock()))
@@ -726,16 +776,19 @@ def test_preview_never_requests_persistence(
                 "nodes": [],
                 "relationships": [],
                 "metadata": {"total_entities": 0},
-            }
-        )
+            },
+        ),
     )
     monkeypatch.setattr(
-        app_module, "UnifiedOntologyGuidedKGCreator", Mock(return_value=builder)
+        app_module,
+        "UnifiedOntologyGuidedKGCreator",
+        Mock(return_value=builder),
     )
     invalidate: Mock = Mock()
     monkeypatch.setattr(app_module, "invalidate_rag_system", invalidate)
     response: httpx.Response = client.post(
-        "/extract_graph", files={"file": ("doc.txt", b"evidence")}
+        "/extract_graph",
+        files={"file": ("doc.txt", b"evidence")},
     )
     assert response.status_code == 200
     assert builder.generate_knowledge_graph.call_args.args[2] is None
@@ -754,7 +807,9 @@ def _install_readback_driver(
     class Node(dict[str, str | date]):
         def __init__(self, identity: int, application_id: str, label: str) -> None:
             super().__init__(
-                id=application_id, name=f"node-{identity}", created=date(2026, 1, 1)
+                id=application_id,
+                name=f"node-{identity}",
+                created=date(2026, 1, 1),
             )
             self.id: int = identity
             self.labels: set[str] = {label}
@@ -772,7 +827,8 @@ def _install_readback_driver(
     session: MagicMock = driver.session.return_value.__enter__.return_value
 
     def run(
-        statement: str, params: dict[str, list[int] | list[str]] | None = None
+        statement: str,
+        params: dict[str, list[int] | list[str]] | None = None,
     ) -> Mock | list[dict[str, Node | Relation | None]]:
         if fail_query:
             raise RuntimeError("readback query failed")
@@ -790,8 +846,8 @@ def _install_readback_driver(
                         "model": "fake",
                         "embeddingModel": "fake",
                         "maxChunks": 2,
-                    }
-                )
+                    },
+                ),
             )
         if "RETURN d" in statement:
             return [{"d": doc}]
@@ -819,7 +875,7 @@ def _install_readback_driver(
                 match = {drug.id, disease.id}.issubset(selected)
             else:
                 raise AssertionError(
-                    f"Unrecognized relationship identity contract: {statement}"
+                    f"Unrecognized relationship identity contract: {statement}",
                 )
             # Match actual identity semantics: internal numeric IDs never equal
             # application IDs. A mismatched query returns no relationships.
@@ -919,7 +975,7 @@ def test_readback_fallback_preserves_relationship_identity(
         and data["graph_data"]["relationships"] == []
     ):
         raise ReadbackIdentityDefect(
-            "Known internal/application ID mismatch removed the existing edge"
+            "Known internal/application ID mismatch removed the existing edge",
         )
     if "n.id IN $node_ids" in query and "m.id IN $node_ids" in query:
         assert set(params["node_ids"]) == {"drug-aspirin", "disease-pain"}
@@ -948,10 +1004,14 @@ def test_readback_always_closes_owned_driver(
     fail_query: bool,
 ) -> None:
     driver: MagicMock = _install_readback_driver(
-        app_module, monkeypatch, named=named, fail_query=fail_query
+        app_module,
+        monkeypatch,
+        named=named,
+        fail_query=fail_query,
     )
     response: httpx.Response = client.post(
-        "/load_kg_from_neo4j", data={"kg_label": "unit" if named else ""}
+        "/load_kg_from_neo4j",
+        data={"kg_label": "unit" if named else ""},
     )
     assert response.status_code == (500 if fail_query else 200), response.text
     driver.session.return_value.__exit__.assert_called_once()
@@ -964,7 +1024,7 @@ def test_readback_always_closes_owned_driver(
         assert response.json()["stats"]["loaded_nodes"] == (3 if named else 2)
     if driver.close.call_count == 0:
         raise ReadbackDriverLeak(
-            "Completed owned session but driver.close was never called"
+            "Completed owned session but driver.close was never called",
         )
     driver.close.assert_called_once_with()
 
@@ -975,7 +1035,9 @@ def test_readback_always_closes_owned_driver(
     reason="KG build endpoint passes provider positional argument absent from real creator signature",
 )
 def test_kg_build_call_matches_actual_creator_signature(
-    app_module: AppExports, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    app_module: AppExports,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import inspect
 
@@ -997,7 +1059,9 @@ def test_kg_build_call_matches_actual_creator_signature(
         generate_knowledge_graph=Mock(return_value={"metadata": {}}),
     )
     monkeypatch.setattr(
-        app_module, "UnifiedOntologyGuidedKGCreator", Mock(return_value=builder)
+        app_module,
+        "UnifiedOntologyGuidedKGCreator",
+        Mock(return_value=builder),
     )
     response: httpx.Response = client.post(
         "/create_ontology_guided_kg",
@@ -1006,7 +1070,7 @@ def test_kg_build_call_matches_actual_creator_signature(
     assert response.status_code == 200
     call: _Call = builder.generate_knowledge_graph.call_args
     signature: Signature = inspect.signature(
-        UnifiedOntologyGuidedKGCreator.generate_knowledge_graph
+        UnifiedOntologyGuidedKGCreator.generate_knowledge_graph,
     )
     try:
         signature.bind(builder, *call.args, **call.kwargs)
@@ -1020,6 +1084,6 @@ def test_kg_build_call_matches_actual_creator_signature(
             # must not cover a different missing/extra/invalid argument contract.
             signature.bind(builder, *call.args[:-1], **call.kwargs)
             raise CreatorSignatureDefect(
-                "Only final provider argument exceeds real creator signature"
+                "Only final provider argument exceeds real creator signature",
             ) from exc
         raise

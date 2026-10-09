@@ -115,15 +115,20 @@ class FixtureQuestion(TypedDict):
 
 @pytest.fixture
 def pipeline(
-    experiment_module: ExperimentModule, monkeypatch: pytest.MonkeyPatch
+    experiment_module: ExperimentModule,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> MIRAGEEvaluationPipeline:
     monkeypatch.setattr(
-        experiment_module, "get_model_provider", Mock(return_value=Mock())
+        experiment_module,
+        "get_model_provider",
+        Mock(return_value=Mock()),
     )
     monkeypatch.setattr(experiment_module, "VanillaRAGSystem", Mock())
     monkeypatch.setattr(experiment_module, "EnhancedRAGSystem", Mock())
     return experiment_module.MIRAGEEvaluationPipeline(
-        entropy_samples=100, evaluation_mode="accuracy_only", multi_temperature=True
+        entropy_samples=100,
+        evaluation_mode="accuracy_only",
+        multi_temperature=True,
     )
 
 
@@ -140,7 +145,9 @@ def test_real_pipeline_constructor_and_distinct_judge(
     provider: Mock = Mock()
     monkeypatch.setattr(experiment_module, "get_model_provider", provider)
     p: MIRAGEEvaluationPipeline = experiment_module.MIRAGEEvaluationPipeline(
-        entropy_samples=0, judge_provider="other", judge_model="judge"
+        entropy_samples=0,
+        judge_provider="other",
+        judge_model="judge",
     )
     assert p.entropy_samples == 1
     assert p.compute_metrics
@@ -157,14 +164,17 @@ def test_real_pipeline_constructor_and_distinct_judge(
     ],
 )
 def test_pipeline_invalid_modes_fail_before_provider(
-    experiment_module: ExperimentModule, kwargs: InvalidModeArgs, field: str
+    experiment_module: ExperimentModule,
+    kwargs: InvalidModeArgs,
+    field: str,
 ) -> None:
     with pytest.raises(ValueError, match=field):
         experiment_module.MIRAGEEvaluationPipeline(**kwargs)
 
 
 def test_temporary_environment_restores_even_on_failure(
-    pipeline: MIRAGEEvaluationPipeline, monkeypatch: pytest.MonkeyPatch
+    pipeline: MIRAGEEvaluationPipeline,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TEST_EXISTING", "original")
     monkeypatch.delenv("TEST_ABSENT", raising=False)
@@ -194,8 +204,8 @@ def test_retrieval_environment_and_constructor_contract(
                 "first_stage_late_interaction": True,
                 "reranker": False,
                 "retrieval_profile": "strict",
-            }
-        }
+            },
+        },
     )
     assert overrides == {
         "ONTOGRAPHRAG_QUERY_FUSION": "1",
@@ -210,8 +220,8 @@ def test_retrieval_environment_and_constructor_contract(
                 "allow_vector_fallback": False,
                 "max_chunks_per_passage": "3",
                 "traversal_chunk_min_sim": "0.2",
-            }
-        }
+            },
+        },
     )
     kwargs: Mapping[str, str | bool | int | float] = kg_factory.call_args.kwargs
     assert kwargs["allow_vector_fallback"] is False
@@ -228,7 +238,9 @@ def test_retrieval_environment_and_constructor_contract(
     ],
 )
 def test_execution_signature(
-    pipeline: MIRAGEEvaluationPipeline, config: EvaluationConfig | None, signature: str
+    pipeline: MIRAGEEvaluationPipeline,
+    config: EvaluationConfig | None,
+    signature: str,
 ) -> None:
     assert pipeline._execution_signature(config) == signature
 
@@ -242,7 +254,7 @@ def test_routing_distribution_excludes_generation_failures(
             {"kg_retrieval_route": "vector_only"},
             {},
             {"kg_generation_failed": True, "kg_retrieval_route": "vector_only"},
-        ]
+        ],
     )
     assert result["n"] == 3
     assert result["pure_entity_first_rate"] == pytest.approx(1 / 3)
@@ -252,7 +264,8 @@ def test_routing_distribution_excludes_generation_failures(
 
 
 def test_run_index_append_and_corrupt_recovery(
-    experiment_module: ExperimentModule, tmp_path: Path
+    experiment_module: ExperimentModule,
+    tmp_path: Path,
 ) -> None:
     run: Path = tmp_path / "run"
     manifest: IndexManifest = {
@@ -262,7 +275,8 @@ def test_run_index_append_and_corrupt_recovery(
     }
     experiment_module.update_runs_index(run, manifest)
     experiment_module.update_runs_index(
-        run, {**manifest, "run_id": "r2", "model": "fake"}
+        run,
+        {**manifest, "run_id": "r2", "model": "fake"},
     )
     entries: list[IndexEntry] = json.loads((tmp_path / "index.json").read_text())
     assert [r["run_id"] for r in entries] == ["r1", "r2"]
@@ -303,7 +317,9 @@ def test_pipeline_run_artifacts_and_control_flow(
         return {"corpus_source": "synthetic"}
 
     monkeypatch.setattr(
-        pipeline, "_dataset_corpus_profile", fake_dataset_corpus_profile
+        pipeline,
+        "_dataset_corpus_profile",
+        fake_dataset_corpus_profile,
     )
 
     def fake_selection_path(name: str) -> Path:
@@ -322,10 +338,14 @@ def test_pipeline_run_artifacts_and_control_flow(
     )
     monkeypatch.setattr(pipeline, "_get_dataset_corpus_metadata", Mock(return_value={}))
     monkeypatch.setattr(
-        pipeline, "_prepare_dataset_kg_contract", Mock(return_value={"build_meta": {}})
+        pipeline,
+        "_prepare_dataset_kg_contract",
+        Mock(return_value={"build_meta": {}}),
     )
     monkeypatch.setattr(
-        pipeline, "_assess_dataset_kg_compatibility", Mock(return_value=(True, []))
+        pipeline,
+        "_assess_dataset_kg_compatibility",
+        Mock(return_value=(True, [])),
     )
     build: Mock = Mock(return_value=mode != "build_failed")
     delete: Mock = Mock()
@@ -342,7 +362,7 @@ def test_pipeline_run_artifacts_and_control_flow(
     evaluate: Mock = Mock(
         return_value={"error": "generation unavailable"}
         if mode == "evaluation_failed"
-        else result
+        else result,
     )
     monkeypatch.setattr(pipeline, "_run_evaluation_on_dataset", evaluate)
     # Telemetry tables/plots are separate contracts, not part of run sequencing.
@@ -351,10 +371,10 @@ def test_pipeline_run_artifacts_and_control_flow(
     pipeline.rebuild_kg = mode == "rebuild"
     pipeline.run_pipeline(["pubmedqa"], output_dir=str(tmp_path))
     manifest: RunManifest = json.loads(
-        (pipeline._run_dir / "manifest.json").read_text()
+        (pipeline._run_dir / "manifest.json").read_text(),
     )
     summary: RunSummary = json.loads(
-        (pipeline._run_dir / "mirage_evaluation_summary.json").read_text()
+        (pipeline._run_dir / "mirage_evaluation_summary.json").read_text(),
     )
     assert manifest["git_commit"] == "unit-revision"
     assert manifest["wandb_run_id"] == "offline-unit-run"
@@ -372,7 +392,7 @@ def test_pipeline_run_artifacts_and_control_flow(
     else:
         assert manifest["accuracy"]["pubmedqa/default"]["kg"] == 1.0
         saved: DatasetResults = json.loads(
-            (pipeline._run_dir / "mirage_pubmedqa_results.json").read_text()
+            (pipeline._run_dir / "mirage_pubmedqa_results.json").read_text(),
         )
         assert saved["config_results"][0]["details"] == [{"question_id": "q"}]
         assert summary["results"][0]["track"] == "biomedical_grounding"
@@ -432,7 +452,7 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
                 return_value={
                     "semantic_entropy": 0.2,
                     "compute_times": {"semantic_entropy": 0.01},
-                }
+                },
             ),
         )
         for name in [
@@ -440,7 +460,7 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
             "compute_subgraph_perturbation_stability_detailed",
         ]:
             detailed_mock: Mock = Mock(
-                return_value={"score": 0.25, "null_reason": None}
+                return_value={"score": 0.25, "null_reason": None},
             )
             detailed_mocks[name] = detailed_mock
             monkeypatch.setattr(experiment_module, name, detailed_mock)
@@ -458,7 +478,7 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
             "question": "Does this work?",
             "final_decision": "yes",
             "contexts": ["synthetic gold evidence"],
-        }
+        },
     }
     monkeypatch.setattr(pipeline, "_load_mirage_raw_data", Mock(return_value=data))
     monkeypatch.setattr(pipeline, "_dataset_kg_exists", Mock(return_value=0))
@@ -473,7 +493,9 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
         ),
     )
     monkeypatch.setattr(
-        pipeline, "_subset_metadata", Mock(return_value={"subset_tag": "unit"})
+        pipeline,
+        "_subset_metadata",
+        Mock(return_value={"subset_tag": "unit"}),
     )
 
     def fake_selection_path(name: str) -> Path:
@@ -481,10 +503,14 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
 
     monkeypatch.setattr(pipeline, "_selection_path", fake_selection_path)
     monkeypatch.setattr(
-        pipeline, "_get_normalized_dataset", Mock(return_value=([], [], False))
+        pipeline,
+        "_get_normalized_dataset",
+        Mock(return_value=([], [], False)),
     )
     monkeypatch.setattr(
-        experiment_module, "build_global_corpus_passages", Mock(return_value=None)
+        experiment_module,
+        "build_global_corpus_passages",
+        Mock(return_value=None),
     )
     vanilla: Mock = Mock()
     kg: Mock = Mock()
@@ -497,14 +523,16 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
                         "text": "retrieved evidence",
                         "question_id": "q1",
                         "kg_name": "pubmedqa",
-                    }
-                ]
+                    },
+                ],
             },
         }
         if mode in {"generation_failed", "metrics_failed"}:
             rag.generate_response.side_effect = RuntimeError("provider unavailable")
     monkeypatch.setattr(
-        pipeline, "_build_rag_systems_for_config", Mock(return_value=(vanilla, kg))
+        pipeline,
+        "_build_rag_systems_for_config",
+        Mock(return_value=(vanilla, kg)),
     )
     if mode in {"resume", "rebuild"}:
         checkpoint_dir: Path = tmp_path / "results/checkpoints"
@@ -522,7 +550,7 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
             "vanilla_response": "Yes",
         }
         checkpoint.write_text(
-            json.dumps(row) + "\nmalformed-line\n" + json.dumps(row) + "\n"
+            json.dumps(row) + "\nmalformed-line\n" + json.dumps(row) + "\n",
         )
         pipeline.rebuild_kg = mode == "rebuild"
     config: EvaluationConfig = (
@@ -574,7 +602,7 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
     else:
         assert not remaining
     saved: QuestionArtifact = json.loads(
-        Path(result["question_details_file"]).read_text()
+        Path(result["question_details_file"]).read_text(),
     )
     assert saved["num_questions"] == 1
     assert saved["questions"][0]["question_id"] == "q1"

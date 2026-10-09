@@ -20,7 +20,11 @@ if TYPE_CHECKING:
 
 
 QuestionType: TypeAlias = Literal[
-    "comparison", "bridge", "statistical", "semantic", "generic"
+    "comparison",
+    "bridge",
+    "statistical",
+    "semantic",
+    "generic",
 ]
 
 
@@ -77,7 +81,9 @@ class QueryPlanningMixin:
 
     @classmethod
     def _comparison_branch_coverage(
-        cls, query: str, chunks: Sequence[RetrievedChunk]
+        cls,
+        query: str,
+        chunks: Sequence[RetrievedChunk],
     ) -> int:
         branches: list[str] = cls._comparison_branches(query)
         if not branches:
@@ -105,7 +111,7 @@ class QueryPlanningMixin:
                     str(chunk.get("document", "")).lower(),
                     str(chunk.get("text", "")).lower(),
                 ],
-            )
+            ),
         )
         return sum(1 for branch in branches if branch.lower() in haystack)
 
@@ -121,7 +127,7 @@ class QueryPlanningMixin:
                     str(chunk.get("document", "")).lower(),
                     str(chunk.get("text", "")).lower(),
                 ],
-            )
+            ),
         )
         return sum(1 for token in query_tokens if token in haystack)
 
@@ -152,7 +158,8 @@ class QueryPlanningMixin:
         branches: list[str] = cls._comparison_branches(question)
         if branches:
             coverage: int = cls._comparison_branch_coverage(
-                question, list((context or {}).get("chunks", []))
+                question,
+                list((context or {}).get("chunks", [])),
             )
             if coverage < len(branches):
                 return True
@@ -183,7 +190,7 @@ class QueryPlanningMixin:
 
         for branch in self._comparison_branches(question):
             branch_query: str = self._normalize_retrieval_query(
-                f"Focus on {branch}. Original question: {question}"
+                f"Focus on {branch}. Original question: {question}",
             )
             branch_key: str = branch_query.lower()
             if branch_query and branch_key not in seen:
@@ -222,11 +229,12 @@ class QueryPlanningMixin:
                     ),
                 ),
                 ("human", "{question}"),
-            ]
+            ],
         )
         try:
             chain: Runnable[dict[str, str | int], str] = cast(
-                "Runnable[dict[str, str | int], str]", prompt | llm | StrOutputParser()
+                "Runnable[dict[str, str | int], str]",
+                prompt | llm | StrOutputParser(),
             )
             raw: str = chain.invoke({"question": question, "n": remaining})
             match: re.Match[str] | None = re.search(r"\[.*\]", str(raw), re.DOTALL)
@@ -392,7 +400,8 @@ class QueryPlanningMixin:
         """
         question_type: QuestionType = self.classify_question_type(query)
         config: RetrievalConfiguration = RAG_CONFIG.get(
-            question_type, RAG_CONFIG["generic"]
+            question_type,
+            RAG_CONFIG["generic"],
         )
 
         if question_type == "statistical":
@@ -437,13 +446,14 @@ class QueryPlanningMixin:
         params: AdaptiveRetrievalParameters = {
             "question_type": question_type,
             "similarity_threshold": self.calculate_dynamic_threshold(
-                query, entity_count=0
+                query,
+                entity_count=0,
             ),
             "max_chunks": max_chunks,
         }
 
         logging.info(
-            f"Question '{query[:50]}...' classified as '{question_type}': threshold={params['similarity_threshold']:.3f}, max_chunks={params['max_chunks']} (total available: all for stats)"
+            f"Question '{query[:50]}...' classified as '{question_type}': threshold={params['similarity_threshold']:.3f}, max_chunks={params['max_chunks']} (total available: all for stats)",
         )
         return params
 
@@ -462,7 +472,9 @@ class QueryPlanningMixin:
 
     @classmethod
     def _count_matched_query_tokens(
-        cls, query: str, entity_names: Sequence[StoredGraphProperty]
+        cls,
+        query: str,
+        entity_names: Sequence[StoredGraphProperty],
     ) -> int:
         """Count how many distinct content tokens from the query are covered by entity names."""
         query_tokens: list[str] = cls._content_query_tokens(query)
@@ -472,7 +484,9 @@ class QueryPlanningMixin:
         covered: set[str] = set()
         for entity_name in entity_names:
             entity_name_norm: str = re.sub(
-                r"\s+", " ", str(entity_name or "").lower()
+                r"\s+",
+                " ",
+                str(entity_name or "").lower(),
             ).strip()
             if not entity_name_norm:
                 continue
@@ -483,7 +497,8 @@ class QueryPlanningMixin:
             }
             for token in query_tokens:
                 if token in entity_tokens or re.search(
-                    rf"(?<!\w){re.escape(token)}(?!\w)", entity_name_norm
+                    rf"(?<!\w){re.escape(token)}(?!\w)",
+                    entity_name_norm,
                 ):
                     covered.add(token)
         return len(covered)
@@ -501,7 +516,9 @@ class QueryPlanningMixin:
         return min(1.0, matched_query_token_count / len(content_words))
 
     def _extract_query_entities(
-        self, query: str, llm: "Runnable[PromptValue, object]"
+        self,
+        query: str,
+        llm: "Runnable[PromptValue, object]",
     ) -> list[str]:
         """
         Extract named entity mentions from a question using the LLM.
@@ -511,7 +528,9 @@ class QueryPlanningMixin:
         so the caller falls back to the raw-query-embedding ANN pass.
         """
         model_key: str = type(llm).__name__ + getattr(
-            llm, "model_name", getattr(llm, "model", "")
+            llm,
+            "model_name",
+            getattr(llm, "model", ""),
         )
         cache_key: tuple[str, str] = (query, model_key)
         if cache_key in self._entity_extraction_cache:
@@ -529,11 +548,12 @@ class QueryPlanningMixin:
                     ),
                 ),
                 ("human", "{question}"),
-            ]
+            ],
         )
         try:
             chain: Runnable[dict[str, str | int], str] = cast(
-                "Runnable[dict[str, str | int], str]", prompt | llm | StrOutputParser()
+                "Runnable[dict[str, str | int], str]",
+                prompt | llm | StrOutputParser(),
             )
             raw: str = chain.invoke({"question": query})
             raw = raw.strip()
@@ -604,11 +624,12 @@ class QueryPlanningMixin:
                     ),
                 ),
                 ("human", "{question}"),
-            ]
+            ],
         )
         try:
             chain: Runnable[dict[str, str | int], str] = cast(
-                "Runnable[dict[str, str | int], str]", prompt | llm | StrOutputParser()
+                "Runnable[dict[str, str | int], str]",
+                prompt | llm | StrOutputParser(),
             )
             raw: str = chain.invoke({"question": question, "n": n_hops})
             # Extract JSON array from response (tolerate surrounding text)
