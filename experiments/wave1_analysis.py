@@ -20,7 +20,12 @@ import json
 import os
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from typing import NotRequired, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    NotRequired,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -42,6 +47,9 @@ from experiments.trust_analysis import (
     has_complete_metrics,
     rows_for,
 )
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
 
 
 class SilentCI(TypedDict):
@@ -106,13 +114,13 @@ class LearnedSummary(TypedDict):
     pooled: PooledSummary
 
 
-class HopwiseCount(TypedDict, total=False):
-    policy: str | None
-    hop: int | str | None
-    n: int | None
-    accuracy: float | None
-    acc: float | None
-    n_wrong: int
+class HopwiseCount(TypedDict):
+    policy: "JSONValue"
+    hop: "JSONValue"
+    n: "JSONValue"
+    accuracy: "JSONValue"
+    acc: "JSONValue"
+    n_wrong: NotRequired[int]
 
 
 class ComputeTimeSummary(TypedDict):
@@ -491,13 +499,13 @@ def learned_certificate() -> LearnedSummary:
 
 def hopwise_wrong_counts() -> list[HopwiseCount]:
     path: str = os.path.join(REPO, "results", "analyses", "current_hopwise_2wiki.json")
-    art: list[HopwiseCount | str | float | None] = json.load(open(path))
+    art: "JSONValue" = cast("DefaultJSONCodec", json).load(open(path))
     out: list[HopwiseCount] = []
     for row in art:
         if not isinstance(row, dict):
             continue
-        n: int | None = row.get("n")
-        acc: float | None = row.get("accuracy", row.get("acc"))
+        n: "JSONValue" = row.get("n")
+        acc: "JSONValue" = row.get("accuracy", row.get("acc"))
         rec: HopwiseCount = {
             "policy": row.get("policy"),
             "hop": row.get("hop"),
@@ -517,10 +525,10 @@ def hopwise_wrong_counts() -> list[HopwiseCount]:
 def compute_times() -> dict[str, ComputeTimeSummary]:
     agg: dict[str, list[float]] = {}
     for slug in KEY:
-        doc: TimeDocument = json.load(
+        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])),
         )
-        cfg: TimeConfig = next(
+        cfg: "JSONValue" = next(
             c
             for c in doc["config_results"]
             if c["config"]["name"].startswith("kg_entity_first")

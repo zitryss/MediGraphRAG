@@ -15,7 +15,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, NoReturn, TypeAlias
 
 from typing_extensions import TypedDict
 
@@ -39,6 +39,11 @@ BANNED_SOURCE_PATTERNS: dict[str, re.Pattern[str]] = {
         re.IGNORECASE,
     ),
 }
+
+
+JSONValue: TypeAlias = (
+    None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+)
 
 
 class ManifestFile(TypedDict, total=False):
@@ -68,18 +73,18 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def load_manifest() -> Manifest:
+def load_manifest() -> JSONValue:
     if not MANIFEST.exists():
         fail(f"missing manifest: {MANIFEST.relative_to(REPO)}")
     try:
-        manifest: Manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        manifest: JSONValue = json.loads(MANIFEST.read_text(encoding="utf-8"))
         return manifest
     except json.JSONDecodeError as exc:
         fail(f"manifest is not valid JSON: {exc}")
 
 
-def check_manifest_files(doc: Manifest) -> None:
-    files: list[ManifestFile] | None = doc.get("files")
+def check_manifest_files(doc: Manifest | JSONValue) -> None:
+    files: list[ManifestFile] | JSONValue = doc.get("files")
     if not isinstance(files, list) or not files:
         fail("manifest must contain a non-empty 'files' list")
 
@@ -89,15 +94,15 @@ def check_manifest_files(doc: Manifest) -> None:
         "analysis_output",
         "gps_replay",
     }
-    roles: set[str | None] = {item.get("role") for item in files}
+    roles: set[JSONValue] = {item.get("role") for item in files}
     missing_roles: list[str] = sorted(required_roles - roles)
     if missing_roles:
         fail(f"manifest missing required roles: {missing_roles}")
 
     for item in files:
-        rel: str | None = item.get("path")
-        expected_hash: str | None = item.get("sha256")
-        expected_size: int | None = item.get("size")
+        rel: JSONValue = item.get("path")
+        expected_hash: JSONValue = item.get("sha256")
+        expected_size: JSONValue = item.get("size")
         if not rel or not expected_hash or expected_size is None:
             fail(f"manifest entry missing path/sha256/size: {item}")
         path: Path = REPO / rel
@@ -192,7 +197,7 @@ def run_tectonic() -> None:
 
 
 def main() -> None:
-    doc: Manifest = load_manifest()
+    doc: JSONValue = load_manifest()
     check_manifest_files(doc)
 
     if not PAPER.is_dir():

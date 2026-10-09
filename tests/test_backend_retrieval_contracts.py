@@ -15,10 +15,11 @@ from ontographrag.rag.systems import _vector_search as vector
 from ontographrag.rag.systems import enhanced_rag_system as enhanced
 from ontographrag.rag.systems import vanilla_rag_system as vanilla
 from ontographrag.rag.systems._records import RetrievedChunk, TraversalProjection
+from tests.conftest import required_text_field
 
 if TYPE_CHECKING:
     from ontographrag.rag.systems._records import (
-        CompleteRetrievedChunk,
+        ChunkProjection,
         CountedGraphRetrievalContext,
         GraphExpansion,
         GraphRetrievalContext,
@@ -26,8 +27,14 @@ if TYPE_CHECKING:
         RetrievedEntity,
         ScoredCompleteRetrievalContext,
         ScoredRetrievedChunk,
+        StoredGraphKey,
     )
-    from ontographrag.rag.systems._response_records import GenerationResponse
+    from ontographrag.rag.systems._response_records import (
+        EntityDetails,
+        ErrorPayload,
+        GenerationResponse,
+        KnowledgeGraphStats,
+    )
 
 
 class EntityExtras(TypedDict, total=False):
@@ -144,13 +151,19 @@ def test_late_interaction_corpus_cache_scope_and_fallback(
         "question_id": "q",
         "include_entities": entities,
     }
-    rows: list[CompleteRetrievedChunk] = system._late_interaction_corpus_rows(
+    rows: list[ChunkProjection] = system._late_interaction_corpus_rows(
         graph,
         **opts,
     )
     assert rows == [{"text": "passage", "chunk_id": "c"}]
     rows[0]["text"] = "mutated"
-    assert system._late_interaction_corpus_rows(graph, **opts)[0]["text"] == "passage"
+    assert (
+        required_text_field(
+            system._late_interaction_corpus_rows(graph, **opts)[0],
+            "text",
+        )
+        == "passage"
+    )
     assert graph.query.call_count == 2
     assert graph.query.call_args.args[1]["question_id"] == "q"
     assert graph.query.call_args.args[1]["kg_name"] == "unit"
@@ -213,11 +226,13 @@ def test_text_search_maps_result_and_error(system: enhanced.EnhancedRAGSystem) -
         document_names=["doc"],
     )
     assert result["chunks"][0]["text"] == "evidence"
+    assert "search_method" in result
     assert result["search_method"] == "text_similarity_fallback"
     assert graph.query.call_args.args[1]["search_terms"] == ["a b"]
     graph.query.side_effect = RuntimeError("offline")
     result = system._text_similarity_search(graph, "query")
     assert result["chunks"] == []
+    assert "error" in result
     assert "offline" in result["error"]
 
 
@@ -263,6 +278,7 @@ def test_late_interaction_score_signal(
         "q",
         kg_name="unit",
     )
+    assert "search_method" in result
     assert result["search_method"] == method
     if applied and score:
         assert result["total_score"] == score
@@ -275,7 +291,7 @@ def test_ppr_conserves_mass_and_prefers_weighted_neighbors(
     system: enhanced.EnhancedRAGSystem,
 ) -> None:
     assert system._ppr_entity_scores([], [], []) == {}
-    result: dict[str, float] = system._ppr_entity_scores(
+    result: dict[StoredGraphKey, float] = system._ppr_entity_scores(
         ["a"],
         ["a", "b", "c", "d"],
         [("a", "b", 1.0), ("a", "c", 0.4), ("a", "a", 1.0), ("missing", "b", 1.0)],
@@ -434,10 +450,21 @@ def test_entity_first_real_traversal_assembles_scoped_evidence(
         document_names=["doc"],
     )
     assert context is not None
+    assert "retrieval_route" in context
     assert context["retrieval_route"] == "entity_first"
-    assert {c["chunk_id"] for c in context["chunks"]} == {"c1", "c2"}
+    assert {required_text_field(c, "chunk_id") for c in context["chunks"]} == {
+        "c1",
+        "c2",
+    }
+    assert "entities" in context
+    assert "illness" in context["entities"]
+    assert "source" in context["entities"]["illness"]
     assert context["entities"]["illness"]["source"] == "graph_traversal"
+    assert "relationships" in context
+    assert "type" in context["relationships"][0]
     assert context["relationships"][0]["type"] == "TREATS"
+    assert "traversal_paths" in context
+    assert "question_ids" in context["traversal_paths"][0]
     assert context["traversal_paths"][0]["question_ids"] == ["q"]
     chunk_params: dict[str, object] = next(
         p for _, p in calls if "candidate_chunk_limit" in p
@@ -493,7 +520,11 @@ def test_graph_expansion_filters_seeds_and_preserves_path_provenance(
         excluded_entity_ids={"blocked"},
     )
     assert len(result["paths"]) == 1
+    assert "paths" in result
+    assert "provenance_positions" in result["paths"][0]
     assert result["paths"][0]["provenance_positions"] == [1]
+    assert "paths" in result
+    assert "node_ids" in result["paths"][0]
     assert result["paths"][0]["node_ids"] == ["aspirin", "illness"]
     params: dict[str, object] = graph.query.call_args.args[1]
     assert params["seed_ids"] == ["aspirin"]
@@ -563,6 +594,7 @@ def test_rfge_merges_seed_and_neighbor_passages_with_actual_ppr(
         {"id": "named", "name": "Masked Name"},
         {},
     ]
+    assert "entities" in seed
     seed["entities"] += extra_entities
     monkeypatch.setattr(
         system,
@@ -604,11 +636,17 @@ def test_rfge_merges_seed_and_neighbor_passages_with_actual_ppr(
         )
     )
     assert context is not None
+    assert "seed_entity_count" in context
     assert context["seed_entity_count"] == 1
+    assert "diagnostics" in context
+    assert "rfge_fired" in context["diagnostics"]
     assert context["diagnostics"]["rfge_fired"]
     assert len(context["chunks"]) == (2 if with_edges else 1)
+    assert "grounding_quality" in context
     assert context["grounding_quality"] == (1 if with_edges else 0)
     assert seed["score"] == 0.8  # result scoring never mutates the retrieval input
+    assert "relationships" in context
+    assert "key" in context["relationships"][0]
     assert context["relationships"][0]["key"] == "r1"
 
 
@@ -696,6 +734,7 @@ def test_context_orchestrator_selects_fallback_without_crossing_scope(
         assert not result["chunks"] and result.get("error")
         entity.assert_not_called()
     elif route == "strict":
+        assert "retrieval_route" in result
         assert result["retrieval_route"] == "entity_first_empty"
         vector_fetch.assert_not_called()
         rfge.assert_not_called()
@@ -762,10 +801,13 @@ def test_generate_response_runs_actual_prompt_and_guardrail_orchestration(
         runtime_guardrail=mode == "abstain",
     )
     if mode == "llm_error":
+        assert "error" in result
         assert result["error"] == "provider unavailable"
     elif mode == "empty":
         assert not prompts and result["confidence"] == 0
     elif mode == "abstain":
+        assert "guardrail" in result
+        assert "final_decision" in result["guardrail"]
         assert result["guardrail"]["final_decision"] == "abstain"
         assert result["confidence"] == 0
     else:
@@ -773,8 +815,12 @@ def test_generate_response_runs_actual_prompt_and_guardrail_orchestration(
         assert 0 < result["confidence"] <= 1
         assert result["sources"] == ["doc"]
         assert "aspirin treats illness" in prompts[0].lower()
+        assert "context" in result
+        assert "graph_state" in result["context"]
         assert result["context"]["graph_state"]
         if mode == "insufficient_retry":
+            assert "guardrail" in result
+            assert "retried_insufficient_info" in result["guardrail"]
             assert result["guardrail"]["retried_insufficient_info"]
             retry.assert_called_once()
     assert fetch.call_args.kwargs["question_id"] == "q"
@@ -827,6 +873,7 @@ def test_vanilla_full_context_contract(
         max_chunks=2,
     )
     if index in {"missing", "empty", "error"}:
+        assert "error" in result
         assert result["error"] and not result["chunks"]
     else:
         assert len(result["chunks"]) == 2
@@ -888,12 +935,16 @@ def test_vanilla_answer_chain_and_query_fusion(
     if outcome == "empty":
         assert not prompts and result["confidence"] == 0
     elif outcome == "error":
+        assert "error" in result
         assert result["error"] == "generation failed"
     else:
         assert result["response"] == "Aspirin treats illness."
         assert "aspirin" in prompts[0].lower()
         if outcome == "fusion":
-            assert {c["chunk_id"] for c in result["context"]["chunks"]} == {"c1", "c2"}
+            assert "chunks" in result["context"]
+            assert {
+                required_text_field(c, "chunk_id") for c in result["context"]["chunks"]
+            } == {"c1", "c2"}
             assert fetch.call_count == 3
 
 
@@ -922,7 +973,9 @@ def test_entity_browser_and_statistics_handle_results_and_errors(
             "document_names": ["doc"],
         },
     ]
-    assert system.get_knowledge_graph_stats()["chunks"] == 2
+    stats: KnowledgeGraphStats | ErrorPayload = system.get_knowledge_graph_stats()
+    assert "chunks" in stats
+    assert stats["chunks"] == 2
     graph.query.return_value = [
         {
             "id": "aspirin",
@@ -936,11 +989,19 @@ def test_entity_browser_and_statistics_handle_results_and_errors(
     assert system.search_entities("asp", top_k=2)[0]["score"] == pytest.approx(0.3)
     assert graph.query.call_args.args[1] == {"query": "asp", "top_k": 2}
     graph.query.return_value = []
-    assert system.get_entity_details("missing")["error"]
-    assert system.get_knowledge_graph_stats()["documents"] == 0
+    details: EntityDetails | ErrorPayload = system.get_entity_details("missing")
+    assert "error" in details
+    assert details["error"]
+    stats = system.get_knowledge_graph_stats()
+    assert "documents" in stats
+    assert stats["documents"] == 0
     graph.query.side_effect = RuntimeError("database unavailable")
-    assert system.get_entity_details("aspirin")["error"] == "database unavailable"
-    assert system.get_knowledge_graph_stats()["error"] == "database unavailable"
+    details = system.get_entity_details("aspirin")
+    assert "error" in details
+    assert details["error"] == "database unavailable"
+    stats = system.get_knowledge_graph_stats()
+    assert "error" in stats
+    assert stats["error"] == "database unavailable"
     assert system.search_entities("asp") == []
 
 
@@ -970,7 +1031,7 @@ def test_entity_primary_hybrid_keeps_graph_evidence_when_vector_boundary_fails(
         question_id="q",
         max_chunks=3,
     )
-    assert {c["chunk_id"] for c in result["chunks"]} == (
+    assert {required_text_field(c, "chunk_id") for c in result["chunks"]} == (
         {"c1", "c2"} if augmentation == "success" else {"c1"}
     )
     assert "aspirin" in result["entities"]
@@ -1009,6 +1070,9 @@ def test_enhanced_query_fusion_survives_failed_variant(
         kg_name="unit",
     )
     assert result["response"] == "Aspirin treats illness."
-    assert {c["chunk_id"] for c in result["context"]["chunks"]} == {"c1", "c2"}
+    assert "chunks" in result["context"]
+    assert {
+        required_text_field(c, "chunk_id") for c in result["context"]["chunks"]
+    } == {"c1", "c2"}
     assert fetch.call_count == 3
     assert all(c.kwargs["question_id"] == "q" for c in fetch.call_args_list)

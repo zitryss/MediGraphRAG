@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence, Set
 from contextlib import contextmanager
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -32,6 +32,7 @@ from typing import (
     TYPE_CHECKING,
     ClassVar,
     Literal,
+    Never,
     NotRequired,
     Protocol,
     Required,
@@ -46,16 +47,22 @@ from typing_extensions import ReadOnly, TypedDict
 if TYPE_CHECKING:
     from langchain_core.prompt_values import PromptValue
     from langchain_core.runnables import Runnable
-    from matplotlib.axes import Axes
+    from matplotlib.axis import Tick
+    from matplotlib.container import BarContainer
+    from matplotlib.legend import Legend
+    from matplotlib.text import Text
     from neo4j import Driver, Record, Result, Session
     from wandb.sdk.wandb_run import Run
 
+    from experiments.dataset_adapters import JSONValue
     from ontographrag.kg.builders.ontology_guided_kg_creator import KnowledgeGraph
     from ontographrag.rag.systems._records import (
         RetrievalContext,
         RetrievalDiagnostics,
         RetrievedEntity,
         RetrievedRelationship,
+        StoredGraphProperty,
+        StoredGraphValue,
         TraversalPath,
     )
 
@@ -102,6 +109,7 @@ from experiments.hop_stratified_analysis import HopReport, run_hop_stratified_an
 from experiments.kg_reuse import (
     ExistingKGMetadata,
     ExpectedKGMetadata,
+    ProducedKGMetadata,
     assess_dataset_kg_compatibility,
 )
 from experiments.official_answer_metrics import (
@@ -110,7 +118,7 @@ from experiments.official_answer_metrics import (
 )
 from experiments.subset_selection import (
     QuestionSubsetResolution,
-    SubsetPayload,
+    ResolvedSubsetPayload,
     resolve_question_subset,
     selection_file_path,
 )
@@ -255,7 +263,7 @@ class RunManifest(TypedDict):
     git_commit: str
     rebuild_kg: bool
     selection_files: dict[str, str]
-    subset_ids: dict[str, str | None]
+    subset_ids: dict[str, "JSONValue"]
     dataset_corpus_profiles: dict[str, DatasetCorpusProfile]
     accuracy: dict[str, ManifestAccuracy]
     completed_at: NotRequired[str]
@@ -265,10 +273,11 @@ class RunManifest(TypedDict):
 def update_runs_index(run_dir: Path, manifest: Mapping[str, object]) -> None:
     """Append a one-line summary of this run to the sibling runs index."""
     index_path: Path = run_dir.parent / "index.json"
-    entries: object = []
+    entries: JSONValue | list[dict[str, object]] = []
     if index_path.exists():
         try:
-            entries = json.loads(index_path.read_text())
+            decoded_entries: JSONValue = json.loads(index_path.read_text())
+            entries = decoded_entries
         except Exception:
             entries = []
     entries.append(
@@ -290,6 +299,7 @@ def update_runs_index(run_dir: Path, manifest: Mapping[str, object]) -> None:
 from experiments.summary_utils import (
     AccuracyBreakdown,
     HopAccuracySummary,
+    ProducedSummaryConfigResult,
     RetrievalConfigurationSelection,
     TrackAccuracySummary,
     accumulate_track_accuracy,
@@ -299,8 +309,52 @@ from experiments.summary_utils import (
 )
 
 
+class _SummaryAxes(Protocol):
+    """Consumed Matplotlib axes methods, including supported artist properties."""
+
+    def bar(
+        self,
+        x: Sequence[float],
+        height: Sequence[float],
+        width: float,
+        *,
+        label: str,
+        color: str,
+    ) -> "BarContainer": ...
+
+    def set_title(self, label: str) -> "Text": ...
+
+    def set_xticks(self, ticks: Sequence[int]) -> "list[Tick]": ...
+
+    def set_xticklabels(
+        self,
+        labels: Sequence[str],
+        *,
+        rotation: float,
+        ha: Literal["right"],
+    ) -> "list[Text]": ...
+
+    def grid(self, *, axis: Literal["y"], alpha: float) -> None: ...
+
+    def legend(self) -> "Legend": ...
+
+
+SummaryChartField: TypeAlias = Literal[
+    "vanilla_accuracy",
+    "kg_accuracy",
+    "vanilla_avg_semantic_entropy",
+    "kg_avg_semantic_entropy",
+    "vanilla_avg_vn_entropy",
+    "kg_avg_vn_entropy",
+    "vanilla_avg_graph_path_support",
+    "kg_avg_graph_path_support",
+]
+
+
 class ChunkTextProjection(TypedDict, total=False):
-    text: ReadOnly[str]
+    # Imported graph text is not normalized; the extraction path still requires
+    # .strip(), preserving its existing failure on non-string stored properties.
+    text: ReadOnly["StoredGraphProperty"]
 
 
 class ChunkContextProjection(TypedDict, total=False):
@@ -343,14 +397,19 @@ class ExperimentGenerationResult(TypedDict, total=False):
     reranker: AppliedStageProjection
 
 
-class SamplingGenerateOptions(TypedDict, total=False):
-    allow_decomposition: bool
-    runtime_guardrail: bool | None
-    runtime_guardrail_mode: str | None
-    anchor_mask_entity_ids: list[str] | None
-    anchor_mask_entity_names: list[str] | None
-    max_hops: int
-    timeout: float | None
+class VanillaSamplingGenerateOptions(TypedDict, total=False, closed=True):
+    runtime_guardrail: ReadOnly[bool | None]
+    runtime_guardrail_mode: ReadOnly[str | None]
+
+
+class SamplingGenerateOptions(TypedDict, total=False, closed=True):
+    allow_decomposition: ReadOnly[bool]
+    runtime_guardrail: ReadOnly[bool | None]
+    runtime_guardrail_mode: ReadOnly[str | None]
+    anchor_mask_entity_ids: ReadOnly[list[str] | None]
+    anchor_mask_entity_names: ReadOnly[list[str] | None]
+    max_hops: ReadOnly[int]
+    timeout: ReadOnly[float | None]
 
 
 class SamplingResponse(TypedDict, total=False):
@@ -380,10 +439,39 @@ class SamplingRAGSystem(Protocol):
     ) -> SamplingResponse: ...
 
 
-SampleResponses: TypeAlias = tuple[list[str], list[str], float]
+class EnhancedSamplingRAGSystem(Protocol):
+    def generate_response(
+        self,
+        *,
+        question: str,
+        llm: "Runnable[PromptValue, object]",
+        document_names: list[str] | None = None,
+        similarity_threshold: float = 0.1,
+        max_chunks: int = 10,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
+        answer_instructions: str = "",
+        question_id: str | None = None,
+        runtime_guardrail: bool | None = None,
+        runtime_guardrail_mode: str | None = None,
+        retrieval_temperature: float = 0.0,
+        retrieval_shortlist_factor: int = 4,
+        retrieval_sample_id: int = 0,
+        allow_decomposition: bool = True,
+        anchor_mask_entity_ids: list[str] | None = None,
+        anchor_mask_entity_names: list[str] | None = None,
+        max_hops: int = 2,
+        timeout: float | None = None,
+    ) -> SamplingResponse: ...
+
+
+RetrievedChunkText: TypeAlias = str | bytes
+
+
+SampleResponses: TypeAlias = tuple[list[str], list[RetrievedChunkText], float]
 TracedSampleResponses: TypeAlias = tuple[
     list[str],
-    list[str],
+    list[RetrievedChunkText],
     float,
     list[GraphStateSummary],
 ]
@@ -419,12 +507,12 @@ class QuestionInput(TypedDict, total=False):
 
 
 class NormalizedEvaluationQuestion(QuestionInput):
-    question: ReadOnly[str]
-    expected_answer: ReadOnly[str]
-    aliases: ReadOnly[list[str]]
-    contexts: ReadOnly[list[str]]
-    options: ReadOnly[dict[str, str]]
-    task_type: ReadOnly[str]
+    question: Required[ReadOnly[str]]
+    expected_answer: Required[ReadOnly[str]]
+    aliases: Required[ReadOnly[list[str]]]
+    contexts: Required[ReadOnly[list[str]]]
+    options: Required[ReadOnly[dict[str, str]]]
+    task_type: Required[ReadOnly[str]]
 
 
 class EvaluationRecord(TypedDict):
@@ -438,31 +526,31 @@ class EvaluationRecord(TypedDict):
 
 
 class KGBuilderOptions(TypedDict, total=False):
+    enable_anchor_constrained_extraction: ReadOnly[bool]
+    enable_self_reflection: ReadOnly[bool]
+    enable_anchor_coverage_supplement: ReadOnly[bool]
+    enable_cross_passage_relation_recovery: ReadOnly[bool]
+    self_consistency_n: ReadOnly[int]
+    few_shot_example_count: ReadOnly[int]
+    min_triple_confidence: ReadOnly[float]
+    relationship_type_similarity_threshold: ReadOnly[float]
+    enable_low_confidence_triple_reverification: ReadOnly[bool]
+    low_confidence_reverify_threshold: ReadOnly[float]
+    enable_umls_linking: ReadOnly[bool]
+    enable_soft_entity_linking: ReadOnly[bool]
+    enable_fragmentation_repair: ReadOnly[bool]
+    enable_graph_summaries: ReadOnly[bool]
+    enable_claim_extraction: ReadOnly[bool]
+
+
+class LightweightKGBuilderOptions(TypedDict, closed=True):
     enable_anchor_constrained_extraction: bool
     enable_self_reflection: bool
     enable_anchor_coverage_supplement: bool
     enable_cross_passage_relation_recovery: bool
-    self_consistency_n: int
-    few_shot_example_count: int
-    min_triple_confidence: float
-    relationship_type_similarity_threshold: float
-    enable_low_confidence_triple_reverification: bool
-    low_confidence_reverify_threshold: float
-    enable_umls_linking: bool
-    enable_soft_entity_linking: bool
-    enable_fragmentation_repair: bool
-    enable_graph_summaries: bool
-    enable_claim_extraction: bool
 
 
-class LightweightKGBuilderOptions(TypedDict):
-    enable_anchor_constrained_extraction: bool
-    enable_self_reflection: bool
-    enable_anchor_coverage_supplement: bool
-    enable_cross_passage_relation_recovery: bool
-
-
-class FullKGBuilderOptions(TypedDict):
+class FullKGBuilderOptions(TypedDict, closed=True):
     enable_anchor_constrained_extraction: bool
     enable_self_reflection: bool
     enable_anchor_coverage_supplement: bool
@@ -566,7 +654,7 @@ class DatasetKGFingerprint(TypedDict):
     passages: list[HashPassage]
 
 
-class DatasetBuildMetadata(TypedDict):
+class DatasetBuildMetadata(ProducedKGMetadata):
     datasetKgScope: str
     recordsAvailable: int
     recordsUsed: int
@@ -576,9 +664,9 @@ class DatasetBuildMetadata(TypedDict):
     subsetSeed: int
     selectionFile: str
     selectedQuestionCount: int
-    selectionKey: str
-    subsetId: str
-    subsetTag: str
+    selectionKey: "JSONValue"
+    subsetId: "JSONValue"
+    subsetTag: "JSONValue"
     usesGlobalCorpus: bool
     corpusSource: str
     questionContextRole: str
@@ -599,7 +687,7 @@ class DatasetBuildMetadata(TypedDict):
 class DatasetKGContract(TypedDict):
     selected_eval_records: list[EvaluationRecord]
     selected_question_ids: list[str]
-    subset_meta: SubsetPayload
+    subset_meta: ResolvedSubsetPayload
     corpus_profile: DatasetCorpusProfile
     evaluable_inference_records: list[InferenceRecord]
     records_for_kg: list[InferenceRecord]
@@ -895,17 +983,82 @@ class AccuracyReportingFields(TypedDict, total=False):
     reported_accuracy_variant: str
 
 
-class EvaluationOutcome(TypedDict, total=False):
+class RankingTelemetryFields(TypedDict, total=False):
+    """Finite scalar projection of the ranking producers' extension namespace."""
+
+    vanilla_avg_semantic_entropy_auroc: ReadOnly[float]
+    vanilla_avg_discrete_semantic_entropy_auroc: ReadOnly[float]
+    vanilla_avg_sre_uq_auroc: ReadOnly[float]
+    vanilla_avg_p_true_auroc: ReadOnly[float]
+    vanilla_avg_selfcheckgpt_auroc: ReadOnly[float]
+    vanilla_avg_vn_entropy_auroc: ReadOnly[float]
+    vanilla_avg_sd_uq_auroc: ReadOnly[float]
+    vanilla_avg_semantic_entropy_aurec: ReadOnly[float]
+    vanilla_avg_discrete_semantic_entropy_aurec: ReadOnly[float]
+    vanilla_avg_sre_uq_aurec: ReadOnly[float]
+    vanilla_avg_p_true_aurec: ReadOnly[float]
+    vanilla_avg_selfcheckgpt_aurec: ReadOnly[float]
+    vanilla_avg_vn_entropy_aurec: ReadOnly[float]
+    vanilla_avg_sd_uq_aurec: ReadOnly[float]
+    kg_avg_semantic_entropy_auroc: ReadOnly[float]
+    kg_avg_discrete_semantic_entropy_auroc: ReadOnly[float]
+    kg_avg_sre_uq_auroc: ReadOnly[float]
+    kg_avg_p_true_auroc: ReadOnly[float]
+    kg_avg_selfcheckgpt_auroc: ReadOnly[float]
+    kg_avg_vn_entropy_auroc: ReadOnly[float]
+    kg_avg_sd_uq_auroc: ReadOnly[float]
+    kg_avg_semantic_entropy_aurec: ReadOnly[float]
+    kg_avg_discrete_semantic_entropy_aurec: ReadOnly[float]
+    kg_avg_sre_uq_aurec: ReadOnly[float]
+    kg_avg_p_true_aurec: ReadOnly[float]
+    kg_avg_selfcheckgpt_aurec: ReadOnly[float]
+    kg_avg_vn_entropy_aurec: ReadOnly[float]
+    kg_avg_sd_uq_aurec: ReadOnly[float]
+
+
+RankingTelemetryField: TypeAlias = Literal[
+    "vanilla_avg_semantic_entropy_auroc",
+    "vanilla_avg_discrete_semantic_entropy_auroc",
+    "vanilla_avg_sre_uq_auroc",
+    "vanilla_avg_p_true_auroc",
+    "vanilla_avg_selfcheckgpt_auroc",
+    "vanilla_avg_vn_entropy_auroc",
+    "vanilla_avg_sd_uq_auroc",
+    "vanilla_avg_semantic_entropy_aurec",
+    "vanilla_avg_discrete_semantic_entropy_aurec",
+    "vanilla_avg_sre_uq_aurec",
+    "vanilla_avg_p_true_aurec",
+    "vanilla_avg_selfcheckgpt_aurec",
+    "vanilla_avg_vn_entropy_aurec",
+    "vanilla_avg_sd_uq_aurec",
+    "kg_avg_semantic_entropy_auroc",
+    "kg_avg_discrete_semantic_entropy_auroc",
+    "kg_avg_sre_uq_auroc",
+    "kg_avg_p_true_auroc",
+    "kg_avg_selfcheckgpt_auroc",
+    "kg_avg_vn_entropy_auroc",
+    "kg_avg_sd_uq_auroc",
+    "kg_avg_semantic_entropy_aurec",
+    "kg_avg_discrete_semantic_entropy_aurec",
+    "kg_avg_sre_uq_aurec",
+    "kg_avg_p_true_aurec",
+    "kg_avg_selfcheckgpt_aurec",
+    "kg_avg_vn_entropy_aurec",
+    "kg_avg_sd_uq_aurec",
+]
+
+
+class EvaluationOutcome(RankingTelemetryFields, total=False):
     dataset: ReadOnly[str]
     error: ReadOnly[str]
     config: ReadOnly[ReportedEvaluationConfig]
     evaluation_mode: ReadOnly[str]
     subset_seed: ReadOnly[int]
     selection_file: ReadOnly[str]
-    selection_key: ReadOnly[str]
-    subset_hash: ReadOnly[str]
-    subset_tag: ReadOnly[str]
-    subset_id: ReadOnly[str]
+    selection_key: ReadOnly["JSONValue"]
+    subset_hash: ReadOnly["JSONValue"]
+    subset_tag: ReadOnly["JSONValue"]
+    subset_id: ReadOnly["JSONValue"]
     selected_question_ids: ReadOnly[list[str]]
     question_context_role: ReadOnly[str]
     requires_shared_corpus_for_fair_retrieval: ReadOnly[bool]
@@ -992,10 +1145,10 @@ class _EvaluationAccumulator(EvaluationOutcome, total=False):
     evaluation_mode: str
     subset_seed: int
     selection_file: str
-    selection_key: str
-    subset_hash: str
-    subset_tag: str
-    subset_id: str
+    selection_key: "JSONValue"
+    subset_hash: "JSONValue"
+    subset_tag: "JSONValue"
+    subset_id: "JSONValue"
     selected_question_ids: list[str]
     question_context_role: str
     requires_shared_corpus_for_fair_retrieval: bool
@@ -1071,26 +1224,86 @@ class _EvaluationAccumulator(EvaluationOutcome, total=False):
     kg_avg_evidence_conflict_uncertainty: float
 
 
+class CompletedEvaluationOutcome(EvaluationOutcome):
+    """Fields guaranteed after the successful evaluation finalization path."""
+
+    error: NotRequired[ReadOnly[Never]]
+    dataset: ReadOnly[str]
+    config: ReadOnly[ReportedEvaluationConfig]
+    evaluation_mode: ReadOnly[str]
+    subset_seed: ReadOnly[int]
+    selection_file: ReadOnly[str]
+    selection_key: ReadOnly["JSONValue"]
+    subset_hash: ReadOnly["JSONValue"]
+    subset_tag: ReadOnly["JSONValue"]
+    subset_id: ReadOnly["JSONValue"]
+    selected_question_ids: ReadOnly[list[str]]
+    question_context_role: ReadOnly[str]
+    requires_shared_corpus_for_fair_retrieval: ReadOnly[bool]
+    total_questions: ReadOnly[int]
+    vanilla_rag_correct: ReadOnly[int]
+    kg_rag_correct: ReadOnly[int]
+    leakage_detected: ReadOnly[bool]
+    details: ReadOnly[list[FreshDetail | CheckpointDetail]]
+    reported_accuracy_variant: ReadOnly[str]
+    kg_routing_distribution: ReadOnly[RoutingDistribution]
+    kg_pure_entity_first_rate: ReadOnly[float]
+    kg_dense_fallback_rate: ReadOnly[float]
+    kg_unknown_route_rate: ReadOnly[float]
+    shared_answered_questions: ReadOnly[int]
+    accuracy_by_hop_count: ReadOnly[dict[str, HopAccuracySummary]]
+    question_details_file: ReadOnly[str]
+    question_table_key: ReadOnly[str]
+    num_questions_logged: ReadOnly[int]
+    vanilla_accuracy: ReadOnly[float]
+    vanilla_accuracy_excluding_errors: ReadOnly[float]
+    vanilla_accuracy_shared_clean: ReadOnly[float]
+    vanilla_accuracy_raw: ReadOnly[float]
+    vanilla_answer_em: ReadOnly[float]
+    vanilla_answer_f1: ReadOnly[float]
+    vanilla_answered_questions: ReadOnly[int]
+    num_generation_failures_vanilla: ReadOnly[int]
+    vanilla_avg_compute_times: ReadOnly[dict[str, float]]
+    kg_accuracy: ReadOnly[float]
+    kg_accuracy_excluding_errors: ReadOnly[float]
+    kg_accuracy_shared_clean: ReadOnly[float]
+    kg_accuracy_raw: ReadOnly[float]
+    kg_answer_em: ReadOnly[float]
+    kg_answer_f1: ReadOnly[float]
+    kg_answered_questions: ReadOnly[int]
+    num_generation_failures_kg: ReadOnly[int]
+    kg_avg_compute_times: ReadOnly[dict[str, float]]
+
+
+class FailedEvaluationOutcome(TypedDict, closed=True):
+    dataset: ReadOnly[str]
+    error: ReadOnly[str]
+
+
 class DatasetResultBlock(TypedDict):
     dataset: str
     track: NotRequired[str]
     config_results: list[EvaluationOutcome]
 
 
-class EmptyRecord(TypedDict):
+class DatasetChunkCount(TypedDict, closed=True):
+    n: int
+
+
+class EmptyRecord(TypedDict, closed=True):
     pass
 
 
-class ConfigSummary(TypedDict):
+class ConfigSummary(ProducedSummaryConfigResult):
     dataset: str
     track: str
     config: ReportedEvaluationConfig | EmptyRecord
     subset_seed: int | None
     selection_file: str
-    selection_key: str
-    subset_hash: str
-    subset_tag: str
-    subset_id: str
+    selection_key: "JSONValue"
+    subset_hash: "JSONValue"
+    subset_tag: "JSONValue"
+    subset_id: "JSONValue"
     num_questions_logged: int
     reported_accuracy_variant: str
     vanilla_accuracy: float
@@ -1147,7 +1360,7 @@ class FinalRunSummary(TypedDict):
 class QuestionDetailsFile(TypedDict):
     dataset: str
     config: str
-    subset_tag: str
+    subset_tag: "JSONValue"
     num_questions: int
     questions: list[CheckpointDetail]
 
@@ -1520,7 +1733,7 @@ class MIRAGEEvaluationPipeline:
             str,
             tuple[list[InferenceRecord], list[GoldRecord], bool],
         ] = {}
-        self._selection_cache: dict[str, SubsetPayload] = {}
+        self._selection_cache: dict[str, ResolvedSubsetPayload] = {}
 
     @staticmethod
     def _env_bool(enabled: object) -> str:
@@ -1599,7 +1812,9 @@ class MIRAGEEvaluationPipeline:
 
     @staticmethod
     @contextmanager
-    def _temporary_env(overrides: Mapping[str, object] | None) -> Iterator[None]:
+    def _temporary_env(
+        overrides: Mapping[str, object] | None,
+    ) -> Generator[None, None, None]:
         restore: dict[str, str | None] = {}
         for key, value in (overrides or {}).items():
             restore[key] = os.environ.get(key)
@@ -1985,7 +2200,7 @@ class MIRAGEEvaluationPipeline:
             subset_seed=self.subset_seed,
         )
 
-    def _subset_metadata(self, dataset_name: str) -> SubsetPayload:
+    def _subset_metadata(self, dataset_name: str) -> ResolvedSubsetPayload:
         """Return cached subset metadata for a dataset, if already resolved."""
         return self._selection_cache.get(dataset_name, {})
 
@@ -2155,6 +2370,27 @@ class MIRAGEEvaluationPipeline:
         track: str = self.DATASET_TRACKS.get(dataset_name, self.DEFAULT_TRACK)
         return str(track).startswith("biomedical")
 
+    @overload
+    def _kg_builder_kwargs_for_profile(
+        self,
+        dataset_name: str,
+        builder_profile: Literal["lightweight"],
+    ) -> LightweightKGBuilderOptions: ...
+
+    @overload
+    def _kg_builder_kwargs_for_profile(
+        self,
+        dataset_name: str,
+        builder_profile: Literal["full"],
+    ) -> FullKGBuilderOptions: ...
+
+    @overload
+    def _kg_builder_kwargs_for_profile(
+        self,
+        dataset_name: str,
+        builder_profile: str,
+    ) -> KGBuilderOptions: ...
+
     def _kg_builder_kwargs_for_profile(
         self,
         dataset_name: str,
@@ -2219,7 +2455,7 @@ class MIRAGEEvaluationPipeline:
         if not selected_question_ids:
             raise ValueError(f"No evaluable questions found for {dataset_name}")
 
-        subset_meta: SubsetPayload = self._subset_metadata(dataset_name)
+        subset_meta: ResolvedSubsetPayload = self._subset_metadata(dataset_name)
         corpus_profile: DatasetCorpusProfile = self._dataset_corpus_profile(
             dataset_name,
         )
@@ -2269,7 +2505,7 @@ class MIRAGEEvaluationPipeline:
             dataset_name,
         )
         uses_global_corpus: bool = passages is not None
-        if uses_global_corpus:
+        if passages is not None:
             corpus_source: str = "shared_corpus"
         else:
             question_context_role: str = corpus_profile.get("question_context_role")
@@ -2293,7 +2529,6 @@ class MIRAGEEvaluationPipeline:
                 else "question_contexts"
             )
 
-        # Both branches above resolve to a list; the boolean alias hides this from mypy.
         total_passages_before_cap: int = len(passages)
         if self.max_kg_contexts and len(passages) > self.max_kg_contexts:
             passages = passages[: self.max_kg_contexts]
@@ -2498,7 +2733,7 @@ class MIRAGEEvaluationPipeline:
         self,
         dataset_name: str,
         config_name: str,
-        subset_tag: str,
+        subset_tag: "JSONValue",
         details: Sequence[Mapping[str, object]],
     ) -> None:
         """Log per-question table (question + responses + metrics) to W&B."""
@@ -2556,7 +2791,7 @@ class MIRAGEEvaluationPipeline:
             },
         )
 
-    def _sanitize_for_filename(self, value: str) -> str:
+    def _sanitize_for_filename(self, value: "JSONValue") -> str:
         """Create a filesystem-safe token for filenames."""
         token: str = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(value or "").strip())
         return token.strip("_") or "default"
@@ -2644,7 +2879,7 @@ class MIRAGEEvaluationPipeline:
         self,
         dataset_name: str,
         config_name: str,
-        subset_tag: str,
+        subset_tag: "JSONValue",
         details: Sequence[Mapping[str, object]],
     ) -> str:
         """Persist per-question rows to an explicit local JSON file."""
@@ -2718,7 +2953,10 @@ class MIRAGEEvaluationPipeline:
         summary_table: wandb.Table = wandb.Table(columns=summary_columns)
 
         for r in config_results:
-            config: ReportedEvaluationConfig | EmptyRecord = r.get("config", {})
+            config: ReportedEvaluationConfig | EmptyRecord = r.get(
+                "config",
+                cast(EmptyRecord, {}),
+            )
             config_name: str = config.get("name", "default")
 
             v_acc: float = float(r.get("vanilla_accuracy", 0.0))
@@ -2761,7 +2999,7 @@ class MIRAGEEvaluationPipeline:
             x: list[int] = list(range(len(config_names)))
             width: float = 0.36
 
-            metric_specs: list[tuple[str, ...]] = [
+            metric_specs: list[tuple[str, SummaryChartField, SummaryChartField]] = [
                 ("clean_accuracy", "vanilla_accuracy", "kg_accuracy"),
             ]
             if self.compute_metrics:
@@ -2785,7 +3023,7 @@ class MIRAGEEvaluationPipeline:
             axes = axes.flatten()
 
             for i, (title, v_key, k_key) in enumerate(metric_specs):
-                ax: Axes = axes[i]
+                ax: _SummaryAxes = cast(_SummaryAxes, axes[i])
                 v_vals: list[float] = [float(r.get(v_key, 0.0)) for r in config_results]
                 k_vals: list[float] = [float(r.get(k_key, 0.0)) for r in config_results]
 
@@ -3097,16 +3335,19 @@ class MIRAGEEvaluationPipeline:
             self.wandb_run.log_artifact(artifact)
             self.wandb_run.summary["summary/final_json_path"] = summary_path
 
-    def _extract_chunk_texts_from_result(self, rag_result: SamplingAnchor) -> list[str]:
+    def _extract_chunk_texts_from_result(
+        self,
+        rag_result: SamplingAnchor,
+    ) -> list[RetrievedChunkText]:
         """Extract retrieved chunk texts robustly from a RAG result."""
-        chunk_texts: list[str] = []
+        chunk_texts: list[StoredGraphValue] = []
 
         # Prefer used_chunks when available
         used_chunks: Sequence[ChunkTextProjection | str] = rag_result.get(
             "used_chunks",
             [],
         )
-        text: str
+        text: StoredGraphProperty
         for c in used_chunks:
             if isinstance(c, dict):
                 text = c.get("text", "")
@@ -3132,10 +3373,10 @@ class MIRAGEEvaluationPipeline:
                     chunk_texts.append(text)
 
         # Deduplicate while preserving order
-        unique_chunk_texts: list[str] = []
-        seen: set[str] = set()
+        unique_chunk_texts: list[RetrievedChunkText] = []
+        seen: set[RetrievedChunkText] = set()
         for t in chunk_texts:
-            key: str = t.strip()
+            key: RetrievedChunkText = t.strip()
             if key and key not in seen:
                 seen.add(key)
                 unique_chunk_texts.append(key)
@@ -3143,7 +3384,7 @@ class MIRAGEEvaluationPipeline:
         return unique_chunk_texts
 
     @staticmethod
-    def _mean_pairwise_jaccard(chunk_sets: list[set[str]]) -> float:
+    def _mean_pairwise_jaccard(chunk_sets: Sequence[Set[RetrievedChunkText]]) -> float:
         """Mean pairwise Jaccard similarity across a list of chunk sets.
 
         Returns 1.0 if there is only one sample (trivially identical) and 0.0
@@ -3188,7 +3429,7 @@ class MIRAGEEvaluationPipeline:
         llm: "Runnable[PromptValue, object] | None" = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
-        generate_kwargs: SamplingGenerateOptions | None = None,
+        generate_kwargs: VanillaSamplingGenerateOptions | None = None,
         *,
         return_graph_state_traces: Literal[True],
     ) -> TracedSampleResponses: ...
@@ -3197,6 +3438,47 @@ class MIRAGEEvaluationPipeline:
     def _collect_sample_responses(
         self,
         rag_system: SamplingRAGSystem,
+        question: str,
+        answer_instructions: str = "",
+        base_result: SamplingAnchor | None = None,
+        document_names: list[str] | None = None,
+        similarity_threshold: float = 0.1,
+        max_chunks: int = 10,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
+        question_id: str | None = None,
+        llm: "Runnable[PromptValue, object] | None" = None,
+        retrieval_temperature: float = 0.0,
+        retrieval_shortlist_factor: int = 4,
+        generate_kwargs: VanillaSamplingGenerateOptions | None = None,
+        return_graph_state_traces: Literal[False] = False,
+    ) -> SampleResponses: ...
+
+    @overload
+    def _collect_sample_responses(
+        self,
+        rag_system: EnhancedSamplingRAGSystem,
+        question: str,
+        answer_instructions: str = "",
+        base_result: SamplingAnchor | None = None,
+        document_names: list[str] | None = None,
+        similarity_threshold: float = 0.1,
+        max_chunks: int = 10,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
+        question_id: str | None = None,
+        llm: "Runnable[PromptValue, object] | None" = None,
+        retrieval_temperature: float = 0.0,
+        retrieval_shortlist_factor: int = 4,
+        generate_kwargs: SamplingGenerateOptions | None = None,
+        *,
+        return_graph_state_traces: Literal[True],
+    ) -> TracedSampleResponses: ...
+
+    @overload
+    def _collect_sample_responses(
+        self,
+        rag_system: EnhancedSamplingRAGSystem,
         question: str,
         answer_instructions: str = "",
         base_result: SamplingAnchor | None = None,
@@ -3229,13 +3511,14 @@ class MIRAGEEvaluationPipeline:
         llm: "Runnable[PromptValue, object] | None" = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
-        generate_kwargs: SamplingGenerateOptions | None = None,
+        generate_kwargs: VanillaSamplingGenerateOptions | None = None,
         return_graph_state_traces: bool = False,
     ) -> SampleResponses | TracedSampleResponses: ...
 
+    @overload
     def _collect_sample_responses(
         self,
-        rag_system: SamplingRAGSystem,
+        rag_system: EnhancedSamplingRAGSystem,
         question: str,
         answer_instructions: str = "",
         base_result: SamplingAnchor | None = None,
@@ -3249,6 +3532,27 @@ class MIRAGEEvaluationPipeline:
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         generate_kwargs: SamplingGenerateOptions | None = None,
+        return_graph_state_traces: bool = False,
+    ) -> SampleResponses | TracedSampleResponses: ...
+
+    def _collect_sample_responses(
+        self,
+        rag_system: SamplingRAGSystem | EnhancedSamplingRAGSystem,
+        question: str,
+        answer_instructions: str = "",
+        base_result: SamplingAnchor | None = None,
+        document_names: list[str] | None = None,
+        similarity_threshold: float = 0.1,
+        max_chunks: int = 10,
+        extra_context_texts: list[str] | None = None,
+        kg_name: str | None = None,
+        question_id: str | None = None,
+        llm: "Runnable[PromptValue, object] | None" = None,
+        retrieval_temperature: float = 0.0,
+        retrieval_shortlist_factor: int = 4,
+        generate_kwargs: SamplingGenerateOptions
+        | VanillaSamplingGenerateOptions
+        | None = None,
         return_graph_state_traces: bool = False,
     ) -> SampleResponses | TracedSampleResponses:
         """Collect multiple responses for proper semantic-entropy estimation.
@@ -3267,8 +3571,8 @@ class MIRAGEEvaluationPipeline:
                 (≈1.0 → deterministic retrieval; ≈0.0 → high stochasticity)
         """
         responses: list[str] = []
-        retrieved_chunk_texts: list[str] = []
-        per_sample_chunk_sets: list[set[str]] = []
+        retrieved_chunk_texts: list[RetrievedChunkText] = []
+        per_sample_chunk_sets: list[set[RetrievedChunkText]] = []
         graph_state_traces: list[GraphStateSummary] = []
 
         # Base result is only used as a retrieval-context anchor. The output-side
@@ -3307,14 +3611,17 @@ class MIRAGEEvaluationPipeline:
                 if sampled_response:
                     responses.append(sampled_response)
 
-                sample_chunks: list[str] = self._extract_chunk_texts_from_result(
-                    sampled_result,
+                sample_chunks: list[RetrievedChunkText] = (
+                    self._extract_chunk_texts_from_result(
+                        sampled_result,
+                    )
                 )
                 per_sample_chunk_sets.append(set(sample_chunks))
                 if return_graph_state_traces:
-                    sample_context: RetrievalContext = (
-                        sampled_result.get("context", {}) or {}
-                    )
+                    sample_context: RetrievalContext | EmptyRecord = sampled_result.get(
+                        "context",
+                        cast(EmptyRecord, {}),
+                    ) or cast(EmptyRecord, {})
                     graph_state_traces.append(
                         sample_context.get("graph_state")
                         or summarize_context_graph_state(sample_context),
@@ -3365,7 +3672,7 @@ class MIRAGEEvaluationPipeline:
                     "RETURN count(c) AS n",
                     {"kg_name": dataset_name},
                 )
-                chunk_count: int = result.single()["n"]
+                chunk_count: int = cast(DatasetChunkCount, result.single())["n"]
                 logging.info(
                     f"[_dataset_kg_exists] Query for kgName='{dataset_name}': {chunk_count} chunks",
                 )
@@ -3701,7 +4008,7 @@ class MIRAGEEvaluationPipeline:
         the expected downstream shape in evaluation.
         """
         eval_records: list[EvaluationRecord] = self._build_eval_records(dataset_name)
-        raw_records: dict[str, dict[object, object]] = {
+        raw_records: dict[str, Mapping[str, object] | Mapping[str | None, object]] = {
             str(question_id): record
             for question_id, record in load_raw_dataset(dataset_name).items()
             if isinstance(record, dict)
@@ -3709,7 +4016,9 @@ class MIRAGEEvaluationPipeline:
         mapping: dict[str, NormalizedEvaluationQuestion] = {}
         for rec in eval_records:
             question_id: str = str(rec["id"])
-            merged: dict[object, object] = dict(raw_records.get(question_id, {}))
+            merged: dict[str, object] | dict[str | None, object] = dict(
+                raw_records.get(question_id, {}),
+            )
             merged.update(
                 {
                     "question": rec.get("question", ""),
@@ -3752,21 +4061,43 @@ class MIRAGEEvaluationPipeline:
         # Adapter-normalized shape
         contexts: object = question_data.get("contexts", [])
         if isinstance(contexts, list) and contexts:
-            return [str(c).strip() for c in contexts if str(c).strip()]
+            return [
+                str(c).strip() for c in cast(list[object], contexts) if str(c).strip()
+            ]
 
         # Try PubMedQA style (CONTEXTS field)
         contexts = question_data.get("CONTEXTS", [])
         if isinstance(contexts, list) and contexts:
-            return [c if isinstance(c, str) else c.get("text", "") for c in contexts]
+            return [
+                c if isinstance(c, str) else c.get("text", "")
+                for c in cast(list[object], contexts)
+            ]
 
         # Try BioASQ style (snippets field)
         snippets: object = question_data.get("snippets", [])
         if isinstance(snippets, list) and snippets:
-            return [s.get("text", "") for s in snippets if s.get("text")]
+            return [
+                s.get("text", "") for s in cast(list[object], snippets) if s.get("text")
+            ]
 
         return []
 
-    def _get_answer_from_question(self, question_data: QuestionInput) -> str:
+    @overload
+    def _get_answer_from_question(
+        self,
+        question_data: NormalizedEvaluationQuestion,
+    ) -> str: ...
+
+    @overload
+    def _get_answer_from_question(
+        self,
+        question_data: Mapping[str, object],
+    ) -> object: ...
+
+    def _get_answer_from_question(
+        self,
+        question_data: Mapping[str, object],
+    ) -> object:
         """Extract ground truth answer from question data"""
         # Adapter-normalized shape
         if "expected_answer" in question_data:
@@ -3818,7 +4149,16 @@ class MIRAGEEvaluationPipeline:
             return str(question_data["Answer"]).lower()
         return ""
 
-    def _get_question_text(self, question_data: QuestionInput) -> str:
+    @overload
+    def _get_question_text(
+        self,
+        question_data: NormalizedEvaluationQuestion,
+    ) -> str: ...
+
+    @overload
+    def _get_question_text(self, question_data: QuestionInput) -> object: ...
+
+    def _get_question_text(self, question_data: QuestionInput) -> object:
         """Extract question text from question data"""
         if "question" in question_data:
             return question_data["question"]
@@ -3844,13 +4184,13 @@ class MIRAGEEvaluationPipeline:
         if isinstance(raw_options, dict):
             options = {
                 str(k).strip().upper(): str(v).strip()
-                for k, v in raw_options.items()
+                for k, v in cast(dict[object, object], raw_options).items()
                 if str(v).strip()
             }
         elif isinstance(raw_options, list):
             options = {
                 chr(ord("A") + i): str(v).strip()
-                for i, v in enumerate(raw_options)
+                for i, v in enumerate(cast(list[object], raw_options))
                 if str(v).strip()
             }
         elif any(k in question_data for k in ["A", "B", "C", "D"]):
@@ -4191,9 +4531,11 @@ class MIRAGEEvaluationPipeline:
 
             parsed: object = ast.literal_eval(expected_answer)
             if isinstance(parsed, list):
-                for item in parsed:
+                for item in cast(list[object], parsed):
                     if isinstance(item, list):
-                        expected_items.extend([str(x).lower().strip() for x in item])
+                        expected_items.extend(
+                            [str(x).lower().strip() for x in cast(list[object], item)],
+                        )
                     else:
                         expected_items.append(str(item).lower().strip())
         except (ValueError, SyntaxError):
@@ -4534,7 +4876,7 @@ class MIRAGEEvaluationPipeline:
         self,
         dataset_name: str,
         config: EvaluationConfig | None = None,
-    ) -> EvaluationOutcome:
+    ) -> CompletedEvaluationOutcome | FailedEvaluationOutcome:
         """Run RAG comparison: Vanilla RAG vs KG-RAG using Neo4j database"""
         config = config or {
             "name": "default",
@@ -4598,7 +4940,7 @@ class MIRAGEEvaluationPipeline:
                 e,
             )
             return {"dataset": dataset_name, "error": str(e)}
-        subset_meta: SubsetPayload = self._subset_metadata(dataset_name)
+        subset_meta: ResolvedSubsetPayload = self._subset_metadata(dataset_name)
         corpus_profile: DatasetCorpusProfile = self._dataset_corpus_profile(
             dataset_name,
         )
@@ -4722,8 +5064,10 @@ class MIRAGEEvaluationPipeline:
             with _ckpt_path.open() as _f:
                 for _line_num, _line in enumerate(_f, start=1):
                     try:
-                        _entry: object = json.loads(_line)
-                        _entry = self._canonicalize_detail_row(_entry)
+                        _raw_entry: JSONValue = json.loads(_line)
+                        _entry: dict[str, object] = self._canonicalize_detail_row(
+                            _raw_entry,
+                        )
                         _qid: str = str(_entry.get("question_id", ""))
                         if _qid and _qid not in _seen_ids:
                             results["details"].append(_entry)
@@ -5046,7 +5390,7 @@ class MIRAGEEvaluationPipeline:
                 # using the same dataset-scoped KG filter as the main responses.
                 if vanilla_generation_failed:
                     vanilla_samples: list[str] = []
-                    vanilla_chunk_texts: list[str] = (
+                    vanilla_chunk_texts: list[RetrievedChunkText] = (
                         self._extract_chunk_texts_from_result(vanilla_result)
                     )
                     vanilla_retrieval_overlap: float = 0.0
@@ -5086,8 +5430,10 @@ class MIRAGEEvaluationPipeline:
 
                 if kg_generation_failed:
                     kg_samples: list[str] = []
-                    kg_chunk_texts: list[str] = self._extract_chunk_texts_from_result(
-                        kg_result,
+                    kg_chunk_texts: list[RetrievedChunkText] = (
+                        self._extract_chunk_texts_from_result(
+                            kg_result,
+                        )
                     )
                     kg_retrieval_overlap: float = 0.0
                     kg_graph_state_traces: list[GraphStateSummary] = []
@@ -5335,11 +5681,11 @@ class MIRAGEEvaluationPipeline:
                 _kg_seu_answer: str = (
                     kg_response if not kg_generation_failed else expected_answer
                 )
-                _vanilla_seu_chunks: list[str] = (
+                _vanilla_seu_chunks: list[RetrievedChunkText] = (
                     vanilla_chunk_texts
                     or self._extract_chunk_texts_from_result(vanilla_result)
                 )
-                _kg_seu_chunks: list[str] = (
+                _kg_seu_chunks: list[RetrievedChunkText] = (
                     kg_chunk_texts or self._extract_chunk_texts_from_result(kg_result)
                 )
                 vanilla_seu: float = (
@@ -5885,7 +6231,9 @@ class MIRAGEEvaluationPipeline:
                 f"artifacts/{dataset_name}/{config_name}/local_details_file"
             ] = question_details_path
 
-        return results
+        # Finalization populated every required completion field; early failures
+        # returned above without promoting their sparse result to this schema.
+        return cast(CompletedEvaluationOutcome, results)
 
     def run_pipeline(
         self,
@@ -6110,7 +6458,10 @@ class MIRAGEEvaluationPipeline:
                     continue
                 dataset_config_results.append(dataset_results)
 
-                config_name: str = dataset_results.get("config", {}).get(
+                config_name: str = dataset_results.get(
+                    "config",
+                    cast(EmptyRecord, {}),
+                ).get(
                     "name",
                     "default",
                 )
@@ -6216,7 +6567,10 @@ class MIRAGEEvaluationPipeline:
                             # AUROC / AUREC per metric
                             **{
                                 f"auroc/{m}/{dataset_name}/{config_name}/vanilla": dataset_results.get(
-                                    f"vanilla_avg_{m}_auroc",
+                                    cast(
+                                        RankingTelemetryField,
+                                        f"vanilla_avg_{m}_auroc",
+                                    ),
                                     float("nan"),
                                 )
                                 for m in [
@@ -6231,7 +6585,10 @@ class MIRAGEEvaluationPipeline:
                             },
                             **{
                                 f"auroc/{m}/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
-                                    f"kg_avg_{m}_auroc",
+                                    cast(
+                                        RankingTelemetryField,
+                                        f"kg_avg_{m}_auroc",
+                                    ),
                                     float("nan"),
                                 )
                                 for m in [
@@ -6246,7 +6603,10 @@ class MIRAGEEvaluationPipeline:
                             },
                             **{
                                 f"aurec/{m}/{dataset_name}/{config_name}/vanilla": dataset_results.get(
-                                    f"vanilla_avg_{m}_aurec",
+                                    cast(
+                                        RankingTelemetryField,
+                                        f"vanilla_avg_{m}_aurec",
+                                    ),
                                     float("nan"),
                                 )
                                 for m in [
@@ -6261,7 +6621,10 @@ class MIRAGEEvaluationPipeline:
                             },
                             **{
                                 f"aurec/{m}/{dataset_name}/{config_name}/kg_rag": dataset_results.get(
-                                    f"kg_avg_{m}_aurec",
+                                    cast(
+                                        RankingTelemetryField,
+                                        f"kg_avg_{m}_aurec",
+                                    ),
                                     float("nan"),
                                 )
                                 for m in [
@@ -6328,7 +6691,7 @@ class MIRAGEEvaluationPipeline:
                 cfg_entry: ConfigSummary = {
                     "dataset": dataset_name,
                     "track": track,
-                    "config": cfg_res.get("config", {}),
+                    "config": cfg_res.get("config", cast(EmptyRecord, {})),
                     "subset_seed": cfg_res.get("subset_seed"),
                     "selection_file": cfg_res.get("selection_file", ""),
                     "selection_key": cfg_res.get("selection_key", ""),

@@ -4,15 +4,17 @@ import logging
 import math
 import os
 import re
-from collections.abc import Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, Never, Protocol, TypeAlias, TypeGuard
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Never, Protocol, TypeAlias, TypeGuard, TypeVar, cast
 
 from langchain_neo4j import Neo4jGraph
 
 from ontographrag.kg.builders._creator_shared import (
+    DecodedJSONValue,
     RestorationRecord,
     RetrievalSubchunk,
 )
+from shared.model_contracts import GenerationProvider
 
 if TYPE_CHECKING:
     from langchain_core.embeddings import Embeddings
@@ -25,16 +27,19 @@ if TYPE_CHECKING:
         FragmentationBridge,
         GraphChunkInput,
         GraphEnrichment,
+        GraphProperties,
         GraphSummary,
         KnowledgeGraphInput,
+        MetadataReadyKnowledgeGraphInput,
+        MutableKnowledgeGraphInput,
         RelationshipProvenance,
         RelationshipRecord,
     )
-    from ontographrag.providers.model_providers import ModelProvider
 
 
 Neo4jPrimitive: TypeAlias = str | int | float | bool
 Neo4jStoredValue: TypeAlias = Neo4jPrimitive | list[Neo4jPrimitive]
+PropertyKey = TypeVar("PropertyKey")
 
 
 class QueryGraph(Protocol):
@@ -101,7 +106,7 @@ class StorageMixin:
             target_name: str,
             relationship_type: str,
             verification_chunks: "Sequence[GraphChunkInput]",
-            llm: "ModelProvider | None",
+            llm: "GenerationProvider | None",
             model_name: str,
         ) -> bool | None: ...
 
@@ -127,7 +132,7 @@ class StorageMixin:
             target_aliases: list[str] | None = None,
         ) -> float: ...
 
-    def _create_neo4j_connection(self) -> Neo4jGraph:
+    def _create_neo4j_connection(self) -> QueryGraph:
         """Create Neo4j graph connection"""
         # Ensure password is not None - use environment variable as fallback
         password: str | None = self.neo4j_password
@@ -181,7 +186,7 @@ class StorageMixin:
         if cls._is_neo4j_primitive(value):
             return value
         if isinstance(value, (list, tuple, set)):
-            sequence: list[object] = list(value)
+            sequence: list[object] = list(cast(Iterable[object], value))
             if cls._all_neo4j_primitives(sequence):
                 return list(sequence)
             return json.dumps(sequence, ensure_ascii=False, default=str)
@@ -192,7 +197,7 @@ class StorageMixin:
     @classmethod
     def _sanitize_neo4j_properties(
         cls,
-        properties: Mapping[str, object] | None,
+        properties: Mapping[PropertyKey, object] | None,
     ) -> dict[str, Neo4jStoredValue]:
         """Drop null/NaN values and coerce the rest to Neo4j-safe property values."""
         if not isinstance(properties, dict):
@@ -441,7 +446,7 @@ class StorageMixin:
         file_name: str,
         doc_metadata: "Mapping[str, object] | None" = None,
         doc_hash: str | None = None,
-        llm: "ModelProvider | None" = None,
+        llm: "GenerationProvider | None" = None,
         model_name: str = "openai/gpt-oss-120b:free",
     ) -> bool:
         """
@@ -450,7 +455,7 @@ class StorageMixin:
         try:
             # Try to create Neo4j connection - handle APOC issues gracefully
             try:
-                graph: Neo4jGraph = self._create_neo4j_connection()
+                graph: QueryGraph = self._create_neo4j_connection()
             except Exception as conn_error:
                 if "APOC" in str(conn_error) or "apoc" in str(conn_error):
                     logging.warning(
@@ -732,8 +737,11 @@ class StorageMixin:
                 node["content_hash"] = content_hash
 
             for node in kg["nodes"]:
-                properties: dict[str, object] = node.get("properties", {})
-                entity_type: str = node[
+                properties: GraphProperties | dict[str, object] = node.get(
+                    "properties",
+                    {},
+                )
+                entity_type: DecodedJSONValue = node[
                     "label"
                 ]  # This is the ontology class (Disease, Treatment, etc.)
                 # Sanitize entity type for Cypher label compatibility and validate against whitelist
@@ -773,7 +781,7 @@ class StorageMixin:
                 # the probe vector is also a short entity-mention string.  Including
                 # description here shifts the embedding into description-semantic space,
                 # making name-level similarity unreliable (HippoRAG embeds names only).
-                entity_embedding: list[float] | None = node.get("embedding")
+                entity_embedding: list[float] | DecodedJSONValue = node.get("embedding")
                 if entity_embedding is None:
                     entity_text: object = properties.get("name", node["id"])
                     try:
@@ -889,26 +897,26 @@ class StorageMixin:
                     # 'id' causes duplicate key issues; 'negated'/'condition'/'quantitative'
                     # are promoted to top-level properties_with_confidence below.
                     _exclude: set[str] = {"id", "negated", "condition", "quantitative"}
-                    properties_filtered: dict[str, object] = {
+                    properties_filtered: GraphProperties = {
                         k: v
                         for k, v in rel.get("properties", {}).items()
                         if k not in _exclude
                     }
-                    original_properties_filtered: dict[str, object] = dict(
+                    original_properties_filtered: GraphProperties = dict(
                         properties_filtered,
                     )
 
                     # Resolve UUIDs to entity names for evidence-grounded confidence check.
                     # Prefer explicit source_name/target_name properties; fall back to name lookup.
-                    _src_id: str = rel.get("from") or rel.get("source", "")
-                    _tgt_id: str = rel.get("to") or rel.get("target", "")
+                    _src_id: DecodedJSONValue = rel.get("from") or rel.get("source", "")
+                    _tgt_id: DecodedJSONValue = rel.get("to") or rel.get("target", "")
                     _src_node: EntityNode | dict[str, Never] = next(
                         (n for n in kg.get("nodes", []) if n.get("id") == _src_id),
-                        {},
+                        dict[str, Never](),
                     )
                     _tgt_node: EntityNode | dict[str, Never] = next(
                         (n for n in kg.get("nodes", []) if n.get("id") == _tgt_id),
-                        {},
+                        dict[str, Never](),
                     )
                     source_type: object = (
                         _src_node.get("label")
@@ -942,10 +950,16 @@ class StorageMixin:
                     # Use all known surface forms for the entity so canonical-name
                     # mismatches (e.g. "TBK1 kinase" → "TBK1") don't falsely score 0.
                     _src_all_names: object = (
-                        _src_node.get("properties", {}).get("all_names") or []
+                        _src_node.get("properties", dict[str, object]()).get(
+                            "all_names",
+                        )
+                        or []
                     )
                     _tgt_all_names: object = (
-                        _tgt_node.get("properties", {}).get("all_names") or []
+                        _tgt_node.get("properties", dict[str, object]()).get(
+                            "all_names",
+                        )
+                        or []
                     )
                     source_name: object = (
                         rel.get("properties", {}).get("source_name")
@@ -961,7 +975,7 @@ class StorageMixin:
                         "chunks",
                         [],
                     )
-                    provenance_positions: list[int] = (
+                    provenance_positions: list[int] | DecodedJSONValue = (
                         rel.get("provenance_positions") or []
                     )
                     if provenance_positions:
@@ -1086,7 +1100,7 @@ class StorageMixin:
                         rel.get("properties", {}).get("quantitative") or None
                     )
 
-                    properties_with_confidence: dict[str, object] = {
+                    properties_with_confidence: GraphProperties = {
                         **properties_filtered,
                         "confidence": triple_confidence,
                         "evidence_scope": evidence_scope,
@@ -1178,7 +1192,10 @@ class StorageMixin:
                                     "q_value": self._coerce_neo4j_property_value(
                                         q_value,
                                     ),
-                                    "kg_name": kg.get("metadata", {}).get(
+                                    "kg_name": kg.get(
+                                        "metadata",
+                                        dict[str, Never](),
+                                    ).get(
                                         "kg_name",
                                         "",
                                     ),
@@ -1216,22 +1233,32 @@ class StorageMixin:
                 if attempted_relationships
                 else 1.0
             )
-            kg.setdefault("metadata", {})
-            kg["metadata"]["stored_relationships"] = relationships_stored
-            kg["metadata"]["relationship_store_failures"] = relationship_store_failures
-            kg["metadata"]["relationships_skipped_low_confidence"] = (
+            # setdefault inserts only absent metadata; existing generated records
+            # keep their required fields. The readonly view records key presence.
+            cast("MutableKnowledgeGraphInput", kg).setdefault("metadata", {})
+            metadata_ready_kg: MetadataReadyKnowledgeGraphInput = cast(
+                "MetadataReadyKnowledgeGraphInput",
+                kg,
+            )
+            metadata_ready_kg["metadata"]["stored_relationships"] = relationships_stored
+            metadata_ready_kg["metadata"]["relationship_store_failures"] = (
+                relationship_store_failures
+            )
+            metadata_ready_kg["metadata"]["relationships_skipped_low_confidence"] = (
                 relationships_skipped_low_confidence
             )
-            kg["metadata"]["relationships_skipped_schema_mismatch"] = (
+            metadata_ready_kg["metadata"]["relationships_skipped_schema_mismatch"] = (
                 relationships_skipped_schema_mismatch
             )
-            kg["metadata"]["relationships_reverified_kept"] = (
+            metadata_ready_kg["metadata"]["relationships_reverified_kept"] = (
                 relationships_reverified_kept
             )
-            kg["metadata"]["relationships_reverified_rejected"] = (
+            metadata_ready_kg["metadata"]["relationships_reverified_rejected"] = (
                 relationships_reverified_rejected
             )
-            kg["metadata"]["relationship_store_ratio"] = relationship_store_ratio
+            metadata_ready_kg["metadata"]["relationship_store_ratio"] = (
+                relationship_store_ratio
+            )
 
             graph.query(
                 """
@@ -1288,10 +1315,12 @@ class StorageMixin:
                     relationship_failure_ratio,
                     should_fail_build,
                 )
-                kg["metadata"]["relationship_store_failure_ratio"] = (
+                metadata_ready_kg["metadata"]["relationship_store_failure_ratio"] = (
                     relationship_failure_ratio
                 )
-                kg["metadata"]["relationship_store_degraded"] = not should_fail_build
+                metadata_ready_kg["metadata"][
+                    "relationship_store_degraded"
+                ] = not should_fail_build
                 if should_fail_build:
                     return False
 
@@ -1393,18 +1422,28 @@ class StorageMixin:
                 graph,
                 kg_name=kg_name_value,
                 file_name=file_name,
-                enrichment=kg.get("metadata", {}).get("graph_enrichment") or {},
+                enrichment=kg.get("metadata", dict[str, Never]()).get(
+                    "graph_enrichment",
+                )
+                or {},
                 chunks=kg.get("chunks", []),
             )
             if enrichment_stats:
-                kg["metadata"]["component_summary_count"] = enrichment_stats.get(
-                    "component_summaries",
+                metadata_ready_kg["metadata"]["component_summary_count"] = (
+                    enrichment_stats.get(
+                        "component_summaries",
+                        0,
+                    )
+                )
+                metadata_ready_kg["metadata"]["claim_count"] = enrichment_stats.get(
+                    "claims",
                     0,
                 )
-                kg["metadata"]["claim_count"] = enrichment_stats.get("claims", 0)
-                kg["metadata"]["fragmentation_bridge_count"] = enrichment_stats.get(
-                    "fragmentation_bridges",
-                    0,
+                metadata_ready_kg["metadata"]["fragmentation_bridge_count"] = (
+                    enrichment_stats.get(
+                        "fragmentation_bridges",
+                        0,
+                    )
                 )
                 graph.query(
                     """

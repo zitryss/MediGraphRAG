@@ -16,6 +16,7 @@ from ontographrag.kg.builders.enhanced_kg_creator import (
     SocialHistory,
     UnifiedOntologyGuidedKGCreator,
 )
+from tests.conftest import required_text_field
 
 if TYPE_CHECKING:
     from ontographrag.kg.builders.enhanced_kg_creator import BulkProcessingResult
@@ -137,9 +138,13 @@ def test_patient_graph_generation_chunk_limit(
         max_chunks=1,
     )
     assert len(result["chunks"]) == 1
+    assert "metadata" in result
+    assert "file_name" in result["metadata"]
     assert result["metadata"]["file_name"] == "synthetic.txt"
+    assert "metadata" in result
+    assert "total_entities" in result["metadata"]
     assert result["metadata"]["total_entities"] == len(result["nodes"])
-    assert any(n["type"] == "Patient" for n in result["nodes"])
+    assert any(required_text_field(n, "type") == "Patient" for n in result["nodes"])
 
 
 def test_bulk_documents_partial_failure_and_batch_accounting(
@@ -164,6 +169,8 @@ def test_bulk_documents_partial_failure_and_batch_accounting(
         batch_size=2,
         kg_name="unit",
     )
+    assert "metadata" in result
+    assert "total_documents_processed" in result["metadata"]
     assert result["metadata"]["total_documents_processed"] == 3
     assert result["metadata"]["total_knowledge_graphs"] == 2
     assert result["metadata"]["bulk_processing_info"]["total_batches"] == 2

@@ -9,7 +9,12 @@ import json
 import os
 import sys
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Protocol, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Protocol,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -18,6 +23,10 @@ from typing_extensions import ReadOnly
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
 
 
 class OptionalPlotting(Protocol):
@@ -112,9 +121,9 @@ OUT_JSON: str = os.path.join(
 FIG_DIR: str = os.path.join(REPO, "paper", "figures")
 
 
-def _iter_result_details() -> Iterator[tuple[str, str, list[DiversityDetail]]]:
+def _iter_result_details() -> "Iterator[tuple[str, str, JSONValue]]":
     for slug, manifest_key in KEY.items():
-        doc: DiversityDocument = json.load(
+        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"])),
         )
         for cfg in doc["config_results"]:
@@ -122,7 +131,7 @@ def _iter_result_details() -> Iterator[tuple[str, str, list[DiversityDetail]]]:
                 continue
             yield slug, "adaptive", cfg["details"]
     for slug, rel_path in STRICT_RUNS.items():
-        doc = json.load(open(os.path.join(REPO, rel_path)))
+        doc = cast("DefaultJSONCodec", json).load(open(os.path.join(REPO, rel_path)))
         yield slug, "strict", doc["config_results"][0]["details"]
 
 
@@ -148,7 +157,7 @@ def collect_rows() -> list[DiversityRow]:
             diversity: DiversityProjection = _row_diversity(row)
             if not diversity:
                 continue
-            output_entropy: float | None = row.get("kg_discrete_semantic_entropy")
+            output_entropy: "JSONValue" = row.get("kg_discrete_semantic_entropy")
             if output_entropy is None:
                 continue
             rows.append(

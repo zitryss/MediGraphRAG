@@ -15,7 +15,14 @@ import json
 import os
 import sys
 from collections.abc import Sequence
-from typing import NotRequired, TypedDict, TypeGuard
+from typing import (
+    TYPE_CHECKING,
+    NotRequired,
+    TypeAlias,
+    TypedDict,
+    TypeGuard,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -25,6 +32,9 @@ from typing_extensions import ReadOnly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v2_paper_numbers import percentile_ranks
 from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
 
 
 class ManifestEntry(TypedDict):
@@ -58,20 +68,25 @@ class TrustDocument(TypedDict):
     config_results: list[TrustConfig]
 
 
+NonNullJSONValue: TypeAlias = (
+    "bool | int | float | str | list[JSONValue] | dict[str, JSONValue]"
+)
+
+
 class TrustRow(TypedDict):
     qid: str
     correct: bool
-    dse: float | None
-    sd: float | None
-    seu: float | None
+    dse: "JSONValue"
+    sd: "JSONValue"
+    seu: "JSONValue"
 
 
 class CompleteTrustRow(TypedDict):
     qid: str
     correct: bool
-    dse: float | None
-    sd: float
-    seu: float
+    dse: "JSONValue"
+    sd: "NonNullJSONValue"
+    seu: "NonNullJSONValue"
 
 
 def has_complete_metrics(row: TrustRow) -> TypeGuard[CompleteTrustRow]:
@@ -80,8 +95,8 @@ def has_complete_metrics(row: TrustRow) -> TypeGuard[CompleteTrustRow]:
 
 class SilentRateRow(TypedDict):
     correct: ReadOnly[object]
-    dse: ReadOnly[float | None]
-    sd: ReadOnly[float | None]
+    dse: ReadOnly["JSONValue"]
+    sd: ReadOnly["JSONValue"]
 
 
 class SilentSummary(TypedDict):
@@ -110,7 +125,7 @@ class TrustReport(TypedDict):
 
 
 REPO: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MANIFEST: dict[str, ManifestEntry] = json.load(
+MANIFEST: "JSONValue" = cast("DefaultJSONCodec", json).load(
     open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
 )
 KEY: dict[str, str] = {
@@ -136,15 +151,19 @@ RNG: np.random.Generator = np.random.default_rng(42)
 
 def rows_for(slug: str, policy: str) -> list[TrustRow]:
     """policy in {kg, vanilla, strict}; returns list of per-question dicts."""
-    doc: TrustDocument
-    details: list[TrustDetail]
+    doc: "JSONValue"
+    details: "JSONValue"
     prefix: str
     if policy == "strict":
-        doc = json.load(open(os.path.join(REPO, STRICT_RUNS[slug])))
+        doc = cast("DefaultJSONCodec", json).load(
+            open(os.path.join(REPO, STRICT_RUNS[slug])),
+        )
         details = doc["config_results"][0]["details"]
         prefix = "kg"
     else:
-        doc = json.load(open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])))
+        doc = cast("DefaultJSONCodec", json).load(
+            open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])),
+        )
         cfg_prefix: str = "kg_entity_first" if policy == "kg" else "dense_floor"
         details = next(
             c

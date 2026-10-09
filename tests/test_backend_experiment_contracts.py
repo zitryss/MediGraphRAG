@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Unpack
+from typing import TYPE_CHECKING, Required, Unpack
 from unittest.mock import Mock
 
 import pytest
@@ -35,8 +35,8 @@ class CollectCall(TypedDict, total=False):
     base_result: GenerationResponse
     similarity_threshold: float
     max_chunks: int
-    kg_name: str
-    question_id: str
+    kg_name: Required[str]
+    question_id: Required[str]
     retrieval_temperature: float
     retrieval_shortlist_factor: int
     return_graph_state_traces: bool
@@ -61,7 +61,7 @@ class IndexEntry(TypedDict):
 
 
 class EvaluationDetail(TypedDict, total=False):
-    question_id: str
+    question_id: Required[str]
     question: str
     internal_not_for_export: str
     vanilla_correct: bool
@@ -76,11 +76,11 @@ class EvaluationDetail(TypedDict, total=False):
 
 
 class EvaluationOutcome(TypedDict, total=False):
-    config: EvaluationConfig
-    vanilla_accuracy: float
-    kg_accuracy: float
-    num_questions_logged: int
-    details: list[EvaluationDetail]
+    config: Required[EvaluationConfig]
+    vanilla_accuracy: Required[float]
+    kg_accuracy: Required[float]
+    num_questions_logged: Required[int]
+    details: Required[list[EvaluationDetail]]
     error: str
     question_details_file: str
 
@@ -141,6 +141,7 @@ def test_real_pipeline_constructor_and_distinct_judge(
     assert not pipeline.compute_metrics
     assert not pipeline.multi_temperature
     assert pipeline.judge_llm_provider is pipeline._base_llm_provider
+    assert "max_chunks" in pipeline.eval_configs[0]
     assert pipeline.eval_configs[0]["max_chunks"] == 10
     provider: Mock = Mock()
     monkeypatch.setattr(experiment_module, "get_model_provider", provider)
@@ -563,15 +564,19 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
         config=config,
     )
     if mode == "missing_selection":
+        assert "error" in result
         assert result["error"] == "selection missing"
         kg.generate_response.assert_not_called()
         return
+    assert "details" in result
     if mode in {"metrics", "metrics_failed"}:
         detail: FreshDetail | CheckpointDetail = result["details"][0]
+        assert "kg_graph_path_support" in detail
         assert detail["kg_graph_path_support"] == (
             0.5 if mode == "metrics_failed" else 0.25
         )
         if mode == "metrics":
+            assert "kg_semantic_entropy" in detail
             assert detail["kg_semantic_entropy"] == 0.2
             assert (
                 detailed_mocks["compute_graph_path_support_detailed"].call_args.kwargs[
@@ -581,10 +586,14 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
             )
         else:
             detailed_mocks["compute_graph_path_support_detailed"].assert_not_called()
+    assert "num_questions_logged" in result
     assert result["num_questions_logged"] == 1
+    assert "kg_accuracy" in result
     assert result["kg_accuracy"] == (
         0 if mode in {"generation_failed", "metrics_failed"} else 1
     )
+    assert "details" in result
+    assert "kg_generation_failed" in result["details"][0]
     assert result["details"][0]["kg_generation_failed"] is (
         mode in {"generation_failed", "metrics_failed"}
     )
@@ -601,6 +610,7 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
         assert len(remaining) == 1 and ".pre_rebuild_" in remaining[0].name
     else:
         assert not remaining
+    assert "question_details_file" in result
     saved: QuestionArtifact = json.loads(
         Path(result["question_details_file"]).read_text(),
     )
@@ -608,4 +618,6 @@ def test_evaluation_loop_scopes_retrieval_and_serializes_answers(
     assert saved["questions"][0]["question_id"] == "q1"
     if mode == "kg_only":
         vanilla.generate_response.assert_not_called()
+        assert "details" in result
+        assert "vanilla_system_skipped" in result["details"][0]
         assert result["details"][0]["vanilla_system_skipped"]

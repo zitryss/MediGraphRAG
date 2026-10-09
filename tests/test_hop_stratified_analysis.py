@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from experiments import hop_stratified_analysis as hop
+from experiments.dataset_adapters import JSONValue
 
 
 def test_load_details_raises_on_ambiguous_multi_config(
@@ -39,7 +40,7 @@ def test_load_details_prefers_default_config(
     path: Path = tmp_path / "results.json"
     path.write_text(json.dumps(payload))
 
-    details: list[hop.HopDetail] = hop.load_details(str(path))
+    details: JSONValue = hop.load_details(str(path))
 
     assert details == [{"id": "right"}]
 

@@ -18,6 +18,7 @@ import json
 import os
 import sys
 from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -38,6 +39,10 @@ if TYPE_CHECKING:
     from matplotlib.colors import Colormap
     from matplotlib.container import BarContainer
     from matplotlib.figure import Figure
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
 
 MetricKey: TypeAlias = Literal[
     "semantic_entropy",
@@ -247,8 +252,8 @@ PREFERRED_CONFIG_NAME: str | None = os.environ.get("MIRAGE_CONFIG_NAME")
 # ── Data loading ───────────────────────────────────────────────────────────────
 
 
-def _select_config_result(path: str, results_doc: HopDocument) -> HopConfig:
-    config_results: list[HopConfig] = results_doc.get("config_results", [])
+def _select_config_result(path: str, results_doc: "JSONValue") -> "JSONValue":
+    config_results: "JSONValue" = results_doc.get("config_results", [])
     if not config_results:
         raise ValueError(f"{path} contains no config_results")
     if len(config_results) == 1:
@@ -272,13 +277,13 @@ def _select_config_result(path: str, results_doc: HopDocument) -> HopConfig:
     )
 
 
-def load_details(path: str) -> list[HopDetail]:
+def load_details(path: str) -> "JSONValue":
     with open(path) as f:
-        results_doc: HopDocument = json.load(f)
+        results_doc: "JSONValue" = cast("DefaultJSONCodec", json).load(f)
     return _select_config_result(path, results_doc).get("details", [])
 
 
-def hop_label(hop: int | None, ds_name: str) -> str:
+def hop_label(hop: object, ds_name: str) -> str:
     """Canonical hop label for a record."""
     if hop is None:
         if ds_name in SINGLE_HOP_DATASETS:
@@ -333,14 +338,14 @@ def baseline_error_rate(y_true: NDArray[np.float64 | np.int64]) -> float:
 
 
 def compute_stats(
-    details: list[HopDetail],
+    details: Sequence[HopDetail | Mapping[str, object]],
     hop_label_: str,
     ds_name: str,
     ppv_frac: float = 0.20,
     system_prefix: str = SYSTEM_PREFIX,
 ) -> HopStats:
     """For a slice of details (same hop bucket), compute AUROC and PPV for each metric."""
-    clean_details: list[HopDetail] = [
+    clean_details: list[HopDetail | Mapping[str, object]] = [
         d
         for d in details
         if not bool(d.get(f"{system_prefix}_generation_failed", False))
@@ -357,7 +362,7 @@ def compute_stats(
     }
 
     for key, label, family, higher_is_certain in METRICS:
-        metric_details: list[HopDetail] = clean_details
+        metric_details: list[HopDetail | Mapping[str, object]] = clean_details
         if key == "graph_path_support":
             metric_details = [
                 d
@@ -399,9 +404,13 @@ def compute_stats(
                 "family": family,
             }
             continue
+        uncertainty_fn: Callable[[float], float] = lambda s: to_uncertainty(
+            s,
+            higher_is_certain,
+        )
         unc: NDArray[np.float64] = np.where(
             valid,
-            np.vectorize(lambda s: to_uncertainty(s, higher_is_certain))(raw),
+            np.vectorize(uncertainty_fn)(raw),
             float("nan"),
         )
         yt: NDArray[np.float64] = np.array(
@@ -958,7 +967,7 @@ def plot_per_metric_detail(
 
 
 def run_hop_stratified_analysis(
-    details_by_dataset: dict[str, list[HopDetail]],
+    details_by_dataset: Mapping[str, Sequence[HopDetail | Mapping[str, object]]],
     output_dir: str = "paper/figures",
     system_prefix: str = SYSTEM_PREFIX,
     figure_suffix: str = "",
@@ -986,9 +995,9 @@ def run_hop_stratified_analysis(
 
     for ds_name, details in details_by_dataset.items():
         # Group by hop bucket
-        buckets: dict[str, list[HopDetail]] = defaultdict(list)
+        buckets: dict[str, list[HopDetail | Mapping[str, object]]] = defaultdict(list)
         for d in details:
-            hc: int | None = d.get("hop_count")
+            hc: object = d.get("hop_count")
             hl: str = hop_label(hc, ds_name)
             if hl != "unknown":
                 buckets[hl].append(d)

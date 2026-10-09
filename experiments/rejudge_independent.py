@@ -13,7 +13,13 @@ import sys
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    NotRequired,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -36,7 +42,11 @@ from experiments.trust_analysis import (
     rows_for,
 )
 
-JudgedAnswer: TypeAlias = tuple[str, str, str, str, bool]
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
+
+JudgedAnswer: TypeAlias = "tuple[str, JSONValue, JSONValue, JSONValue, bool]"
 
 
 class JudgeDetail(TypedDict):
@@ -103,9 +113,9 @@ def get_client() -> "OpenAI":
 
 def judge_one(
     client: "OpenAI",
-    q: str,
-    expected: str,
-    response: str,
+    q: "JSONValue",
+    expected: "JSONValue",
+    response: "JSONValue",
     retries: int = 3,
 ) -> bool | None:
     for attempt in range(retries):
@@ -139,10 +149,10 @@ def judge_one(
 def load_run(policy: str) -> list[JudgedAnswer]:
     """Return rows with question/expected/response/original label for RealMedQA."""
     if policy == "strict":
-        doc: JudgeDocument = json.load(
+        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, STRICT_RUNS["realmedqa"])),
         )
-        details: list[JudgeDetail] = doc["config_results"][0]["details"]
+        details: "JSONValue" = doc["config_results"][0]["details"]
         out: list[JudgedAnswer] = [
             (
                 str(r["question_id"]),
@@ -155,8 +165,10 @@ def load_run(policy: str) -> list[JudgedAnswer]:
             if not r.get("kg_generation_failed")
         ]
         return out
-    doc = json.load(open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"])))
-    cfg: JudgeConfig = next(
+    doc = cast("DefaultJSONCodec", json).load(
+        open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"])),
+    )
+    cfg: "JSONValue" = next(
         c
         for c in doc["config_results"]
         if c["config"]["name"].startswith("kg_entity_first")
@@ -216,9 +228,13 @@ def main() -> None:
         rows: list[JudgedAnswer] = load_run("strict" if policy == "strict" else "kg")
         print(f"[{policy}] judging {len(rows)} answers with {JUDGE_MODEL} ...")
         with ThreadPoolExecutor(max_workers=8) as ex:
-            verdicts: list[bool | None] = list(
-                ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows),
+            judge_row: Callable[[JudgedAnswer], bool | None] = lambda t: judge_one(
+                client,
+                t[1],
+                t[2],
+                t[3],
             )
+            verdicts: list[bool | None] = list(ex.map(judge_row, rows))
         ok: list[tuple[JudgedAnswer, bool]] = [
             (r, v) for r, v in zip(rows, verdicts) if v is not None
         ]

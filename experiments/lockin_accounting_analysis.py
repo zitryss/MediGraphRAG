@@ -13,12 +13,22 @@ import os
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from typing import NotRequired, TypedDict, TypeGuard
+from typing import (
+    TYPE_CHECKING,
+    NotRequired,
+    TypedDict,
+    TypeGuard,
+    cast,
+)
 
 import numpy as np
+from typing_extensions import ReadOnly
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v3_depth_matched import scores_for as gps_scores_for
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
 
 
 class ManifestEntry(TypedDict):
@@ -57,16 +67,39 @@ class AccountingDocument(TypedDict):
 
 
 class AccountingRow(TypedDict, total=False):
-    qid: str
-    slug: str
-    policy: str
-    correct: bool
-    dse: float | None
-    sd: float | None
-    seu: float | None
-    gps: float | None
-    route: str
-    route_reason: str
+    """Partial read projection for metric-only and route-only helpers."""
+
+    qid: ReadOnly[str]
+    slug: ReadOnly[str]
+    policy: ReadOnly[str]
+    correct: ReadOnly[bool]
+    dse: ReadOnly[JSONValue]
+    sd: ReadOnly[JSONValue]
+    seu: ReadOnly[JSONValue]
+    gps: ReadOnly[float | None]
+    route: ReadOnly[str]
+    route_reason: ReadOnly[str]
+
+
+class PolicyAccountingRow(AccountingRow):
+    policy: ReadOnly[str]
+
+
+class CorrectAccountingRow(PolicyAccountingRow):
+    correct: ReadOnly[bool]
+
+
+class ProducedAccountingRow(CorrectAccountingRow):
+    """Every row appended by rows_for carries these fields, even null metrics."""
+
+    qid: ReadOnly[str]
+    slug: ReadOnly[str]
+    dse: ReadOnly[JSONValue]
+    sd: ReadOnly[JSONValue]
+    seu: ReadOnly[JSONValue]
+    gps: ReadOnly[float | None]
+    route: ReadOnly[str]
+    route_reason: ReadOnly[str]
 
 
 class AccountingSummary(TypedDict):
@@ -104,7 +137,7 @@ class AccountingReport(TypedDict):
 REPO: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_JSON: str = os.path.join(REPO, "results", "analyses", "lockin_accounting.json")
 OUT_TEX: str = os.path.join(REPO, "results", "analyses", "lockin_accounting_tables.tex")
-MANIFEST: dict[str, ManifestEntry] = json.load(
+MANIFEST: JSONValue = cast("DefaultJSONCodec", json).load(
     open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
 )
 
@@ -141,8 +174,8 @@ def finite(value: object) -> TypeGuard[int | float]:
 
 
 def is_silent(row: AccountingRow) -> bool:
-    dse: float | None
-    sd: float | None
+    dse: JSONValue
+    sd: JSONValue
     return (
         finite(dse := row.get("dse"))
         and abs(float(dse)) < 1e-9
@@ -160,7 +193,7 @@ def gps_cache(slug: str, policy: str, side: str) -> dict[str, float | None]:
         return {}
 
 
-def rows_for(slug: str, policy: str) -> list[AccountingRow]:
+def rows_for(slug: str, policy: str) -> list[ProducedAccountingRow]:
     if policy == "strict":
         path: str = os.path.join(REPO, STRICT_RUNS[slug])
         cfg_prefix: str = "kg_strict_entity_first"
@@ -170,14 +203,14 @@ def rows_for(slug: str, policy: str) -> list[AccountingRow]:
         cfg_prefix = "kg_entity_first" if policy == "kg" else "dense_floor"
         prefix = "kg" if policy == "kg" else "vanilla"
 
-    doc: AccountingDocument = json.load(open(path))
-    details: list[AccountingDetail] = next(
+    doc: JSONValue = cast("DefaultJSONCodec", json).load(open(path))
+    details: JSONValue = next(
         cfg["details"]
         for cfg in doc["config_results"]
         if cfg["config"]["name"].startswith(cfg_prefix)
     )
     gps: dict[str, float | None] = gps_cache(slug, policy, prefix)
-    out: list[AccountingRow] = []
+    out: list[ProducedAccountingRow] = []
     for r in details:
         if (
             r.get("kg_generation_failed")
@@ -239,11 +272,11 @@ def route_state(row: AccountingRow) -> str:
 
 
 def seu_flags(row: AccountingRow) -> bool:
-    seu: float | None
+    seu: JSONValue
     return finite(seu := row.get("seu")) and float(seu) > 0.5
 
 
-def gps_flags(row: AccountingRow) -> bool:
+def gps_flags(row: PolicyAccountingRow) -> bool:
     gps: float | None
     # For KG policies, GPS abstention is diagnostically meaningful; for dense it
     # is unavailable rather than graph evidence.
@@ -254,7 +287,7 @@ def gps_flags(row: AccountingRow) -> bool:
     )
 
 
-def silent_bucket(row: AccountingRow) -> str:
+def silent_bucket(row: CorrectAccountingRow) -> str:
     if row["correct"]:
         return "correct"
     if not is_silent(row):
@@ -273,18 +306,18 @@ def silent_bucket(row: AccountingRow) -> str:
     return "silent_all_families_calm"
 
 
-def account(rows: Iterable[AccountingRow]) -> AccountingSummary:
+def account(rows: Iterable[CorrectAccountingRow]) -> AccountingSummary:
     rows = list(rows)
-    wrong: list[AccountingRow] = [r for r in rows if not r["correct"]]
-    silent: list[AccountingRow] = [r for r in wrong if is_silent(r)]
+    wrong: list[CorrectAccountingRow] = [r for r in rows if not r["correct"]]
+    silent: list[CorrectAccountingRow] = [r for r in wrong if is_silent(r)]
     buckets: Counter[str] = Counter(silent_bucket(r) for r in rows)
-    route_known_silent: list[AccountingRow] = [
+    route_known_silent: list[CorrectAccountingRow] = [
         r for r in silent if route_state(r) != "unknown"
     ]
-    inspectable: list[AccountingRow] = [
+    inspectable: list[CorrectAccountingRow] = [
         r for r in silent if route_state(r) == "empty" or seu_flags(r) or gps_flags(r)
     ]
-    fully_calm: list[AccountingRow] = [
+    fully_calm: list[CorrectAccountingRow] = [
         r
         for r in silent
         if route_state(r) != "empty" and not seu_flags(r) and not gps_flags(r)
@@ -317,15 +350,19 @@ def account(rows: Iterable[AccountingRow]) -> AccountingSummary:
     }
 
 
-def transition_state(row: AccountingRow) -> str:
+def transition_state(row: CorrectAccountingRow) -> str:
     if row["correct"]:
         return "correct"
     return "wrong_silent" if is_silent(row) else "wrong_not_silent"
 
 
 def paired_migration(slug: str) -> MigrationSummary:
-    adaptive: dict[str, AccountingRow] = {r["qid"]: r for r in rows_for(slug, "kg")}
-    strict: dict[str, AccountingRow] = {r["qid"]: r for r in rows_for(slug, "strict")}
+    adaptive: dict[str, ProducedAccountingRow] = {
+        r["qid"]: r for r in rows_for(slug, "kg")
+    }
+    strict: dict[str, ProducedAccountingRow] = {
+        r["qid"]: r for r in rows_for(slug, "strict")
+    }
     shared: list[str] = sorted(set(adaptive) & set(strict))
     state: Counter[tuple[str, str]] = Counter()
     route: Counter[tuple[str, str]] = Counter()
@@ -420,12 +457,12 @@ def write_tex(out: AccountingReport) -> None:
 
 def main() -> None:
     per_run: dict[str, dict[str, AccountingSummary]] = {}
-    pooled_rows: dict[str, list[AccountingRow]] = defaultdict(list)
+    pooled_rows: dict[str, list[CorrectAccountingRow]] = defaultdict(list)
 
     for slug in KEY:
         per_run[slug] = {}
         for policy in ("vanilla", "kg") + (("strict",) if slug in STRICT_RUNS else ()):
-            rows: list[AccountingRow] = rows_for(slug, policy)
+            rows: list[ProducedAccountingRow] = rows_for(slug, policy)
             per_run[slug][policy] = account(rows)
             pooled_rows[policy].extend(rows)
 

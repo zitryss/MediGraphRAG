@@ -3,17 +3,21 @@ from typing import TYPE_CHECKING, NotRequired, Unpack
 
 from typing_extensions import TypedDict
 
+from tests.conftest import unused_model_provider
 from tests.offline_support import ExperimentModule
 
 if TYPE_CHECKING:
     from experiments.experiment import (
         MIRAGEEvaluationPipeline,
+        RetrievedChunkText,
         RoutingDistribution,
         SamplingResponse,
         StudyEvaluationConfig,
     )
 
 import pytest
+
+from tests.conftest import required_int_field, required_text_field
 
 
 class ScopeChunk(TypedDict):
@@ -192,7 +196,9 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool(
 ) -> None:
     benchmark: MIRAGEEvaluationPipeline = _make_benchmark(experiment_module)
     benchmark.entropy_samples = 2
-    benchmark.llm = object()
+    from ontographrag.providers.model_providers import LangChainRunnableAdapter
+
+    benchmark.llm = LangChainRunnableAdapter(unused_model_provider(), "unused")
 
     calls: list[SamplingCall] = []
 
@@ -202,6 +208,7 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool(
             **kwargs: Unpack[SamplingCall],
         ) -> "SamplingResponse":
             calls.append(kwargs)
+            assert "retrieval_sample_id" in kwargs
             sample_id: int = kwargs["retrieval_sample_id"]
             return {
                 "response": f"sample-response-{sample_id}",
@@ -213,7 +220,7 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool(
             }
 
     responses: list[str]
-    retrieved_chunk_texts: list[str]
+    retrieved_chunk_texts: list[RetrievedChunkText]
     overlap: float
     responses, retrieved_chunk_texts, overlap = benchmark._collect_sample_responses(
         FakeRAGSystem(),
@@ -229,8 +236,11 @@ def test_collect_sample_responses_preserves_question_scope_and_sampling_pool(
     assert responses == ["sample-response-0", "sample-response-1"]
     assert retrieved_chunk_texts == ["base chunk"]
     assert overlap == 0.0
-    assert [call["question_id"] for call in calls] == ["q_target", "q_target"]
-    assert [call["retrieval_sample_id"] for call in calls] == [0, 1]
+    assert [required_text_field(call, "question_id") for call in calls] == [
+        "q_target",
+        "q_target",
+    ]
+    assert [required_int_field(call, "retrieval_sample_id") for call in calls] == [0, 1]
 
 
 def test_retrieval_study_configs_do_not_override_embedding_profile(
@@ -291,10 +301,16 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
     benchmark.neo4j_user = "neo4j"
     benchmark.neo4j_password = "test"
     benchmark.embedding_provider = "sentence_transformers"
-    benchmark.kg_llm_provider = object()
+    from ontographrag.providers.model_providers import TemperatureLockedProvider
+
+    benchmark.kg_llm_provider = TemperatureLockedProvider(unused_model_provider())
     benchmark.llm_model = "gpt-4o-mini"
     benchmark.rebuild_kg = False
-    benchmark.DATASET_TRACKS = {"realmedqa": "biomedical_grounding"}
+    monkeypatch.setattr(
+        type(benchmark),
+        "DATASET_TRACKS",
+        {"realmedqa": "biomedical_grounding"},
+    )
     benchmark.DEFAULT_TRACK = "other"
 
     def prepare_contract(
@@ -345,20 +361,50 @@ def test_full_kg_builder_profile_enables_stronger_extraction(
     )
 
     assert benchmark._build_kg_for_dataset("realmedqa") is True
+    assert "kwargs" in seen
+    assert "enable_anchor_constrained_extraction" in seen["kwargs"]
     assert seen["kwargs"]["enable_anchor_constrained_extraction"] is True
+    assert "kwargs" in seen
+    assert "enable_self_reflection" in seen["kwargs"]
     assert seen["kwargs"]["enable_self_reflection"] is True
+    assert "kwargs" in seen
+    assert "enable_anchor_coverage_supplement" in seen["kwargs"]
     assert seen["kwargs"]["enable_anchor_coverage_supplement"] is True
+    assert "kwargs" in seen
+    assert "enable_cross_passage_relation_recovery" in seen["kwargs"]
     assert seen["kwargs"]["enable_cross_passage_relation_recovery"] is True
+    assert "kwargs" in seen
+    assert "self_consistency_n" in seen["kwargs"]
     assert seen["kwargs"]["self_consistency_n"] == 3
+    assert "kwargs" in seen
+    assert "few_shot_example_count" in seen["kwargs"]
     assert seen["kwargs"]["few_shot_example_count"] == 4
+    assert "kwargs" in seen
+    assert "enable_low_confidence_triple_reverification" in seen["kwargs"]
     assert seen["kwargs"]["enable_low_confidence_triple_reverification"] is True
+    assert "kwargs" in seen
+    assert "low_confidence_reverify_threshold" in seen["kwargs"]
     assert seen["kwargs"]["low_confidence_reverify_threshold"] == 0.55
+    assert "kwargs" in seen
+    assert "min_triple_confidence" in seen["kwargs"]
     assert seen["kwargs"]["min_triple_confidence"] == 0.2
+    assert "kwargs" in seen
+    assert "relationship_type_similarity_threshold" in seen["kwargs"]
     assert seen["kwargs"]["relationship_type_similarity_threshold"] == 0.7
+    assert "kwargs" in seen
+    assert "enable_umls_linking" in seen["kwargs"]
     assert seen["kwargs"]["enable_umls_linking"] is True
+    assert "kwargs" in seen
+    assert "enable_soft_entity_linking" in seen["kwargs"]
     assert seen["kwargs"]["enable_soft_entity_linking"] is True
+    assert "kwargs" in seen
+    assert "enable_fragmentation_repair" in seen["kwargs"]
     assert seen["kwargs"]["enable_fragmentation_repair"] is True
+    assert "kwargs" in seen
+    assert "enable_graph_summaries" in seen["kwargs"]
     assert seen["kwargs"]["enable_graph_summaries"] is True
+    assert "kwargs" in seen
+    assert "enable_claim_extraction" in seen["kwargs"]
     assert seen["kwargs"]["enable_claim_extraction"] is True
 
 
@@ -401,7 +447,9 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
     benchmark.neo4j_user = "neo4j"
     benchmark.neo4j_password = "test"
     benchmark.embedding_provider = "sentence_transformers"
-    benchmark.kg_llm_provider = object()
+    from ontographrag.providers.model_providers import TemperatureLockedProvider
+
+    benchmark.kg_llm_provider = TemperatureLockedProvider(unused_model_provider())
     benchmark.llm_model = "gpt-4o-mini"
     benchmark.rebuild_kg = False
 
@@ -453,6 +501,12 @@ def test_question_scoped_multihop_kg_build_uses_lightweight_profile(
     )
 
     assert benchmark._build_kg_for_dataset("2wikimultihopqa") is True
+    assert "kwargs" in seen
+    assert "enable_self_reflection" in seen["kwargs"]
     assert seen["kwargs"]["enable_self_reflection"] is False
+    assert "kwargs" in seen
+    assert "enable_anchor_coverage_supplement" in seen["kwargs"]
     assert seen["kwargs"]["enable_anchor_coverage_supplement"] is False
+    assert "kwargs" in seen
+    assert "enable_cross_passage_relation_recovery" in seen["kwargs"]
     assert seen["kwargs"]["enable_cross_passage_relation_recovery"] is False

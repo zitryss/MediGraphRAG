@@ -348,6 +348,44 @@ DecodedJSONValue: TypeAlias = (
 DecodedJSONObject: TypeAlias = dict[str, DecodedJSONValue]
 
 
+AugmentedPropertyValue: TypeAlias = DecodedJSONValue | list[ExactAnchorSpan]
+# dict(raw_properties) also accepts decoded pairs. Container keys fail at that
+# existing conversion; hashable JSON scalar keys are retained without coercion.
+AugmentedPropertyKey: TypeAlias = str | int | float | bool | None
+
+
+class AugmentedEntityBuilder(TypedDict, total=False):
+    """Anchor augmentation staging record, before extraction normalization.
+
+    In particular, the raw model's ``type`` value is not validated here.
+    """
+
+    id: str
+    type: DecodedJSONValue
+    properties: dict[AugmentedPropertyKey, AugmentedPropertyValue]
+
+
+class RawAugmentedEntity(TypedDict):
+    """Completed augmentation output; raw type values remain unvalidated."""
+
+    id: str
+    type: DecodedJSONValue
+    properties: dict[AugmentedPropertyKey, AugmentedPropertyValue]
+
+
+AugmentedExtractionValue: TypeAlias = DecodedJSONValue | list[RawAugmentedEntity]
+
+
+class AugmentedExtractionResult(TypedDict):
+    entities: list[RawAugmentedEntity]
+    relationships: NotRequired[DecodedJSONValue]
+
+
+class ExtractionPostprocessInput(TypedDict, total=False):
+    entities: AugmentedExtractionValue
+    relationships: DecodedJSONValue
+
+
 class RetrievalSubchunk(TypedDict):
     id: str
     text: str

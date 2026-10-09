@@ -47,7 +47,17 @@ class SplitHalfSummary(TypedDict):
     B: int
 
 
-class CertificateReport(TypedDict, total=False):
+class CertificateReport(TypedDict):
+    per_dataset_certificate: dict[str, CertificateSummary]
+    pooled_certificate: CertificateSummary
+    baseline_sd_only: CertificateSummary
+    baseline_combined_rank: CertificateSummary
+    split_half: SplitHalfSummary
+
+
+class PendingCertificateReport(TypedDict, total=False):
+    """Incrementally assembled report, before all five sections are written."""
+
     per_dataset_certificate: dict[str, CertificateSummary]
     pooled_certificate: CertificateSummary
     baseline_sd_only: CertificateSummary
@@ -87,7 +97,7 @@ def certificate_mask(
 
 def main() -> None:
     data: dict[str, list[CertificateRow]] = load_all()
-    out: CertificateReport = {}
+    out: PendingCertificateReport = {}
 
     # (c) per-dataset certificate, thresholds in-sample (as in the paper)
     per_ds: dict[str, CertificateSummary] = {}
@@ -131,7 +141,7 @@ def main() -> None:
             k: int = int(round(pooled_cov * len(rows)))
             if k == 0:
                 continue
-            idx: NDArray[np.intp] = np.argsort(scores)[:k]
+            idx: np.ndarray[tuple[int], np.dtype[np.intp]] = np.argsort(scores)[:k]
             sel += k
             corr += int(y[idx].sum())
         return {"coverage": sel / n_total, "precision": corr / sel, "selected": sel}
@@ -161,7 +171,7 @@ def main() -> None:
         k: int = int(round(pooled_cov * len(rows)))
         if k == 0:
             continue
-        idx: NDArray[np.intp] = np.argsort(scores)[:k]
+        idx: np.ndarray[tuple[int], np.dtype[np.intp]] = np.argsort(scores)[:k]
         sel += k
         corr += int(y[idx].sum())
     out["baseline_combined_rank"] = {
@@ -180,8 +190,8 @@ def main() -> None:
         for slug, rows in data.items():
             idx = RNG.permutation(len(rows))
             half: int = len(rows) // 2
-            dev: NDArray[np.int64]
-            test: NDArray[np.int64]
+            dev: np.ndarray[tuple[int], np.dtype[np.int64]]
+            test: np.ndarray[tuple[int], np.dtype[np.int64]]
             dev, test = idx[:half], idx[half:]
             sd_med = float(np.median([rows[i][0] for i in dev]))
             test_rows: list[CertificateRow] = [rows[i] for i in test]

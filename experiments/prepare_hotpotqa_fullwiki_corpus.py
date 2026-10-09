@@ -23,13 +23,20 @@ from typing import TYPE_CHECKING, cast
 from typing_extensions import ReadOnly, TypedDict
 
 if TYPE_CHECKING:
-    from experiments.subset_selection import SubsetIdentity, SubsetPayload
-
-from subset_selection import (
-    deterministic_subset_ids,
-    selection_file_path,
-    subset_identity,
-)
+    from experiments.dataset_adapters import JSONValue
+    from experiments.subset_selection import (
+        SubsetIdentity,
+        SubsetPayload,
+        deterministic_subset_ids,
+        selection_file_path,
+        subset_identity,
+    )
+else:
+    from subset_selection import (
+        deterministic_subset_ids,
+        selection_file_path,
+        subset_identity,
+    )
 
 
 class HotpotQuestion(TypedDict, total=False):
@@ -60,14 +67,10 @@ class CorpusPreparationSummary(TypedDict):
 
 def _load_hotpot(path: Path) -> list[HotpotQuestion]:
     with path.open("r") as f:
-        data: object = json.load(f)
+        data: JSONValue = json.load(f)
     if not isinstance(data, list):
         raise ValueError(f"Expected a JSON list in {path}")
-    return [
-        cast(HotpotQuestion, item)
-        for item in cast(list[object], data)
-        if isinstance(item, dict)
-    ]
+    return [cast(HotpotQuestion, item) for item in data if isinstance(item, dict)]
 
 
 def _question_id(item: HotpotQuestion, idx: int) -> str:

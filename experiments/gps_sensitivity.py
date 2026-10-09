@@ -18,14 +18,18 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TypedDict
+from typing import (
+    TYPE_CHECKING,
+    TypedDict,
+)
 
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
+from experiments.gps_v2_replay import ReplayScore
 from experiments.gps_v3_depth_matched import (
     REPO,
-    HopRow,
+    LoadedReplayArtifact,
     expected_hop,
     load_artifact,
     row_map,
@@ -58,7 +62,8 @@ class SensitivityReport(TypedDict):
     runs: dict[str, SensitivityRun]
 
 
-from experiments.gps_v2_replay import ReplayArtifact, ReplayScore, ReplayStore
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import JSONValue
 
 OUT_PATH: str = os.path.join(REPO, "results", "analyses", "gps_sensitivity.json")
 
@@ -85,14 +90,14 @@ def auroc_at(
     gamma: float,
 ) -> tuple[float | None, int]:
     """Return (auroc, usable_n) for one (tau, gamma) cell using saved stores."""
-    artifact: ReplayArtifact = load_artifact(slug, strict=strict)
-    rows: dict[str, HopRow] = row_map(artifact["source_result"])
+    artifact: LoadedReplayArtifact = load_artifact(slug, strict=strict)
+    rows: dict[str, JSONValue] = row_map(artifact["source_result"])
     scores: list[float]
     wrong: list[int]
     scores, wrong = [], []
     for q in artifact["questions"]:
         qid: str = str(q["question_id"])
-        store: ReplayStore | None = (q.get("store") or {}).get("kg")
+        store: JSONValue = (q.get("store") or {}).get("kg")
         if store is None or store.get("null_reason") == "generation_failed":
             continue
         res: ReplayScore = score_from_store_depth_matched(

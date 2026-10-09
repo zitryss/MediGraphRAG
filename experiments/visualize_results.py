@@ -8,7 +8,7 @@ Results are aggregated by configuration and logged to Weights & Biases.
 import argparse
 import json
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypedDict, cast
@@ -21,9 +21,9 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.colorbar import Colorbar
     from matplotlib.colors import Colormap
-    from matplotlib.container import BarContainer
     from matplotlib.figure import Figure
     from matplotlib.image import AxesImage
+    from matplotlib.patches import Rectangle
 
 # Try to import matplotlib and wandb
 try:
@@ -43,6 +43,16 @@ try:
 except ImportError:
     HAS_WANDB = False
     print("Warning: wandb not installed. Will skip wandb logging.")
+
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
+
+class RectangleBars(Protocol):
+    """Axes.bar/barh containers iterate their original Rectangle patches."""
+
+    def __iter__(self) -> Iterator["Rectangle"]: ...
 
 
 class FloatMaskModule(Protocol):
@@ -208,7 +218,7 @@ class ComplementarityView(TypedDict, total=False):
 
 class PlotEvaluationView(TypedDict, total=False):
     config: ReadOnly[PlotConfigView]
-    details: ReadOnly[Sequence[PlotDetailView]]
+    details: ReadOnly[Sequence[PlotDetailView | Mapping[str, object]]]
     auroc_aurec: ReadOnly[SystemMetrics]
     vanilla_avg_compute_times: ReadOnly[MetricValues]
     kg_avg_compute_times: ReadOnly[MetricValues]
@@ -496,10 +506,10 @@ def _get_metric_names(results: VisualizationResults) -> Sequence[str]:
     return DEFAULT_UNCERTAINTY_METRICS
 
 
-def load_results(results_path: str) -> VisualizationResults:
+def load_results(results_path: str) -> "JSONValue":
     """Load experiment results from JSON file."""
     with open(results_path, "r") as f:
-        data: VisualizationResults = json.load(f)
+        data: "JSONValue" = cast("DefaultJSONCodec", json).load(f)
         return data
 
 
@@ -808,19 +818,25 @@ def create_overall_comparison_chart(
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    bars1: BarContainer = ax.bar(
-        x - width / 2,
-        vanilla_values,
-        width,
-        label="Vanilla RAG",
-        color="#1f77b4",
+    bars1: RectangleBars = cast(
+        RectangleBars,
+        ax.bar(
+            x - width / 2,
+            vanilla_values,
+            width,
+            label="Vanilla RAG",
+            color="#1f77b4",
+        ),
     )
-    bars2: BarContainer = ax.bar(
-        x + width / 2,
-        kg_values,
-        width,
-        label="KG-RAG",
-        color="#ff7f0e",
+    bars2: RectangleBars = cast(
+        RectangleBars,
+        ax.bar(
+            x + width / 2,
+            kg_values,
+            width,
+            label="KG-RAG",
+            color="#ff7f0e",
+        ),
     )
 
     ax.set_xlabel("Metric")
@@ -940,21 +956,27 @@ def plot_metric_bar_charts(
         n: int = len(labels)
         x: NDArray[np.int64] = np.arange(n)
 
-        b_v: BarContainer = ax.bar(
-            x - width / 2,
-            vanilla_vals,
-            width,
-            label="Vanilla RAG",
-            color=colors["vanilla"],
-            alpha=0.85,
+        b_v: RectangleBars = cast(
+            RectangleBars,
+            ax.bar(
+                x - width / 2,
+                vanilla_vals,
+                width,
+                label="Vanilla RAG",
+                color=colors["vanilla"],
+                alpha=0.85,
+            ),
         )
-        b_k: BarContainer = ax.bar(
-            x + width / 2,
-            kg_vals,
-            width,
-            label="KG-RAG",
-            color=colors["kg"],
-            alpha=0.85,
+        b_k: RectangleBars = cast(
+            RectangleBars,
+            ax.bar(
+                x + width / 2,
+                kg_vals,
+                width,
+                label="KG-RAG",
+                color=colors["kg"],
+                alpha=0.85,
+            ),
         )
 
         # Annotate bars with values
@@ -1239,7 +1261,7 @@ def plot_metric_correlation_matrix(
                 for m in metric_order:
                     for prefix in ("vanilla", "kg"):
                         # Both loops enumerate the finite declared metric/prefix sets.
-                        val: float | str | None = detail.get(
+                        val: object = detail.get(
                             cast(DetailMetricKey, f"{prefix}_{m}"),
                         )
                         if val is not None:
@@ -1350,7 +1372,7 @@ def plot_reliability_diagrams(
                     is_incorrect: int = 0 if detail.get(correct_key, False) else 1
                     for m in metric_order:
                         # Both loops enumerate the finite declared metric/prefix sets.
-                        val: float | str | None = detail.get(
+                        val: object = detail.get(
                             cast(DetailMetricKey, f"{prefix}_{m}"),
                         )
                         if val is not None:
@@ -1525,21 +1547,27 @@ def plot_compute_time_chart(
     bar_height: float = 0.35
     y: NDArray[np.int64] = np.arange(n)
 
-    bars_v: BarContainer = ax.barh(
-        y + bar_height / 2,
-        v_vals,
-        bar_height,
-        label="Vanilla RAG",
-        color="#4C72B0",
-        alpha=0.85,
+    bars_v: RectangleBars = cast(
+        RectangleBars,
+        ax.barh(
+            y + bar_height / 2,
+            v_vals,
+            bar_height,
+            label="Vanilla RAG",
+            color="#4C72B0",
+            alpha=0.85,
+        ),
     )
-    bars_k: BarContainer = ax.barh(
-        y - bar_height / 2,
-        k_vals,
-        bar_height,
-        label="KG-RAG",
-        color="#DD8452",
-        alpha=0.85,
+    bars_k: RectangleBars = cast(
+        RectangleBars,
+        ax.barh(
+            y - bar_height / 2,
+            k_vals,
+            bar_height,
+            label="KG-RAG",
+            color="#DD8452",
+            alpha=0.85,
+        ),
     )
 
     # Annotate with value in ms
@@ -1801,12 +1829,15 @@ def plot_complementarity_matrix(
             colors: list[str] = ["#2ca02c", "#1f77b4", "#ff7f0e", "#d62728"]
 
             fig, ax = plt.subplots(figsize=(6, 4))
-            bars: BarContainer = ax.bar(
-                labels,
-                values,
-                color=colors,
-                edgecolor="white",
-                linewidth=1.2,
+            bars: RectangleBars = cast(
+                RectangleBars,
+                ax.bar(
+                    labels,
+                    values,
+                    color=colors,
+                    edgecolor="white",
+                    linewidth=1.2,
+                ),
             )
             for bar, pct in zip(bars, values):
                 ax.text(
@@ -1880,9 +1911,10 @@ def plot_query_type_stratification(
 
             cfg_name: str = cfg_res.get("config", {}).get("name", "default")
             # Sort types by descending n so most common come first
+            current_by_type: Mapping[str, TaskTypeMetricsView] = by_type
             sorted_types: list[str] = sorted(
                 by_type.keys(),
-                key=lambda t: -by_type[t].get("n", 0),
+                key=lambda t: -current_by_type[t].get("n", 0),
             )
 
             x: list[int] = list(range(len(sorted_types)))
@@ -2227,7 +2259,7 @@ def _display_eval_metric_value(
 
 
 def _metric_score_for_correlation(
-    detail: PlotDetailView,
+    detail: PlotDetailView | Mapping[str, object],
     *,
     prefix: str,
     metric_name: str,

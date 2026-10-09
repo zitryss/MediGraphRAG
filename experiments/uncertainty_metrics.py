@@ -75,16 +75,13 @@ from typing import (
     overload,
 )
 
-from typing_extensions import TypedDict
+from typing_extensions import ReadOnly, TypedDict
 
 if TYPE_CHECKING:
     from neo4j import Driver, Record, Result, Session
-    from sentence_transformers import SentenceTransformer
-    from transformers.modeling_utils import PreTrainedModel
-    from transformers.tokenization_utils_base import (
-        BatchEncoding,
-        PreTrainedTokenizerBase,
-    )
+    from torch import Tensor
+
+    from shared.graph_types import Neo4jProperty
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -109,8 +106,8 @@ StructuralEntityResolution: TypeAlias = (
 class InformativenessRow(TypedDict):
     """Exact Cypher projection; graph property values remain unchecked."""
 
-    candidate_id: object
-    candidate_name: object
+    candidate_id: "Neo4jProperty"
+    candidate_name: "Neo4jProperty"
     rel_type: str
     path_len: int
 
@@ -132,11 +129,11 @@ EmbeddingScalar: TypeAlias = float | np.float16 | np.float32 | np.float64
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-_SENTENCE_TRANSFORMER_CACHE: dict[str, "SentenceTransformer"] = {}
+_SENTENCE_TRANSFORMER_CACHE: dict[str, "SentenceEncoder"] = {}
 _SENTENCE_TRANSFORMER_CACHE_LOCK: LockType = threading.Lock()
 
-_NLI_MODEL_CACHE: dict[str, "PreTrainedModel"] = {}
-_NLI_TOKENIZER_CACHE: dict[str, "PreTrainedTokenizerBase"] = {}
+_NLI_MODEL_CACHE: dict[str, "NLISequenceClassifier"] = {}
+_NLI_TOKENIZER_CACHE: dict[str, "NLITokenizer"] = {}
 _NLI_CACHE_LOCK: LockType = threading.Lock()
 
 
@@ -323,12 +320,23 @@ def _candidate_structural_spans(
 
 
 class ScopedEntity(TypedDict, total=False):
-    # Cypher projects keys, but legacy graph properties have no runtime schema check.
-    id: object
-    name: object
-    aliases: object
-    original_ids: object
-    synonyms: object
+    """Partial caller-supplied entity; properties are not schema-validated."""
+
+    id: ReadOnly[object]
+    name: ReadOnly[object]
+    aliases: ReadOnly[object]
+    original_ids: ReadOnly[object]
+    synonyms: ReadOnly[object]
+
+
+class ProjectedScopedEntity(ScopedEntity):
+    """Every Cypher alias is present, even when its property value is null."""
+
+    id: "Neo4jProperty"
+    name: "Neo4jProperty"
+    aliases: "Neo4jProperty"
+    original_ids: "Neo4jProperty"
+    synonyms: "Neo4jProperty"
 
 
 def _entity_surface_forms(row: ScopedEntity, *, min_name_length: int) -> list[str]:
@@ -347,7 +355,7 @@ def _entity_surface_forms(row: ScopedEntity, *, min_name_length: int) -> list[st
         values: object = row.get(alias_key) or []
         if not isinstance(values, list):
             continue
-        for value in values:
+        for value in cast(list[object], values):
             normalized = _normalize_structural_text(value)
             if len(normalized) >= min_name_length:
                 surface_forms.add(normalized)
@@ -402,7 +410,7 @@ def _load_scoped_entities(
     question_id: str | None,
     min_name_length: int,
     limit: int = 4000,
-) -> list[ScopedEntity]:
+) -> list[ProjectedScopedEntity]:
     """Fetch entities visible inside the active KG/question scope."""
     scoped_entity_query: str = f"""
     MATCH (e:__Entity__)
@@ -422,14 +430,14 @@ def _load_scoped_entities(
         params["question_id"] = question_id
     # The query projects exactly the ScopedEntity keys; keep the SDK-record dict copy.
     return [
-        cast(ScopedEntity, dict(row))
+        cast(ProjectedScopedEntity, dict(row))
         for row in session.run(scoped_entity_query, params)
     ]
 
 
 def _match_scoped_entities_to_text(
     text: str,
-    scoped_entities: list[ScopedEntity],
+    scoped_entities: Sequence[ScopedEntity],
     *,
     min_name_length: int,
     max_entities: int = 5,
@@ -497,7 +505,7 @@ def _resolve_structural_entities(
     min_name_length: int,
 ) -> StructuralEntityResolution:
     """Resolve question / answer entities and retain non-self support sources."""
-    scoped_entities: list[ScopedEntity] = _load_scoped_entities(
+    scoped_entities: Sequence[ScopedEntity] = _load_scoped_entities(
         session,
         entity_scope=entity_scope,
         kg_name=kg_name,
@@ -570,9 +578,69 @@ def _safe_prob_entropy(probabilities: ArrayLike | None) -> float:
     return float(-np.sum(p * np.log(p)))
 
 
+class SentenceEncoder(Protocol):
+    """The default floating, NumPy output branch of SentenceTransformer.encode."""
+
+    def encode(
+        self,
+        sentences: list[str],
+        *,
+        show_progress_bar: bool = False,
+        normalize_embeddings: bool = False,
+    ) -> EmbeddingArray: ...
+
+
+class NLIClassificationOutput(Protocol):
+    """Common output surface of installed Transformers sequence classifiers."""
+
+    @property
+    def logits(self) -> "Tensor": ...
+
+
+class NLITokenizer(Protocol):
+    """The return_tensors=pt branch of the installed tokenizer call contract."""
+
+    def __call__(
+        self,
+        text: str,
+        text_pair: str,
+        *,
+        return_tensors: Literal["pt"],
+        truncation: bool,
+        max_length: int,
+    ) -> Mapping[str, "Tensor"]: ...
+
+
+class NLISequenceClassifier(Protocol):
+    """AutoModelForSequenceClassification's tensor-returning call surface.
+
+    Saved model configuration can disable return_dict; callers preserve their
+    existing exception/fallback when that yields a tuple instead of logits.
+    """
+
+    def __call__(
+        self,
+        **inputs: "Tensor",
+    ) -> "NLIClassificationOutput | tuple[object, ...]": ...
+
+
+class _NLITokenizerFactory(Protocol):
+    def from_pretrained(
+        self,
+        pretrained_model_name_or_path: str,
+    ) -> "NLITokenizer": ...
+
+
+class _NLIModelFactory(Protocol):
+    def from_pretrained(
+        self,
+        pretrained_model_name_or_path: str,
+    ) -> NLISequenceClassifier: ...
+
+
 class _NLIModelCache(Protocol):
-    _tokenizer: "PreTrainedTokenizerBase"
-    _model: "PreTrainedModel"
+    _tokenizer: "NLITokenizer"
+    _model: "NLISequenceClassifier"
 
 
 class _NamedNLIModelCache(_NLIModelCache, Protocol):
@@ -624,7 +692,23 @@ def _cluster_responses_by_nli(
     try:
         import torch
         import torch.nn.functional as F
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        if TYPE_CHECKING:
+            from transformers.models.auto.modeling_auto import (
+                AutoModelForSequenceClassification,
+            )
+            from transformers.models.auto.tokenization_auto import AutoTokenizer
+        else:
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        tokenizer_factory: _NLITokenizerFactory = cast(
+            _NLITokenizerFactory,
+            AutoTokenizer,
+        )
+        model_factory: _NLIModelFactory = cast(
+            _NLIModelFactory,
+            AutoModelForSequenceClassification,
+        )
 
         # The existing function object owns these lazily populated attributes.
         cache: _NamedNLIModelCache = cast(
@@ -632,16 +716,16 @@ def _cluster_responses_by_nli(
             _cluster_responses_by_nli,
         )
         if not hasattr(cache, "_model") or cache._model_name != nli_model:
-            cache._tokenizer = AutoTokenizer.from_pretrained(nli_model)
-            cache._model = AutoModelForSequenceClassification.from_pretrained(nli_model)
+            cache._tokenizer = tokenizer_factory.from_pretrained(nli_model)
+            cache._model = model_factory.from_pretrained(nli_model)
             cache._model_name = nli_model
 
-        tokenizer: PreTrainedTokenizerBase = cache._tokenizer
-        model: PreTrainedModel = cache._model
+        tokenizer: NLITokenizer = cache._tokenizer
+        model: NLISequenceClassifier = cache._model
 
         def _implication(text1: str, text2: str) -> int:
             """Return 0=contradiction, 1=neutral, 2=entailment (DeBERTa convention)."""
-            inputs: BatchEncoding = tokenizer(
+            inputs: Mapping[str, torch.Tensor] = tokenizer(
                 text1,
                 text2,
                 return_tensors="pt",
@@ -847,15 +931,30 @@ def compute_embedding_consistency(
 
     try:
         import torch
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+        if TYPE_CHECKING:
+            from transformers.models.auto.modeling_auto import (
+                AutoModelForSequenceClassification,
+            )
+            from transformers.models.auto.tokenization_auto import AutoTokenizer
+        else:
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        tokenizer_factory: _NLITokenizerFactory = cast(
+            _NLITokenizerFactory,
+            AutoTokenizer,
+        )
+        model_factory: _NLIModelFactory = cast(
+            _NLIModelFactory,
+            AutoModelForSequenceClassification,
+        )
         cache: _NLIModelCache = cast(_NLIModelCache, compute_embedding_consistency)
         if not hasattr(cache, "_model"):
-            cache._tokenizer = AutoTokenizer.from_pretrained(nli_model)
-            cache._model = AutoModelForSequenceClassification.from_pretrained(nli_model)
+            cache._tokenizer = tokenizer_factory.from_pretrained(nli_model)
+            cache._model = model_factory.from_pretrained(nli_model)
 
-        tokenizer: PreTrainedTokenizerBase = cache._tokenizer
-        model: PreTrainedModel = cache._model
+        tokenizer: NLITokenizer = cache._tokenizer
+        model: NLISequenceClassifier = cache._model
 
         pairs: list[tuple[int, int]] = []
         for i in range(len(responses)):
@@ -868,7 +967,7 @@ def compute_embedding_consistency(
         for i, j in pairs:
             r1, r2 = responses[i], responses[j]
             for text1, text2 in [(r1, r2), (r2, r1)]:
-                inputs: BatchEncoding = tokenizer(
+                inputs: Mapping[str, torch.Tensor] = tokenizer(
                     text1,
                     text2,
                     return_tensors="pt",
@@ -876,7 +975,9 @@ def compute_embedding_consistency(
                     max_length=512,
                 )
                 with torch.no_grad():
-                    outputs: object = model(**inputs)
+                    outputs: NLIClassificationOutput | tuple[object, ...] = model(
+                        **inputs,
+                    )
                     probs: torch.Tensor = torch.softmax(outputs.logits, dim=-1)
                     if torch.argmax(probs[0]).item() == 0:  # contradiction
                         contradiction_count += 1
@@ -927,7 +1028,7 @@ def compute_spuq(
         return 0.0
 
     try:
-        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
+        model: SentenceEncoder = _get_or_load_sentence_transformer(embedding_model)
         embeddings: EmbeddingArray = model.encode(
             responses,
             show_progress_bar=False,
@@ -1032,7 +1133,7 @@ def compute_von_neumann_entropy(
         return 0.0
 
     try:
-        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
+        model: SentenceEncoder = _get_or_load_sentence_transformer(embedding_model)
         V: EmbeddingArray = model.encode(
             list(responses),
             show_progress_bar=False,
@@ -1141,7 +1242,7 @@ def compute_sre_uq(
         return 0.0
 
     try:
-        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
+        model: SentenceEncoder = _get_or_load_sentence_transformer(embedding_model)
 
         # Encode responses; optionally encode the prompt as anchor
         V: EmbeddingArray = model.encode(
@@ -1956,7 +2057,7 @@ def compute_evidence_vn_entropy(
         ]
 
         # Step 4: Embed triples and question
-        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
+        model: SentenceEncoder = _get_or_load_sentence_transformer(embedding_model)
 
         V: EmbeddingArray = model.encode(
             triple_texts,
@@ -2710,12 +2811,12 @@ def compute_subgraph_informativeness(
         # Step 3: weight each candidate by sum of 1/path_length across all paths
         from collections import defaultdict
 
-        candidate_weight: dict[str, float] = defaultdict(float)
-        candidate_name: dict[str, str] = {}
+        candidate_weight: dict[Neo4jProperty, float] = defaultdict(float)
+        candidate_name: dict[Neo4jProperty, Neo4jProperty] = {}
         relation_types: set[str] = set()
 
         for row in rows:
-            cid: object = row["candidate_id"]
+            cid: Neo4jProperty = row["candidate_id"]
             candidate_weight[cid] += 1.0 / max(row["path_len"], 1)
             candidate_name[cid] = row["candidate_name"]
             relation_types.add(row["rel_type"])
@@ -2739,7 +2840,7 @@ def compute_subgraph_informativeness(
 
         # Step 6-7: question-relation alignment
         # Embed distinct relation types + question; compute cosine alignment
-        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
+        model: SentenceEncoder = _get_or_load_sentence_transformer(embedding_model)
         relation_texts: list[str] = [
             rt.replace("_", " ").lower() for rt in relation_types
         ]
@@ -2776,31 +2877,49 @@ def compute_subgraph_informativeness(
         return 0.5
 
 
-def _get_or_load_sentence_transformer(model_name: str) -> "SentenceTransformer":
+def _get_or_load_sentence_transformer(model_name: str) -> SentenceEncoder:
     """Cache sentence transformer models to avoid reloading on every call."""
     normalized_name: str = model_name.replace("sentence-transformers/", "")
     with _SENTENCE_TRANSFORMER_CACHE_LOCK:
         if normalized_name not in _SENTENCE_TRANSFORMER_CACHE:
             from sentence_transformers import SentenceTransformer
 
-            _SENTENCE_TRANSFORMER_CACHE[normalized_name] = SentenceTransformer(
-                normalized_name,
+            _SENTENCE_TRANSFORMER_CACHE[normalized_name] = cast(
+                SentenceEncoder,
+                SentenceTransformer(normalized_name),
             )
     return _SENTENCE_TRANSFORMER_CACHE[normalized_name]
 
 
 def _get_or_load_nli_model(
     model_name: str,
-) -> tuple["PreTrainedTokenizerBase", "PreTrainedModel"]:
+) -> tuple["NLITokenizer", "NLISequenceClassifier"]:
     """Return (tokenizer, model) for an NLI sequence-classification model, cached."""
     with _NLI_CACHE_LOCK:
         if model_name not in _NLI_MODEL_CACHE:
-            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+            if TYPE_CHECKING:
+                from transformers.models.auto.modeling_auto import (
+                    AutoModelForSequenceClassification,
+                )
+                from transformers.models.auto.tokenization_auto import AutoTokenizer
+            else:
+                from transformers import (
+                    AutoModelForSequenceClassification,
+                    AutoTokenizer,
+                )
 
-            _NLI_TOKENIZER_CACHE[model_name] = AutoTokenizer.from_pretrained(model_name)
-            _NLI_MODEL_CACHE[model_name] = (
-                AutoModelForSequenceClassification.from_pretrained(model_name)
+            tokenizer_factory: _NLITokenizerFactory = cast(
+                _NLITokenizerFactory,
+                AutoTokenizer,
             )
+            model_factory: _NLIModelFactory = cast(
+                _NLIModelFactory,
+                AutoModelForSequenceClassification,
+            )
+            _NLI_TOKENIZER_CACHE[model_name] = tokenizer_factory.from_pretrained(
+                model_name,
+            )
+            _NLI_MODEL_CACHE[model_name] = model_factory.from_pretrained(model_name)
     return _NLI_TOKENIZER_CACHE[model_name], _NLI_MODEL_CACHE[model_name]
 
 
@@ -2833,7 +2952,7 @@ def _classify_chunks_against_answer(
         tokenizer, model = _get_or_load_nli_model(nli_model)
         labels: list[int] = []
         for chunk in active:
-            inputs: BatchEncoding = tokenizer(
+            inputs: Mapping[str, torch.Tensor] = tokenizer(
                 chunk,
                 answer,
                 return_tensors="pt",

@@ -7,6 +7,7 @@ from typing import cast
 
 import matplotlib.pyplot as plt
 import pytest
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 from typing_extensions import TypedDict
@@ -259,3 +260,32 @@ def test_new_schema_aggregation_and_bar_values(
     assert len(bars) == 2
     assert [patch.get_height() for patch in bars] == [0.5, 0.75]
     plt.close("all")
+
+
+def test_installed_bar_container_iteration_preserves_rectangle_identity() -> None:
+    fig: Figure
+    ax: Axes
+    fig, ax = plt.subplots()
+    try:
+        vertical: visual.RectangleBars = cast(
+            visual.RectangleBars,
+            ax.bar([0, 1], [2, 3]),
+        )
+        horizontal: visual.RectangleBars = cast(
+            visual.RectangleBars,
+            ax.barh([0, 1], [4, 5]),
+        )
+        vertical_rectangles: list[Rectangle] = list(vertical)
+        horizontal_rectangles: list[Rectangle] = list(horizontal)
+        assert [patch.get_height() for patch in vertical_rectangles] == [2, 3]
+        assert [patch.get_width() for patch in horizontal_rectangles] == [4, 5]
+        assert all(
+            returned is original
+            for returned, original in zip(
+                vertical_rectangles + horizontal_rectangles,
+                ax.patches,
+                strict=True,
+            )
+        )
+    finally:
+        plt.close(fig)

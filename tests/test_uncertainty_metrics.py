@@ -11,9 +11,7 @@ from typing_extensions import TypedDict
 from experiments import uncertainty_metrics as um
 
 if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
-
-    from experiments.uncertainty_metrics import GraphPathSupportDetail
+    from experiments.uncertainty_metrics import GraphPathSupportDetail, SentenceEncoder
 
 
 class QueryParameters(TypedDict, total=False):
@@ -105,10 +103,10 @@ def test_sentence_transformer_helper_reuses_normalized_cache(
     monkeypatch.setattr(um, "_SENTENCE_TRANSFORMER_CACHE", {})
     _FakeSentenceTransformer.init_calls.clear()
 
-    model_a: SentenceTransformer = um._get_or_load_sentence_transformer(
+    model_a: SentenceEncoder = um._get_or_load_sentence_transformer(
         "sentence-transformers/all-MiniLM-L6-v2",
     )
-    model_b: SentenceTransformer = um._get_or_load_sentence_transformer(
+    model_b: SentenceEncoder = um._get_or_load_sentence_transformer(
         "all-MiniLM-L6-v2",
     )
 

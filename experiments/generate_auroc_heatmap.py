@@ -25,6 +25,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import TwoSlopeNorm
 
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
 
 class RectangleAxesFigure(Protocol):
     """Figure.add_axes accepts the existing four numeric bounds as a list."""
@@ -91,8 +94,8 @@ DATASET_ORDER: list[str] = [
 PREFERRED_CONFIG_NAME: str | None = os.environ.get("MIRAGE_CONFIG_NAME")
 
 
-def _select_config_result(path: str, results_doc: HeatmapDocument) -> HeatmapConfig:
-    config_results: list[HeatmapConfig] = results_doc.get("config_results", [])
+def _select_config_result(path: str, results_doc: "JSONValue") -> "JSONValue":
+    config_results: "JSONValue" = results_doc.get("config_results", [])
     if not config_results:
         raise ValueError(f"{path} contains no config_results")
     if len(config_results) == 1:
@@ -116,13 +119,13 @@ def _select_config_result(path: str, results_doc: HeatmapDocument) -> HeatmapCon
     )
 
 
-def load_auroc(path: str, system: str) -> dict[str, float | None]:
+def load_auroc(path: str, system: str) -> "dict[str, JSONValue]":
     """Return {measure_key: auroc_value} for a system ('vanilla_rag' or 'kg_rag')."""
     with open(path) as f:
-        d: HeatmapDocument = json.load(f)
-    cfg: HeatmapConfig = _select_config_result(path, d)
-    auroc_block: dict[str, float | None] = cfg.get("auroc_aurec", {}).get(system, {})
-    out: dict[str, float | None] = {
+        d: "JSONValue" = cast("DefaultJSONCodec", json).load(f)
+    cfg: "JSONValue" = _select_config_result(path, d)
+    auroc_block: "JSONValue" = cfg.get("auroc_aurec", {}).get(system, {})
+    out: "dict[str, JSONValue]" = {
         k.replace("_auroc", ""): v
         for k, v in auroc_block.items()
         if k.endswith("_auroc")

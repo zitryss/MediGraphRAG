@@ -43,9 +43,11 @@ from ontographrag.rag.systems._records import (
     RetrievedChunk,
     RetrievedEntity,
     RetrievedRelationship,
+    StoredGraphKey,
     TraversalPath,
 )
 from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
+from tests.conftest import required_text_field
 
 if TYPE_CHECKING:
     from langchain_core.prompt_values import PromptValue
@@ -71,7 +73,7 @@ class EntityFirstSearch(Protocol):
         llm: "Runnable[PromptValue, object] | None" = None,
         document_names: list[str] | None = None,
         anchor_mask_entity_ids: list[str] | None = None,
-        anchor_mask_entity_names: list[str] | None = None,
+        anchor_mask_entity_names: Sequence[object] | None = None,
     ) -> ProducedGraphRetrievalContext | None: ...
 
 
@@ -129,7 +131,7 @@ def _chunk(
 
 def _hop_ctx(
     chunks: list[RetrievedChunk],
-    entities: dict[str, RetrievedEntity] | None = None,
+    entities: dict[StoredGraphKey, RetrievedEntity] | None = None,
     relationships: list[RetrievedRelationship] | None = None,
     traversal_paths: list[TraversalPath] | None = None,
     grounding_quality: float | None = None,
@@ -165,7 +167,7 @@ class _StubGraph:
 
     def query(
         self,
-        q: str,
+        query: str,
         params: dict[str, object] | None = None,
     ) -> list[dict[str, object]]:
         return []
@@ -321,6 +323,7 @@ class TestBridgeAnswerRejection:
         # Bridge is rejected but retrieval completes with both hops
         result: RetrievalContext | None = self._run("I don't know")
         assert result is not None
+        assert "chunks" in result
         assert len(result["chunks"]) >= 1
 
     def test_bad_phrase_unknown_still_returns_result(self) -> None:
@@ -395,7 +398,9 @@ class TestCrossHopDedup:
         )
 
         assert result is not None
-        chunk_ids_out: set[str | None] = {c["chunk_id"] for c in result["chunks"]}
+        chunk_ids_out: set[str | None] = {
+            required_text_field(c, "chunk_id") for c in result["chunks"]
+        }
         # Both chunks in the final set
         assert _cid("Aspirin reduces fever.") in chunk_ids_out
         assert _cid("Fever is a symptom.") in chunk_ids_out
@@ -434,7 +439,9 @@ class TestGroundingAnchoredToHop0:
         )
 
         assert result is not None
+        assert "grounding_quality" in result
         assert result["grounding_quality"] == 0.3
+        assert "seed_entity_count" in result
         assert result["seed_entity_count"] == 1
 
     def test_grounding_not_overwritten_by_empty_hop(self) -> None:
@@ -452,6 +459,7 @@ class TestGroundingAnchoredToHop0:
             sub_questions=["Q1?", "Q2?"],
         )
         assert result is not None
+        assert "grounding_quality" in result
         assert result["grounding_quality"] == 0.5
 
 
@@ -567,7 +575,9 @@ class TestHybridRetrievalRouting:
         )
 
         assert result is not None
-        texts: list[str] = [chunk["text"] for chunk in result["chunks"]]
+        texts: list[str] = [
+            required_text_field(chunk, "text") for chunk in result["chunks"]
+        ]
         assert any("Lost and Delirious" in text for text in texts)
 
     def test_graph_context_meaningfulness_requires_both_comparison_branches(
@@ -619,7 +629,9 @@ class TestHybridRetrievalRouting:
             "Which film has the director born later, Riding The California Trail or Lost And Delirious?",
             chunks,
         )
-        top_texts: list[str] = [chunk["text"] for chunk in sorted_chunks[:2]]
+        top_texts: list[str] = [
+            required_text_field(chunk, "text") for chunk in sorted_chunks[:2]
+        ]
         assert any("Lost and Delirious" in text for text in top_texts)
         assert any("Riding the California Trail" in text for text in top_texts)
 
@@ -720,7 +732,10 @@ class TestEntityAndPathPruning:
             sub_questions=["Q1?"],
         )
         assert result is not None
-        assert any("A -> B" in p["path"] for p in result["traversal_paths"])
+        assert any(
+            "A -> B" in required_text_field(p, "path")
+            for p in result["traversal_paths"]
+        )
 
     def test_path_with_unknown_node_id_is_dropped(self) -> None:
         c: RetrievedChunk = _chunk("Aspirin reduces fever.", linked_entity_ids=["e1"])
@@ -742,7 +757,8 @@ class TestEntityAndPathPruning:
         assert result is not None
         # Path referencing unknown node must be pruned
         assert not any(
-            "Aspirin -> Fever" in p["path"] for p in result["traversal_paths"]
+            "Aspirin -> Fever" in required_text_field(p, "path")
+            for p in result["traversal_paths"]
         )
 
     def test_path_with_all_retained_node_ids_kept(self) -> None:
@@ -766,4 +782,7 @@ class TestEntityAndPathPruning:
             sub_questions=["Q1?"],
         )
         assert result is not None
-        assert any("Aspirin -> Fever" in p["path"] for p in result["traversal_paths"])
+        assert any(
+            "Aspirin -> Fever" in required_text_field(p, "path")
+            for p in result["traversal_paths"]
+        )

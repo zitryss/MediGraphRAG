@@ -65,7 +65,11 @@ def test_small_retrieval_study_builds_expected_variants(
         "kg_rfge",
         "kg_hybrid",
     ]
+    assert "kg_system" in configs[0]
+    assert "retrieval_mode" in configs[0]["kg_system"]
     assert configs[0]["kg_system"]["retrieval_mode"] == "vector_only"
+    assert "kg_system" in configs[-1]
+    assert "retrieval_mode" in configs[-1]["kg_system"]
     assert configs[-1]["kg_system"]["retrieval_mode"] == "hybrid_auto"
 
 
@@ -86,7 +90,11 @@ def test_final_pair_retrieval_study_builds_expected_variants(
         "dense_floor",
         "kg_entity_first",
     ]
+    assert "kg_system" in configs[0]
+    assert "retrieval_mode" in configs[0]["kg_system"]
     assert configs[0]["kg_system"]["retrieval_mode"] == "vector_only"
+    assert "kg_system" in configs[1]
+    assert "retrieval_mode" in configs[1]["kg_system"]
     assert configs[1]["kg_system"]["retrieval_mode"] == "entity_first"
     assert configs[0]["executed_systems"] == ["vanilla_rag"]
     assert configs[1]["executed_systems"] == ["kg_rag"]

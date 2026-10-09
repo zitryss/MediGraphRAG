@@ -26,10 +26,16 @@ from typing_extensions import ReadOnly
 # Shared helpers re-exported for backward compatibility (tests and callers
 # access them through this module).
 from ontographrag.kg.builders._creator_shared import (  # noqa: F401
-    _ENTITY_MIN_NAME_LENGTH,
-    _GENERIC_HUB_ENTITY_BLOCKLIST,
+    _ENTITY_MIN_NAME_LENGTH as _ENTITY_MIN_NAME_LENGTH,
+)
+from ontographrag.kg.builders._creator_shared import (
+    _GENERIC_HUB_ENTITY_BLOCKLIST as _GENERIC_HUB_ENTITY_BLOCKLIST,
+)
+from ontographrag.kg.builders._creator_shared import (
     AnchorSpan,
+    AugmentedPropertyKey,
     ContextPassageInput,
+    DecodedJSONValue,
     ExactAnchorSpan,
     PassageGroup,
     RestorationRecord,
@@ -46,16 +52,15 @@ from ontographrag.kg.utils.common_functions import load_embedding_model
 from ontographrag.schemas.models import (
     OntologySchema,
 )
+from shared.graph_types import Neo4jProperty
+from shared.model_contracts import GenerationProvider
 
 if TYPE_CHECKING:
     from types import ModuleType
 
-    from langchain_neo4j import Neo4jGraph
     from numpy.typing import NDArray
     from spacy.language import Language, PipeCallable
     from spacy.tokens import Doc
-
-    from ontographrag.providers.model_providers import ModelProvider
 
 
 class SectionSegment(TypedDict):
@@ -80,17 +85,128 @@ class RelationshipColor(TypedDict):
     color: str
 
 
+GraphProperties: TypeAlias = dict[AugmentedPropertyKey, object]
+RawGraphProperties: TypeAlias = DecodedJSONValue | GraphProperties | dict[str, object]
+
+
+class PostprocessedEntity(TypedDict, total=False):
+    """Extraction guarantees id/type, but retains supplied properties and extras."""
+
+    id: Required[str]
+    type: Required[str]
+    properties: Required[RawGraphProperties]
+    uuid: DecodedJSONValue
+    name: DecodedJSONValue
+    content_hash: DecodedJSONValue
+    provenance_positions: DecodedJSONValue | list[int]
+    label: DecodedJSONValue
+    embedding: DecodedJSONValue | list[float]
+    color: DecodedJSONValue
+    size: DecodedJSONValue
+    font: DecodedJSONValue | NodeFont
+    title: DecodedJSONValue
+
+
+class IdentifiedEntity(TypedDict, total=False):
+    """Entity staging after the existing id string conversion, before type coercion."""
+
+    id: Required[str]
+    type: DecodedJSONValue
+    properties: RawGraphProperties
+    uuid: DecodedJSONValue
+    name: DecodedJSONValue
+    content_hash: DecodedJSONValue
+    provenance_positions: DecodedJSONValue | list[int]
+    label: DecodedJSONValue
+    embedding: DecodedJSONValue | list[float]
+    color: DecodedJSONValue
+    size: DecodedJSONValue
+    font: DecodedJSONValue | NodeFont
+    title: DecodedJSONValue
+
+
+ResolvedExtractionRelationship = TypedDict(
+    "ResolvedExtractionRelationship",
+    {
+        "source": Required[str],
+        "target": Required[str],
+        "properties": Required[GraphProperties],
+        "type": DecodedJSONValue,
+        "id": DecodedJSONValue,
+        "from": DecodedJSONValue,
+        "to": DecodedJSONValue,
+        "label": DecodedJSONValue,
+        "negated": DecodedJSONValue,
+        "condition": DecodedJSONValue,
+        "quantitative": DecodedJSONValue,
+        "contradiction_detected": DecodedJSONValue,
+        "provenance_positions": DecodedJSONValue | list[int],
+        "arrows": DecodedJSONValue,
+        "color": DecodedJSONValue | RelationshipColor,
+        "font": DecodedJSONValue | RelationshipFont,
+    },
+    total=False,
+)
+
+ReflectedRelationship = TypedDict(
+    "ReflectedRelationship",
+    {
+        "source": Required[DecodedJSONValue],
+        "target": Required[DecodedJSONValue],
+        "type": Required[DecodedJSONValue],
+        "properties": RawGraphProperties,
+        "id": DecodedJSONValue,
+        "from": DecodedJSONValue,
+        "to": DecodedJSONValue,
+        "label": DecodedJSONValue,
+        "negated": DecodedJSONValue,
+        "condition": DecodedJSONValue,
+        "quantitative": DecodedJSONValue,
+        "contradiction_detected": DecodedJSONValue,
+        "provenance_positions": DecodedJSONValue | list[int],
+        "arrows": DecodedJSONValue,
+        "color": DecodedJSONValue | RelationshipColor,
+        "font": DecodedJSONValue | RelationshipFont,
+    },
+    total=False,
+)
+
+
+RawExtractionRelationship = TypedDict(
+    "RawExtractionRelationship",
+    {
+        "source": DecodedJSONValue,
+        "target": DecodedJSONValue,
+        "type": DecodedJSONValue,
+        "properties": RawGraphProperties,
+        "id": DecodedJSONValue,
+        "from": DecodedJSONValue,
+        "to": DecodedJSONValue,
+        "label": DecodedJSONValue,
+        "negated": DecodedJSONValue,
+        "condition": DecodedJSONValue,
+        "quantitative": DecodedJSONValue,
+        "contradiction_detected": DecodedJSONValue,
+        "provenance_positions": DecodedJSONValue | list[int],
+        "arrows": DecodedJSONValue,
+        "color": DecodedJSONValue | RelationshipColor,
+        "font": DecodedJSONValue | RelationshipFont,
+    },
+    total=False,
+)
+
+
 class GraphNode(TypedDict, total=False):
     """Entity and visualization fields; properties remain an extensible boundary."""
 
     id: str
-    uuid: str
+    uuid: str | None
     name: str
     content_hash: str
     provenance_positions: list[int]
     label: str
     type: str
-    properties: dict[str, object]
+    properties: GraphProperties
     embedding: list[float] | None
     color: str
     size: int
@@ -98,11 +214,11 @@ class GraphNode(TypedDict, total=False):
     title: str
 
 
-class NormalizedNode(TypedDict, total=False):
-    """Post-harmonization entity; required fields are retained by linker passes."""
+class ConstructedNode(TypedDict, total=False):
+    """Entities assembled by deterministic extractors with guaranteed core fields."""
 
     id: Required[str]
-    uuid: Required[str]
+    uuid: str
     name: str
     content_hash: str
     provenance_positions: list[int]
@@ -116,8 +232,68 @@ class NormalizedNode(TypedDict, total=False):
     title: str
 
 
+class GeneratedNode(TypedDict, total=False):
+    """Formatted creator output; metadata inside properties remains arbitrary."""
+
+    id: Required[str]
+    uuid: str
+    name: str
+    content_hash: str
+    provenance_positions: list[int]
+    label: Required[str]
+    type: str
+    properties: Required[GraphProperties]
+    embedding: Required[list[float] | DecodedJSONValue]
+    color: Required[str]
+    size: Required[int]
+    font: Required[NodeFont]
+    title: Required[str]
+
+
+class EmbeddingMutation(TypedDict, total=False):
+    """Field-only view for copying embeddings within one NodeT specialization."""
+
+    embedding: list[float] | DecodedJSONValue
+
+
+class HarmonizationCandidate(TypedDict, total=False):
+    """Entity after successful id/type reads and description mapping access."""
+
+    id: Required[str]
+    uuid: DecodedJSONValue
+    name: DecodedJSONValue
+    content_hash: DecodedJSONValue
+    provenance_positions: DecodedJSONValue | list[int]
+    label: DecodedJSONValue
+    type: Required[str]
+    properties: GraphProperties
+    embedding: list[float] | DecodedJSONValue
+    color: DecodedJSONValue
+    size: DecodedJSONValue
+    font: DecodedJSONValue | NodeFont
+    title: DecodedJSONValue
+
+
+class NormalizedNode(TypedDict, total=False):
+    """Post-harmonization entity; required fields are retained by linker passes."""
+
+    id: Required[str]
+    uuid: Required[str]
+    name: DecodedJSONValue
+    content_hash: DecodedJSONValue
+    provenance_positions: DecodedJSONValue | list[int]
+    label: DecodedJSONValue
+    type: Required[str]
+    properties: Required[GraphProperties]
+    embedding: list[float] | DecodedJSONValue
+    color: DecodedJSONValue
+    size: DecodedJSONValue
+    font: DecodedJSONValue | NodeFont
+    title: DecodedJSONValue
+
+
 NodeT = TypeVar("NodeT", GraphNode, NormalizedNode)
-EntityNode: TypeAlias = GraphNode | NormalizedNode
+EntityNode: TypeAlias = GraphNode | NormalizedNode | GeneratedNode | ConstructedNode
 
 GraphRelationship = TypedDict(
     "GraphRelationship",
@@ -133,7 +309,7 @@ GraphRelationship = TypedDict(
         "condition": str | None,
         "quantitative": str | None,
         "contradiction_detected": bool,
-        "properties": dict[str, object],
+        "properties": GraphProperties,
         "provenance_positions": list[int],
         "arrows": str,
         "color": RelationshipColor,
@@ -142,9 +318,8 @@ GraphRelationship = TypedDict(
     total=False,
 )
 
-
-NormalizedRelationship = TypedDict(
-    "NormalizedRelationship",
+ConstructedRelationship = TypedDict(
+    "ConstructedRelationship",
     {
         "id": str,
         "from": str,
@@ -166,9 +341,68 @@ NormalizedRelationship = TypedDict(
     total=False,
 )
 
+GeneratedRelationship = TypedDict(
+    "GeneratedRelationship",
+    {
+        "id": Required[str],
+        "from": Required[str],
+        "to": Required[str],
+        "source": Required[str],
+        "target": Required[str],
+        "type": Required[str],
+        "label": Required[str],
+        "negated": Required[DecodedJSONValue],
+        "condition": str | None,
+        "quantitative": str | None,
+        "contradiction_detected": bool,
+        "properties": Required[GraphProperties],
+        "provenance_positions": DecodedJSONValue | list[int],
+        "arrows": Required[str],
+        "color": Required[RelationshipColor],
+        "font": Required[RelationshipFont],
+    },
+    total=False,
+)
 
-RelationshipT = TypeVar("RelationshipT", GraphRelationship, NormalizedRelationship)
-RelationshipRecord: TypeAlias = GraphRelationship | NormalizedRelationship
+
+NormalizedRelationship = TypedDict(
+    "NormalizedRelationship",
+    {
+        "id": DecodedJSONValue,
+        "from": DecodedJSONValue,
+        "to": DecodedJSONValue,
+        "source": Required[str],
+        "target": Required[str],
+        "type": Required[str],
+        "label": DecodedJSONValue,
+        "negated": DecodedJSONValue,
+        "condition": DecodedJSONValue,
+        "quantitative": DecodedJSONValue,
+        "contradiction_detected": DecodedJSONValue,
+        "properties": Required[GraphProperties],
+        "provenance_positions": DecodedJSONValue | list[int],
+        "arrows": DecodedJSONValue,
+        "color": DecodedJSONValue | RelationshipColor,
+        "font": DecodedJSONValue | RelationshipFont,
+    },
+    total=False,
+)
+
+
+RelationshipT = TypeVar(
+    "RelationshipT",
+    bound=GraphRelationship
+    | NormalizedRelationship
+    | ResolvedExtractionRelationship
+    | ReflectedRelationship
+    | RawExtractionRelationship,
+)
+RelationshipRecord: TypeAlias = (
+    GraphRelationship
+    | NormalizedRelationship
+    | GeneratedRelationship
+    | ConstructedRelationship
+)
 
 EntityLookupKey: TypeAlias = str | tuple[str, str]
 EntityLookup: TypeAlias = dict[EntityLookupKey, GraphNode]
@@ -178,9 +412,32 @@ EntityGroupKey: TypeAlias = (
 )
 
 
+ExtractionEntity: TypeAlias = GraphNode | PostprocessedEntity
+ExtractionRelationship: TypeAlias = (
+    GraphRelationship
+    | ResolvedExtractionRelationship
+    | ReflectedRelationship
+    | RawExtractionRelationship
+)
+HarmonizableEntity: TypeAlias = (
+    EntityNode | PostprocessedEntity | HarmonizationCandidate
+)
+HarmonizableRelationship: TypeAlias = (
+    RelationshipRecord
+    | ResolvedExtractionRelationship
+    | ReflectedRelationship
+    | RawExtractionRelationship
+)
+
+
 class ExtractionResult(TypedDict):
-    entities: list[GraphNode]
-    relationships: list[GraphRelationship]
+    entities: ReadOnly[Sequence[ExtractionEntity]]
+    relationships: ReadOnly[Sequence[ExtractionRelationship]]
+
+
+class PostprocessedExtractionResult(TypedDict):
+    entities: list[PostprocessedEntity]
+    relationships: list[ResolvedExtractionRelationship | ReflectedRelationship]
 
 
 class ComponentSummary(TypedDict):
@@ -205,7 +462,7 @@ class ClaimRecord(TypedDict):
     polarity: str
     confidence: float
     entity_ids: list[str]
-    provenance_positions: list[int]
+    provenance_positions: list[DecodedJSONValue]
     component_index: int
     relationship_index: int
 
@@ -289,11 +546,71 @@ class GraphMetadata(TypedDict, total=False):
     relationship_store_degraded: bool
 
 
+class GeneratedGraphMetadata(TypedDict, total=False):
+    total_chunks: Required[int]
+    total_passages: int
+    total_entities: Required[int]
+    total_relationships: Required[int]
+    chunk_size: Required[int]
+    chunk_overlap: Required[int]
+    embedding_model: Required[str]
+    embedding_dimension: Required[int]
+    ontology_classes: Required[int]
+    ontology_relationships: Required[int]
+    extraction_method: Required[str]
+    kg_name: Required[str | None]
+    provider: str
+    model: str
+    max_chunks_setting: int | None
+    created_at: Required[str]
+    visualization_ready: Required[bool]
+    file_name: Required[str | None]
+    doc_hash: Required[str | None]
+    schema_card: SchemaCard
+    schema_enforcement_dropped_entities: int
+    schema_enforcement_dropped_relationships: int
+    harmonization_relationships_dropped_unmapped: int
+    harmonization_relationships_dropped_schema_mismatch: int
+    harmonization_relationships_deduped: int
+    harmonization_relationship_contradiction_groups: int
+    harmonization_relationship_contradiction_edges: int
+    anchor_grounded_entities: int
+    restoration_full_relationships: int
+    restoration_partial_relationships: int
+    graph_enrichment: GraphEnrichment
+    component_summary_count: int
+    claim_count: int
+    fragmentation_bridge_count: int
+    doc_metadata: Mapping[str, object]
+    stored_in_neo4j: bool
+    synonym_merges: int
+    kg_type: str
+    source_knowledge_graphs: int
+    stored_relationships: int
+    relationship_store_failures: int
+    relationships_skipped_low_confidence: int
+    relationships_skipped_schema_mismatch: int
+    relationships_reverified_kept: int
+    relationships_reverified_rejected: int
+    relationship_store_ratio: float | str | None
+    relationship_store_failure_ratio: float
+    relationship_store_degraded: bool
+
+
 class KnowledgeGraph(TypedDict):
-    nodes: Sequence[EntityNode]
-    relationships: Sequence[RelationshipRecord]
+    nodes: ReadOnly[Sequence[EntityNode]]
+    relationships: ReadOnly[Sequence[RelationshipRecord]]
     chunks: list[TextChunk]
-    metadata: GraphMetadata
+    metadata: ReadOnly[GraphMetadata | GeneratedGraphMetadata]
+
+
+class GeneratedKnowledgeGraph(TypedDict):
+    """Base creator output, distinct from patient/bulk harmonized graph records."""
+
+    nodes: list[GeneratedNode]
+    relationships: list[GeneratedRelationship]
+    chunks: list[TextChunk]
+    metadata: GeneratedGraphMetadata
 
 
 class GraphChunkInput(TypedDict, total=False):
@@ -307,7 +624,7 @@ class GraphChunkInput(TypedDict, total=False):
     total_chunks: ReadOnly[int]
     embedding: ReadOnly[list[float] | None]
     section_name: ReadOnly[str]
-    source: ReadOnly[str]
+    source: ReadOnly[str | None]
     dataset: ReadOnly[str]
     question_id: ReadOnly[str | None]
     passage_index: ReadOnly[int]
@@ -322,7 +639,22 @@ class KnowledgeGraphInput(TypedDict, total=False):
     nodes: ReadOnly[Sequence[EntityNode]]
     relationships: ReadOnly[Sequence[RelationshipRecord]]
     chunks: ReadOnly[Sequence[GraphChunkInput]]
-    metadata: ReadOnly[GraphMetadata]
+    metadata: ReadOnly[GraphMetadata | GeneratedGraphMetadata]
+
+
+class MetadataReadyKnowledgeGraphInput(KnowledgeGraphInput):
+    """Read view after setdefault establishes only the metadata key."""
+
+    metadata: ReadOnly[GraphMetadata | GeneratedGraphMetadata]
+
+
+class MutableKnowledgeGraphInput(TypedDict, total=False):
+    """Exact mutation view for inserting absent metadata without replacing it."""
+
+    nodes: ReadOnly[Sequence[EntityNode]]
+    relationships: ReadOnly[Sequence[RelationshipRecord]]
+    chunks: ReadOnly[Sequence[GraphChunkInput]]
+    metadata: GraphMetadata | GeneratedGraphMetadata
 
 
 class RelationshipProvenance(TypedDict):
@@ -337,32 +669,40 @@ class UMLSLink(TypedDict):
     name: str | None
 
 
+class SynonymQueryRow(TypedDict):
+    eid: str
+    name: Neo4jProperty
+    emb: Neo4jProperty
+    degree: int
+    etype: Neo4jProperty
+
+
 class CreatorContextEntity(TypedDict):
-    id: str | None
-    type: str | None
-    description: str | None
+    id: Neo4jProperty
+    type: Neo4jProperty
+    description: Neo4jProperty
 
 
 class CreatorContextChunk(TypedDict):
-    text: str | None
-    chunk_id: str | None
+    text: Neo4jProperty
+    chunk_id: Neo4jProperty
     score: float
-    document: str | None
+    document: Neo4jProperty
     entities: list[CreatorContextEntity]
 
 
 class CreatorRagContext(TypedDict):
     query: str
     chunks: list[CreatorContextChunk]
-    entities: list[str | None]
-    documents: list[str | None]
+    entities: list[Neo4jProperty]
+    documents: list[Neo4jProperty]
 
 
 class _CreatorContextAccumulator(TypedDict):
     query: str
     chunks: list[CreatorContextChunk]
-    entities: set[str | None]
-    documents: set[str | None]
+    entities: set[Neo4jProperty]
+    documents: set[Neo4jProperty]
 
 
 class OntologyGuidedKGCreator(
@@ -945,7 +1285,7 @@ class OntologyGuidedKGCreator(
     def _resolve_coreferences_heuristic(
         self,
         chunk_text: str,
-        previous_entities: "list[GraphNode] | None",
+        previous_entities: "Sequence[ExtractionEntity] | None",
     ) -> str:
         """Cheap pronoun/coreference resolver using previously seen entities.
 
@@ -1167,7 +1507,10 @@ class OntologyGuidedKGCreator(
                    COUNT {{ (e)--() }} AS degree,
                    coalesce(e.type, e.ontology_class, '') AS etype
             """
-            rows: list[dict[str, object]] = graph.query(fetch_q, params)
+            rows: list[SynonymQueryRow] = cast(
+                "list[SynonymQueryRow]",
+                graph.query(fetch_q, params),
+            )
             if not rows:
                 logging.info("No entity embeddings found; skipping synonym merging.")
                 return 0
@@ -1178,10 +1521,10 @@ class OntologyGuidedKGCreator(
                     "No entity embeddings found after filtering; skipping synonym merging.",
                 )
                 return 0
-            eids: list[object] = [r["eid"] for r in rows]
-            names: list[object] = [r["name"] for r in rows]
-            degrees: list[object] = [r["degree"] for r in rows]
-            etypes: list[object] = [r.get("etype", "") or "" for r in rows]
+            eids: list[str] = [r["eid"] for r in rows]
+            names: list[Neo4jProperty] = [r["name"] for r in rows]
+            degrees: list[int] = [r["degree"] for r in rows]
+            etypes: list[Neo4jProperty] = [r.get("etype", "") or "" for r in rows]
             embeddings: NDArray[np.float64] = np.array(
                 [r["emb"] for r in rows],
                 dtype=float,
@@ -1354,7 +1697,7 @@ class OntologyGuidedKGCreator(
             return best_id, best_score
         return None
 
-    def _generate_entity_id(self, entity: "EntityNode") -> str:
+    def _generate_entity_id(self, entity: "HarmonizableEntity") -> str:
         """Generate a deterministic UUID scoped to both normalized text AND type.
 
         Including the type means same-surface/different-type entities (e.g. "depression"
@@ -1365,7 +1708,9 @@ class OntologyGuidedKGCreator(
         """
         norm_text: str = self._normalize_entity_text(entity["id"])
         entity_type: str = (entity.get("type") or "").strip()
-        properties: dict[str, object] = dict(entity.get("properties") or {})
+        properties: GraphProperties = dict[AugmentedPropertyKey, object](
+            entity.get("properties") or {},
+        )
         scope_key: str = str(
             properties.get("disambiguation_scope")
             or properties.get("title_scope_key")
@@ -1428,9 +1773,11 @@ class OntologyGuidedKGCreator(
     def _entity_matches_own_source_title(
         self,
         normalized_text: str,
-        entity: "EntityNode",
+        entity: "HarmonizableEntity",
     ) -> bool:
-        properties: dict[str, object] = dict(entity.get("properties") or {})
+        properties: GraphProperties = dict[AugmentedPropertyKey, object](
+            entity.get("properties") or {},
+        )
         source_title: object = properties.get("source_title")
         if not isinstance(source_title, str) or not source_title.strip():
             return False
@@ -1495,7 +1842,7 @@ class OntologyGuidedKGCreator(
         }
         return [v for v in variants if isinstance(v, str) and v.strip()]
 
-    def _entity_candidate_names(self, entity: "EntityNode") -> list[str]:
+    def _entity_candidate_names(self, entity: "HarmonizableEntity") -> list[str]:
         """Collect plausible surface forms for an extracted entity."""
         if not isinstance(entity, dict):
             return []
@@ -1509,7 +1856,7 @@ class OntologyGuidedKGCreator(
             if isinstance(candidate, str) and candidate.strip():
                 candidates.append(candidate)
 
-        props: dict[str, object] = entity.get("properties") or {}
+        props: RawGraphProperties | dict[str, object] = entity.get("properties") or {}
         all_names: object = props.get("all_names") or []
         if isinstance(all_names, list):
             for alias in all_names:
@@ -1531,7 +1878,7 @@ class OntologyGuidedKGCreator(
                 deduped.append(candidate)
         return deduped
 
-    def _entity_appears_in_text(self, entity: "EntityNode", text: str) -> bool:
+    def _entity_appears_in_text(self, entity: "HarmonizableEntity", text: str) -> bool:
         """Check whether an entity or any of its aliases appears in text."""
         if not isinstance(text, str) or not text.strip():
             return False
@@ -1564,7 +1911,7 @@ class OntologyGuidedKGCreator(
     def _resolve_relationship_endpoint(
         self,
         raw_name: str,
-        entities: "list[GraphNode]",
+        entities: "Sequence[ExtractionEntity]",
     ) -> str | None:
         """
         Resolve a relationship endpoint to the best matching extracted entity ID.
@@ -1775,7 +2122,9 @@ class OntologyGuidedKGCreator(
         entities_with_links: list[NodeT] = []
         for entity in harmonized_entities:
             entity_copy: NodeT = cast(NodeT, dict(entity))
-            properties: dict[str, object] = dict(entity_copy.get("properties") or {})
+            properties: GraphProperties = dict[AugmentedPropertyKey, object](
+                entity_copy.get("properties") or {},
+            )
             link: UMLSLink | None = self._link_entity_to_umls(
                 str(entity_copy.get("id") or ""),
             )
@@ -1797,7 +2146,7 @@ class OntologyGuidedKGCreator(
                 ungrouped.append(entity)
 
         merged_entities: list[NodeT] = []
-        remapped_entities_by_uuid: dict[str, NodeT] = {}
+        remapped_entities_by_uuid: dict[str | None, NodeT] = {}
 
         for cui, cui_group in grouped_by_cui.items():
             specific_types: set[str | None] = {
@@ -1835,7 +2184,9 @@ class OntologyGuidedKGCreator(
             )
 
             for entity in cui_group:
-                entity_props: dict[str, object] = dict(entity.get("properties") or {})
+                entity_props: GraphProperties = dict[AugmentedPropertyKey, object](
+                    entity.get("properties") or {},
+                )
                 all_names.update(entity_props.get("all_names") or [entity.get("id")])
                 all_descriptions.update(entity_props.get("all_descriptions") or [])
                 description: object = entity_props.get("description")
@@ -1849,7 +2200,9 @@ class OntologyGuidedKGCreator(
                     entity_props.get("anchor_spans"),
                 )
                 if entity.get("embedding") and representative.get("embedding") is None:
-                    representative["embedding"] = entity.get("embedding")
+                    cast(EmbeddingMutation, representative)["embedding"] = entity.get(
+                        "embedding",
+                    )
                 if entity.get("uuid"):
                     remapped_entities_by_uuid[entity["uuid"]] = representative
 
@@ -1952,8 +2305,8 @@ class OntologyGuidedKGCreator(
 
     @staticmethod
     def _cosine_similarity(
-        left: Sequence[float | str] | None,
-        right: Sequence[float | str] | None,
+        left: Sequence[float | str] | DecodedJSONValue,
+        right: Sequence[float | str] | DecodedJSONValue,
     ) -> float:
         """Lightweight cosine similarity without a hard NumPy dependency."""
         if not isinstance(left, (list, tuple)) or not isinstance(right, (list, tuple)):
@@ -2020,7 +2373,9 @@ class OntologyGuidedKGCreator(
             ),
         ).copy()
 
-        properties: dict[str, object] = dict(representative.get("properties") or {})
+        properties: GraphProperties = dict[AugmentedPropertyKey, object](
+            representative.get("properties") or {},
+        )
         merged_anchor_spans: list[AnchorSpan] = self._merge_anchor_spans(
             *[
                 (entity.get("properties") or {}).get("anchor_spans")
@@ -2037,10 +2392,12 @@ class OntologyGuidedKGCreator(
         passage_indexes: set[int] = set()
         umls_cuis: set[str] = set()
         umls_names: set[str] = set()
-        best_embedding: list[float] | None = representative.get("embedding")
+        best_embedding: list[float] | DecodedJSONValue = representative.get("embedding")
 
         for entity in entities:
-            entity_properties: dict[str, object] = dict(entity.get("properties") or {})
+            entity_properties: GraphProperties = dict[AugmentedPropertyKey, object](
+                entity.get("properties") or {},
+            )
             if not best_embedding and entity.get("embedding") is not None:
                 best_embedding = entity.get("embedding")
 
@@ -2134,7 +2491,7 @@ class OntologyGuidedKGCreator(
         properties["soft_link_cluster_size"] = len(entities)
 
         representative["properties"] = properties
-        representative["embedding"] = best_embedding
+        cast(EmbeddingMutation, representative)["embedding"] = best_embedding
         representative.setdefault("uuid", entities[0].get("uuid"))
         return representative
 
@@ -2162,7 +2519,7 @@ class OntologyGuidedKGCreator(
             }
             for entity in harmonized_entities
         }
-        embeddings: dict[str | None, list[float] | None] = {
+        embeddings: dict[str | None, list[float] | DecodedJSONValue] = {
             entity.get("uuid"): entity.get("embedding")
             for entity in harmonized_entities
         }
@@ -2187,25 +2544,27 @@ class OntologyGuidedKGCreator(
         entities: list[NodeT] = [
             entity for entity in harmonized_entities if entity.get("uuid")
         ]
-        parent: dict[str, str] = {entity["uuid"]: entity["uuid"] for entity in entities}
+        parent: dict[str | None, str | None] = {
+            entity["uuid"]: entity["uuid"] for entity in entities
+        }
 
-        def _find(item: str) -> str:
+        def _find(item: str | None) -> str | None:
             while parent[item] != item:
                 parent[item] = parent[parent[item]]
                 item = parent[item]
             return item
 
-        def _union(left_uuid: str, right_uuid: str) -> None:
-            left_root: str = _find(left_uuid)
-            right_root: str = _find(right_uuid)
+        def _union(left_uuid: str | None, right_uuid: str | None) -> None:
+            left_root: str | None = _find(left_uuid)
+            right_root: str | None = _find(right_uuid)
             if left_root != right_root:
                 parent[left_root] = right_root
 
         for idx, left_entity in enumerate(entities):
-            left_uuid: str = left_entity["uuid"]
+            left_uuid: str | None = left_entity["uuid"]
             left_type: str = str(left_entity.get("type") or "").strip().lower()
             for right_entity in entities[idx + 1 :]:
-                right_uuid: str = right_entity["uuid"]
+                right_uuid: str | None = right_entity["uuid"]
                 right_type: str = str(right_entity.get("type") or "").strip().lower()
 
                 alias_overlap: set[str] = alias_keys.get(
@@ -2257,7 +2616,7 @@ class OntologyGuidedKGCreator(
 
                 _union(left_uuid, right_uuid)
 
-        grouped: dict[str, list[NodeT]] = defaultdict(list)
+        grouped: dict[str | None, list[NodeT]] = defaultdict(list)
         for entity in entities:
             grouped[_find(entity["uuid"])].append(entity)
 
@@ -2265,7 +2624,7 @@ class OntologyGuidedKGCreator(
             return harmonized_entities, entity_map
 
         merged_entities: list[NodeT] = []
-        remapped_by_uuid: dict[str, NodeT] = {}
+        remapped_by_uuid: dict[str | None, NodeT] = {}
         merge_count: int = 0
         for group in grouped.values():
             if len(group) == 1:
@@ -2303,20 +2662,20 @@ class OntologyGuidedKGCreator(
     @overload
     def _harmonize_entities(
         self,
-        all_entities: Sequence[EntityNode],
+        all_entities: Sequence[HarmonizableEntity],
         return_id_map: Literal[False] = False,
     ) -> list[NormalizedNode]: ...
 
     @overload
     def _harmonize_entities(
         self,
-        all_entities: Sequence[EntityNode],
+        all_entities: Sequence[HarmonizableEntity],
         return_id_map: Literal[True],
     ) -> tuple[list[NormalizedNode], NormalizedEntityLookup]: ...
 
     def _harmonize_entities(
         self,
-        all_entities: Sequence[EntityNode],
+        all_entities: Sequence[HarmonizableEntity],
         return_id_map: bool = False,
     ) -> list[NormalizedNode] | tuple[list[NormalizedNode], NormalizedEntityLookup]:
         """
@@ -2329,7 +2688,7 @@ class OntologyGuidedKGCreator(
         # hub nodes that fan out to hundreds of irrelevant chunks at retrieval
         # time.  The filter is conservative: it only removes names that are
         # explicitly blocklisted or shorter than the minimum length threshold.
-        filtered_entities: list[EntityNode] = [
+        filtered_entities: list[HarmonizableEntity] = [
             e
             for e in all_entities
             if _is_valid_entity_name(e.get("id", "") or e.get("name", ""))
@@ -2358,7 +2717,7 @@ class OntologyGuidedKGCreator(
         #   toward generic labels still merges into the right node rather than floating free.
         _generic_types: set[str] = {"Concept", "Entity", "Unknown", "Other"}
 
-        text_groups: dict[str, list[EntityNode]] = defaultdict(list)
+        text_groups: dict[str, list[HarmonizableEntity]] = defaultdict(list)
         for entity in all_entities:
             normalized_text: str = self._normalize_entity_text(entity["id"])
             text_groups[normalized_text].append(entity)
@@ -2370,18 +2729,24 @@ class OntologyGuidedKGCreator(
         # dominant_for_surface records which specific type is the largest bucket for
         # each surface form that was split — used below to make entity_map writes
         # deterministic (dominant type always wins, regardless of iteration order).
-        entity_groups: dict[EntityGroupKey, list[EntityNode]] = defaultdict(list)
+        entity_groups: dict[EntityGroupKey, list[HarmonizableEntity]] = defaultdict(
+            list,
+        )
         dominant_for_surface: dict[str, str] = {}  # norm_text → dominant specific type
 
         for norm_text, entities in text_groups.items():
             pending_groups: list[
-                tuple[str | tuple[str, str, str], list[EntityNode]]
+                tuple[str | tuple[str, str, str], list[HarmonizableEntity]]
             ] = [(norm_text, list(entities))]
-            title_matched_by_scope: dict[str, list[EntityNode]] = defaultdict(list)
-            residual_entities: list[EntityNode] = []
+            title_matched_by_scope: dict[str, list[HarmonizableEntity]] = defaultdict(
+                list,
+            )
+            residual_entities: list[HarmonizableEntity] = []
 
             for entity in entities:
-                properties: dict[str, object] = dict(entity.get("properties") or {})
+                properties: GraphProperties = dict[AugmentedPropertyKey, object](
+                    entity.get("properties") or {},
+                )
                 dataset: str = str(properties.get("dataset") or "").strip().lower()
                 scope_key: str = str(properties.get("source_scope_key") or "").strip()
                 if (
@@ -2419,8 +2784,8 @@ class OntologyGuidedKGCreator(
                     continue
 
                 # Multiple distinct specific types → split, generics go to largest bucket.
-                type_buckets: dict[str, list[EntityNode]] = defaultdict(list)
-                generics: list[EntityNode] = []
+                type_buckets: dict[str, list[HarmonizableEntity]] = defaultdict(list)
+                generics: list[HarmonizableEntity] = []
                 for e in group_entities:
                     if e.get("type") in _generic_types:
                         generics.append(e)
@@ -2489,19 +2854,27 @@ class OntologyGuidedKGCreator(
             # Rule 3: if still tied, prefer the longest entity name (most fully-qualified)
             # (_generic_types defined at Step 1 above)
 
-            def _type_specificity(e: EntityNode) -> int:
+            def _type_specificity(e: HarmonizableEntity) -> int:
                 return 0 if e.get("type", "Concept") in _generic_types else 1
 
-            def _desc_len(e: EntityNode) -> int:
+            def _desc_len(e: HarmonizableEntity) -> int:
                 return len(e.get("properties", {}).get("description") or "")
 
-            def _name_len(e: EntityNode) -> int:
+            def _name_len(e: HarmonizableEntity) -> int:
                 return len(e.get("id") or "")
 
-            representative_entity: EntityNode = max(
+            representative_entity: HarmonizationCandidate = cast(
+                HarmonizationCandidate,
+                max(
+                    entities,
+                    key=lambda e: (_type_specificity(e), _desc_len(e), _name_len(e)),
+                ).copy(),
+            )
+
+            mapped_entities: list[HarmonizationCandidate] = cast(
+                "list[HarmonizationCandidate]",
                 entities,
-                key=lambda e: (_type_specificity(e), _desc_len(e), _name_len(e)),
-            ).copy()
+            )
 
             # Merge information from all occurrences
             all_names: set[str] = set()
@@ -2512,17 +2885,19 @@ class OntologyGuidedKGCreator(
             all_question_ids: set[str] = set()
             all_passage_indexes: set[int] = set()
 
-            for entity in entities:
+            for mapped_entity in mapped_entities:
                 # Rule 3: accumulate all surface forms as synonyms
-                all_names.add(entity["id"])
-                desc: object = entity.get("properties", {}).get("description")
+                all_names.add(mapped_entity["id"])
+                desc: object = mapped_entity.get("properties", {}).get("description")
                 if desc:
                     all_descriptions.add(desc if isinstance(desc, str) else str(desc))
                 all_anchor_spans = self._merge_anchor_spans(
                     all_anchor_spans,
-                    (entity.get("properties") or {}).get("anchor_spans"),
+                    (mapped_entity.get("properties") or {}).get("anchor_spans"),
                 )
-                props: dict[str, object] = dict(entity.get("properties") or {})
+                props: GraphProperties = dict[AugmentedPropertyKey, object](
+                    mapped_entity.get("properties") or {},
+                )
                 property_scope_key: object = props.get("source_scope_key")
                 if property_scope_key:
                     all_source_scope_keys.add(str(property_scope_key))
@@ -2537,15 +2912,15 @@ class OntologyGuidedKGCreator(
                     all_passage_indexes.add(int(passage_index))
 
                 # Keep the best embedding (prefer any available embedding)
-                if not representative_entity.get("embedding") and entity.get(
+                if not representative_entity.get("embedding") and mapped_entity.get(
                     "embedding",
                 ):
-                    representative_entity["embedding"] = entity["embedding"]
+                    representative_entity["embedding"] = mapped_entity["embedding"]
 
             # Merge all non-description properties from variants into representative
-            for entity in entities:
-                if entity.get("properties"):
-                    for k, v in entity["properties"].items():
+            for mapped_entity in mapped_entities:
+                if mapped_entity.get("properties"):
+                    for k, v in mapped_entity["properties"].items():
                         if k not in (
                             "description",
                         ):  # description already resolved above
@@ -2554,47 +2929,50 @@ class OntologyGuidedKGCreator(
                                 {},
                             ).setdefault(k, v)
 
-            # Update representative entity with merged information
-            representative_entity.setdefault("properties", {})
-            representative_entity["properties"].setdefault(
+            # Update representative mapped_entity with merged information
+            representative_properties: GraphProperties = (
+                representative_entity.setdefault(
+                    "properties",
+                    {},
+                )
+            )
+            representative_properties.setdefault(
                 "original_ids",
                 [representative_entity["id"]],
             )
             if all_anchor_spans:
-                representative_entity["properties"]["anchor_spans"] = all_anchor_spans
-                representative_entity["properties"]["anchor_mention_count"] = len(
+                representative_properties["anchor_spans"] = all_anchor_spans
+                representative_properties["anchor_mention_count"] = len(
                     all_anchor_spans,
                 )
             if all_source_scope_keys:
-                representative_entity["properties"]["source_scope_keys"] = sorted(
+                representative_properties["source_scope_keys"] = sorted(
                     all_source_scope_keys,
                 )
             if all_source_titles:
-                representative_entity["properties"]["source_titles"] = sorted(
+                representative_properties["source_titles"] = sorted(
                     all_source_titles,
                 )
             if all_question_ids:
-                representative_entity["properties"]["question_ids"] = sorted(
+                representative_properties["question_ids"] = sorted(
                     all_question_ids,
                 )
             if all_passage_indexes:
-                representative_entity["properties"]["passage_indexes"] = sorted(
+                representative_properties["passage_indexes"] = sorted(
                     all_passage_indexes,
                 )
             if title_scope_key:
-                representative_entity["properties"]["title_entity_scoped"] = True
-                representative_entity["properties"]["title_scope_key"] = title_scope_key
-                representative_entity["properties"]["disambiguation_scope"] = (
-                    title_scope_key
-                )
+                representative_properties["title_entity_scoped"] = True
+                representative_properties["title_scope_key"] = title_scope_key
+                representative_properties["disambiguation_scope"] = title_scope_key
             if len(all_names) > 1 or len(all_descriptions) > 1:
-                representative_entity["properties"]["all_names"] = sorted(all_names)
-                representative_entity["properties"]["all_descriptions"] = sorted(
+                representative_properties["all_names"] = sorted(all_names)
+                representative_properties["all_descriptions"] = sorted(
                     all_descriptions,
                     key=len,
                     reverse=True,
                 )
-                representative_entity["properties"]["original_ids"] = sorted(all_names)
+                representative_properties["original_ids"] = sorted(all_names)
                 total_duplicates_removed += len(entities) - 1
 
             # Generate deterministic UUID
@@ -2607,26 +2985,27 @@ class OntologyGuidedKGCreator(
             )
             harmonized_entities.append(normalized_entity)
 
-            # Map all original name variations to the harmonized entity.
+            # Map all original name variations to the harmonized mapped_entity.
             # For split surface forms, entity_map[surface_form] must always point to the
             # dominant-type representative so relationship resolution is deterministic
             # regardless of which order entity_groups iterates the split buckets.
             # The dominant type was pre-computed in the split phase above.
-            for entity in entities:
-                _norm: str = self._normalize_entity_text(entity["id"])
+            for mapped_entity in mapped_entities:
+                _norm: str = self._normalize_entity_text(mapped_entity["id"])
                 is_dominant: bool = (
                     dominant_for_surface.get(str(dominant_lookup_key))
                     == representative_entity.get("type")
                     if str(dominant_lookup_key) in dominant_for_surface
                     else True  # not a split surface form — always write
                 )
-                if is_dominant or entity["id"] not in entity_map:
-                    entity_map[entity["id"]] = normalized_entity
+                if is_dominant or mapped_entity["id"] not in entity_map:
+                    entity_map[mapped_entity["id"]] = normalized_entity
                 scope_key = str(
-                    (entity.get("properties") or {}).get("source_scope_key") or "",
+                    (mapped_entity.get("properties") or {}).get("source_scope_key")
+                    or "",
                 ).strip()
                 if scope_key:
-                    entity_map[(scope_key, entity["id"])] = normalized_entity
+                    entity_map[(scope_key, mapped_entity["id"])] = normalized_entity
 
         logging.info(
             f"Harmonization complete: {len(harmonized_entities)} entities (removed {total_duplicates_removed} duplicates)",
@@ -2658,7 +3037,7 @@ class OntologyGuidedKGCreator(
 
     def _harmonize_relationships(
         self,
-        all_relationships: "Sequence[RelationshipRecord]",
+        all_relationships: "Sequence[HarmonizableRelationship]",
         entity_map: "Mapping[EntityLookupKey, EntityNode]",
     ) -> "list[NormalizedRelationship]":
         """
@@ -2677,19 +3056,22 @@ class OntologyGuidedKGCreator(
         # extraction), values are the representative entities with uuid set.
         # Iterating .items() — not .values() — ensures every variant name is covered,
         # so relationships that used a non-canonical spelling are not silently dropped.
-        original_to_uuid: dict[str, str] = {}
-        scoped_to_uuid: dict[tuple[str, str], str] = {}
-        candidate_names_by_uuid: dict[str, set[str]] = defaultdict(set)
-        entity_type_by_uuid: dict[str, str] = {}
+        original_to_uuid: dict[str, str | None] = {}
+        scoped_to_uuid: dict[tuple[str, str], str | None] = {}
+        candidate_names_by_uuid: dict[str | None, set[str]] = defaultdict(set)
+        entity_type_by_uuid: dict[str | None, str] = {}
         for variant_name, representative in entity_map.items():
             if "uuid" not in representative:
                 logging.warning(
                     f"Entity '{representative.get('id', '?')}' missing uuid in entity_map — skipping in relationship mapping",
                 )
                 continue
-            uuid_value: str = representative["uuid"]
+            uuid_value: str | None = representative["uuid"]
             if representative.get("type"):
-                entity_type_by_uuid.setdefault(uuid_value, representative.get("type"))
+                entity_type_by_uuid.setdefault(
+                    uuid_value,
+                    cast(str, representative.get("type")),
+                )
             if (
                 isinstance(variant_name, tuple)
                 and len(variant_name) == 2
@@ -2718,7 +3100,10 @@ class OntologyGuidedKGCreator(
                     original_to_uuid.setdefault(variant.lower(), uuid_value)
                     candidate_names_by_uuid[uuid_value].add(variant)
 
-        def _lookup_uuid(name: str, preferred_scope: str | None = None) -> str | None:
+        def _lookup_uuid(
+            name: object,
+            preferred_scope: str | None = None,
+        ) -> str | None:
             """Try increasingly fuzzy lookups before giving up."""
             if not isinstance(name, str) or not name.strip():
                 return None
@@ -2779,9 +3164,11 @@ class OntologyGuidedKGCreator(
         dropped_schema_mismatch: int = 0
         deduped_relationships: int = 0
         for rel in all_relationships:
-            src: str | None = rel.get("source")
-            tgt: str | None = rel.get("target")
-            rel_props: dict[str, object] = dict(rel.get("properties") or {})
+            src: DecodedJSONValue = rel.get("source")
+            tgt: DecodedJSONValue = rel.get("target")
+            rel_props: GraphProperties = dict[AugmentedPropertyKey, object](
+                rel.get("properties") or {},
+            )
             preferred_scope: str | None = (
                 str(rel_props.get("source_scope_key") or "").strip() or None
             )
@@ -2800,8 +3187,11 @@ class OntologyGuidedKGCreator(
 
             if source_uuid and target_uuid:
                 # Create new relationship with UUID-based IDs
-                uuid_rel: RelationshipRecord = rel.copy()
-                rel_properties: dict[str, object] = dict(
+                uuid_rel: RawExtractionRelationship = cast(
+                    RawExtractionRelationship,
+                    rel.copy(),
+                )
+                rel_properties: GraphProperties = dict[AugmentedPropertyKey, object](
                     uuid_rel.get("properties") or {},
                 )
                 if isinstance(src, str):
@@ -2853,10 +3243,13 @@ class OntologyGuidedKGCreator(
                 else:
                     deduped_relationships += 1
                     existing_rel: NormalizedRelationship = seen_relationships[rel_key]
-                    existing_props: dict[str, object] = dict(
+                    existing_props: GraphProperties = dict[
+                        AugmentedPropertyKey,
+                        object,
+                    ](
                         existing_rel.get("properties") or {},
                     )
-                    new_props: dict[str, object] = dict(
+                    new_props: GraphProperties = dict[AugmentedPropertyKey, object](
                         uuid_rel.get("properties") or {},
                     )
                     merged_anchor_grounding: dict[str, list[AnchorSpan]] = (
@@ -2923,11 +3316,13 @@ class OntologyGuidedKGCreator(
             defaultdict(list)
         )
         for rel in harmonized_relationships:
-            properties: dict[str, object] = dict(rel.get("properties") or {})
-            condition: str | None = rel.get("condition")
+            properties: GraphProperties = dict[AugmentedPropertyKey, object](
+                rel.get("properties") or {},
+            )
+            condition: object = rel.get("condition")
             if condition is None:
                 condition = properties.get("condition")
-            quantitative: str | None = rel.get("quantitative")
+            quantitative: object = rel.get("quantitative")
             if quantitative is None:
                 quantitative = properties.get("quantitative")
             key: tuple[str, str, str, str, str] = (
@@ -2948,7 +3343,9 @@ class OntologyGuidedKGCreator(
             contradiction_groups += 1
             contradiction_edges += len(rels)
             for rel in rels:
-                rel_props: dict[str, object] = dict(rel.get("properties") or {})
+                rel_props: GraphProperties = dict[AugmentedPropertyKey, object](
+                    rel.get("properties") or {},
+                )
                 rel_props["contradiction_detected"] = True
                 rel["properties"] = rel_props
                 rel["contradiction_detected"] = True
@@ -3075,7 +3472,7 @@ class OntologyGuidedKGCreator(
         for component_index, component in enumerate(components):
             if include_component_summaries:
                 summary_id: str = hashlib.sha1(
-                    f"{kg.get('metadata', {}).get('kg_name', '')}:component:{component_index}".encode(),
+                    f"{kg.get('metadata', GraphMetadata()).get('kg_name', '')}:component:{component_index}".encode(),
                 ).hexdigest()
                 summary_text: str = self._heuristic_component_summary_text(
                     component,
@@ -3107,7 +3504,7 @@ class OntologyGuidedKGCreator(
             ]
             graph_summary = {
                 "id": hashlib.sha1(
-                    f"{kg.get('metadata', {}).get('kg_name', '')}:graph_summary".encode(),
+                    f"{kg.get('metadata', GraphMetadata()).get('kg_name', '')}:graph_summary".encode(),
                 ).hexdigest(),
                 "text": (
                     f"Graph contains {len(component_summaries)} connected components. "
@@ -3128,19 +3525,24 @@ class OntologyGuidedKGCreator(
 
     @staticmethod
     def _attach_relationship_provenance(
-        relationships: "list[RelationshipT]",
+        relationships: Sequence[ExtractionRelationship] | DecodedJSONValue,
         chunk_positions: list[int],
-    ) -> "list[RelationshipT]":
+    ) -> list[ExtractionRelationship]:
         """Attach local chunk provenance so triple verification can stay passage-local."""
-        annotated: list[RelationshipT] = []
+        annotated: list[ExtractionRelationship] = []
         normalized_positions: list[int] = [
             int(pos) for pos in chunk_positions if isinstance(pos, (int, float))
         ]
         for rel in relationships or []:
             if not isinstance(rel, dict):
                 continue
-            rel_copy: RelationshipT = cast(RelationshipT, dict(rel))
-            existing_positions: list[int] = rel_copy.get("provenance_positions") or []
+            rel_copy: ExtractionRelationship = cast(
+                "ExtractionRelationship",
+                dict(rel),
+            )
+            existing_positions: DecodedJSONValue | list[int] = (
+                rel_copy.get("provenance_positions") or []
+            )
             merged_positions: set[int] = {
                 int(pos) for pos in existing_positions if isinstance(pos, (int, float))
             }
@@ -3217,14 +3619,14 @@ class OntologyGuidedKGCreator(
     def generate_knowledge_graph(
         self,
         text: str,
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         file_name: str | None = None,
         model_name: str = "openai/gpt-oss-120b:free",
         max_chunks: int | None = None,
         kg_name: str | None = None,
         doc_metadata: "Mapping[str, object] | None" = None,
         doc_hash: str | None = None,
-    ) -> KnowledgeGraph:
+    ) -> GeneratedKnowledgeGraph:
         """
         Generate knowledge graph from text with ontology-guided entity extraction
 
@@ -3272,13 +3674,13 @@ class OntologyGuidedKGCreator(
             chunks = chunks[:max_chunks]
 
         # Step 2: Extract entities and relationships from each chunk
-        all_entities: list[GraphNode] = []
-        all_relationships: list[GraphRelationship] = []
+        all_entities: list[ExtractionEntity] = []
+        all_relationships: list[ExtractionRelationship] = []
         processed_chunks: int = 0
         failed_chunks: int = 0
         entities_per_chunk: dict[
             int,
-            list[GraphNode],
+            Sequence[ExtractionEntity],
         ] = {}  # chunk index → entities (for cross-chunk pass)
 
         for i, chunk in enumerate(chunks):
@@ -3301,7 +3703,7 @@ class OntologyGuidedKGCreator(
                     )
 
                 previous_chunk_indexes: list[int] = list(range(max(0, i - 2), i))
-                previous_entities: list[GraphNode] = [
+                previous_entities: list[ExtractionEntity] = [
                     entity
                     for prev_idx in previous_chunk_indexes
                     for entity in entities_per_chunk.get(prev_idx, [])
@@ -3334,7 +3736,10 @@ class OntologyGuidedKGCreator(
                         chunk_kg.get("entities", [])
                         or chunk_kg.get("relationships", [])
                     ):
-                        chunk_entities: list[GraphNode] = chunk_kg.get("entities", [])
+                        chunk_entities: Sequence[ExtractionEntity] = chunk_kg.get(
+                            "entities",
+                            [],
+                        )
                         all_entities.extend(chunk_entities)
                         all_relationships.extend(
                             self._attach_relationship_provenance(
@@ -3444,7 +3849,7 @@ class OntologyGuidedKGCreator(
         # Use UUID-based IDs to prevent duplicates
         kg_prefix: str = f"{kg_name}_" if kg_name else ""
 
-        kg: KnowledgeGraph = {
+        kg: GeneratedKnowledgeGraph = {
             "nodes": [
                 {
                     "id": f"{kg_prefix}{entity['uuid']}",
@@ -3591,7 +3996,7 @@ class OntologyGuidedKGCreator(
             # can find all surface-form variants via a single canonical node.
             if success:
                 try:
-                    graph_for_merge: Neo4jGraph = self._create_neo4j_connection()
+                    graph_for_merge: QueryGraph = self._create_neo4j_connection()
                     merges: int = self.merge_synonym_entities(
                         graph_for_merge,
                         kg_name=kg_name,
@@ -3622,13 +4027,13 @@ class OntologyGuidedKGCreator(
     def generate_knowledge_graph_from_passages(
         self,
         passages: "Sequence[ContextPassageInput]",
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         file_name: str | None = None,
         model_name: str = "openai/gpt-oss-120b:free",
         kg_name: str | None = None,
         doc_metadata: "Mapping[str, object] | None" = None,
         doc_hash: str | None = None,
-    ) -> KnowledgeGraph:
+    ) -> GeneratedKnowledgeGraph:
         """Generate a KG from a list of ContextPassage objects.
 
         Unlike generate_knowledge_graph, this method never concatenates passages
@@ -3651,9 +4056,9 @@ class OntologyGuidedKGCreator(
         )
 
         all_chunks: list[TextChunk] = []
-        all_entities: list[GraphNode] = []
-        all_relationships: list[GraphRelationship] = []
-        passage_entities: dict[int, list[GraphNode]] = {}
+        all_entities: list[ExtractionEntity] = []
+        all_relationships: list[ExtractionRelationship] = []
+        passage_entities: dict[int, Sequence[ExtractionEntity]] = {}
         passage_positions: dict[int, list[int]] = {}
 
         global_chunk_offset: int = (
@@ -3694,7 +4099,7 @@ class OntologyGuidedKGCreator(
                 ch["source_title"] = source_title
                 ch["source_scope_key"] = source_scope_key
 
-            entities_this_passage: dict[int, list[GraphNode]] = {}
+            entities_this_passage: dict[int, Sequence[ExtractionEntity]] = {}
             processed: int = 0
             failed: int = 0
 
@@ -3714,7 +4119,7 @@ class OntologyGuidedKGCreator(
                     previous_local_indexes: list[int] = list(
                         range(max(0, local_i - 2), local_i),
                     )
-                    previous_entities: list[GraphNode] = [
+                    previous_entities: list[ExtractionEntity] = [
                         entity
                         for prev_idx in previous_local_indexes
                         for entity in entities_this_passage.get(prev_idx, [])
@@ -3744,7 +4149,10 @@ class OntologyGuidedKGCreator(
                     if isinstance(chunk_kg, dict) and (
                         chunk_kg.get("entities") or chunk_kg.get("relationships")
                     ):
-                        chunk_entities: list[GraphNode] = chunk_kg.get("entities", [])
+                        chunk_entities: Sequence[ExtractionEntity] = chunk_kg.get(
+                            "entities",
+                            [],
+                        )
                         all_entities.extend(chunk_entities)
                         all_relationships.extend(
                             self._attach_relationship_provenance(
@@ -3863,7 +4271,7 @@ class OntologyGuidedKGCreator(
             and len(passages) > 1
             and getattr(self, "enable_cross_passage_relation_recovery", True)
         ):
-            cross_passage_groups: list[PassageGroup[GraphNode]] = (
+            cross_passage_groups: list[PassageGroup[ExtractionEntity]] = (
                 self._group_passages_for_cross_passage_recovery(
                     passages,
                     passage_entities,
@@ -3913,7 +4321,7 @@ class OntologyGuidedKGCreator(
         )
 
         kg_prefix: str = f"{kg_name}_" if kg_name else ""
-        kg: KnowledgeGraph = {
+        kg: GeneratedKnowledgeGraph = {
             "nodes": [
                 {
                     "id": f"{kg_prefix}{entity['uuid']}",
@@ -4052,7 +4460,7 @@ class OntologyGuidedKGCreator(
             kg["metadata"]["stored_in_neo4j"] = success
             if success:
                 try:
-                    graph_for_merge: Neo4jGraph = self._create_neo4j_connection()
+                    graph_for_merge: QueryGraph = self._create_neo4j_connection()
                     merges: int = self.merge_synonym_entities(
                         graph_for_merge,
                         kg_name=kg_name,
@@ -4099,7 +4507,7 @@ class OntologyGuidedKGCreator(
         Get RAG context for a query using vector similarity search
         """
         try:
-            graph: Neo4jGraph = self._create_neo4j_connection()
+            graph: QueryGraph = self._create_neo4j_connection()
 
             # Generate query embedding
             query_embedding: list[float] = self.embedding_function.embed_query(query)
@@ -4120,9 +4528,12 @@ class OntologyGuidedKGCreator(
             ORDER BY score DESC
             """
 
-            results: Sequence[Mapping[str, object]] = graph.query(
-                search_query,
-                {"top_k": top_k, "query_vector": query_embedding},
+            results: Sequence[CreatorContextChunk] = cast(
+                "Sequence[CreatorContextChunk]",
+                graph.query(
+                    search_query,
+                    {"top_k": top_k, "query_vector": query_embedding},
+                ),
             )
 
             context: _CreatorContextAccumulator = {

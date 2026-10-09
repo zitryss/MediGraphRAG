@@ -15,7 +15,10 @@ import os
 import sys
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
+from typing import (
+    TYPE_CHECKING,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -29,8 +32,6 @@ from experiments.gps_v3_depth_matched import scores_for as gps_v3_scores_for
 from experiments.rejudge_independent import (
     JUDGE_MODEL,
     JudgedAnswer,
-    JudgeDetail,
-    JudgeDocument,
     JudgeSummary,
     get_client,
     judge_one,
@@ -44,6 +45,10 @@ from experiments.trust_analysis import (
     rows_for,
 )
 
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
+
 TARGETS: list[tuple[str, str]] = [
     ("hotpotqa", "kg"),
     ("hotpotqa_fullwiki", "kg"),
@@ -55,10 +60,14 @@ TARGETS: list[tuple[str, str]] = [
 
 def load_answers(slug: str, policy: str) -> list[JudgedAnswer]:
     if policy == "strict":
-        doc: JudgeDocument = json.load(open(os.path.join(REPO, STRICT_RUNS[slug])))
-        details: list[JudgeDetail] = doc["config_results"][0]["details"]
+        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
+            open(os.path.join(REPO, STRICT_RUNS[slug])),
+        )
+        details: "JSONValue" = doc["config_results"][0]["details"]
     else:
-        doc = json.load(open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])))
+        doc = cast("DefaultJSONCodec", json).load(
+            open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])),
+        )
         details = next(
             c
             for c in doc["config_results"]
@@ -123,9 +132,13 @@ def main() -> None:
         rows: list[JudgedAnswer] = load_answers(slug, policy)
         print(f"[{tag}] judging {len(rows)} answers with {JUDGE_MODEL} ...", flush=True)
         with ThreadPoolExecutor(max_workers=8) as ex:
-            verdicts: list[bool | None] = list(
-                ex.map(lambda t: judge_one(client, t[1], t[2], t[3]), rows),
+            judge_row: Callable[[JudgedAnswer], bool | None] = lambda t: judge_one(
+                client,
+                t[1],
+                t[2],
+                t[3],
             )
+            verdicts: list[bool | None] = list(ex.map(judge_row, rows))
         ok: list[tuple[JudgedAnswer, bool]] = [
             (r, v) for r, v in zip(rows, verdicts) if v is not None
         ]

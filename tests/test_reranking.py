@@ -2,7 +2,7 @@ import os
 import sys
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Never
 
 import pytest
 
@@ -16,20 +16,17 @@ from ontographrag.rag.reranking import (
     IndexedScoringMetadata,
     LateInteractionIndex,
 )
+from tests.conftest import required_text_field
 
 if TYPE_CHECKING:
     from torch import Tensor
 
-    from ontographrag.rag.reranking import LateInteractionBundle, TensorBackend
+    from ontographrag.rag.reranking import LateInteractionBundle
 
 
 @dataclass
 class TensorOutput:
     last_hidden_state: "Tensor"
-
-
-class TensorOnlyBundle(TypedDict):
-    torch: "TensorBackend"
 
 
 def test_resolve_reranker_model_name_uses_accuracy_profile_default(
@@ -67,9 +64,12 @@ def test_rerank_chunks_for_query_sorts_by_model_score(
 
     reranked, meta = rerank_mod.rerank_chunks_for_query("Question?", chunks)
 
+    assert "chunk_id" in reranked[0]
     assert reranked[0]["chunk_id"] == "c2"
+    assert "chunk_id" in reranked[1]
     assert reranked[1]["chunk_id"] == "c1"
     assert meta["applied"] is True
+    assert "model" in meta
     assert meta["model"] == "fake-reranker"
 
 
@@ -91,8 +91,12 @@ def test_rerank_chunks_for_query_fails_soft_when_model_unavailable(
 
     reranked, meta = rerank_mod.rerank_chunks_for_query("Question?", chunks)
 
-    assert [chunk["chunk_id"] for chunk in reranked] == ["c1", "c2"]
+    assert [required_text_field(chunk, "chunk_id") for chunk in reranked] == [
+        "c1",
+        "c2",
+    ]
     assert meta["applied"] is False
+    assert "reason" in meta
     assert meta["reason"] == "model_unavailable"
 
 
@@ -144,9 +148,12 @@ def test_late_interaction_rescore_chunks_for_query_sorts_by_model_score(
         chunks,
     )
 
+    assert "chunk_id" in reranked[0]
     assert reranked[0]["chunk_id"] == "c2"
+    assert "chunk_id" in reranked[1]
     assert reranked[1]["chunk_id"] == "c1"
     assert meta["applied"] is True
+    assert "model" in meta
     assert meta["model"] == "fake-late-interaction"
 
 
@@ -189,8 +196,11 @@ def test_late_interaction_rescore_chunks_can_replace_score(
         replace_score=True,
     )
 
+    assert "score" in reranked[0]
     assert reranked[0]["score"] == 0.8
+    assert "score" in reranked[1]
     assert reranked[1]["score"] == 0.2
+    assert "replace_score" in meta
     assert meta["replace_score"] is True
 
 
@@ -219,8 +229,12 @@ def test_late_interaction_rescore_chunks_for_query_fails_soft_when_model_unavail
         chunks,
     )
 
-    assert [chunk["chunk_id"] for chunk in reranked] == ["c1", "c2"]
+    assert [required_text_field(chunk, "chunk_id") for chunk in reranked] == [
+        "c1",
+        "c2",
+    ]
     assert meta["applied"] is False
+    assert "reason" in meta
     assert meta["reason"] == "model_unavailable"
 
 
@@ -276,10 +290,14 @@ def test_late_interaction_rescore_chunks_for_query_uses_indexed_backend(
         index_key=("scope", "q1"),
     )
 
-    assert [chunk["chunk_id"] for chunk in reranked] == ["c2"]
+    assert [required_text_field(chunk, "chunk_id") for chunk in reranked] == ["c2"]
+    assert "score" in reranked[0]
     assert reranked[0]["score"] == 0.8
+    assert "index_keyed" in meta
     assert meta["index_keyed"] is True
+    assert "index_cached" in meta
     assert meta["index_cached"] is True
+    assert "prefiltered" in meta
     assert meta["prefiltered"] is True
 
 
@@ -360,6 +378,8 @@ def test_build_late_interaction_index_reuses_cached_doc_embeddings(
     assert cache_hit_one is False
     assert cache_hit_two is True
     assert fake_model.calls == 1
+    assert index_one is not None
+    assert index_two is not None
     assert index_one["count"] == 2
     assert index_two["count"] == 2
 
@@ -381,7 +401,43 @@ def test_late_interaction_scores_indexed_prefilters_large_corpus(
             torch.tensor([0.8, 0.0], dtype=torch.float32),
         ],
     )
-    bundle: TensorOnlyBundle = {"torch": torch}
+
+    class UnusedTokenizer:
+        def __call__(
+            self,
+            text: str | list[str],
+            /,
+            *,
+            return_tensors: str,
+            truncation: bool,
+            max_length: int,
+            return_special_tokens_mask: bool,
+            padding: bool = False,
+        ) -> Never:
+            pytest.fail("Indexed scoring must use the patched query/index encoders")
+
+    class UnusedEncoder:
+        @property
+        def config(self) -> Never:
+            pytest.fail("Indexed scoring must not inspect the patched encoder")
+
+        def __call__(
+            self,
+            *,
+            input_ids: "Tensor",
+            attention_mask: "Tensor",
+        ) -> Never:
+            pytest.fail("Indexed scoring must use the patched query/index encoders")
+
+    bundle: LateInteractionBundle = {
+        "torch": torch,
+        "tokenizer": UnusedTokenizer(),
+        "model": UnusedEncoder(),
+        "model_name": "unused",
+        "device": "cpu",
+        "query_max_length": 1,
+        "doc_max_length": 1,
+    }
 
     def fake_encode_late_interaction_query(
         bundle: "object",

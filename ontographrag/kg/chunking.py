@@ -33,7 +33,7 @@ class TextChunk(TypedDict):
     total_chunks: int
     embedding: list[float] | None
     section_name: NotRequired[str]
-    source: NotRequired[str]
+    source: NotRequired[str | None]
     dataset: NotRequired[str]
     question_id: NotRequired[str]
     passage_index: NotRequired[int]
@@ -51,7 +51,7 @@ class ChunkGroundingInput(TypedDict, total=False):
     dataset: str
     question_id: str
     passage_index: int
-    source: str
+    source: str | None
     source_title: str | None
     source_scope_key: str | None
 

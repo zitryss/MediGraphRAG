@@ -11,9 +11,10 @@ CSV Processors for Knowledge Graph bulk ingestion.
 import logging
 from collections.abc import Hashable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, cast
 
 import pandas as pd
+from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
     from pandas._typing import Scalar
@@ -43,23 +44,21 @@ class CSVValidation(TypedDict):
     validation_errors: list[str]
 
 
-class MedicalCSVValidation(CSVValidation):
+class MedicalCSVValidation(CSVValidation, closed=True):
     num_rows: int
     field_mapping: dict[str, str]
-    error: NotRequired[str]
 
 
-class CSVValidationFailure(TypedDict):
-    is_valid: bool
+class CSVValidationFailure(TypedDict, closed=True):
+    is_valid: Literal[False]
     delimiter: str
     error: str
-    validation_errors: NotRequired[list[str]]
 
 
 class CSVDocument(TypedDict):
     text: str
     doc_id: str
-    row_index: int
+    row_index: int | float
     metadata: "dict[str, Scalar]"
 
 
@@ -79,7 +78,16 @@ class MedicalReport(TypedDict):
     sections: dict[str, str]
     metadata: dict[str, str]
     field_names: dict[str, str]
-    row_index: NotRequired[int]
+    row_index: NotRequired[int | float]
+
+
+class IndexedMedicalReport(TypedDict):
+    """Bulk output after the loader attaches its source row index."""
+
+    sections: dict[str, str]
+    metadata: dict[str, str]
+    field_names: dict[str, str]
+    row_index: int | float
 
 
 class MedicalBatchMetadata(TypedDict):
@@ -91,7 +99,7 @@ class MedicalBatchMetadata(TypedDict):
 
 
 class MedicalReportBatch(TypedDict):
-    reports: list[MedicalReport]
+    reports: list[IndexedMedicalReport]
     metadata: MedicalBatchMetadata
     schema_info: MedicalCSVValidation | None
 
@@ -194,7 +202,7 @@ class DocumentCSVProcessor:
             "Iterator[tuple[Hashable, pd.Series[str | int | float | bool]]]",
             df.iterrows(),
         ):
-            row_index: int = start_row + local_idx
+            row_index: int | float = start_row + local_idx
             text: str = str(row.get(self.text_column, "") or "")
             if not text.strip():
                 continue
@@ -430,14 +438,14 @@ class MedicalReportCSVProcessor:
                         mapped_df[expected] = df[actual]
 
             # Process each row into structured report format
-            processed_reports: list[MedicalReport] = []
+            processed_reports: list[IndexedMedicalReport] = []
             for idx, row in cast(
                 "Iterator[tuple[Hashable, pd.Series[str]]]",
                 mapped_df.iterrows(),
             ):
                 report: MedicalReport = self._process_single_report(row)
                 report["row_index"] = idx + start_row
-                processed_reports.append(report)
+                processed_reports.append(cast(IndexedMedicalReport, report))
 
             return {
                 "reports": processed_reports,

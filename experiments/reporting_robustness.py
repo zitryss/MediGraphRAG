@@ -10,7 +10,12 @@ import json
 import os
 import sys
 from collections.abc import Mapping, Sequence
-from typing import NotRequired, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    NotRequired,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -24,13 +29,13 @@ from experiments.trust_analysis import (
     REPO,
     STRICT_RUNS,
     CompleteTrustRow,
-    TrustConfig,
-    TrustDetail,
-    TrustDocument,
     TrustRow,
     has_complete_metrics,
     rows_for,
 )
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
 
 
 class AnsweredCounts(TypedDict):
@@ -91,7 +96,7 @@ B: int = 5000
 def answered_counts() -> dict[str, dict[str, AnsweredCounts]]:
     out: dict[str, dict[str, AnsweredCounts]] = {}
     for slug, manifest_key in KEY.items():
-        doc: TrustDocument = json.load(
+        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, MANIFEST[manifest_key]["result_path"])),
         )
         out[slug] = {}
@@ -110,7 +115,7 @@ def answered_counts() -> dict[str, dict[str, AnsweredCounts]]:
                 "failure_rate": failed / total if total else None,
             }
     for slug, rel_path in STRICT_RUNS.items():
-        doc = json.load(open(os.path.join(REPO, rel_path)))
+        doc = cast("DefaultJSONCodec", json).load(open(os.path.join(REPO, rel_path)))
         cfg = doc["config_results"][0]
         total = len(cfg["details"])
         failed = sum(1 for row in cfg["details"] if row.get("kg_generation_failed"))
@@ -124,18 +129,18 @@ def answered_counts() -> dict[str, dict[str, AnsweredCounts]]:
 
 
 def realmedqa_adaptive_strict_complete_case() -> CompleteCase:
-    adaptive_doc: TrustDocument = json.load(
+    adaptive_doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, MANIFEST[KEY["realmedqa"]]["result_path"])),
     )
-    strict_doc: TrustDocument = json.load(
+    strict_doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, STRICT_RUNS["realmedqa"])),
     )
-    adaptive_rows: list[TrustDetail] = next(
+    adaptive_rows: "JSONValue" = next(
         cfg["details"]
         for cfg in adaptive_doc["config_results"]
         if cfg["config"]["name"].startswith("kg")
     )
-    strict_rows: list[TrustDetail] = strict_doc["config_results"][0]["details"]
+    strict_rows: "JSONValue" = strict_doc["config_results"][0]["details"]
     adaptive_answered: set[str] = {
         str(row["question_id"])
         for row in adaptive_rows

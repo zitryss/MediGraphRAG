@@ -3,14 +3,20 @@ import json
 import logging
 import re
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypedDict, cast
+
+from typing_extensions import ReadOnly
 
 from ontographrag.kg.builders._creator_shared import (
     AnchorGrounding,
     AnchorInventory,
     AnchorOffset,
     AnchorSpan,
-    AnchorSpanInput,
+    AugmentedEntityBuilder,
+    AugmentedExtractionResult,
+    AugmentedExtractionValue,
+    AugmentedPropertyKey,
+    AugmentedPropertyValue,
     ContextPassageInput,
     DecodedJSONObject,
     DecodedJSONValue,
@@ -18,23 +24,34 @@ from ontographrag.kg.builders._creator_shared import (
     ExactAnchorSpan,
     GroupEntity,
     PassageGroup,
+    RawAugmentedEntity,
     RestorationRecord,
 )
 from ontographrag.kg.chunking import ChunkGroundingInput, TextChunk
+from shared.model_contracts import GenerationProvider
 
 if TYPE_CHECKING:
     from ontographrag.kg.builders.ontology_guided_kg_creator import (
         ClaimRecord,
         EntityNode,
+        ExtractionEntity,
+        ExtractionRelationship,
         FragmentationBridge,
         GraphChunkInput,
         GraphComponent,
-        GraphNode,
-        GraphRelationship,
+        GraphProperties,
+        HarmonizableEntity,
         RelationshipRecord,
         SectionSegment,
     )
-    from ontographrag.providers.model_providers import ModelOutput, ModelProvider
+    from ontographrag.providers.model_providers import ModelOutput
+
+
+class RelationshipAnchorInput(TypedDict, total=False):
+    type: ReadOnly[object]
+    properties: ReadOnly[
+        DecodedJSONValue | dict[AugmentedPropertyKey, object] | dict[str, object]
+    ]
 
 
 class EnrichmentMixin:
@@ -46,6 +63,14 @@ class EnrichmentMixin:
 
     if TYPE_CHECKING:
         _triple_reverification_cache: dict[str, bool]
+        enable_anchor_coverage_supplement: bool
+        cross_section_relation_window: int
+        max_summary_entities: int
+        max_summary_relationships: int
+        enable_claim_extraction: bool
+        enable_fragmentation_repair: bool
+        fragmentation_bridge_similarity_threshold: float
+        max_fragmentation_bridges: int
 
         def _build_section_segments(
             self,
@@ -59,24 +84,27 @@ class EnrichmentMixin:
 
         @staticmethod
         def _cosine_similarity(
-            left: Sequence[float | str] | None,
-            right: Sequence[float | str] | None,
+            left: Sequence[float | str] | DecodedJSONValue,
+            right: Sequence[float | str] | DecodedJSONValue,
         ) -> float: ...
 
-        def _entity_candidate_names(self, entity: "EntityNode") -> list[str]: ...
+        def _entity_candidate_names(
+            self,
+            entity: "HarmonizableEntity",
+        ) -> list[str]: ...
 
         def _extract_relationships_for_segment_windows(
             self,
             segment_texts: list[str],
-            segment_entities: "dict[int, list[GraphNode]]",
+            segment_entities: "Mapping[int, Sequence[ExtractionEntity]]",
             segment_positions: dict[int, list[int]],
-            llm: "ModelProvider | None",
+            llm: "GenerationProvider | None",
             model_name: str,
             *,
             max_window_size: int,
             scope_label: str,
             relationship_scope_metadata: Mapping[str, str | int | None] | None = None,
-        ) -> "list[GraphRelationship]": ...
+        ) -> "list[ExtractionRelationship]": ...
 
         def _find_exact_text_spans(
             self,
@@ -109,7 +137,7 @@ class EnrichmentMixin:
     @classmethod
     def _merge_anchor_spans(
         cls,
-        *span_groups: "Sequence[AnchorSpanInput | str | int | float | None] | str | None",
+        *span_groups: object,
     ) -> list[AnchorSpan]:
         """Merge and deduplicate anchor span dicts."""
         merged: list[AnchorSpan] = []
@@ -179,7 +207,7 @@ class EnrichmentMixin:
     @classmethod
     def _merge_anchor_grounding(
         cls,
-        *groundings: "Mapping[str, Sequence[AnchorSpanInput]] | str | None",
+        *groundings: object,
     ) -> AnchorGrounding:
         """Merge nested anchor grounding dicts component-wise."""
         merged: AnchorGrounding = {}
@@ -197,9 +225,14 @@ class EnrichmentMixin:
                 merged[key] = cls._merge_anchor_spans(merged.get(key), spans)
         return merged
 
-    def _relationship_anchor_candidates(self, rel: "RelationshipRecord") -> list[str]:
+    def _relationship_anchor_candidates(
+        self,
+        rel: RelationshipAnchorInput,
+    ) -> list[str]:
         """Best-effort exact text candidates for relation-phrase restoration."""
-        properties: dict[str, object] = dict(rel.get("properties") or {})
+        properties: GraphProperties = dict[AugmentedPropertyKey, object](
+            rel.get("properties") or {},
+        )
         relation_type: str = str(rel.get("type") or "").strip()
         candidates: list[str] = []
         for value in (
@@ -253,7 +286,9 @@ class EnrichmentMixin:
         target_aliases: list[str] | None = None,
     ) -> RestorationRecord:
         """Restoration-style verification using exact spans across scoped evidence chunks."""
-        properties: dict[str, object] = dict(rel.get("properties") or {})
+        properties: GraphProperties | dict[str, object] = dict(
+            rel.get("properties") or {},
+        )
         source_candidates: list[str] = [source_name] + [
             alias for alias in (source_aliases or []) if isinstance(alias, str)
         ]
@@ -347,9 +382,15 @@ class EnrichmentMixin:
         self,
         result: DecodedJSONObject,
         anchor_inventory: AnchorInventory,
-    ) -> DecodedJSONObject:
+    ) -> AugmentedExtractionResult:
         """Ensure anchor-discovered entities survive even if the extraction omits them."""
-        merged_entities: dict[str, GraphNode] = {}
+        # The only widened value is the entity list written below. Keep the
+        # caller's dictionary identity while representing that mutation honestly.
+        augmented_result: dict[str, AugmentedExtractionValue] = cast(
+            dict[str, AugmentedExtractionValue],
+            result,
+        )
+        merged_entities: dict[str, RawAugmentedEntity] = {}
         for anchor in anchor_inventory.get("entity_anchors", []):
             merged_entities[self._normalize_entity_text(anchor["text"])] = {
                 "id": anchor["text"],
@@ -371,27 +412,32 @@ class EnrichmentMixin:
             if not entity_id:
                 continue
             key: str = self._normalize_entity_text(entity_id)
-            merged: GraphNode = cast("GraphNode", dict(merged_entities.get(key) or {}))
+            merged: AugmentedEntityBuilder = cast(
+                AugmentedEntityBuilder,
+                dict(merged_entities.get(key) or {}),
+            )
             merged["id"] = entity_id
             merged["type"] = entity.get("type") or merged.get("type")
-            merged_props: dict[str, object] = dict(merged.get("properties") or {})
+            merged_props: dict[AugmentedPropertyKey, AugmentedPropertyValue] = dict(
+                merged.get("properties") or {},
+            )
             merged_props.update(dict(entity.get("properties") or {}))
             merged["properties"] = merged_props
-            merged_entities[key] = merged
+            merged_entities[key] = cast(RawAugmentedEntity, merged)
 
-        result["entities"] = list(merged_entities.values())
-        return result
+        augmented_result["entities"] = list(merged_entities.values())
+        return cast(AugmentedExtractionResult, augmented_result)
 
     def _supplement_relationships_from_unused_anchors(
         self,
-        result: DecodedJSONObject,
+        result: AugmentedExtractionResult,
         *,
         chunk_text: str,
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         model_name: str,
         context_preamble: str,
         anchor_inventory: AnchorInventory,
-    ) -> DecodedJSONObject:
+    ) -> AugmentedExtractionResult:
         """Coverage-aware supplement for entity anchors unused by the first extraction pass."""
         if not getattr(self, "enable_anchor_coverage_supplement", True):
             return result
@@ -485,8 +531,8 @@ Return ONLY the JSON object.
         )
         extra_relationships: DecodedJSONValue = supplement_data.get("relationships")
         if isinstance(extra_relationships, list) and extra_relationships:
-            result.setdefault("relationships", [])
-            result["relationships"].extend(extra_relationships)
+            relationships: DecodedJSONValue = result.setdefault("relationships", [])
+            relationships.extend(extra_relationships)
         return result
 
     def _recover_cross_section_relationships(
@@ -494,12 +540,12 @@ Return ONLY the JSON object.
         *,
         text: str,
         chunks: Sequence[TextChunk | ChunkGroundingInput],
-        entities_per_chunk: "dict[int, list[GraphNode]]",
+        entities_per_chunk: "Mapping[int, Sequence[ExtractionEntity]]",
         section_headers: list[tuple[int, str]],
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         model_name: str,
         scope_label: str,
-    ) -> "list[GraphRelationship]":
+    ) -> "list[ExtractionRelationship]":
         """Recover relations across section boundaries after section-aware chunking."""
         if llm is None:
             return []
@@ -512,13 +558,13 @@ Return ONLY the JSON object.
             return []
 
         section_texts: list[str] = []
-        section_entities: dict[int, list[GraphNode]] = {}
+        section_entities: dict[int, list[ExtractionEntity]] = {}
         section_positions: dict[int, list[int]] = {}
 
         for section_idx, segment in enumerate(section_segments):
             section_texts.append(segment["text"])
             positions: list[int] = []
-            entities: list[GraphNode] = []
+            entities: list[ExtractionEntity] = []
             for chunk_idx, chunk in enumerate(chunks):
                 chunk_start: int = int(chunk.get("start_pos", 0) or 0)
                 if not (segment["start_pos"] <= chunk_start < segment["end_pos"]):
@@ -544,7 +590,7 @@ Return ONLY the JSON object.
                 "question_id": str(chunks[0].get("question_id"))
                 if chunks and chunks[0].get("question_id") is not None
                 else None,
-                "passage_index": int(chunks[0].get("passage_index"))
+                "passage_index": int(cast(int, chunks[0].get("passage_index")))
                 if chunks and chunks[0].get("passage_index") is not None
                 else None,
                 "source": chunks[0].get("source") if chunks else None,
@@ -558,7 +604,7 @@ Return ONLY the JSON object.
     def _group_passages_for_cross_passage_recovery(
         self,
         passages: "Sequence[ContextPassageInput]",
-        passage_entities: dict[int, list[GroupEntity]],
+        passage_entities: Mapping[int, Sequence[GroupEntity]],
         passage_positions: dict[int, list[int]],
     ) -> list[PassageGroup[GroupEntity]]:
         """Return contiguous passage groups that may participate in cross-passage recovery.
@@ -722,7 +768,7 @@ Return ONLY the JSON object.
         target_name: str,
         relationship_type: str,
         verification_chunks: "Sequence[GraphChunkInput]",
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         model_name: str,
     ) -> bool | None:
         """Ask the LLM to verify a low-confidence triple against local text only."""

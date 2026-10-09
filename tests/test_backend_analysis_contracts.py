@@ -17,7 +17,11 @@ if TYPE_CHECKING:
     from openai import OpenAI
 
     from experiments.gps_v2_replay import ReplayQuestion, ReplayStore
-    from experiments.lockin_accounting_analysis import AccountingRow
+    from experiments.lockin_accounting_analysis import (
+        AccountingRow,
+        CorrectAccountingRow,
+        PolicyAccountingRow,
+    )
     from experiments.verbalized_confidence import ConfidenceDocument
 
 
@@ -50,20 +54,17 @@ if TYPE_CHECKING:
         CertificateRow as certificate_eval_CertificateRow,
     )
     from experiments.gps_v2_replay import (
-        ReplayArtifact as gps_v3_depth_matched_ReplayArtifact,
-    )
-    from experiments.gps_v2_replay import (
         ReplayScore as gps_v3_depth_matched_ReplayScore,
     )
     from experiments.gps_v2_replay import (
         ReplayStore as gps_v3_depth_matched_ReplayStore,
     )
     from experiments.gps_v3_depth_matched import HopRow as gps_v3_depth_matched_HopRow
+    from experiments.gps_v3_depth_matched import (
+        LoadedReplayArtifact as gps_v3_depth_matched_ReplayArtifact,
+    )
     from experiments.graph_state_diversity_analysis import (
         DiversityRow as graph_state_diversity_analysis_DiversityRow,
-    )
-    from experiments.lockin_accounting_analysis import (
-        AccountingRow as lockin_accounting_analysis_AccountingRow,
     )
     from experiments.lockin_accounting_analysis import (
         AccountingSummary as lockin_accounting_analysis_AccountingSummary,
@@ -252,19 +253,17 @@ class PrepareHotpotqaFullwikiCorpusExports(Protocol):
 class LockinAccountingAnalysisExports(Protocol):
     @staticmethod
     def account(
-        rows: lockin_accounting_analysis_Iterable[
-            lockin_accounting_analysis_AccountingRow
-        ],
+        rows: lockin_accounting_analysis_Iterable[CorrectAccountingRow],
     ) -> lockin_accounting_analysis_AccountingSummary: ...
 
     @staticmethod
     def finite(value: object) -> lockin_accounting_analysis_TypeGuard[int | float]: ...
 
     @staticmethod
-    def gps_flags(row: lockin_accounting_analysis_AccountingRow) -> bool: ...
+    def gps_flags(row: PolicyAccountingRow) -> bool: ...
 
     @staticmethod
-    def silent_bucket(row: lockin_accounting_analysis_AccountingRow) -> str: ...
+    def silent_bucket(row: CorrectAccountingRow) -> str: ...
 
 
 class DiversityRunAnalysisExports(Protocol):
@@ -760,7 +759,7 @@ def test_lockin_partition(
         LockinAccountingAnalysisExports,
         analysis_import("lockin_accounting_analysis"),
     )
-    row: AccountingRow = {
+    row: CorrectAccountingRow = {
         "correct": False,
         "dse": 0,
         "sd": 0,
@@ -1140,7 +1139,7 @@ def test_migration_figure_artifacts(
         "rows_for",
         fake_rows_for,
     )
-    assert module.xy({"sd": 0, "seu": 0.2}) == (-12, 0.2)
+    assert module.xy({"sd": 0, "seu": 0.2}) == (np.float64(-12), 0.2)
     module.main()
     assert (tmp_path / "lockin_migration.pdf").read_bytes().startswith(b"%PDF")
     assert (tmp_path / "lockin_migration.png").read_bytes().startswith(b"\x89PNG")
@@ -1208,3 +1207,67 @@ def test_verbal_confidence_load_details_selects_policy_and_excludes_failures(
     monkeypatch.setattr(module, "KEY", {"unit": "Unit"})
     monkeypatch.setattr(module, "MANIFEST", {"Unit": {"result_path": "result.json"}})
     assert module.load_details("unit", policy) == expected
+
+
+def test_empty_certificate_mask_preserves_numpy_index_failure(
+    analysis_import: Callable[[str], ModuleType],
+) -> None:
+    module: CertificateEvalExports = cast(
+        CertificateEvalExports,
+        analysis_import("certificate_eval"),
+    )
+    mask: certificate_eval_NDArray[
+        certificate_eval_np.bool_ | certificate_eval_np.float64
+    ] = module.certificate_mask([], 0.5)
+    assert mask.dtype == np.dtype(np.float64)
+    with pytest.raises(IndexError, match="integer.*boolean"):
+        np.array([], dtype=bool)[mask]
+
+
+def test_hotpot_raw_positional_values_are_not_silently_normalized() -> None:
+    from experiments import retrieval_audit
+
+    assert retrieval_audit._get_supporting_facts(
+        {"supporting_facts": [[1, "A"], ["short"]]},
+    ) == [(1, "A")]
+    assert retrieval_audit._context_title_to_passage_index(
+        {"_id": "q", "context": [["A", ["sentence"]]]},
+    ) == {"A": 0}
+    with pytest.raises(TypeError, match="unhashable type"):
+        retrieval_audit._context_title_to_passage_index(
+            {"_id": "q", "context": [[["sentence"], "A"]]},
+        )
+
+
+@pytest.mark.parametrize("title", [17, None, True, 1.25])
+def test_hotpot_context_keeps_hashable_json_titles(
+    title: int | float | bool | None,
+) -> None:
+    from experiments import retrieval_audit
+
+    assert retrieval_audit._context_title_to_passage_index(
+        {"context": [[title, ["sentence"]]]},
+    ) == {title: 0}
+
+
+@pytest.mark.parametrize("payload", [{}, {"source_result": 17, "questions": "raw"}])
+def test_replay_loader_only_adds_artifact_path(
+    analysis_import: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    payload: dict[str, int | str],
+) -> None:
+    module: GpsV3DepthMatchedExports = cast(
+        GpsV3DepthMatchedExports,
+        analysis_import("gps_v3_depth_matched"),
+    )
+    monkeypatch.setattr(module, "REPO", str(tmp_path))
+    monkeypatch.setattr(module, "RUNS", str(tmp_path))
+    run: Path = tmp_path / "run"
+    run.mkdir()
+    path: Path = run / "gps_v2_replay_unit_2026.json"
+    path.write_text(json.dumps(payload))
+    assert module.load_artifact("unit") == {
+        **payload,
+        "_artifact_path": "run/gps_v2_replay_unit_2026.json",
+    }

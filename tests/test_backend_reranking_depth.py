@@ -173,4 +173,5 @@ def test_reranking_failed_model_preserves_inputs(
         )
         result, meta = ranking.late_interaction_rescore_chunks_for_query("q", chunks)
     assert result == chunks and result is not chunks
+    assert "reason" in meta
     assert meta["reason"] == "scoring_failed"

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from ontographrag.kg.csv_processor import (
         CSVDocument,
         DocumentBatch,
-        MedicalReport,
+        IndexedMedicalReport,
         MedicalReportBatch,
     )
     from ontographrag.kg.loaders.kg_loader import (
@@ -144,12 +144,14 @@ def test_medical_template_roundtrip_and_section_filter(tmp_path: Path) -> None:
     )
     assert result["metadata"]["total_reports"] == 2
     assert result["reports"][0]["metadata"]["patient_id"] == "PAT002"
+    assert "reports" in result
+    assert "row_index" in result["reports"][0]
     assert result["reports"][0]["row_index"] == 1
     assert "chief_complaint" in result["reports"][0]["sections"]
     path.write_text(
         "patient_id|chief_complaint|discharge_diagnosis\nP1|short|   Long enough diagnosis  \n",
     )
-    report: MedicalReport = processor.load_reports_bulk(str(path))["reports"][0]
+    report: IndexedMedicalReport = processor.load_reports_bulk(str(path))["reports"][0]
     assert report["sections"] == {"discharge_diagnosis": "Long enough diagnosis"}
     assert "chief_complaint" in report["field_names"]
 
@@ -254,6 +256,8 @@ def test_loader_pdf_success_and_failures(
     assert {node["label"] for node in result["nodes"]} == {"Fever", "Pain"}
     monkeypatch.setattr(kg_loader, "PdfReader", Mock(side_effect=OSError("unreadable")))
     result = KGLoader().load_from_pdf("bad.pdf")
+    assert result["status"] == "error"
+    assert "details" in result
     assert result["details"]["error_type"] == "OSError"
 
 
@@ -406,6 +410,7 @@ def test_loader_database_read_serializes_graph_and_closes(
     assert result["loaded_relationships"] == 1
     assert result["nodes"][1]["properties"]["custom"] == "value"
     assert result["relationships"][0]["from"] == 1
+    assert "complete_import" in result
     assert result["complete_import"] == (
         kg_label is None and query is None and limit is None
     )
@@ -426,6 +431,8 @@ def test_loader_database_failure_still_closes(
         "u",
         "p",
     )
+    assert result["status"] == "error"
+    assert "details" in result
     assert result["details"]["error_type"] == "RuntimeError"
     driver.close.assert_called_once()
 
@@ -453,8 +460,10 @@ def test_loader_sample_filters_dangling_relationships(
         2000,
         4000,
     )
+    assert result["status"] == "success"
     assert result["loaded_nodes"] == 1
     assert result["loaded_relationships"] == 1
+    assert "sample_strategy" in result
     assert result["sample_strategy"] == "high_degree_nodes"
     assert "LIMIT 200" in session.run.call_args_list[0].args[0]
     session.run.side_effect = RuntimeError("offline")

@@ -9,7 +9,8 @@ records Cypher calls without executing them.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Never, Protocol, cast
 
 import pytest
 
@@ -18,6 +19,76 @@ from ontographrag.rag.systems._records import (
     RetrievedEntity,
     RetrievedRelationship,
 )
+
+if TYPE_CHECKING:
+    from langchain_core.prompt_values import PromptValue
+    from langchain_core.runnables import Runnable
+
+    from ontographrag.providers.model_providers import MessageContent, ModelProvider
+
+
+def unused_runnable() -> Runnable[PromptValue, object]:
+    """A real Runnable boundary that fails if an intercepted test calls it."""
+    from langchain_core.runnables import RunnableLambda
+
+    def reject_invoke(value: PromptValue) -> Never:
+        pytest.fail("The isolated test must not invoke its model dependency")
+
+    return RunnableLambda(reject_invoke)
+
+
+def required_text_field(record: Mapping[str, object], key: str) -> str:
+    """Assert the string shape expected by a test before comparing its content."""
+    assert key in record
+    value: object = record[key]
+    assert isinstance(value, str)
+    return value
+
+
+def required_int_field(record: Mapping[str, object], key: str) -> int:
+    """Assert the integer shape expected by a test without coercing the value."""
+    assert key in record
+    value: object = record[key]
+    assert isinstance(value, int)
+    return value
+
+
+class UnusedGenerationProvider:
+    def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        /,
+    ) -> Never:
+        pytest.fail("The isolated test must not invoke its generation dependency")
+
+
+class UnusedGraph:
+    def query(
+        self,
+        query: str,
+        params: dict[str, object] | None = None,
+    ) -> Never:
+        pytest.fail("The isolated test must not query its graph dependency")
+
+
+def unused_model_provider() -> ModelProvider:
+    """Create the actual nominal extension boundary, without an SDK client."""
+    from ontographrag.providers.model_providers import ModelProvider
+
+    class UnusedProvider(ModelProvider):
+        def generate(
+            self,
+            system_prompt: MessageContent,
+            user_prompt: MessageContent,
+            model: str,
+            **kwargs: object,
+        ) -> Never:
+            pytest.fail("The isolated test must not invoke its provider dependency")
+
+    return UnusedProvider()
+
 
 # ---------------------------------------------------------------------------
 # Minimal chunk / entity / relationship factories
@@ -137,6 +208,10 @@ class StubLLM:
         return _Chain(self, other)
 
 
+class _Invokable(Protocol):
+    def invoke(self, inputs: object) -> object: ...
+
+
 class _Chain:
     def __init__(self, *parts: object) -> None:
         self._parts: tuple[object, ...] = parts
@@ -148,7 +223,9 @@ class _Chain:
         result: object = inputs
         for part in self._parts:
             if hasattr(part, "invoke"):
-                result = part.invoke(result)
+                # The chain intentionally uses duck typing after the existing
+                # attribute guard; non-callable invoke attributes still fail.
+                result = cast(_Invokable, part).invoke(result)
         return result
 
 

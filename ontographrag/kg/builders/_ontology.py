@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from langchain_core.embeddings import Embeddings
 
     from ontographrag.kg.builders.ontology_guided_kg_creator import (
+        GraphProperties,
         NodeT,
         RelationshipT,
     )
@@ -127,7 +128,7 @@ class OntologySchemaMixin:
         ) -> list[ExactAnchorSpan]: ...
 
     @staticmethod
-    def _prop_type(raw: str) -> PropertyType:
+    def _prop_type(raw: "DecodedJSONValue") -> PropertyType:
         """Map a raw type string from JSON to a PropertyType enum value."""
         _map: dict[str, PropertyType] = {
             "string": PropertyType.STRING,
@@ -226,33 +227,39 @@ class OntologySchemaMixin:
         for cls in raw_classes:
             if not isinstance(cls, dict):
                 continue
-            eid: DecodedJSONValue = cls.get("id") or cls.get("name") or ""
+            raw_class: DecodedJSONObject = cls
+            eid: DecodedJSONValue = raw_class.get("id") or raw_class.get("name") or ""
             if not eid:
                 continue
             props: list[DataBinding] = []
-            for p in cls.get("properties") or []:
+            for p in raw_class.get("properties") or []:
                 pname: DecodedJSONValue = (
                     (p.get("name") or p.get("id") or "") if isinstance(p, dict) else ""
                 )
                 if not pname:
                     continue
+                raw_property: DecodedJSONObject = p
                 props.append(
                     DataBinding(
                         name=pname,
-                        type=self._prop_type(p.get("type", "string")),
-                        description=p.get("description") or None,
-                        identifier=bool(p.get("identifier", False)),
-                        required=bool(p.get("required", False)),
-                        enum_values=list(p.get("enum_values") or p.get("values") or []),
-                        unit=p.get("unit") or None,
+                        type=self._prop_type(raw_property.get("type", "string")),
+                        description=raw_property.get("description") or None,
+                        identifier=bool(raw_property.get("identifier", False)),
+                        required=bool(raw_property.get("required", False)),
+                        enum_values=list(
+                            raw_property.get("enum_values")
+                            or raw_property.get("values")
+                            or [],
+                        ),
+                        unit=raw_property.get("unit") or None,
                     ),
                 )
             entity_types.append(
                 OntEntityType(
                     id=eid,
-                    label=cls.get("label") or eid.replace("_", " ").title(),
-                    description=cls.get("description") or None,
-                    uri=cls.get("uri") or None,
+                    label=raw_class.get("label") or eid.replace("_", " ").title(),
+                    description=raw_class.get("description") or None,
+                    uri=raw_class.get("uri") or None,
                     properties=props,
                 ),
             )
@@ -261,35 +268,49 @@ class OntologySchemaMixin:
         for rel in raw_rels:
             if not isinstance(rel, dict):
                 continue
+            raw_relationship: DecodedJSONObject = rel
             rid: DecodedJSONValue = (
-                rel.get("id") or rel.get("name") or rel.get("type") or ""
+                raw_relationship.get("id")
+                or raw_relationship.get("name")
+                or raw_relationship.get("type")
+                or ""
             )
             if not rid:
                 continue
             attrs: list[RelationshipAttribute] = []
-            for a in rel.get("attributes") or rel.get("properties") or []:
+            for a in (
+                raw_relationship.get("attributes")
+                or raw_relationship.get("properties")
+                or []
+            ):
                 aname: DecodedJSONValue = (
                     (a.get("name") or a.get("id") or "") if isinstance(a, dict) else ""
                 )
                 if not aname:
                     continue
+                raw_attribute: DecodedJSONObject = a
                 attrs.append(
                     RelationshipAttribute(
                         name=aname,
-                        type=self._prop_type(a.get("type", "string")),
-                        description=a.get("description") or None,
-                        unit=a.get("unit") or None,
+                        type=self._prop_type(raw_attribute.get("type", "string")),
+                        description=raw_attribute.get("description") or None,
+                        unit=raw_attribute.get("unit") or None,
                     ),
                 )
             relationship_types.append(
                 OntRelType(
                     id=rid,
-                    label=rel.get("label") or rid.replace("_", " ").title(),
-                    description=rel.get("description") or None,
-                    uri=rel.get("uri") or None,
-                    domain=rel.get("from") or rel.get("domain") or None,
-                    range=rel.get("to") or rel.get("range") or None,
-                    cardinality=rel.get("cardinality") or None,
+                    label=raw_relationship.get("label")
+                    or rid.replace("_", " ").title(),
+                    description=raw_relationship.get("description") or None,
+                    uri=raw_relationship.get("uri") or None,
+                    domain=raw_relationship.get("from")
+                    or raw_relationship.get("domain")
+                    or None,
+                    range=raw_relationship.get("to")
+                    or raw_relationship.get("range")
+                    or None,
+                    cardinality=raw_relationship.get("cardinality") or None,
                     attributes=attrs,
                 ),
             )
@@ -528,7 +549,7 @@ class OntologySchemaMixin:
         )
 
     @staticmethod
-    def _normalize_ontology_identifier(value: str | None) -> str:
+    def _normalize_ontology_identifier(value: object) -> str:
         """Normalize ontology ids/labels for exact and fuzzy matching."""
         if not isinstance(value, str):
             return ""
@@ -552,7 +573,7 @@ class OntologySchemaMixin:
 
     def _match_ontology_entity_type(
         self,
-        raw_type: str | None,
+        raw_type: object,
         *,
         allow_fuzzy: bool = True,
         min_score: float = 0.80,
@@ -607,7 +628,7 @@ class OntologySchemaMixin:
 
     def _coerce_entity_type_with_ontology(
         self,
-        raw_type: str | None,
+        raw_type: object,
         entity_text: str | None = None,
     ) -> str | None:
         """Coerce extracted entity types onto the active ontology when present."""
@@ -876,7 +897,7 @@ class OntologySchemaMixin:
 
     def _normalize_anchor_inventory(
         self,
-        raw_inventory: DecodedJSONObject,
+        raw_inventory: DecodedJSONValue,
         *,
         chunk_text: str,
     ) -> AnchorInventory:
@@ -891,13 +912,14 @@ class OntologySchemaMixin:
 
         seen_entities: set[str] = set()
         for anchor in raw_inventory.get("entity_anchors", []) or []:
-            text: str | None = None
+            text: DecodedJSONValue = None
             anchor_type: DecodedJSONValue = None
             if isinstance(anchor, str):
                 text = anchor
             elif isinstance(anchor, dict):
-                text = anchor.get("text") or anchor.get("id")
-                anchor_type = anchor.get("type")
+                entity_anchor: DecodedJSONObject = anchor
+                text = entity_anchor.get("text") or entity_anchor.get("id")
+                anchor_type = entity_anchor.get("type")
             if not isinstance(text, str) or not text.strip():
                 continue
             text = text.strip()
@@ -934,8 +956,13 @@ class OntologySchemaMixin:
                 text = anchor
                 type_hint: object = anchor
             elif isinstance(anchor, dict):
-                text = anchor.get("text")
-                type_hint = anchor.get("type_hint") or anchor.get("type") or text
+                relation_anchor: DecodedJSONObject = anchor
+                text = relation_anchor.get("text")
+                type_hint = (
+                    relation_anchor.get("type_hint")
+                    or relation_anchor.get("type")
+                    or text
+                )
             else:
                 continue
             if not isinstance(text, str) or not text.strip():
@@ -962,8 +989,9 @@ class OntologySchemaMixin:
                 text = anchor
                 role: str = "other"
             elif isinstance(anchor, dict):
-                text = anchor.get("text")
-                role = str(anchor.get("role") or "other").strip().lower()
+                attribute_anchor: DecodedJSONObject = anchor
+                text = attribute_anchor.get("text")
+                role = str(attribute_anchor.get("role") or "other").strip().lower()
             else:
                 continue
             if not isinstance(text, str) or not text.strip():
@@ -1391,7 +1419,7 @@ class OntologySchemaMixin:
             return harmonized_entities, harmonized_relationships
 
         filtered_entities: list[NodeT] = []
-        valid_entity_ids: set[str] = set()
+        valid_entity_ids: set[str | None] = set()
         dropped_entities: int = 0
         for entity in harmonized_entities:
             coerced_type: str | None = self._coerce_entity_type_with_ontology(
@@ -1403,7 +1431,7 @@ class OntologySchemaMixin:
                 continue
             entity_copy: NodeT = cast("NodeT", dict(entity))
             entity_copy["type"] = coerced_type
-            properties: dict[str, object] = dict(entity_copy.get("properties") or {})
+            properties: GraphProperties = dict(entity_copy.get("properties") or {})
             properties["type"] = coerced_type
             entity_copy["properties"] = properties
             filtered_entities.append(entity_copy)

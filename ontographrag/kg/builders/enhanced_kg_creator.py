@@ -6,10 +6,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict
 
 from ontographrag.kg.builders.ontology_guided_kg_creator import (
+    ConstructedNode,
+    ConstructedRelationship,
     EntityNode,
     ExtractionResult,
-    GraphNode,
-    GraphRelationship,
+    HarmonizableEntity,
+    HarmonizableRelationship,
     KnowledgeGraph,
     NormalizedRelationship,
     OntologyGuidedKGCreator,
@@ -36,17 +38,24 @@ except ImportError:
     DocumentCSVProcessor = None
 
 
+from shared.model_contracts import GenerationProvider
+
 if TYPE_CHECKING:
     from ontographrag.kg.csv_processor import (
         CSVDocument,
         CSVValidation,
         CSVValidationFailure,
         DocumentBatch,
+        IndexedMedicalReport,
         MedicalCSVValidation,
-        MedicalReport,
         MedicalReportBatch,
     )
-    from ontographrag.providers.model_providers import ModelProvider
+    from ontographrag.kg.csv_processor import (
+        DocumentCSVProcessor as DocumentProcessorType,
+    )
+    from ontographrag.kg.csv_processor import (
+        MedicalReportCSVProcessor as MedicalReportProcessorType,
+    )
 
 
 PatientDemographics: TypeAlias = dict[str, str]
@@ -73,9 +82,13 @@ class LaboratoryValue(TypedDict):
     abnormal: bool
 
 
-PatientEntity: TypeAlias = GraphNode
-PatientRelationship: TypeAlias = GraphRelationship
-PatientExtraction: TypeAlias = ExtractionResult
+PatientEntity: TypeAlias = ConstructedNode
+PatientRelationship: TypeAlias = ConstructedRelationship
+
+
+class PatientExtraction(TypedDict):
+    entities: list[PatientEntity]
+    relationships: list[PatientRelationship]
 
 
 class BulkProcessingInfo(TypedDict):
@@ -146,19 +159,33 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         max_summary_relationships: int = 6,
     ) -> None:
         # Resolve env-var defaults here so no hardcoded URIs appear in source code
-        resolved_neo4j_uri: str = neo4j_uri or os.getenv(
-            "NEO4J_URI",
-            "bolt://localhost:7687",
+        resolved_neo4j_uri: str = (
+            neo4j_uri
+            if neo4j_uri
+            else os.getenv(
+                "NEO4J_URI",
+                "bolt://localhost:7687",
+            )
         )
-        resolved_neo4j_user: str = neo4j_user or os.getenv("NEO4J_USERNAME", "neo4j")
+        resolved_neo4j_user: str = (
+            neo4j_user if neo4j_user else os.getenv("NEO4J_USERNAME", "neo4j")
+        )
         neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD")
-        resolved_neo4j_database: str = neo4j_database or os.getenv(
-            "NEO4J_DATABASE",
-            "neo4j",
+        resolved_neo4j_database: str = (
+            neo4j_database
+            if neo4j_database
+            else os.getenv(
+                "NEO4J_DATABASE",
+                "neo4j",
+            )
         )
-        resolved_embedding_model: str = embedding_model or os.getenv(
-            "EMBEDDING_PROVIDER",
-            "sentence_transformers",
+        resolved_embedding_model: str = (
+            embedding_model
+            if embedding_model
+            else os.getenv(
+                "EMBEDDING_PROVIDER",
+                "sentence_transformers",
+            )
         )
 
         # Pass ontology_path to parent so it loads ontology in the correct dict format
@@ -568,12 +595,12 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         csv_path: str,
         start_row: int = 0,
         batch_size: int = 50,
-        llm: "ModelProvider | None" = None,
+        llm: "GenerationProvider | None" = None,
     ) -> BulkProcessingResult:
         """Process multiple medical reports in bulk from a pipe-delimited CSV file."""
         logging.info(f"Starting bulk processing of medical reports from {csv_path}")
 
-        csv_processor: _MedicalReportCSVProcessor = MedicalReportCSVProcessor(
+        csv_processor: MedicalReportProcessorType = MedicalReportCSVProcessor(
             delimiter="|",
         )
         validation: MedicalCSVValidation | CSVValidationFailure = (
@@ -594,7 +621,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
                     start_row=start_row + total_processed,
                     max_rows=batch_size,
                 )
-                reports: list[MedicalReport] = batch_data["reports"]
+                reports: list[IndexedMedicalReport] = batch_data["reports"]
                 if not reports:
                     break
 
@@ -662,7 +689,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         id_column: str | None = None,
         start_row: int = 0,
         batch_size: int = 50,
-        llm: "ModelProvider | None" = None,
+        llm: "GenerationProvider | None" = None,
         max_chunks: int | None = None,
         kg_name: str | None = None,
     ) -> BulkProcessingResult:
@@ -678,7 +705,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
             text_column,
         )
 
-        processor: _DocumentCSVProcessor = DocumentCSVProcessor(
+        processor: DocumentProcessorType = DocumentCSVProcessor(
             text_column=text_column,
             id_column=id_column,
         )
@@ -947,7 +974,7 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
     def generate_patient_knowledge_graph(
         self,
         text: str,
-        llm: "ModelProvider | None" = None,
+        llm: "GenerationProvider | None" = None,
         file_name: str | None = None,
         max_chunks: int | None = None,
     ) -> KnowledgeGraph:
@@ -963,8 +990,8 @@ class UnifiedOntologyGuidedKGCreator(OntologyGuidedKGCreator):
         if max_chunks is not None and max_chunks > 0:
             chunks = chunks[:max_chunks]
 
-        all_entities: list[GraphNode] = []
-        all_relationships: list[GraphRelationship] = []
+        all_entities: list[HarmonizableEntity] = []
+        all_relationships: list[HarmonizableRelationship] = []
         for chunk in chunks:
             try:
                 result: PatientExtraction = (

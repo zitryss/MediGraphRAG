@@ -3,12 +3,15 @@ import logging
 import os
 import time
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from datetime import time as datetime_time
 from typing import Never, NotRequired, Protocol, TypeAlias, TypedDict, cast, overload
 
 from dotenv import load_dotenv
 from langchain_neo4j import Neo4jGraph
 from neo4j.exceptions import TransientError
+from neo4j.spatial import Point
+from neo4j.time import Date, DateTime, Duration, Time
 
 from ontographrag.kg.utils.common_functions import (
     create_gcs_bucket_folder_name_hashed,
@@ -26,6 +29,36 @@ from ontographrag.kg.utils.source_node import sourceNode
 # Arbitrary Cypher results retain driver values (dates, nodes, arrays), not JSON.
 RawGraphRow: TypeAlias = dict[str, object]
 
+# Record.data() exports entities to maps, relationships to tuples, and paths
+# to lists; it preserves Neo4j temporal/spatial values (driver 5.28.2).
+# Native temporal values and arbitrary map keys preserve the existing metadata
+# adapter test contract; keys are explicitly stringified by the serializer.
+ExportedGraphScalar: TypeAlias = (
+    bool
+    | int
+    | float
+    | str
+    | bytes
+    | Date
+    | Time
+    | DateTime
+    | Duration
+    | Point
+    | date
+    | datetime_time
+    | timedelta
+)
+ExportedGraphValue: TypeAlias = (
+    ExportedGraphScalar
+    | None
+    | list["ExportedGraphValue"]
+    | tuple["ExportedGraphValue", ...]
+    | dict[object, "ExportedGraphValue"]
+)
+ExportedGraphRow: TypeAlias = dict[object, ExportedGraphValue]
+ProjectedProperty: TypeAlias = ExportedGraphScalar | None | list[ExportedGraphScalar]
+DecodedJSONValue: TypeAlias = "str | int | float | bool | None | list[DecodedJSONValue] | dict[str, DecodedJSONValue]"
+
 load_dotenv()
 
 
@@ -38,7 +71,7 @@ class GraphQueryClient(Protocol):
         self,
         query: str,
         params: Mapping[str, object] | None = None,
-        session_params: Mapping[str, object] | None = None,
+        session_params: dict[str, object] = ...,
     ) -> list[RawGraphRow]: ...
 
 
@@ -56,7 +89,7 @@ class ConnectionInfo(TypedDict):
     message: str
     gds_status: bool
     write_access: bool
-    db_vector_dimension: NotRequired[int]
+    db_vector_dimension: NotRequired[int | None]
     application_dimension: NotRequired[int]
     chunks_exists: NotRequired[bool]
 
@@ -72,12 +105,6 @@ class NodeRelationshipCounts(TypedDict):
     communityRelCount: int
 
 
-class ISOFormattable(Protocol):
-    """Duck-typed temporal export hook; custom providers may return any value."""
-
-    def isoformat(self) -> object: ...
-
-
 class DocumentProjection(TypedDict):
     d: RawGraphRow
 
@@ -91,7 +118,7 @@ class GDSCountProjection(TypedDict):
 
 
 class DimensionProjection(TypedDict):
-    vector_dimensions: int
+    vector_dimensions: int | None
 
 
 class ChunkCountProjection(TypedDict):
@@ -101,7 +128,7 @@ class ChunkCountProjection(TypedDict):
 
 
 class DocumentCountProjection(TypedDict, total=False):
-    filename: str | None
+    filename: ProjectedProperty
     chunkNodeCount: int
     chunkRelCount: int
     entityNodeCount: int
@@ -128,7 +155,7 @@ class graphDBdataAccess:
         self,
         file_name: str | None,
         exp_msg: str,
-        retry_condition: str | None = None,
+        retry_condition: object = None,
     ) -> None:
         try:
             job_status: str = "Failed"
@@ -553,8 +580,10 @@ class graphDBdataAccess:
         uri: str,
     ) -> int:
 
-        filename_list: list[str] = list(map(str.strip, json.loads(filenames)))
-        source_types_list: list[str] = list(map(str.strip, json.loads(source_types)))
+        raw_filenames: DecodedJSONValue = json.loads(filenames)
+        filename_list: list[str] = list(map(str.strip, raw_filenames))
+        raw_source_types: DecodedJSONValue = json.loads(source_types)
+        source_types_list: list[str] = list(map(str.strip, raw_source_types))
         gcs_file_cache: str | None = os.environ.get("GCS_FILE_CACHE")
 
         for file_name, source_type in zip(filename_list, source_types_list):
@@ -668,8 +697,9 @@ class graphDBdataAccess:
         self,
         unconnected_entities_list: str,
     ) -> list[RawGraphRow]:
+        raw_entities: DecodedJSONValue = json.loads(unconnected_entities_list)
         entities_list: list[str] = list(
-            map(str.strip, json.loads(unconnected_entities_list)),
+            map(str.strip, raw_entities),
         )
         query: str = """
         MATCH (e) WHERE elementId(e) IN $elementIds
@@ -738,7 +768,7 @@ class graphDBdataAccess:
         return nodes_list, total_nodes[0]
 
     def merge_duplicate_nodes(self, duplicate_nodes_list: str) -> list[RawGraphRow]:
-        nodes_list: object = json.loads(duplicate_nodes_list)
+        nodes_list: DecodedJSONValue = json.loads(duplicate_nodes_list)
         logging.info(f"Nodes list to merge {nodes_list}")
         query: str = """
         UNWIND $rows AS row
@@ -785,7 +815,7 @@ class graphDBdataAccess:
     def update_node_relationship_count(
         self,
         document_name: str | None,
-    ) -> dict[str | None, NodeRelationshipCounts] | list[Never]:
+    ) -> dict[ExportedGraphScalar | None, NodeRelationshipCounts] | list[Never]:
         logging.info("updating node and relationship count")
         label_query: str = """CALL db.labels"""
         community_flag: bool = {"label": "__Community__"} in self.execute_query(
@@ -800,10 +830,10 @@ class graphDBdataAccess:
         else:
             param: dict[str, str | None] = {"document_name": document_name}
             result = self.execute_query(NODEREL_COUNT_QUERY_WITHOUT_COMMUNITY, param)
-        response: dict[str | None, NodeRelationshipCounts] = {}
+        response: dict[ExportedGraphScalar | None, NodeRelationshipCounts] = {}
         if result:
             for record in cast(list[DocumentCountProjection], result):
-                filename: str | None = record.get("filename", None)
+                filename: ProjectedProperty = record.get("filename", None)
                 chunkNodeCount: int = int(record.get("chunkNodeCount", 0))
                 chunkRelCount: int = int(record.get("chunkRelCount", 0))
                 entityNodeCount: int = int(record.get("entityNodeCount", 0))
@@ -925,25 +955,25 @@ class graphDBdataAccess:
 
     @staticmethod
     @overload
-    def _coerce_record_value(value: dict[str, object]) -> dict[str, object]: ...
+    def _coerce_record_value(value: ExportedGraphRow) -> RawGraphRow: ...
 
     @staticmethod
     @overload
-    def _coerce_record_value(value: object) -> object: ...
+    def _coerce_record_value(value: ExportedGraphValue) -> object: ...
 
     @staticmethod
-    def _coerce_record_value(value: object) -> object:
+    def _coerce_record_value(value: ExportedGraphValue) -> object:
         if hasattr(value, "isoformat"):
-            return cast(ISOFormattable, value).isoformat()
+            return cast(
+                Date | Time | DateTime | date | datetime_time,
+                value,
+            ).isoformat()
         if isinstance(value, (list, tuple)):
-            return [
-                graphDBdataAccess._coerce_record_value(v)
-                for v in cast(list[object] | tuple[object, ...], value)
-            ]
+            return [graphDBdataAccess._coerce_record_value(v) for v in value]
         if isinstance(value, dict):
             return {
                 str(k): graphDBdataAccess._coerce_record_value(v)
-                for k, v in cast(dict[object, object], value).items()
+                for k, v in value.items()
             }
         return value
 
@@ -984,7 +1014,7 @@ class graphDBdataAccess:
         )
         # Both metadata queries project a Cypher map under the kg key.
         return (
-            self._coerce_record_value(cast(RawGraphRow, result[0]["kg"]))
+            self._coerce_record_value(cast(ExportedGraphRow, result[0]["kg"]))
             if result
             else None
         )
@@ -1011,7 +1041,7 @@ class graphDBdataAccess:
         result: list[RawGraphRow] = self.execute_query(query, {"kg_name": kg_name})
         # Both metadata queries project a Cypher map under the kg key.
         return (
-            self._coerce_record_value(cast(RawGraphRow, result[0]["kg"]))
+            self._coerce_record_value(cast(ExportedGraphRow, result[0]["kg"]))
             if result
             else None
         )
@@ -1114,7 +1144,10 @@ class graphDBdataAccess:
                 "limit": max(1, int(limit or 100)),
             },
         )
-        return [self._coerce_record_value(dict(record)) for record in result]
+        return [
+            self._coerce_record_value(cast(ExportedGraphRow, dict(record)))
+            for record in result
+        ]
 
     def get_kg_stats(self, kg_name: str | None = None) -> list[RawGraphRow]:
         """

@@ -33,6 +33,7 @@ import os
 import sys
 import time
 from collections import Counter
+from collections.abc import Sequence
 from datetime import date
 from typing import (
     TYPE_CHECKING,
@@ -55,7 +56,9 @@ if TYPE_CHECKING:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from experiments.uncertainty_metrics import (
+    EmbeddingArray,
     ScopedEntity,
+    SentenceEncoder,
     _candidate_structural_spans,
     _load_scoped_entities,
     _match_scoped_entities_to_text,
@@ -63,6 +66,9 @@ from experiments.uncertainty_metrics import (
     _question_local_entity_support_predicate,
     _question_local_path_support_predicate,
 )
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
 
 
 class SoftMatch(TypedDict):
@@ -84,24 +90,41 @@ class ReplayRowFields(TypedDict):
     vanilla_graph_path_support: NotRequired[float | None]
 
 
-class MergedReplayRow(ReplayRowFields, total=False):
-    store: dict[str, V2ReplayStore]
+class RawReplayRowFields(TypedDict):
+    """Merge reads question_id but does not validate persisted field values."""
+
+    question_id: JSONValue
+    question: NotRequired[JSONValue]
+    kg_response: NotRequired[JSONValue]
+    vanilla_response: NotRequired[JSONValue]
+    kg_correct: NotRequired[JSONValue]
+    vanilla_correct: NotRequired[JSONValue]
+    kg_generation_failed: NotRequired[JSONValue]
+    vanilla_generation_failed: NotRequired[JSONValue]
+    kg_graph_path_support: NotRequired[JSONValue]
+    vanilla_graph_path_support: NotRequired[JSONValue]
 
 
-class CompletedReplayRow(ReplayRowFields):
+class MergedReplayRow(RawReplayRowFields, total=False):
+    store: JSONValue | dict[str, V2ReplayStore]
+
+
+class CompletedReplayRow(RawReplayRowFields):
     store: dict[str, V2ReplayStore]
 
 
 class KGResponseView(TypedDict):
-    kg_response: ReadOnly[str]
+    kg_response: ReadOnly[JSONValue]
 
 
 class VanillaResponseView(TypedDict):
-    vanilla_response: ReadOnly[str]
+    vanilla_response: ReadOnly[JSONValue]
 
 
-class ReplayConfig(TypedDict, total=False):
-    config: dict[str, str]
+class ReplayConfig(TypedDict):
+    """Runner config output always emits its detail list, including empty runs."""
+
+    config: NotRequired[dict[str, str]]
     details: list[MergedReplayRow]
 
 
@@ -114,7 +137,7 @@ class StoredAnswer(TypedDict, total=False):
 
     q_sources: list[str]
     id: str
-    name: str | None
+    name: object
     cos: float
     source: str
     L: int | None
@@ -133,7 +156,7 @@ class LinkedAnswer(TypedDict):
     """Mutable link record before path resolution adds L."""
 
     id: str
-    name: str | None
+    name: object
     cos: float
     source: str
     q_sources: NotRequired[list[str]]
@@ -142,7 +165,7 @@ class LinkedAnswer(TypedDict):
 
 class PathPendingAnswer(TypedDict):
     id: str
-    name: str | None
+    name: object
     cos: float
     source: str
     q_sources: list[str]
@@ -153,7 +176,7 @@ class V2StoredAnswer(TypedDict):
     """Serialized completed v2 link: path length is present, possibly null."""
 
     id: str
-    name: str | None
+    name: object
     cos: float
     source: str
     L: int | None
@@ -203,14 +226,14 @@ class LoggedSummary(TypedDict):
 class ReplayArtifact(TypedDict):
     source_result: str
     questions: list[ReplayQuestion]
-    _artifact_path: NotRequired[str]
+    _artifact_path: NotRequired[ReadOnly[str]]
     v1_logged: NotRequired[dict[str, LoggedSummary]]
 
 
 class V2ReplayQuestion(TypedDict):
-    question_id: str | int
-    kg_correct: bool | None
-    vanilla_correct: bool | None
+    question_id: JSONValue
+    kg_correct: JSONValue
+    vanilla_correct: JSONValue
     store: dict[str, V2ReplayStore]
 
 
@@ -299,7 +322,7 @@ def _load_env() -> dict[str, str]:
     }
 
 
-def _select_config(doc: ReplayDocument, name: str) -> ReplayConfig:
+def _select_config(doc: JSONValue, name: str) -> JSONValue:
     for cfg in doc.get("config_results", []):
         if cfg.get("config", {}).get("name") == name:
             return cfg
@@ -312,20 +335,21 @@ def _merged_rows(
     with_dense: bool = True,
 ) -> list[MergedReplayRow]:
     """vanilla_* fields from the dense config, kg_* from entity-first (paper convention)."""
-    doc: ReplayDocument = json.load(open(result_path))
-    dense: dict[str | int, MergedReplayRow] = (
+    doc: JSONValue = cast("DefaultJSONCodec", json).load(open(result_path))
+    dense: dict[None | bool | int | float | str, JSONValue] = (
         {r["question_id"]: r for r in _select_config(doc, DENSE_CFG)["details"]}
         if with_dense
         else {}
     )
     rows: list[MergedReplayRow] = []
     for r in _select_config(doc, kg_cfg)["details"]:
-        row: MergedReplayRow = r.copy()
-        d: MergedReplayRow | dict[str, str] = dense.get(r["question_id"], {})
+        row: JSONValue = r.copy()
+        d: JSONValue = dense.get(r["question_id"], {})
         for k, v in d.items():
             if k.startswith("vanilla_"):
                 row[k] = v
-        rows.append(row)
+        # Both the successful string-key read and copy above require a JSON object.
+        rows.append(cast(MergedReplayRow, row))
     return rows
 
 
@@ -338,7 +362,7 @@ class ScopedEntityIndex:
             kg_name=kg_name,
             question_id=question_id,
         )
-        self.rows: list[ScopedEntity] = _load_scoped_entities(
+        self.rows: Sequence[ScopedEntity] = _load_scoped_entities(
             session,
             entity_scope=scope,
             kg_name=kg_name,
@@ -401,12 +425,12 @@ class ScopedEntityIndex:
         )[:MAX_SOFT_SPANS]
         if not spans:
             return []
-        span_embs: NDArray[np.float32] = encoder.encode(
+        span_embs: EmbeddingArray = cast(SentenceEncoder, encoder).encode(
             spans,
             normalize_embeddings=True,
         )
-        sims: NDArray[np.float32] = span_embs @ self.emb_matrix.T  # (spans, entities)
-        best: NDArray[np.float32] = sims.max(axis=0)  # best span per entity
+        sims: EmbeddingArray = span_embs @ self.emb_matrix.T  # (spans, entities)
+        best: EmbeddingArray = sims.max(axis=0)  # best span per entity
         order: NDArray[np.intp] = np.argsort(-best)
         out: list[SoftMatch] = []
         for idx in order[: MAX_ENTITIES * 3]:
@@ -618,7 +642,7 @@ def run_dataset(
             with_dense=False,
         )
     else:
-        manifest: dict[str, dict[str, str]] = json.load(open(MANIFEST))
+        manifest: JSONValue = cast("DefaultJSONCodec", json).load(open(MANIFEST))
         result_path = os.path.join(REPO_ROOT, manifest[manifest_key]["result_path"])
         rows = _merged_rows(result_path)
     print(f"[{slug}] {len(rows)} questions from {os.path.basename(result_path)}")
@@ -707,7 +731,7 @@ def run_dataset(
                 else r.get("vanilla_generation_failed")
             ):
                 continue
-            val: float | None = (
+            val: JSONValue = (
                 r.get("kg_graph_path_support")
                 if side == "kg"
                 else r.get("vanilla_graph_path_support")

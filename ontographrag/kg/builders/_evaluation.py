@@ -1,13 +1,19 @@
 import re
 from collections import Counter
-from collections.abc import Hashable, Sequence
-from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeVar, cast
+from collections.abc import Hashable, Mapping, Sequence
+from typing import TYPE_CHECKING, Never, NotRequired, TypedDict, TypeVar, cast
+
+from typing_extensions import ReadOnly
+
+from ontographrag.kg.builders._creator_shared import DecodedJSONValue
 
 if TYPE_CHECKING:
     from ontographrag.kg.builders.ontology_guided_kg_creator import (
         EntityNode,
+        GeneratedGraphMetadata,
         GraphChunkInput,
         GraphMetadata,
+        GraphProperties,
         GraphRelationship,
         KnowledgeGraphInput,
         RelationshipRecord,
@@ -49,6 +55,21 @@ class EntityPrecisionRecallReport(PrecisionRecallMetrics):
 class RelationshipPrecisionRecallReport(PrecisionRecallMetrics):
     gold_triples: int
     predicted_triples: int
+
+
+class CanonicalEntity(TypedDict):
+    id: str
+    name: str
+    type: str
+
+
+class EvaluationEntity(CanonicalEntity):
+    name_key: str
+    type_key: str
+
+
+class EntityNameInput(TypedDict, total=False):
+    name: ReadOnly[str]
 
 
 class EvaluationRelationshipRecord(TypedDict):
@@ -177,11 +198,11 @@ class EvaluationMixin:
     def _kg_eval_entity_lookup(
         cls,
         nodes: "Sequence[EntityNode]",
-    ) -> dict[str, dict[str, str]]:
+    ) -> dict[str, EvaluationEntity]:
         """Return id -> canonical entity metadata for evaluation helpers."""
-        lookup: dict[str, dict[str, str]] = {}
+        lookup: dict[str, EvaluationEntity] = {}
         for node in nodes or []:
-            props: dict[str, object] = node.get("properties") or {}
+            props: GraphProperties | dict[str, object] = node.get("properties") or {}
             entity_id: str = str(node.get("id") or props.get("id") or "").strip()
             if not entity_id:
                 continue
@@ -206,9 +227,9 @@ class EvaluationMixin:
     def _kg_eval_entity_keys(
         cls,
         nodes: "Sequence[EntityNode]",
-    ) -> dict[str, dict[str, str]]:
+    ) -> dict[str, CanonicalEntity]:
         """Return canonical entity key -> display metadata."""
-        records: dict[str, dict[str, str]] = {}
+        records: dict[str, CanonicalEntity] = {}
         for info in cls._kg_eval_entity_lookup(nodes).values():
             key: str = f"{info['name_key']}||{info['type_key']}"
             records[key] = {
@@ -222,12 +243,12 @@ class EvaluationMixin:
     def _kg_eval_relationship_records(
         cls,
         relationships: "Sequence[RelationshipRecord]",
-        entity_lookup: dict[str, dict[str, str]],
+        entity_lookup: Mapping[str, EntityNameInput],
     ) -> list[EvaluationRelationshipRecord]:
         """Return canonical relationship records for evaluation comparisons."""
         records: list[EvaluationRelationshipRecord] = []
         for rel in relationships or []:
-            props: dict[str, object] = rel.get("properties") or {}
+            props: GraphProperties | dict[str, object] = rel.get("properties") or {}
             rel_type: str = str(rel.get("type") or props.get("type") or "").strip()
             if not rel_type:
                 continue
@@ -351,8 +372,8 @@ class EvaluationMixin:
         nodes: Sequence[EntityNode] = kg.get("nodes") or []
         relationships: Sequence[RelationshipRecord] = kg.get("relationships") or []
         chunks: Sequence[GraphChunkInput] = kg.get("chunks") or []
-        meta: GraphMetadata = kg.get("metadata") or {}
-        entity_lookup: dict[str, dict[str, str]] = self._kg_eval_entity_lookup(nodes)
+        meta: GraphMetadata | GeneratedGraphMetadata = kg.get("metadata") or {}
+        entity_lookup: dict[str, EvaluationEntity] = self._kg_eval_entity_lookup(nodes)
 
         # ── Entity metrics ─────────────────────────────────────────────────
         type_counts: Counter[str] = Counter(
@@ -374,8 +395,8 @@ class EvaluationMixin:
         # degree distribution — entities appear as source/target in relationships
         degree: Counter[str] = Counter()
         for rel in relationships:
-            src: str | None = rel.get("source") or rel.get("from")
-            tgt: str | None = rel.get("target") or rel.get("to")
+            src: DecodedJSONValue = rel.get("source") or rel.get("from")
+            tgt: DecodedJSONValue = rel.get("target") or rel.get("to")
             if src:
                 degree[str(src)] += 1
             if tgt:
@@ -404,7 +425,7 @@ class EvaluationMixin:
                 degree_buckets["10+"] += 1
         top_hub_entities: list[HubEntity] = []
         for entity_id, node_degree in degree.most_common(10):
-            info: dict[str, str] = entity_lookup.get(entity_id, {})
+            info: EvaluationEntity | dict[str, Never] = entity_lookup.get(entity_id, {})
             top_hub_entities.append(
                 {
                     "id": entity_id,
@@ -437,7 +458,7 @@ class EvaluationMixin:
         scope_counts: Counter[str] = Counter()
         confidence_values: list[float] = []
         for r in relationships:
-            props: dict[str, object] = r.get("properties") or {}
+            props: GraphProperties | dict[str, object] = r.get("properties") or {}
             scope: object = props.get("evidence_scope") or "unknown"
             scope_counts[scope] += 1
             raw_conf: object = props.get("confidence")
@@ -563,7 +584,7 @@ class EvaluationMixin:
             )
 
         if reference_relationships:
-            reference_lookup: dict[str, dict[str, str]] = dict(entity_lookup)
+            reference_lookup: dict[str, EvaluationEntity] = dict(entity_lookup)
             reference_lookup.update(self._kg_eval_entity_lookup(reference_nodes))
             pred_relationship_records: list[EvaluationRelationshipRecord] = (
                 self._kg_eval_relationship_records(

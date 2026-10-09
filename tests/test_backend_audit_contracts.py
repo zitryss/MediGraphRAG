@@ -12,6 +12,16 @@ import pytest
 from experiments import retrieval_audit as audit
 from scripts import check_arxiv_package as package
 
+MALFORMED_MANIFEST_CASES: tuple[
+    tuple[package.JSONValue, type[AttributeError] | type[SystemExit] | type[TypeError]],
+    ...,
+] = (
+    (7, AttributeError),
+    ({"files": "not-a-list"}, SystemExit),
+    ({"files": [7]}, AttributeError),
+    ({"files": [{"role": []}]}, TypeError),
+)
+
 
 @pytest.mark.parametrize(
     "support,expected",
@@ -145,3 +155,35 @@ def test_package_manifest_loading(
         package.load_manifest()
     manifest.write_text(json.dumps({"files": []}))
     assert package.load_manifest() == {"files": []}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, True, 7, 1.5, "raw", [], [1, "entry"], {"files": "unvalidated"}],
+)
+def test_manifest_decoder_preserves_unvalidated_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    payload: package.JSONValue,
+) -> None:
+    manifest: Path = tmp_path / "MANIFEST.json"
+    monkeypatch.setattr(package, "REPO", tmp_path)
+    monkeypatch.setattr(package, "MANIFEST", manifest)
+    manifest.write_text(json.dumps(payload))
+
+    decoded: package.JSONValue = package.load_manifest()
+
+    assert decoded == payload
+    assert type(decoded) is type(payload)
+
+
+@pytest.mark.parametrize(
+    "payload,expected_error",
+    MALFORMED_MANIFEST_CASES,
+)
+def test_manifest_checker_preserves_malformed_shape_failures(
+    payload: package.JSONValue,
+    expected_error: type[AttributeError] | type[SystemExit] | type[TypeError],
+) -> None:
+    with pytest.raises(expected_error):
+        package.check_manifest_files(payload)

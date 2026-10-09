@@ -318,6 +318,8 @@ def test_build_schema_card_hash_changes_when_property_signature_changes() -> Non
     creator._ontology_schema = schema_b
     card_b: SchemaCard = build_schema_card(creator)
 
+    assert "schemaHash" in card_a
+    assert "schemaHash" in card_b
     assert card_a["schemaHash"] != card_b["schemaHash"]
 
 

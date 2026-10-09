@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Literal, NotRequired, TypeAlias, TypedDict
 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase, basic_auth
@@ -10,7 +10,7 @@ from owlready2 import get_ontology
 from PyPDF2 import PdfReader
 
 if TYPE_CHECKING:
-    from neo4j import Driver, Result, Session
+    from neo4j import Driver, Record, Result, Session
     from neo4j.graph import Node, Relationship
     from owlready2.namespace import Ontology
 
@@ -19,6 +19,17 @@ if TYPE_CHECKING:
 load_dotenv()
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+LoaderJSONValue: TypeAlias = (
+    str
+    | int
+    | float
+    | bool
+    | None
+    | list["LoaderJSONValue"]
+    | dict[str, "LoaderJSONValue"]
+)
 
 
 class OntologyCategory(TypedDict):
@@ -44,6 +55,12 @@ class PDFNode(TypedDict):
     properties: dict[str, str | int]
 
 
+class PDFSupernode(TypedDict):
+    id: str
+    label: LoaderJSONValue
+    properties: dict[str, LoaderJSONValue]
+
+
 class PDFRelationship(TypedDict):
     id: str
     type: str
@@ -67,7 +84,7 @@ class LoaderFailure(TypedDict):
 class PDFLoadSuccess(TypedDict):
     status: Literal["success"]
     nodes: list[PDFNode]
-    supernodes: list[PDFNode]
+    supernodes: list[PDFSupernode]
     relationships: list[PDFRelationship]
     source: str
     filename: str
@@ -171,11 +188,12 @@ class KGLoader:
         logger.info("KGLoader initialized with Neo4j URI: %s", self.neo4j_uri)
         self.last_import_dir: str | None = None
 
-    def _load_ontology(self, ontology_path: str) -> LoaderOntology:
+    def _load_ontology(self, ontology_path: str) -> LoaderJSONValue | LoaderOntology:
         """Load ontology from JSON or OWL file"""
         if ontology_path.endswith(".json"):
             with open(ontology_path, "r") as f:
-                return json.load(f)
+                raw: LoaderJSONValue = json.load(f)
+                return raw
         elif ontology_path.endswith(".owl"):
             onto: Ontology = get_ontology(ontology_path).load()
             return {
@@ -200,7 +218,7 @@ class KGLoader:
                 text += page.extract_text() + "\n"
 
             # Load ontology if provided
-            ontology: LoaderOntology = {}
+            ontology: LoaderJSONValue | LoaderOntology = {}
             if ontology_path:
                 try:
                     ontology = self._load_ontology(ontology_path)
@@ -369,7 +387,8 @@ class KGLoader:
 
             for record in result:
                 # Handle UNION query that returns "node" column (aliased from either n or d)
-                node: Node | None = record.get("node")
+                # A caller-supplied query may return any value under this alias.
+                node: object = record.get("node")
                 if node is None:
                     continue  # Skip if node column is missing
 
@@ -614,19 +633,19 @@ class KGLoader:
     def _create_graph_with_ontology(
         self,
         text: str,
-        ontology: LoaderOntology,
-    ) -> tuple[list[PDFNode], list[PDFNode], list[PDFRelationship]]:
+        ontology: LoaderJSONValue | LoaderOntology,
+    ) -> tuple[list[PDFNode], list[PDFSupernode], list[PDFRelationship]]:
         """Create knowledge graph with ontology harmonization and supernodes"""
         # Extract entities using ontology if available
         entities: list[PDFNode] = []
-        supernodes: list[PDFNode] = []
+        supernodes: list[PDFSupernode] = []
         relationships: list[PDFRelationship] = []
 
         # Create supernodes from ontology categories
-        supernode_map: dict[str, str] = {}
+        supernode_map: dict[str | int | float | bool | None, str] = {}
         if "categories" in ontology:
             for i, category in enumerate(ontology["categories"]):
-                supernode: PDFNode = {
+                supernode: PDFSupernode = {
                     "id": f"supernode_{i}",
                     "label": category["name"],
                     "properties": {
@@ -721,7 +740,7 @@ class KGLoader:
                     session.run("MATCH (n) DETACH DELETE n")
                     logger.info("Cleared existing database data")
 
-                node_map: dict[str | int, str] = {}
+                node_map: dict[str | int, object] = {}
 
                 # Create all nodes (entities and supernodes) using MERGE to avoid duplicates
                 all_nodes: list[StorableNode] = graph_data.get(
@@ -763,7 +782,8 @@ class KGLoader:
                         unique_value=unique_value,
                         properties=properties,
                     )
-                    node_id: str = result.single()["node_id"]
+                    node_record: Record | None = result.single()
+                    node_id: object = node_record["node_id"]
                     node_map[node["id"]] = (
                         node_id  # Map our KG node ID to Neo4j node ID
                     )
@@ -771,8 +791,8 @@ class KGLoader:
                 # Create relationships using the node_map, also with MERGE to avoid duplicates
                 for rel in graph_data.get("relationships", []):
                     # Use the original node IDs to look up Neo4j internal IDs
-                    start_neo4j_id: str | None = node_map.get(rel["from"])
-                    end_neo4j_id: str | None = node_map.get(rel["to"])
+                    start_neo4j_id: object = node_map.get(rel["from"])
+                    end_neo4j_id: object = node_map.get(rel["to"])
 
                     if start_neo4j_id is not None and end_neo4j_id is not None:
                         # MERGE relationships based on the relationship type and connected nodes

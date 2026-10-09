@@ -26,6 +26,7 @@ from ontographrag.kg.builders.ontology_guided_kg_creator import (
     GraphChunkInput,
 )
 from ontographrag.schemas.models import PropertyType
+from tests.conftest import required_text_field
 from tests.known_defects import UndefinedProviderDefect
 
 if TYPE_CHECKING:
@@ -116,6 +117,8 @@ def test_json_schema_load_and_hash_card(
         card["ontologyFileHash"] == hashlib.sha256(schema_file.read_bytes()).hexdigest()
     )
     assert card["classCount"] == 2 and card["relationshipCount"] == 1
+    assert "relationshipTypes" in card
+    assert "domain" in card["relationshipTypes"][0]
     assert card["relationshipTypes"][0]["domain"] == "Drug"
     assert creator._match_ontology_entity_type("diseas") == "Disease"
     assert creator._match_ontology_entity_type("unknown", allow_fuzzy=False) is None
@@ -263,7 +266,12 @@ def test_real_llm_extraction_and_grounded_postprocessing(
         context_header="Treated cells",
         section_header="Results",
     )
-    assert {e["id"] for e in result["entities"]} == {"Aspirin", "Pain"}
+    assert {required_text_field(e, "id") for e in result["entities"]} == {
+        "Aspirin",
+        "Pain",
+    }
+    assert "relationships" in result
+    assert "type" in result["relationships"][0]
     assert result["relationships"][0]["type"] == "TREATS"
     prompt: str = llm.generate.call_args_list[0].args[0]
     assert "Results" in prompt and "Treated cells" in prompt
@@ -342,6 +350,8 @@ def test_real_preview_build_completes_without_persistence(
         if exc.name == "provider" and str(exc) == "name 'provider' is not defined":
             raise UndefinedProviderDefect(str(exc)) from exc
         raise
+    assert "metadata" in result
+    assert "total_entities" in result["metadata"]
     assert result["metadata"]["total_entities"] == 2
     assert "stored_in_neo4j" not in result["metadata"]
 

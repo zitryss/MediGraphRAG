@@ -15,8 +15,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TypeAlias, cast, overload
 
 from typing_extensions import TypedDict
+
+# Keep this public dataclass contract resolvable without importing dataset
+# adapters or requiring the repository root for standalone script imports.
+JSONValue: TypeAlias = (
+    None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+)
 
 
 class SubsetIdentity(TypedDict):
@@ -42,18 +49,21 @@ class SubsetPayload(TypedDict, total=False):
     subset_id: str
 
 
+ResolvedSubsetPayload: TypeAlias = "SubsetPayload | dict[str, JSONValue]"
+
+
 def sanitize_selection_token(value: str) -> str:
     """Create a filesystem-safe token."""
     token: str = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(value or "").strip())
     return token.strip("_") or "default"
 
 
-def sample_size_token(num_samples: int | None) -> str:
+def sample_size_token(num_samples: JSONValue) -> str:
     """Return a stable token for the requested sample count."""
     return "all" if num_samples is None else str(int(num_samples))
 
 
-def selection_key(*, num_samples: int | None, subset_seed: int) -> str:
+def selection_key(*, num_samples: JSONValue, subset_seed: int) -> str:
     """Return the stable key for a seeded subset specification."""
     return f"n{sample_size_token(num_samples)}_seed{int(subset_seed)}"
 
@@ -83,7 +93,7 @@ def subset_identity(
     *,
     dataset_name: str,
     question_ids: Sequence[str],
-    num_samples: int | None,
+    num_samples: JSONValue,
     subset_seed: int,
 ) -> SubsetIdentity:
     """Return stable identifiers for a selected dataset subset."""
@@ -132,19 +142,41 @@ class QuestionSubsetResolution:
     """Result of resolving a dataset question subset."""
 
     question_ids: list[str]
-    payload: SubsetPayload
+    payload: ResolvedSubsetPayload
     created: bool
     warnings: list[str]
+
+
+@overload
+def _enrich_payload_identity(
+    *,
+    dataset_name: str,
+    question_ids: Sequence[str],
+    requested_num_samples: JSONValue,
+    subset_seed: int,
+    payload: SubsetPayload,
+) -> SubsetPayload: ...
+
+
+@overload
+def _enrich_payload_identity(
+    *,
+    dataset_name: str,
+    question_ids: Sequence[str],
+    requested_num_samples: JSONValue,
+    subset_seed: int,
+    payload: JSONValue,
+) -> ResolvedSubsetPayload: ...
 
 
 def _enrich_payload_identity(
     *,
     dataset_name: str,
     question_ids: Sequence[str],
-    requested_num_samples: int | None,
+    requested_num_samples: JSONValue,
     subset_seed: int,
-    payload: SubsetPayload,
-) -> SubsetPayload:
+    payload: SubsetPayload | JSONValue,
+) -> SubsetPayload | dict[str, JSONValue]:
     """Backfill stable subset identity fields into the persisted payload."""
     identity: SubsetIdentity = subset_identity(
         dataset_name=dataset_name,
@@ -157,7 +189,7 @@ def _enrich_payload_identity(
     payload.setdefault("subset_hash", identity["subset_hash"])
     payload.setdefault("subset_tag", identity["subset_tag"])
     payload.setdefault("subset_id", identity["subset_id"])
-    return payload
+    return cast(ResolvedSubsetPayload, payload)
 
 
 def resolve_question_subset(
@@ -180,10 +212,10 @@ def resolve_question_subset(
     )
 
     if selection_path.exists() and not force_resample:
-        payload: SubsetPayload = json.loads(selection_path.read_text())
+        raw_payload: JSONValue = json.loads(selection_path.read_text())
         saved_ids: list[str] = [
             str(question_id)
-            for question_id in payload.get("question_ids", [])
+            for question_id in raw_payload.get("question_ids", [])
             if str(question_id)
         ]
         if not saved_ids and ordered_ids:
@@ -204,8 +236,8 @@ def resolve_question_subset(
             )
 
         warnings: list[str] = []
-        saved_seed: int | None = payload.get("subset_seed")
-        saved_requested: int | None = payload.get("requested_num_samples")
+        saved_seed: JSONValue = raw_payload.get("subset_seed")
+        saved_requested: JSONValue = raw_payload.get("requested_num_samples")
         if saved_seed is not None and int(saved_seed) != int(subset_seed):
             warnings.append(
                 f"Persisted question subset for {dataset_name} uses subset_seed={saved_seed}; "
@@ -217,18 +249,18 @@ def resolve_question_subset(
                 f"requested num_samples={requested_num_samples} will be ignored until you rebuild the KG.",
             )
 
-        payload = _enrich_payload_identity(
+        saved_payload: ResolvedSubsetPayload = _enrich_payload_identity(
             dataset_name=dataset_name,
             question_ids=saved_ids,
             requested_num_samples=saved_requested,
             subset_seed=int(saved_seed if saved_seed is not None else subset_seed),
-            payload=payload,
+            payload=raw_payload,
         )
-        selection_path.write_text(json.dumps(payload, indent=2))
+        selection_path.write_text(json.dumps(saved_payload, indent=2))
 
         return QuestionSubsetResolution(
             question_ids=saved_ids,
-            payload=payload,
+            payload=saved_payload,
             created=False,
             warnings=warnings,
         )
@@ -244,7 +276,7 @@ def resolve_question_subset(
         num_samples=num_samples,
         subset_seed=subset_seed,
     )
-    payload = {
+    payload: SubsetPayload = {
         "version": 1,
         "dataset": dataset_name,
         "created_at": datetime.now().isoformat(),

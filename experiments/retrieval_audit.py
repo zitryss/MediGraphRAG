@@ -43,6 +43,7 @@ from typing import (
     Literal,
     LiteralString,
     NotRequired,
+    Protocol,
     TypeAlias,
     TypedDict,
     cast,
@@ -53,6 +54,13 @@ from typing_extensions import ReadOnly
 if TYPE_CHECKING:
     from neo4j import Driver, Result
     from sentence_transformers import SentenceTransformer
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
+
+JSONScalar: TypeAlias = None | bool | int | float | str
+
 
 CorrectnessClass: TypeAlias = Literal[
     "both_correct",
@@ -66,6 +74,18 @@ RecallKey: TypeAlias = Literal[
     "grounding_quality",
     "seed_entity_count",
 ]
+
+
+class SentenceEmbedding(Protocol):
+    """Default NumPy embedding for one input sentence, not a batch."""
+
+    def tolist(self) -> list[float]: ...
+
+
+class SingleSentenceEncoder(Protocol):
+    """Consumed default encode branch of sentence-transformers 4.1.0."""
+
+    def encode(self, sentences: str) -> SentenceEmbedding: ...
 
 
 class SupportingFacts(TypedDict, total=False):
@@ -136,7 +156,7 @@ class GraphPresence(TypedDict):
 
 
 class SupportingFactDetail(TypedDict):
-    title: str
+    title: JSONScalar
     passage_index: int
     in_graph: bool
     entity_count: int
@@ -151,9 +171,9 @@ class QuestionAudit(TypedDict):
     vanilla_correct: bool | None
     kg_correct: bool | None
     correctness_class: CorrectnessClass
-    sf_titles_all: list[str]
-    sf_titles_in_context: list[str]
-    sf_titles_missing_from_context: list[str]
+    sf_titles_all: list[JSONValue]
+    sf_titles_in_context: list[JSONScalar]
+    sf_titles_missing_from_context: list[JSONValue]
     sf_passage_indices: list[int]
     sf_in_context_count: int
     sf_in_graph_count: int
@@ -263,14 +283,16 @@ def _run_query(
 # ---------------------------------------------------------------------------
 
 
-def _load_raw_hotpotqa(raw_path: str) -> dict[str, HotpotQuestion]:
+def _load_raw_hotpotqa(raw_path: str) -> dict[JSONScalar, JSONValue]:
     """Return {question_id: raw_question_dict}."""
     with open(raw_path) as f:
-        raw: list[HotpotQuestion] = json.load(f)
+        raw: JSONValue = cast("DefaultJSONCodec", json).load(f)
     return {q["_id"]: q for q in raw}
 
 
-def _get_supporting_facts(raw_q: SupportingFactsQuestion) -> list[tuple[str, int]]:
+def _get_supporting_facts(
+    raw_q: SupportingFactsQuestion | dict[str, JSONValue],
+) -> list[tuple[JSONValue, JSONValue]]:
     """
     Return [(title, sent_id), ...] for each supporting fact.
 
@@ -279,21 +301,23 @@ def _get_supporting_facts(raw_q: SupportingFactsQuestion) -> list[tuple[str, int
       - [[title, sent_id], ...]             (array form, some versions)
     """
     empty_supporting_facts: SupportingFacts = {}
-    sf: SupportingFacts | list[list[str | int]] | None = raw_q.get(
+    sf: SupportingFacts | JSONValue = raw_q.get(
         "supporting_facts",
         empty_supporting_facts,
     )
     if isinstance(sf, dict):
-        titles: list[str] = sf.get("title", [])
-        sent_ids: list[int] = sf.get("sent_id", [])
+        titles: JSONValue = sf.get("title", [])
+        sent_ids: JSONValue = sf.get("sent_id", [])
         return list(zip(titles, sent_ids))
     elif isinstance(sf, list):
         return [(item[0], item[1]) for item in sf if len(item) >= 2]
     return []
 
 
-def _context_title_to_passage_index(raw_q: HotpotQuestion) -> dict[str, int]:
-    """Map passage title -> passageIndex (0-based position in context list)."""
+def _context_title_to_passage_index(
+    raw_q: HotpotQuestion | dict[str, JSONValue],
+) -> dict[JSONScalar, int]:
+    """Map each raw, hashable JSON title to its passage position."""
     return {title: idx for idx, (title, _) in enumerate(raw_q.get("context", []))}
 
 
@@ -518,7 +542,7 @@ def _check_passage_reachable_via_entity_traversal(
 
 def _get_embedding(text: str, model: SentenceTransformer) -> list[float] | None:
     try:
-        return model.encode(text).tolist()
+        return cast(SingleSentenceEncoder, model).encode(text).tolist()
     except Exception as e:
         log.debug("Embedding failed: %s", e)
         return None
@@ -539,12 +563,12 @@ def _audit_question(
     question_id: str = eval_q["question_id"]
     question_text: str = eval_q["question"]
 
-    sf_pairs: list[tuple[str, int]] = _get_supporting_facts(raw_q)
-    title_to_idx: dict[str, int] = _context_title_to_passage_index(raw_q)
+    sf_pairs: list[tuple[JSONValue, JSONValue]] = _get_supporting_facts(raw_q)
+    title_to_idx: dict[JSONScalar, int] = _context_title_to_passage_index(raw_q)
 
     # Deduplicate SF titles (a title can appear multiple times for different sentences)
-    sf_titles_in_context: dict[str, int] = {}
-    sf_titles_missing: list[str] = []
+    sf_titles_in_context: dict[JSONScalar, int] = {}
+    sf_titles_missing: list[JSONValue] = []
     for title, _sent_id in sf_pairs:
         if title in title_to_idx:
             sf_titles_in_context[title] = title_to_idx[title]
@@ -908,13 +932,13 @@ def main() -> None:
     if not os.path.isabs(raw_path):
         raw_path = str(Path(__file__).parent.parent / raw_path)
     log.info("Loading raw HotpotQA from %s", raw_path)
-    raw_by_id: dict[str, HotpotQuestion] = _load_raw_hotpotqa(raw_path)
+    raw_by_id: dict[JSONScalar, JSONValue] = _load_raw_hotpotqa(raw_path)
 
     # Load eval questions
     log.info("Loading eval questions from %s", args.questions_file)
     with open(args.questions_file) as f:
-        qs_data: EvaluationQuestions = json.load(f)
-    eval_questions: list[EvaluationQuestion] = qs_data.get("questions", [])
+        qs_data: JSONValue = cast("DefaultJSONCodec", json).load(f)
+    eval_questions: JSONValue = qs_data.get("questions", [])
     log.info("%d questions in eval file", len(eval_questions))
 
     # Connect to Neo4j
@@ -938,7 +962,7 @@ def main() -> None:
     results: list[QuestionAudit] = []
     for i, eval_q in enumerate(eval_questions):
         qid: str = eval_q["question_id"]
-        raw_q: HotpotQuestion | None = raw_by_id.get(qid)
+        raw_q: JSONValue = raw_by_id.get(qid)
         if not raw_q:
             log.warning("QID %s not found in raw data, skipping", qid)
             continue

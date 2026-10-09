@@ -22,7 +22,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, Never, TypedDict, cast
 
 import pytest
 from _pytest.capture import CaptureResult
@@ -30,6 +30,7 @@ from _pytest.capture import CaptureResult
 from ontographrag.kg.builders._creator_shared import (
     AnchorGrounding,
     AnchorSpan,
+    DecodedJSONValue,
     PassageGroup,
     RestorationRecord,
 )
@@ -61,6 +62,8 @@ from ontographrag.kg.builders._evaluation import (
 )
 from ontographrag.kg.builders.ontology_guided_kg_creator import (
     EntityLookup,
+    ExtractionEntity,
+    ExtractionRelationship,
     ExtractionResult,
     GraphChunkInput,
     GraphMetadata,
@@ -71,8 +74,14 @@ from ontographrag.kg.builders.ontology_guided_kg_creator import (
     NormalizedNode,
     NormalizedRelationship,
     OntologyGuidedKGCreator,
+    UMLSLink,
 )
 from ontographrag.schemas.models import EntityType, OntologySchema, RelationshipType
+from tests.conftest import (
+    UnusedGenerationProvider,
+    required_int_field,
+    required_text_field,
+)
 
 if TYPE_CHECKING:
     from ontographrag.kg.builders._evaluation import (
@@ -147,7 +156,6 @@ def _make_creator() -> OntologyGuidedKGCreator:
     c.retrieval_chunk_overlap = 32
     c.ontology_classes = []
     c.ontology_relationships = []
-    c.schema_card = {}
     c.ontology_path = None
     c.strict_ontology = True
     c.enable_coreference_resolution = False
@@ -524,13 +532,15 @@ class TestPassageSourceTitlePropagation:
 
         kg: KnowledgeGraph = creator.generate_knowledge_graph_from_passages(
             [passage],
-            llm=object(),
+            llm=UnusedGenerationProvider(),
             file_name=None,
             model_name="test-model",
             kg_name="hotpotqa",
         )
 
         assert captured["source_title"] == "Dr. No"
+        assert "chunks" in kg
+        assert "source_title" in kg["chunks"][0]
         assert kg["chunks"][0]["source_title"] == "Dr. No"
 
     def test_storage_sanitizes_nested_metadata_and_relationship_properties(
@@ -636,16 +646,24 @@ class TestPassageSourceTitlePropagation:
             for query, params in stub_graph.queries
             if "SET d += $meta" in query
         )
-        assert isinstance(doc_params["meta"]["selectionDetail"], str)
-        assert '"subset": "seed42"' in doc_params["meta"]["selectionDetail"]
+        document_metadata: Mapping[str, object] = cast(
+            Mapping[str, object],
+            doc_params["meta"],
+        )
+        assert isinstance(document_metadata["selectionDetail"], str)
+        assert '"subset": "seed42"' in document_metadata["selectionDetail"]
 
         _, rel_params = next(
             (query, params)
             for query, params in stub_graph.queries
             if "MERGE (source)-[r:" in query
         )
-        assert isinstance(rel_params["properties"]["schema_hint"], str)
-        assert '"name": "devotees"' in rel_params["properties"]["schema_hint"]
+        relationship_properties: Mapping[str, object] = cast(
+            Mapping[str, object],
+            rel_params["properties"],
+        )
+        assert isinstance(relationship_properties["schema_hint"], str)
+        assert '"name": "devotees"' in relationship_properties["schema_hint"]
 
     def test_relationship_verification_uses_local_provenance_chunks(
         self,
@@ -666,6 +684,8 @@ class TestPassageSourceTitlePropagation:
             target_name: str,
             rel_type: str,
             chunks: Sequence[GraphChunkInput],
+            source_aliases: list[str] | None = None,
+            target_aliases: list[str] | None = None,
             **kwargs: object,
         ) -> float:
             captured["chunks"] = chunks
@@ -751,7 +771,9 @@ class TestPassageSourceTitlePropagation:
         ok: bool = creator.store_knowledge_graph_with_embeddings(kg, "musique")
 
         assert ok is True
-        assert [chunk["position"] for chunk in captured["chunks"]] == [7]
+        assert [
+            required_int_field(chunk, "position") for chunk in captured["chunks"]
+        ] == [7]
 
     def test_relationship_store_failure_returns_false(
         self,
@@ -850,7 +872,11 @@ class TestPassageSourceTitlePropagation:
         ok: bool = creator.store_knowledge_graph_with_embeddings(kg, "musique")
 
         assert ok is False
+        assert "metadata" in kg
+        assert "relationship_store_failures" in kg["metadata"]
         assert kg["metadata"]["relationship_store_failures"] == 1
+        assert "metadata" in kg
+        assert "stored_relationships" in kg["metadata"]
         assert kg["metadata"]["stored_relationships"] == 0
 
     def test_large_graph_tolerates_single_relationship_store_failure(
@@ -946,9 +972,17 @@ class TestPassageSourceTitlePropagation:
         ok: bool = creator.store_knowledge_graph_with_embeddings(kg, "bioasq")
 
         assert ok is True
+        assert "metadata" in kg
+        assert "relationship_store_failures" in kg["metadata"]
         assert kg["metadata"]["relationship_store_failures"] == 1
+        assert "metadata" in kg
+        assert "stored_relationships" in kg["metadata"]
         assert kg["metadata"]["stored_relationships"] == 199
+        assert "metadata" in kg
+        assert "relationship_store_degraded" in kg["metadata"]
         assert kg["metadata"]["relationship_store_degraded"] is True
+        assert "metadata" in kg
+        assert "relationship_store_failure_ratio" in kg["metadata"]
         assert kg["metadata"]["relationship_store_failure_ratio"] == pytest.approx(
             0.005,
         )
@@ -974,19 +1008,23 @@ class TestCrossWindowRelationRecovery:
         captured_texts: list[str] = []
 
         def _fake_extract(
-            text: str,
-            entities: list[GraphNode],
+            combined_text: str,
+            known_entities: Sequence[ExtractionEntity],
             llm: object,
             model_name: str,
-        ) -> list[GraphRelationship]:
-            captured_texts.append(text)
-            if "chunk one" in text and "chunk two" in text and "chunk three" in text:
+        ) -> DecodedJSONValue:
+            captured_texts.append(combined_text)
+            if (
+                "chunk one" in combined_text
+                and "chunk two" in combined_text
+                and "chunk three" in combined_text
+            ):
                 return [{"source": "alpha", "target": "gamma", "type": "RELATED_TO"}]
             return []
 
         creator._extract_relationships_only = _fake_extract
 
-        rels: list[GraphRelationship] = (
+        rels: Sequence[ExtractionRelationship] = (
             creator._extract_relationships_for_segment_windows(
                 [
                     "chunk one mentions alpha",
@@ -999,7 +1037,7 @@ class TestCrossWindowRelationRecovery:
                     2: [{"id": "gamma", "type": "Concept"}],
                 },
                 {0: [0], 1: [1], 2: [2]},
-                llm=object(),
+                llm=UnusedGenerationProvider(),
                 model_name="test-model",
                 max_window_size=3,
                 scope_label="Cross-chunk",
@@ -1010,6 +1048,7 @@ class TestCrossWindowRelationRecovery:
             "chunk one" in text and "chunk two" in text and "chunk three" in text
             for text in captured_texts
         )
+        assert "provenance_positions" in rels[0]
         assert rels[0]["provenance_positions"] == [0, 1, 2]
 
 
@@ -1114,13 +1153,23 @@ class TestGraphEnrichmentBuilder:
 
         assert len(merged_entities) == 1
         merged: GraphNode = merged_entities[0]
+        assert "properties" in merged
+        assert "soft_linked" in merged["properties"]
         assert merged["properties"]["soft_linked"] is True
+        assert "properties" in merged
+        assert "soft_link_cluster_size" in merged["properties"]
         assert merged["properties"]["soft_link_cluster_size"] == 2
-        assert sorted(merged["properties"]["all_names"]) == [
+        assert sorted(cast(list[str], merged["properties"]["all_names"])) == [
             "TBK1 kinase",
             "TBK1 protein",
         ]
+        assert "uuid" in merged
+        assert "TBK1 kinase" in merged_map
+        assert "uuid" in merged_map["TBK1 kinase"]
         assert merged_map["TBK1 kinase"]["uuid"] == merged["uuid"]
+        assert "uuid" in merged
+        assert "TBK1 protein" in merged_map
+        assert "uuid" in merged_map["TBK1 protein"]
         assert merged_map["TBK1 protein"]["uuid"] == merged["uuid"]
 
     def test_claim_only_mode_does_not_emit_component_summaries(self) -> None:
@@ -1131,8 +1180,11 @@ class TestGraphEnrichmentBuilder:
             self._kg(),
         )
 
+        assert "component_summaries" in enrichment
         assert enrichment["component_summaries"] == []
+        assert "graph_summary" in enrichment
         assert enrichment["graph_summary"] is None
+        assert "claims" in enrichment
         assert len(enrichment["claims"]) == 2
 
     def test_graph_enrichment_builds_summaries_claims_and_bridges(self) -> None:
@@ -1146,10 +1198,18 @@ class TestGraphEnrichmentBuilder:
             self._kg(),
         )
 
+        assert "graph_summary" in enrichment
+        assert enrichment["graph_summary"] is not None
+        assert "graph_summary" in enrichment
+        assert "component_count" in enrichment["graph_summary"]
         assert enrichment["graph_summary"]["component_count"] == 2
+        assert "component_summaries" in enrichment
         assert len(enrichment["component_summaries"]) == 2
+        assert "claims" in enrichment
         assert len(enrichment["claims"]) == 2
+        assert "fragmentation_bridges" in enrichment
         assert len(enrichment["fragmentation_bridges"]) == 1
+        assert "fragmentation_bridges" in enrichment
         bridge: FragmentationBridge = enrichment["fragmentation_bridges"][0]
         assert {bridge["source_id"], bridge["target_id"]} == {
             "u_tbk1_gene",
@@ -1163,12 +1223,18 @@ class TestGraphEnrichmentBuilder:
         creator.enable_claim_extraction = True
 
         kg: FixtureKnowledgeGraph = self._kg()
+        assert "relationships" in kg
+        assert "properties" in kg["relationships"][0]
         kg["relationships"][0]["properties"]["confidence"] = "demonstrated"
+        assert "relationships" in kg
+        assert "properties" in kg["relationships"][1]
         kg["relationships"][1]["properties"]["confidence"] = "suggested"
 
         enrichment: GraphEnrichment = creator._build_graph_enrichment_records(kg)
 
+        assert "component_summaries" in enrichment
         assert len(enrichment["component_summaries"]) == 2
+        assert "claims" in enrichment
         claim_confidences: list[float] = sorted(
             claim["confidence"] for claim in enrichment["claims"]
         )
@@ -1289,7 +1355,7 @@ class TestSectionAwareChunking:
 
         def _fake_windows(
             segment_texts: list[str],
-            segment_entities: dict[int, list[GraphNode]],
+            segment_entities: Mapping[int, Sequence[ExtractionEntity]],
             segment_positions: dict[int, list[int]],
             llm: object,
             model_name: str,
@@ -1297,7 +1363,7 @@ class TestSectionAwareChunking:
             max_window_size: int,
             scope_label: str,
             relationship_scope_metadata: Mapping[str, str | int | None] | None = None,
-        ) -> list[GraphRelationship]:
+        ) -> list[ExtractionRelationship]:
             captured["segment_texts"] = segment_texts
             captured["segment_positions"] = segment_positions
             captured["max_window_size"] = max_window_size
@@ -1307,25 +1373,35 @@ class TestSectionAwareChunking:
 
         creator._extract_relationships_for_segment_windows = _fake_windows
 
-        rels: list[GraphRelationship] = creator._recover_cross_section_relationships(
-            text=text,
-            chunks=chunks,
-            entities_per_chunk={
-                0: [{"id": "alpha", "type": "Concept"}],
-                1: [{"id": "beta", "type": "Concept"}],
-            },
-            section_headers=[(0, "Introduction"), (results_start, "Results")],
-            llm=object(),
-            model_name="test-model",
-            scope_label="Cross-section",
+        rels: Sequence[ExtractionRelationship] = (
+            creator._recover_cross_section_relationships(
+                text=text,
+                chunks=chunks,
+                entities_per_chunk={
+                    0: [{"id": "alpha", "type": "Concept"}],
+                    1: [{"id": "beta", "type": "Concept"}],
+                },
+                section_headers=[(0, "Introduction"), (results_start, "Results")],
+                llm=UnusedGenerationProvider(),
+                model_name="test-model",
+                scope_label="Cross-section",
+            )
         )
 
         assert rels == [{"source": "alpha", "target": "beta", "type": "RELATED_TO"}]
+        assert "segment_texts" in captured
         assert captured["segment_texts"][0].startswith("Introduction")
+        assert "segment_texts" in captured
         assert captured["segment_texts"][1].startswith("Results")
+        assert "segment_positions" in captured
         assert captured["segment_positions"] == {0: [0], 1: [1]}
+        assert "max_window_size" in captured
         assert captured["max_window_size"] == 2
+        assert "scope_label" in captured
         assert captured["scope_label"] == "Cross-section"
+        assert "relationship_scope_metadata" in captured
+        assert captured["relationship_scope_metadata"] is not None
+        assert "source_scope_key" in captured["relationship_scope_metadata"]
         assert (
             captured["relationship_scope_metadata"]["source_scope_key"]
             == "hotpotqa/q1/p0"
@@ -1359,6 +1435,8 @@ class TestSectionAwareChunking:
         )
 
         assert len(result["entities"]) == 1
+        assert "entities" in result
+        assert "id" in result["entities"][0]
         assert result["entities"][0]["id"] == "Aspirin"
 
 
@@ -1406,13 +1484,15 @@ class TestSelfConsistencyVoting:
         result: ExtractionResult = OntologyGuidedKGCreator._extract_entities_and_relationships_with_self_consistency(
             creator,
             "Metformin lowers glucose.",
-            llm=object(),
+            llm=UnusedGenerationProvider(),
             model_name="test-model",
             context_header=None,
             section_header=None,
         )
 
-        assert [entity["id"] for entity in result["entities"]] == ["metformin"]
+        assert [required_text_field(entity, "id") for entity in result["entities"]] == [
+            "metformin",
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -1571,6 +1651,10 @@ class TestAnchorGroundingAndRestoration:
         grounded: ExtractionResult = creator._ground_chunk_extraction(chunk_kg, chunk)
 
         # The grounder writes AnchorSpan records under this reserved extension key.
+        assert "entities" in grounded
+        assert "properties" in grounded["entities"][0]
+        assert isinstance(grounded["entities"][0]["properties"], dict)
+        assert "anchor_spans" in grounded["entities"][0]["properties"]
         entity_spans: list[AnchorSpan] = cast(
             list[AnchorSpan],
             grounded["entities"][0]["properties"]["anchor_spans"],
@@ -1580,6 +1664,8 @@ class TestAnchorGroundingAndRestoration:
         assert entity_spans[0]["chunk_position"] == 5
 
         # These reserved fields are populated together by _ground_chunk_extraction.
+        assert "relationships" in grounded
+        assert "properties" in grounded["relationships"][0]
         rel_props: GroundedProperties = cast(
             GroundedProperties,
             grounded["relationships"][0]["properties"],
@@ -1685,10 +1771,18 @@ class TestAnchorGroundingAndRestoration:
         )
 
         assert result is not None
-        assert {entity["id"] for entity in result["entities"]} == {"Metformin", "AMPK"}
-        rel: GraphRelationship = result["relationships"][0]
+        assert {required_text_field(entity, "id") for entity in result["entities"]} == {
+            "Metformin",
+            "AMPK",
+        }
+        rel: ExtractionRelationship = result["relationships"][0]
+        assert "source" in rel
         assert rel["source"] == "Metformin"
+        assert "target" in rel
         assert rel["target"] == "AMPK"
+        assert "properties" in rel
+        assert isinstance(rel["properties"], dict)
+        assert "anchor_text" in rel["properties"]
         assert rel["properties"]["anchor_text"] == "inhibits"
 
 
@@ -1785,6 +1879,7 @@ class TestHarmonizeEntities:
         source_title: str = "",
     ) -> GraphNode:
         entity: GraphNode = self._ent(name, etype)
+        assert "properties" in entity
         entity["properties"].update(
             {
                 "dataset": dataset,
@@ -1983,6 +2078,7 @@ class TestHarmonizeEntities:
 
     def test_resolve_relationship_endpoint_handles_short_form(self) -> None:
         entity: GraphNode = self._ent("TBK1 kinase", "Protein")
+        assert "properties" in entity
         entity["properties"]["all_names"] = ["TBK1", "TANK-binding kinase 1"]
 
         resolved: str | None = self.creator._resolve_relationship_endpoint(
@@ -2451,7 +2547,11 @@ class TestOntologySchemaEnforcement:
         ok: bool = creator.store_knowledge_graph_with_embeddings(kg, "schema")
 
         assert ok is True
+        assert "metadata" in kg
+        assert "relationships_skipped_schema_mismatch" in kg["metadata"]
         assert kg["metadata"]["relationships_skipped_schema_mismatch"] == 1
+        assert "metadata" in kg
+        assert "stored_relationships" in kg["metadata"]
         assert kg["metadata"]["stored_relationships"] == 0
 
     def test_prompt_builder_surfaces_relevant_late_relationship_type(self) -> None:
@@ -2482,18 +2582,19 @@ class TestOntologySchemaEnforcement:
     def test_semantic_relationship_matching_maps_synonym_label(self) -> None:
         creator: OntologyGuidedKGCreator = self._schema_creator()
 
-        def fake_embedding_function(self: "object", text: "str") -> "list[float]":
-            return [1.0, 0.0] if "suppress" in text.lower() else [0.0, 1.0]
+        class FakeEmbeddings(Embeddings):
+            def embed_query(self, text: str) -> list[float]:
+                return [1.0, 0.0] if "suppress" in text.lower() else [0.0, 1.0]
 
-        creator.embedding_function = type(
-            "Emb",
-            (),
-            {"embed_query": fake_embedding_function},
-        )()
+            def embed_documents(self, texts: list[str]) -> Never:
+                pytest.fail("Relationship matching must only embed its query label")
+
+        creator.embedding_function = FakeEmbeddings()
         creator._ontology_relationship_embeddings = [
             ("INHIBITS", "inhibits", [1.0, 0.0]),
             ("TREATS", "treats", [0.0, 1.0]),
         ]
+        assert creator._ontology_schema is not None
         creator._ontology_schema.relationship_types.append(
             RelationshipType(
                 id="INHIBITS",
@@ -2599,7 +2700,11 @@ class TestConfidenceThresholdAndReverification:
         ok: bool = creator.store_knowledge_graph_with_embeddings(kg, "schema")
 
         assert ok is True
+        assert "metadata" in kg
+        assert "stored_relationships" in kg["metadata"]
         assert kg["metadata"]["stored_relationships"] == 0
+        assert "metadata" in kg
+        assert "relationships_skipped_low_confidence" in kg["metadata"]
         assert kg["metadata"]["relationships_skipped_low_confidence"] == 1
 
     def test_low_confidence_reverification_can_keep_relation(
@@ -2640,14 +2745,20 @@ class TestConfidenceThresholdAndReverification:
         )
 
         assert ok is True
+        assert "metadata" in kg
+        assert "stored_relationships" in kg["metadata"]
         assert kg["metadata"]["stored_relationships"] == 1
+        assert "metadata" in kg
+        assert "relationships_reverified_kept" in kg["metadata"]
         assert kg["metadata"]["relationships_reverified_kept"] == 1
         _, rel_params = next(
             (query, params)
             for query, params in stub_graph.queries
             if "MERGE (source)-[r:" in query
         )
-        assert rel_params["properties"]["llm_verified"] is True
+        assert (
+            cast(Mapping[str, object], rel_params["properties"])["llm_verified"] is True
+        )
 
     def test_storage_writes_evidence_scope(self, stub_graph: "StubGraph") -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
@@ -2672,7 +2783,10 @@ class TestConfidenceThresholdAndReverification:
             for query, params in stub_graph.queries
             if "MERGE (source)-[r:" in query
         )
-        assert rel_params["properties"]["evidence_scope"] == "sentence"
+        assert (
+            cast(Mapping[str, object], rel_params["properties"])["evidence_scope"]
+            == "sentence"
+        )
 
     def test_storage_preserves_anchor_metadata_on_nodes_and_relationships(
         self,
@@ -2692,6 +2806,8 @@ class TestConfidenceThresholdAndReverification:
         creator._verify_triple_confidence = fake_verify_triple_confidence
 
         kg: FixtureKnowledgeGraph = self._kg()
+        assert "nodes" in kg
+        assert "properties" in kg["nodes"][0]
         kg["nodes"][0]["properties"]["anchor_spans"] = [
             {"text": "Metformin", "start": 0, "end": 10, "chunk_position": 0},
         ]
@@ -2718,14 +2834,23 @@ class TestConfidenceThresholdAndReverification:
             for query, params in stub_graph.queries
             if "MERGE (n:__Entity__ {id: $id})" in query
         )
-        assert "anchor_spans" in node_params["extra_properties"]
+        assert "anchor_spans" in cast(
+            Mapping[str, object],
+            node_params["extra_properties"],
+        )
         _, rel_params = next(
             (query, params)
             for query, params in stub_graph.queries
             if "MERGE (source)-[r:" in query
         )
-        assert rel_params["properties"]["restoration_status"] == "full"
-        assert "anchor_grounding" in rel_params["properties"]
+        assert (
+            cast(Mapping[str, object], rel_params["properties"])["restoration_status"]
+            == "full"
+        )
+        assert "anchor_grounding" in cast(
+            Mapping[str, object],
+            rel_params["properties"],
+        )
 
 
 class TestOptionalUMLSLinking:
@@ -2734,7 +2859,7 @@ class TestOptionalUMLSLinking:
         creator.enable_umls_linking = True
         creator._ensure_umls_linker = lambda: object()
 
-        link_map: dict[str, dict[str, str | float]] = {
+        link_map: dict[str, UMLSLink] = {
             "myocardial infarction": {
                 "cui": "C0027051",
                 "score": 0.95,
@@ -2747,8 +2872,8 @@ class TestOptionalUMLSLinking:
             },
         }
 
-        def fake_link_entity_to_umls(name: "str") -> "dict[str, str | float] | None":
-            return link_map.get(name)
+        def fake_link_entity_to_umls(entity_name: str) -> UMLSLink | None:
+            return link_map.get(entity_name)
 
         creator._link_entity_to_umls = fake_link_entity_to_umls
 
@@ -2779,6 +2904,8 @@ class TestOptionalUMLSLinking:
         )
 
         assert len(entities) == 1
+        assert "properties" in entities[0]
+        assert "umls_cui" in entities[0]["properties"]
         assert entities[0]["properties"]["umls_cui"] == "C0027051"
         assert entity_map["myocardial infarction"] == entity_map["heart attack"]
 
@@ -2806,7 +2933,11 @@ class TestContradictionDetection:
             ],
         )
 
-        assert all(rel["properties"]["contradiction_detected"] is True for rel in rels)
+        def contradiction_detected(rel: GraphRelationship) -> bool:
+            assert "properties" in rel
+            return rel["properties"]["contradiction_detected"] is True
+
+        assert all(contradiction_detected(rel) for rel in rels)
         assert (
             creator._last_relationship_contradiction_stats["contradiction_groups"] == 1
         )
@@ -2874,6 +3005,7 @@ class TestContradictionDetection:
         )
 
         assert len(rels) == 1
+        assert "provenance_positions" in rels[0]
         assert rels[0]["provenance_positions"] == [0, 1]
         # Relationship harmonization writes the producer-owned grounding record.
         relation_spans: list[AnchorSpan] = cast(
@@ -2884,6 +3016,28 @@ class TestContradictionDetection:
 
 
 class TestNodeSpecificityScoping:
+    def test_storage_preserves_invalid_original_id_override_failure(
+        self,
+        stub_graph: "StubGraph",
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        creator: OntologyGuidedKGCreator = _make_creator()
+        monkeypatch.setattr(creator, "_create_neo4j_connection", lambda: stub_graph)
+
+        def skip_vector_indexes(graph: object) -> None:
+            return None
+
+        monkeypatch.setattr(creator, "_create_vector_indexes", skip_vector_indexes)
+        kg: FixtureKnowledgeGraph = TestPassageProvenanceStorage()._kg()
+        assert "properties" in kg["nodes"][0]
+        kg["nodes"][0]["properties"]["original_id"] = 17
+
+        assert creator.store_knowledge_graph_with_embeddings(kg, "musique") is False
+        assert not any(
+            "MERGE (n:__Entity__" in query for query, _params in stub_graph.queries
+        )
+        assert kg["nodes"][0]["properties"]["original_id"] == 17
+
     def test_chunk_storage_writes_kg_name(self, stub_graph: "StubGraph") -> None:
         creator: OntologyGuidedKGCreator = _make_creator()
         creator._create_neo4j_connection = lambda: stub_graph
@@ -2914,7 +3068,9 @@ class TestNodeSpecificityScoping:
 
         creator._compute_node_specificity_weights(stub_graph, "musique")
 
-        query, params = stub_graph.last_query()
+        last_query: tuple[str, dict[str, object]] | None = stub_graph.last_query()
+        assert last_query is not None
+        query, params = last_query
         assert "MATCH (c:Chunk)-[:PART_OF]->(d:Document)" in query
         assert "d.kgName = $kg_name" in query
         assert params["kg_name"] == "musique"
@@ -3290,6 +3446,7 @@ class TestEvaluateKnowledgeGraph:
             reference_triples=gold,
             print_report=False,
         )
+        assert "precision_recall" in report
         pr: RelationshipPrecisionRecallReport = report["precision_recall"]
         # predicted unique keys: TREATS(u1→u2 negated=False), TREATS(u1→u2 negated=True), CAUSES(u1→u3)
         # gold unique keys: TREATS(u1→u2), CAUSES(u1→u3)
@@ -3332,7 +3489,9 @@ class TestEvaluateKnowledgeGraph:
             reference=reference,
             print_report=False,
         )
+        assert "entity_precision_recall" in report
         epr: EntityPrecisionRecallReport = report["entity_precision_recall"]
+        assert "relationship_precision_recall" in report
         rpr: RelationshipPrecisionRecallReport = report["relationship_precision_recall"]
         assert epr["gold_entities"] == 4
         assert epr["predicted_entities"] == 3
@@ -3354,6 +3513,7 @@ class TestEvaluateKnowledgeGraph:
             reference_triples=gold,
             print_report=False,
         )
+        assert "precision_recall" in report
         pr: RelationshipPrecisionRecallReport = report["precision_recall"]
         assert pr["true_positives"] == 0
         assert pr["precision"] == 0.0

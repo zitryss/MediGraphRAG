@@ -12,7 +12,7 @@ from collections.abc import Callable
 from importlib.machinery import ModuleSpec
 from inspect import Signature
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 from typing import TYPE_CHECKING, Protocol, cast
 from unittest.mock import AsyncMock, MagicMock, Mock
 
@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from ontographrag.api.runtime_helpers import (
         DoctorCheck,
         DoctorReport,
+        JSONValue,
         Neo4jHealthReport,
     )
     from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
@@ -79,6 +80,9 @@ class AppExports(Protocol):
     def neo4j_health(self) -> Neo4jHealthReport: ...
     async def kg_progress_stream(self, request: Request) -> StreamingResponse: ...
     def _log_progress(self, msg: str) -> None: ...
+    def _probe_openai_models(self) -> str: ...
+    def _probe_openrouter_models(self) -> str: ...
+    def _probe_deepseek_models(self) -> str: ...
 
 
 class OntologyProperty(TypedDict, total=False):
@@ -451,11 +455,18 @@ def test_save_graph_filters_properties_and_handles_missing_state(
     assert calls[1].args[1] == {"name": "A", "id": "a"}
 
 
-def test_progress_stream_completion_and_disconnect(app_module: AppExports) -> None:
+def test_progress_stream_completion_and_disconnect(
+    app_module: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def consume(disconnected: bool) -> list[str | bytes | memoryview]:
-        response: StreamingResponse = await app_module.kg_progress_stream(
-            SimpleNamespace(is_disconnected=AsyncMock(return_value=disconnected)),
+        request: Request = Request({"type": "http"})
+        monkeypatch.setattr(
+            request,
+            "is_disconnected",
+            AsyncMock(return_value=disconnected),
         )
+        response: StreamingResponse = await app_module.kg_progress_stream(request)
         return [event async for event in response.body_iterator]
 
     app_module._log_progress("done")
@@ -480,7 +491,12 @@ def test_provider_probe_transport(
     provider: str,
     key: str,
 ) -> None:
-    probe: Callable[[], str] = getattr(app_module, f"_probe_{provider}_models")
+    probes: dict[str, Callable[[], str]] = {
+        "openai": app_module._probe_openai_models,
+        "openrouter": app_module._probe_openrouter_models,
+        "deepseek": app_module._probe_deepseek_models,
+    }
+    probe: Callable[[], str] = probes[provider]
     monkeypatch.delenv(key, raising=False)
     with pytest.raises(RuntimeError, match="not set"):
         probe()
@@ -492,6 +508,57 @@ def test_provider_probe_transport(
     assert probe() == "reachable (1 models visible)"
     assert get.call_args.kwargs["headers"] == {"Authorization": "Bearer unit"}
     response.raise_for_status.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "provider,key",
+    [
+        ("openai", "OPENAI_API_KEY"),
+        ("openrouter", "OPENROUTER_API_KEY"),
+        ("deepseek", "DEEPSEEK_API_KEY"),
+    ],
+)
+@pytest.mark.parametrize(
+    "payload,expected_count,expected_error",
+    [
+        ({"data": [{"id": "a"}, {"id": "b"}]}, 2, None),
+        ({"data": {"a": 1, "b": 2}}, 2, None),
+        ({"data": "abc"}, 3, None),
+        ({}, 0, None),
+        ({"data": 1}, None, TypeError),
+        ([], None, AttributeError),
+    ],
+)
+def test_provider_probe_preserves_json_shape_behavior(
+    app_module: AppExports,
+    monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    key: str,
+    payload: JSONValue,
+    expected_count: int | None,
+    expected_error: type[TypeError] | type[AttributeError] | None,
+) -> None:
+    probes: dict[str, Callable[[], str]] = {
+        "openai": app_module._probe_openai_models,
+        "openrouter": app_module._probe_openrouter_models,
+        "deepseek": app_module._probe_deepseek_models,
+    }
+    probe: Callable[[], str] = probes[provider]
+    monkeypatch.setenv(key, "unit")
+    response: httpx.Response = httpx.Response(
+        200,
+        json=payload,
+        request=httpx.Request("GET", "https://unit.invalid/models"),
+    )
+    get: Mock = Mock(return_value=response)
+    monkeypatch.setattr(httpx, "get", get)
+    if expected_error is not None:
+        with pytest.raises(expected_error):
+            probe()
+    else:
+        assert probe() == f"reachable ({expected_count} models visible)"
+    get.assert_called_once()
+    assert get.call_args.kwargs["headers"] == {"Authorization": "Bearer unit"}
 
 
 @pytest.mark.parametrize("healthy", [True, False])

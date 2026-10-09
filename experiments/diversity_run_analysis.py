@@ -20,10 +20,21 @@ import glob
 import json
 import os
 import sys
-from typing import Literal, NotRequired, TypeAlias, TypedDict, cast
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    NotRequired,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 from scipy.stats import spearmanr
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
 
 OverlapKey: TypeAlias = Literal[
     "kg_seed_entity_jaccard",
@@ -89,8 +100,8 @@ OVERLAPS: list[tuple[str, OverlapKey]] = [
 ]
 
 
-def load_details(path: str) -> list[TraceDetail]:
-    doc: TraceDocument = json.load(open(path))
+def load_details(path: str) -> JSONValue:
+    doc: JSONValue = cast("DefaultJSONCodec", json).load(open(path))
     for cfg in doc["config_results"]:
         if cfg["config"]["name"].startswith("kg_entity_first"):
             return cfg["details"]
@@ -111,16 +122,16 @@ def main(pattern: str) -> None:
     if not paths:
         raise SystemExit("no run JSON matched: " + pattern)
     path: str = paths[-1]
-    details: list[TraceDetail] = [
+    details: list[JSONValue] = [
         r
         for r in load_details(path)
         if not r.get("kg_generation_failed") and not r.get("kg_system_skipped")
     ]
     # rows with a real multi-sample graph trace
-    rows: list[TraceDetail] = [
+    rows: list[JSONValue] = [
         r for r in details if (r.get("kg_graph_state_sample_count") or 0) >= 2
     ]
-    wrong: list[TraceDetail] = [r for r in rows if not r.get("kg_correct")]
+    wrong: list[JSONValue] = [r for r in rows if not r.get("kg_correct")]
 
     out: TraceReport = {
         "run": os.path.relpath(path, REPO),

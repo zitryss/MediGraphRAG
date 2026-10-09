@@ -1,16 +1,26 @@
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import Protocol, cast
 
 from dotenv import load_dotenv
-from neo4j import GraphDatabase
-
-if TYPE_CHECKING:
-    from neo4j import Auth as Neo4jAuth
-    from neo4j import Driver
+from neo4j import Auth as Neo4jAuth
+from neo4j import Driver, GraphDatabase
 
 # Load environment variables
 load_dotenv()
+
+
+class _DriverWithOptionalAgent(Protocol):
+    """Consumed Neo4j 5.28.2 configuration; None selects its default agent."""
+
+    def __call__(
+        self,
+        uri: str,
+        *,
+        auth: Neo4jAuth | None,
+        database: str | None,
+        user_agent: str | None,
+    ) -> Driver: ...
 
 
 def get_graphDB_driver(
@@ -67,7 +77,7 @@ def get_graphDB_driver(
             "yes",
         )
         if enable_user_agent:
-            driver: Driver = GraphDatabase.driver(
+            driver: Driver = cast(_DriverWithOptionalAgent, GraphDatabase.driver)(
                 uri,
                 auth=auth,
                 database=database,

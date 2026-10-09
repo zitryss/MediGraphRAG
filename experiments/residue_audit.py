@@ -14,20 +14,28 @@ from __future__ import annotations
 
 import json
 import os
-from typing import NotRequired, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    NotRequired,
+    TypedDict,
+    cast,
+)
 
 from experiments.lockin_accounting_analysis import (
     KEY,
     MANIFEST,
     REPO,
     AccountingDetail,
-    AccountingRow,
+    CorrectAccountingRow,
     gps_cache,
     gps_flags,
     is_silent,
     route_state,
     seu_flags,
 )
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
 
 
 class ResidueDetail(AccountingDetail):
@@ -48,11 +56,11 @@ class ResidueDocument(TypedDict):
 class ResidueCase(TypedDict):
     slug: str
     question_id: str
-    question: str | None
-    expected: str | None
-    response: str | None
-    sd_uq: float | None
-    seu: float | None
+    question: JSONValue
+    expected: JSONValue
+    response: JSONValue
+    sd_uq: JSONValue
+    seu: JSONValue
     gps: float | None
     route: str
     route_reason: str
@@ -79,8 +87,8 @@ SLUGS: list[str] = [
 def calm_rows_for(slug: str) -> list[ResidueCase]:
     """Adaptive-KG fully-calm silent errors, with question/answer text."""
     path: str = os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])
-    doc: ResidueDocument = json.load(open(path))
-    details: list[ResidueDetail] = next(
+    doc: JSONValue = cast("DefaultJSONCodec", json).load(open(path))
+    details: JSONValue = next(
         cfg["details"]
         for cfg in doc["config_results"]
         if cfg["config"]["name"].startswith("kg_entity_first")
@@ -91,7 +99,7 @@ def calm_rows_for(slug: str) -> list[ResidueCase]:
         if r.get("kg_generation_failed") or r.get("kg_system_skipped"):
             continue
         qid: str = str(r["question_id"])
-        row: AccountingRow = {
+        row: CorrectAccountingRow = {
             "qid": qid,
             "policy": "kg",
             "correct": bool(r.get("kg_correct")),

@@ -1,6 +1,11 @@
 """Helpers for deciding whether an existing dataset KG can be safely reused."""
 
+from typing import TYPE_CHECKING, NotRequired
+
 from typing_extensions import ReadOnly, TypedDict
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import JSONValue
 
 
 class ExistingKGMetadata(TypedDict, total=False):
@@ -35,6 +40,24 @@ class ExpectedKGMetadata(TypedDict, total=False):
     kgExtractionModel: ReadOnly[object]
     kgEmbeddingProvider: ReadOnly[object]
     selectionKey: ReadOnly[object]
+
+
+class ProducedKGMetadata(ExpectedKGMetadata):
+    """Expected fields emitted by the dataset build, not stored legacy values."""
+
+    usesGlobalCorpus: ReadOnly[bool]
+    corpusSource: ReadOnly[str]
+    questionContextRole: ReadOnly[str]
+    datasetKgScope: ReadOnly[str]
+    contentHash: NotRequired[ReadOnly[str]]
+    kgBuildFingerprintVersion: ReadOnly[int]
+    kgBuilder: ReadOnly[str]
+    kgChunkSize: ReadOnly[int]
+    kgChunkOverlap: ReadOnly[int]
+    kgExtractionProvider: ReadOnly[str]
+    kgExtractionModel: ReadOnly[str]
+    kgEmbeddingProvider: ReadOnly[str]
+    selectionKey: ReadOnly["JSONValue"]
 
 
 def assess_dataset_kg_compatibility(

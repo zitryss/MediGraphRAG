@@ -21,7 +21,7 @@ import json
 import os
 import sys
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeGuard, cast
+from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict, TypeGuard, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -32,27 +32,38 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v2_paper_numbers import percentile_ranks
 from experiments.gps_v2_replay import (
     PresentNullReason,
-    ReplayArtifact,
     ReplayScore,
     ReplayStore,
     StoredAnswer,
 )
 
 if TYPE_CHECKING:
-    from experiments.trust_analysis import ManifestEntry, TrustDetail, TrustDocument
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
 
 
 class HopRow(TypedDict, total=False):
-    question_id: str | int
     hop_count: int | None
 
 
+class IdentifiedHopRow(HopRow):
+    question_id: str | int
+
+
 class HopConfig(TypedDict, total=False):
-    details: list[HopRow]
+    details: list[IdentifiedHopRow]
 
 
 class HopDocument(TypedDict, total=False):
     config_results: list[HopConfig]
+
+
+class LoadedReplayArtifact(TypedDict):
+    """The loader writes only the path; all persisted members stay unvalidated."""
+
+    _artifact_path: str
+    source_result: NotRequired[JSONValue]
+    questions: NotRequired[JSONValue]
+    v1_logged: NotRequired[JSONValue]
 
 
 class ScoreSummary(TypedDict):
@@ -69,19 +80,24 @@ class CorrelationSummary(TypedDict):
     n: int
 
 
+NonNullJSONValue: TypeAlias = (
+    "bool | int | float | str | list[JSONValue] | dict[str, JSONValue]"
+)
+
+
 class MetricRow(TypedDict):
     qid: str
     correct: bool
-    sd: float | None
-    seu: float | None
+    sd: JSONValue
+    seu: JSONValue
     gps: float | None
 
 
 class CompleteMetricRow(TypedDict):
     qid: str
     correct: bool
-    sd: float
-    seu: float
+    sd: NonNullJSONValue
+    seu: NonNullJSONValue
     gps: float | None
 
 
@@ -140,22 +156,22 @@ def latest_artifact(slug: str, strict: bool = False) -> str | None:
     return sorted(paths)[-1] if paths else None
 
 
-def load_artifact(slug: str, strict: bool = False) -> ReplayArtifact:
+def load_artifact(slug: str, strict: bool = False) -> LoadedReplayArtifact:
     path: str | None = latest_artifact(slug, strict=strict)
     if not path:
         raise FileNotFoundError(
             f"missing GPS replay artifact for {slug} strict={strict}",
         )
     with open(path) as f:
-        artifact: ReplayArtifact = json.load(f)
+        artifact: JSONValue = cast("DefaultJSONCodec", json).load(f)
     artifact["_artifact_path"] = os.path.relpath(path, REPO)
-    return artifact
+    return cast(LoadedReplayArtifact, artifact)
 
 
-def row_map(source_result: str) -> dict[str, HopRow]:
+def row_map(source_result: str) -> dict[str, JSONValue]:
     with open(os.path.join(REPO, source_result)) as f:
-        doc: HopDocument = json.load(f)
-    rows: dict[str, HopRow] = {}
+        doc: JSONValue = cast("DefaultJSONCodec", json).load(f)
+    rows: dict[str, JSONValue] = {}
     for cfg in doc.get("config_results", []):
         for row in cfg.get("details", []):
             rows[str(row["question_id"])] = row
@@ -211,12 +227,12 @@ def scores_for(
     strict: bool = False,
     side: str = "kg",
 ) -> dict[str, float | None]:
-    artifact: ReplayArtifact = load_artifact(slug, strict=strict)
-    rows: dict[str, HopRow] = row_map(artifact["source_result"])
+    artifact: LoadedReplayArtifact = load_artifact(slug, strict=strict)
+    rows: dict[str, JSONValue] = row_map(artifact["source_result"])
     out: dict[str, float | None] = {}
     for q in artifact["questions"]:
         qid: str = str(q["question_id"])
-        store: ReplayStore | None = (q.get("store") or {}).get(side)
+        store: JSONValue = (q.get("store") or {}).get(side)
         if store is None or store.get("null_reason") == "generation_failed":
             continue
         res: ReplayScore = score_from_store_depth_matched(
@@ -232,12 +248,12 @@ def scored_rows(
     strict: bool = False,
     side: str = "kg",
 ) -> list[tuple[str, float | None, bool]]:
-    artifact: ReplayArtifact = load_artifact(slug, strict=strict)
-    rows: dict[str, HopRow] = row_map(artifact["source_result"])
+    artifact: LoadedReplayArtifact = load_artifact(slug, strict=strict)
+    rows: dict[str, JSONValue] = row_map(artifact["source_result"])
     out: list[tuple[str, float | None, bool]] = []
     for q in artifact["questions"]:
         qid: str = str(q["question_id"])
-        store: ReplayStore | None = (q.get("store") or {}).get(side)
+        store: JSONValue = (q.get("store") or {}).get(side)
         if store is None or store.get("null_reason") == "generation_failed":
             continue
         res: ReplayScore = score_from_store_depth_matched(
@@ -301,7 +317,7 @@ def summarise(slug: str, strict: bool = False, side: str = "kg") -> ScoreSummary
 
 
 def metric_rows(slug: str, policy: str) -> list[MetricRow]:
-    manifest: dict[str, ManifestEntry] = json.load(
+    manifest: JSONValue = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
     )
     key: str = {
@@ -313,7 +329,7 @@ def metric_rows(slug: str, policy: str) -> list[MetricRow]:
         "musique": "Musique",
     }[slug]
     if policy == "strict":
-        artifact: ReplayArtifact = load_artifact(slug, strict=True)
+        artifact: LoadedReplayArtifact = load_artifact(slug, strict=True)
         path: str = os.path.join(REPO, artifact["source_result"])
         cfg_prefix: str = "kg_strict_entity_first"
         prefix: str = "kg"
@@ -321,8 +337,8 @@ def metric_rows(slug: str, policy: str) -> list[MetricRow]:
         path = os.path.join(REPO, manifest[key]["result_path"])
         cfg_prefix = "kg_entity_first" if policy == "kg" else "dense_floor"
         prefix = "kg" if policy == "kg" else "vanilla"
-    doc: TrustDocument = json.load(open(path))
-    details: list[TrustDetail] = next(
+    doc: JSONValue = cast("DefaultJSONCodec", json).load(open(path))
+    details: JSONValue = next(
         cfg
         for cfg in doc["config_results"]
         if cfg["config"]["name"].startswith(cfg_prefix)

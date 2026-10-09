@@ -19,10 +19,14 @@ import re
 import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
 import requests
 from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import JSONValue
 
 
 class PubMedAbstract(TypedDict):
@@ -54,8 +58,8 @@ def extract_pmid_from_url(url: str) -> str | None:
 
 def load_bioasq_pmids(bioasq_path: Path) -> list[str]:
     """Collect unique PMIDs referenced by a BioASQ golden file."""
-    data: object = json.loads(bioasq_path.read_text())
-    questions: object = data.get("questions", []) if isinstance(data, dict) else []
+    data: JSONValue = json.loads(bioasq_path.read_text())
+    questions: JSONValue = data.get("questions", []) if isinstance(data, dict) else []
 
     pmids: set[str] = set()
     for question in questions:
@@ -162,7 +166,7 @@ def load_existing_corpus(output_path: Path) -> dict[str, object]:
             if not line:
                 continue
             try:
-                record: object = json.loads(line)
+                record: JSONValue = json.loads(line)
             except json.JSONDecodeError:
                 continue
             pmid: str = str(record.get("pmid", "")).strip()

@@ -17,7 +17,12 @@ import json
 import os
 import sys
 from collections.abc import Mapping, Sequence
-from typing import NotRequired, TypedDict, cast
+from typing import (
+    TYPE_CHECKING,
+    NotRequired,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -27,32 +32,38 @@ from typing_extensions import ReadOnly
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.gps_v2_replay import (
-    LoggedSummary,
     ReplayScore,
     ReplayStore,
-    V2ReplayArtifact,
     V2ReplayStore,
     score_from_store,
 )
 
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
 
 class ScoreQuestion(TypedDict):
-    question_id: ReadOnly[str | int]
+    question_id: ReadOnly["JSONValue"]
     store: NotRequired[ReadOnly[Mapping[str, ReplayStore | V2ReplayStore]]]
-    kg_correct: NotRequired[ReadOnly[bool | None]]
-    vanilla_correct: NotRequired[ReadOnly[bool | None]]
+    kg_correct: NotRequired[ReadOnly["JSONValue"]]
+    vanilla_correct: NotRequired[ReadOnly["JSONValue"]]
 
 
 class ScoreArtifact(TypedDict):
     questions: ReadOnly[Sequence[ScoreQuestion]]
 
 
-class PaperDetail(TypedDict, total=False):
-    question_id: str | int
+class PaperMetricFields(TypedDict, total=False):
     question: NotRequired[str]
     hop_count: NotRequired[int | None]
     kg_sd_uq: NotRequired[float | None]
     kg_support_entailment_uncertainty: NotRequired[float | None]
+
+
+class PaperDetail(PaperMetricFields):
+    """Persisted detail emitted with its question identity by the runner."""
+
+    question_id: str | int
 
 
 class PaperConfig(TypedDict):
@@ -70,7 +81,7 @@ class PaperScoreSummary(TypedDict):
     auroc: float | None
     ci: list[float | None]
     aurec: NotRequired[float | None]
-    v1_logged: NotRequired[LoggedSummary]
+    v1_logged: NotRequired["JSONValue"]
 
 
 class PaperComposite(TypedDict):
@@ -94,15 +105,15 @@ class HopSummary(TypedDict):
 
 
 class CaseLink(TypedDict):
-    name: str | None
+    name: "JSONValue"
     cos: float
-    L: int | None
-    source: str | None
+    L: "JSONValue"
+    source: "JSONValue"
 
 
 class CaseSummary(TypedDict):
-    question_id: str | int
-    question: str
+    question_id: "JSONValue"
+    question: "JSONValue"
     gps_v2: float | None
     null: str | None
     links: list[CaseLink]
@@ -211,7 +222,7 @@ def main() -> None:
         "cases": {},
     }
 
-    manifest: dict[str, dict[str, str]] = json.load(
+    manifest: "JSONValue" = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, "paper", "figures", "latest_results_manifest.json")),
     )
     key_for: dict[str, str] = {
@@ -225,11 +236,13 @@ def main() -> None:
 
     pooled: dict[str, list[float]] = {"sd": [], "seu": [], "gps": []}
     for slug in SLUGS:
-        art: V2ReplayArtifact = json.load(open(latest_artifact(slug)))
-        run_doc: PaperDocument = json.load(
+        art: "JSONValue" = cast("DefaultJSONCodec", json).load(
+            open(latest_artifact(slug)),
+        )
+        run_doc: "JSONValue" = cast("DefaultJSONCodec", json).load(
             open(os.path.join(REPO, manifest[key_for[slug]]["result_path"])),
         )
-        kg_rows: dict[str, PaperDetail] = {}
+        kg_rows: "dict[str, JSONValue]" = {}
         for cfg in run_doc["config_results"]:
             if cfg["config"]["name"].startswith("kg_entity_first"):
                 kg_rows = {str(r["question_id"]): r for r in cfg["details"]}
@@ -255,9 +268,9 @@ def main() -> None:
         # pooled correlations + composite (KG side)
         comp_rows: list[tuple[float, float, float, bool]] = []
         for qid, s, c in v2_scores(art, "kg"):
-            r: PaperDetail = kg_rows.get(qid, {})
-            sd: float | None = r.get("kg_sd_uq")
-            seu: float | None = r.get("kg_support_entailment_uncertainty")
+            r: "JSONValue" = kg_rows.get(qid, {})
+            sd: "JSONValue" = r.get("kg_sd_uq")
+            seu: "JSONValue" = r.get("kg_support_entailment_uncertainty")
             if sd is None or seu is None:
                 continue
             if s is not None:
@@ -306,7 +319,7 @@ def main() -> None:
     # strict runs (KG side only)
     for slug in ("realmedqa", "2wikimultihopqa"):
         path: str | None = latest_artifact(slug, strict=True)
-        art = json.load(open(path))
+        art = cast("DefaultJSONCodec", json).load(open(path))
         rows = v2_scores(art, "kg")
         defined = [(s, not c) for _, s, c in rows if s is not None]
         a, lo, hi = auroc_ci([s for s, _ in defined], [w for _, w in defined])
@@ -319,14 +332,16 @@ def main() -> None:
         }
 
     # 2wiki hop-wise GPS AUC per policy
-    adaptive_art: V2ReplayArtifact = json.load(open(latest_artifact("2wikimultihopqa")))
-    strict_art: V2ReplayArtifact = json.load(
+    adaptive_art: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        open(latest_artifact("2wikimultihopqa")),
+    )
+    strict_art: "JSONValue" = cast("DefaultJSONCodec", json).load(
         open(latest_artifact("2wikimultihopqa", strict=True)),
     )
-    run_doc = json.load(
+    run_doc = cast("DefaultJSONCodec", json).load(
         open(os.path.join(REPO, manifest["2Wikimultihopqa"]["result_path"])),
     )
-    hop_by_qid: dict[str, int | None] = {}
+    hop_by_qid: "dict[str, JSONValue]" = {}
     for cfg in run_doc["config_results"]:
         for r in cfg["details"]:
             hop_by_qid[str(r["question_id"])] = r.get("hop_count")
@@ -349,26 +364,28 @@ def main() -> None:
             out["hopwise_2wiki"][f"{label}_{hop}hop"] = {"n": len(sel), "auroc": a}
 
     # case-study lookups
-    musique_art: V2ReplayArtifact = json.load(open(latest_artifact("musique")))
-    twiki_art: V2ReplayArtifact = adaptive_art
-    case_specs: dict[str, tuple[V2ReplayArtifact, str]] = {
+    musique_art: "JSONValue" = cast("DefaultJSONCodec", json).load(
+        open(latest_artifact("musique")),
+    )
+    twiki_art: "JSONValue" = adaptive_art
+    case_specs: "dict[str, tuple[JSONValue, str]]" = {
         "mickey_mouse": (musique_art, "Mickey Mouse"),
         "fire_eater": (twiki_art, "Fire-Eater"),
         "the_cup": (twiki_art, "The Cup (1999"),
     }
-    qtext: dict[str, str] = {}
-    for cfg in json.load(open(os.path.join(REPO, manifest["Musique"]["result_path"])))[
-        "config_results"
-    ]:
-        for r in cfg["details"]:
-            qtext[str(r["question_id"])] = r.get("question", "")
+    qtext: "dict[str, JSONValue]" = {}
+    for cfg in cast("DefaultJSONCodec", json).load(
+        open(os.path.join(REPO, manifest["Musique"]["result_path"])),
+    )["config_results"]:
+        for detail in cfg["details"]:
+            qtext[str(detail["question_id"])] = detail.get("question", "")
     for cfg in run_doc["config_results"]:
-        for r in cfg["details"]:
-            qtext[str(r["question_id"])] = r.get("question", "")
+        for detail in cfg["details"]:
+            qtext[str(detail["question_id"])] = detail.get("question", "")
     for name, (art, needle) in case_specs.items():
         for q in art["questions"]:
             if needle.lower() in qtext.get(str(q["question_id"]), "").lower():
-                st: ReplayStore | V2ReplayStore | None = (q.get("store") or {}).get(
+                st: "JSONValue" = (q.get("store") or {}).get(
                     "kg",
                 )
                 res: ReplayScore | CaseReplayScore = (

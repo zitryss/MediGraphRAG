@@ -34,6 +34,9 @@ sys.path.insert(
 import make_figures  # rcParams styling
 import matplotlib.pyplot as plt
 
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
 
 class PyplotLineExport(Protocol):
     """The Line2D class actually imported into installed matplotlib.pyplot."""
@@ -72,10 +75,12 @@ RNG: np.random.Generator = np.random.default_rng(42)
 C_WRONG, C_OK = "#B2182B", "#888888"
 
 
-def load(path: str, jsonl: bool = False) -> list[ConcentrationDetail]:
+def load(path: str, jsonl: bool = False) -> "JSONValue":
     if jsonl:
-        return [json.loads(l) for l in open(path) if l.strip()]
-    document: ConcentrationDocument = json.load(open(path))
+        return [
+            cast("DefaultJSONCodec", json).loads(l) for l in open(path) if l.strip()
+        ]
+    document: "JSONValue" = cast("DefaultJSONCodec", json).load(open(path))
     return document["config_results"][0]["details"]
 
 

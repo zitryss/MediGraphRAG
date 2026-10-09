@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from torch import Tensor, dtype
     from torch.return_types import topk as TopKResult
 
+    from ontographrag.rag.systems._records import StoredGraphProperty
+
 
 class Tokenizer(Protocol):
     def __call__(
@@ -24,7 +26,7 @@ class Tokenizer(Protocol):
         text: str | list[str],
         /,
         *,
-        return_tensors: str,
+        return_tensors: Literal["pt"],
         truncation: bool,
         max_length: int,
         return_special_tokens_mask: bool,
@@ -380,7 +382,7 @@ def _late_interaction_chunk_identity(chunk: RetrievedChunk, idx: int) -> str:
         "chunk_id",
         "parent_chunk_id",
     ):
-        value: str | None = chunk.get(key)
+        value: StoredGraphProperty = chunk.get(key)
         if value:
             return str(value)
     text: str = str(chunk.get("text", "")).strip()
@@ -744,7 +746,7 @@ def late_interaction_rescore_chunks_for_query(
                         scored_chunks,
                         key=lambda item: (
                             -item[0],
-                            -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
+                            -float(item[2].get("score", 0.0)),
                             item[1],
                         ),
                     )
@@ -791,7 +793,7 @@ def late_interaction_rescore_chunks_for_query(
             scored_chunks,
             key=lambda item: (
                 -item[0],
-                -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
+                -float(item[2].get("score", 0.0)),
                 item[1],
             ),
         )
@@ -877,7 +879,7 @@ def rerank_chunks_for_query(
             scored_chunks,
             key=lambda item: (
                 -item[0],
-                -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
+                -float(item[2].get("score", 0.0)),
                 item[1],
             ),
         )

@@ -44,6 +44,10 @@ if TYPE_CHECKING:
     from ontographrag.rag.systems._response_records import GenerationResponse
 
 
+if TYPE_CHECKING:
+    from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+
+
 class CandidateDetail(TypedDict, total=False):
     question_id: str | int
     question: str
@@ -69,10 +73,10 @@ class CandidateDocument(TypedDict):
 
 class InterventionCandidate(TypedDict):
     question_id: str
-    question: str
-    expected: str
-    task_type: str
-    saved_response: str
+    question: "JSONValue"
+    expected: "JSONValue"
+    task_type: "JSONValue"
+    saved_response: "JSONValue"
     saved_correct: bool
     saved_sd_uq: float
     saved_seu: float
@@ -156,13 +160,13 @@ class InterventionReport(TypedDict):
     results: NotRequired[list[InterventionResult]]
 
 
-def _result_details(dataset: str, policy: str) -> list[CandidateDetail]:
+def _result_details(dataset: str, policy: str) -> "JSONValue":
     if policy == "strict":
         path: str = os.path.join(REPO, STRICT_RUNS[dataset])
-        doc: CandidateDocument = json.load(open(path))
+        doc: "JSONValue" = cast("DefaultJSONCodec", json).load(open(path))
         return doc["config_results"][0]["details"]
     path = os.path.join(REPO, MANIFEST[KEY[dataset]]["result_path"])
-    doc = json.load(open(path))
+    doc = cast("DefaultJSONCodec", json).load(open(path))
     cfg_prefix: str = "kg_entity_first" if policy == "kg" else "dense_floor"
     return next(
         cfg["details"]
@@ -185,8 +189,8 @@ def select_candidates(
     for row in _result_details(dataset, policy):
         if row.get("kg_generation_failed"):
             continue
-        sd: float | None = row.get("kg_sd_uq")
-        seu: float | None = row.get("kg_support_entailment_uncertainty")
+        sd: "JSONValue" = row.get("kg_sd_uq")
+        seu: "JSONValue" = row.get("kg_support_entailment_uncertainty")
         if sd is None or seu is None:
             continue
         if float(sd) > sd_threshold or float(seu) < seu_threshold:

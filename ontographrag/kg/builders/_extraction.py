@@ -11,11 +11,14 @@ from ontographrag.kg.builders._creator_shared import (
     AnchorGrounding,
     AnchorInventory,
     AnchorSpan,
-    AnchorSpanInput,
+    AugmentedExtractionResult,
+    AugmentedExtractionValue,
+    AugmentedPropertyKey,
     DecodedJSONObject,
     DecodedJSONValue,
     EntityAnchor,
     ExactAnchorSpan,
+    ExtractionPostprocessInput,
     RestorationRecord,
     RetrievalSubchunk,
 )
@@ -35,17 +38,26 @@ from ontographrag.schemas.models import (
 from ontographrag.schemas.models import (
     RelationshipType as OntRelType,
 )
+from shared.model_contracts import GenerationProvider
 
 if TYPE_CHECKING:
     from langchain_core.embeddings import Embeddings
 
+    from ontographrag.kg.builders._enrichment import RelationshipAnchorInput
     from ontographrag.kg.builders.ontology_guided_kg_creator import (
+        ExtractionEntity,
+        ExtractionRelationship,
         ExtractionResult,
         GraphChunkInput,
-        GraphNode,
-        GraphRelationship,
+        GraphProperties,
+        IdentifiedEntity,
+        PostprocessedEntity,
+        PostprocessedExtractionResult,
+        RawExtractionRelationship,
+        ReflectedRelationship,
+        ResolvedExtractionRelationship,
     )
-    from ontographrag.providers.model_providers import ModelOutput, ModelProvider
+    from ontographrag.providers.model_providers import ModelOutput
     from ontographrag.schemas.models import OntologySchema
 
 
@@ -72,15 +84,15 @@ class ExtractionMixin:
 
         @staticmethod
         def _attach_relationship_provenance(
-            relationships: "list[GraphRelationship]",
+            relationships: "Sequence[ExtractionRelationship] | DecodedJSONValue",
             chunk_positions: list[int],
-        ) -> "list[GraphRelationship]": ...
+        ) -> "list[ExtractionRelationship]": ...
 
         def _augment_result_with_anchor_entities(
             self,
             result: DecodedJSONObject,
             anchor_inventory: AnchorInventory,
-        ) -> DecodedJSONObject: ...
+        ) -> AugmentedExtractionResult: ...
 
         def _build_ontology_few_shot_examples(self) -> str: ...
 
@@ -101,13 +113,17 @@ class ExtractionMixin:
 
         def _coerce_entity_type_with_ontology(
             self,
-            raw_type: str | None,
+            raw_type: object,
             entity_text: str | None = None,
         ) -> str | None: ...
 
-        def _entity_appears_in_text(self, entity: "GraphNode", text: str) -> bool: ...
+        def _entity_appears_in_text(
+            self,
+            entity: "ExtractionEntity",
+            text: str,
+        ) -> bool: ...
 
-        def _entity_candidate_names(self, entity: "GraphNode") -> list[str]: ...
+        def _entity_candidate_names(self, entity: "ExtractionEntity") -> list[str]: ...
 
         def _find_exact_text_spans(
             self,
@@ -124,18 +140,18 @@ class ExtractionMixin:
         @classmethod
         def _merge_anchor_grounding(
             cls,
-            *groundings: "Mapping[str, Sequence[AnchorSpanInput]] | str | None",
+            *groundings: object,
         ) -> AnchorGrounding: ...
 
         @classmethod
         def _merge_anchor_spans(
             cls,
-            *span_groups: "Sequence[AnchorSpanInput | str | int | float | None] | str | None",
+            *span_groups: object,
         ) -> list[AnchorSpan]: ...
 
         def _normalize_anchor_inventory(
             self,
-            raw_inventory: DecodedJSONObject,
+            raw_inventory: DecodedJSONValue,
             *,
             chunk_text: str,
         ) -> AnchorInventory: ...
@@ -144,19 +160,19 @@ class ExtractionMixin:
 
         def _relationship_anchor_candidates(
             self,
-            rel: "GraphRelationship",
+            rel: "RelationshipAnchorInput",
         ) -> list[str]: ...
 
         def _resolve_coreferences_heuristic(
             self,
             chunk_text: str,
-            previous_entities: "list[GraphNode] | None",
+            previous_entities: "Sequence[ExtractionEntity] | None",
         ) -> str: ...
 
         def _resolve_relationship_endpoint(
             self,
             raw_name: str,
-            entities: "list[GraphNode]",
+            entities: "Sequence[ExtractionEntity]",
         ) -> str | None: ...
 
         def _restoration_from_anchor_grounding(
@@ -166,14 +182,14 @@ class ExtractionMixin:
 
         def _supplement_relationships_from_unused_anchors(
             self,
-            result: DecodedJSONObject,
+            result: AugmentedExtractionResult,
             *,
             chunk_text: str,
-            llm: "ModelProvider | None",
+            llm: "GenerationProvider | None",
             model_name: str,
             context_preamble: str,
             anchor_inventory: AnchorInventory,
-        ) -> DecodedJSONObject: ...
+        ) -> AugmentedExtractionResult: ...
 
     def _select_relationship_types_for_prompt(
         self,
@@ -322,14 +338,16 @@ class ExtractionMixin:
             passage_index=passage_index,
         )
 
-        grounded_entities: list[GraphNode] = []
-        entity_by_id: dict[str, GraphNode] = {}
+        grounded_entities: list[ExtractionEntity] = []
+        entity_by_id: dict[str, ExtractionEntity] = {}
 
         for entity in chunk_kg.get("entities", []) or []:
             if not isinstance(entity, dict):
                 continue
-            entity_copy: GraphNode = cast("GraphNode", dict(entity))
-            properties: dict[str, object] = dict(entity_copy.get("properties") or {})
+            entity_copy: ExtractionEntity = cast("ExtractionEntity", dict(entity))
+            properties: GraphProperties = dict[AugmentedPropertyKey, object](
+                entity_copy.get("properties") or {},
+            )
             anchor_spans: list[ExactAnchorSpan] = self._find_exact_text_spans(
                 chunk_text,
                 self._entity_candidate_names(entity_copy),
@@ -337,11 +355,12 @@ class ExtractionMixin:
                 chunk_position=chunk_position,
             )
             if anchor_spans:
-                properties["anchor_spans"] = self._merge_anchor_spans(
+                merged_spans: list[AnchorSpan] = self._merge_anchor_spans(
                     properties.get("anchor_spans"),
                     anchor_spans,
                 )
-                properties["anchor_mention_count"] = len(properties["anchor_spans"])
+                properties["anchor_spans"] = merged_spans
+                properties["anchor_mention_count"] = len(merged_spans)
             if dataset:
                 properties.setdefault("dataset", dataset)
             if question_id is not None:
@@ -360,17 +379,19 @@ class ExtractionMixin:
             if isinstance(entity_id, str) and entity_id.strip():
                 entity_by_id[entity_id] = entity_copy
 
-        grounded_relationships: list[GraphRelationship] = []
+        grounded_relationships: list[ExtractionRelationship] = []
         for rel in chunk_kg.get("relationships", []) or []:
             if not isinstance(rel, dict):
                 continue
-            rel_copy: GraphRelationship = cast("GraphRelationship", dict(rel))
-            properties = dict(rel_copy.get("properties") or {})
+            rel_copy: ExtractionRelationship = cast("ExtractionRelationship", dict(rel))
+            properties = dict[AugmentedPropertyKey, object](
+                rel_copy.get("properties") or {},
+            )
 
-            source_entity: GraphNode | None = entity_by_id.get(
+            source_entity: ExtractionEntity | None = entity_by_id.get(
                 str(rel_copy.get("source") or ""),
             )
-            target_entity: GraphNode | None = entity_by_id.get(
+            target_entity: ExtractionEntity | None = entity_by_id.get(
                 str(rel_copy.get("target") or ""),
             )
             source_spans: list[AnchorSpan] = self._merge_anchor_spans(
@@ -491,7 +512,7 @@ class ExtractionMixin:
         self,
         chunk_text: str,
         context_text: str,
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         model_name: str,
     ) -> str:
         """Use the LLM to resolve demonstrative coreferences in *chunk_text*
@@ -597,9 +618,9 @@ Rules:
         self,
         chunk_text: str,
         *,
-        previous_entities: "list[GraphNode] | None" = None,
+        previous_entities: "Sequence[ExtractionEntity] | None" = None,
         previous_texts: list[str] | None = None,
-        llm: "ModelProvider | None" = None,
+        llm: "GenerationProvider | None" = None,
         model_name: str = "openai/gpt-oss-120b:free",
     ) -> str:
         """Resolve cheap coreference first, then optional LLM coref on leftovers."""
@@ -865,7 +886,7 @@ Rules:
     def _extract_entities_and_relationships_with_self_consistency(
         self,
         chunk_text: str,
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         *,
         model_name: str,
         context_header: str | None,
@@ -887,7 +908,7 @@ Rules:
             )
 
         threshold: int = (num_samples // 2) + 1
-        entity_votes: dict[str, list[GraphNode]] = defaultdict(list)
+        entity_votes: dict[str, list[ExtractionEntity]] = defaultdict(list)
         for sample in samples:
             seen_entity_keys: set[str] = set()
             for entity in sample.get("entities", []) or []:
@@ -901,12 +922,12 @@ Rules:
                 entity_votes[key].append(entity)
                 seen_entity_keys.add(key)
 
-        kept_entities: list[GraphNode] = []
+        kept_entities: list[ExtractionEntity] = []
         entity_alias_map: dict[str, str] = {}
         for key, voted_entities in entity_votes.items():
             if len(voted_entities) < threshold:
                 continue
-            representative: GraphNode = max(
+            representative: ExtractionEntity = max(
                 voted_entities,
                 key=lambda e: (
                     len(str((e.get("properties") or {}).get("description") or "")),
@@ -917,7 +938,9 @@ Rules:
                 str(e.get("type") or "Concept") for e in voted_entities
             )
             representative["type"] = type_counts.most_common(1)[0][0]
-            properties: dict[str, object] = dict(representative.get("properties") or {})
+            properties: GraphProperties = dict[AugmentedPropertyKey, object](
+                representative.get("properties") or {},
+            )
             all_names: set[str] = {
                 str(e.get("id") or "").strip()
                 for e in voted_entities
@@ -947,7 +970,7 @@ Rules:
         }
         relationship_votes: dict[
             tuple[str, str, str, bool],
-            list[GraphRelationship],
+            list[ExtractionRelationship],
         ] = defaultdict(list)
         for sample in samples:
             seen_relationship_keys: set[tuple[str, str, str, bool]] = set()
@@ -980,24 +1003,30 @@ Rules:
                 )
                 if vote_key in seen_relationship_keys:
                     continue
-                rel_copy: GraphRelationship = cast("GraphRelationship", dict(rel))
+                rel_copy: ExtractionRelationship = cast(
+                    "ExtractionRelationship",
+                    dict(rel),
+                )
                 rel_copy["source"] = canonical_src
                 rel_copy["target"] = canonical_tgt
                 rel_copy["type"] = canonical_type
                 relationship_votes[vote_key].append(rel_copy)
                 seen_relationship_keys.add(vote_key)
 
-        kept_relationships: list[GraphRelationship] = []
+        kept_relationships: list[ExtractionRelationship] = []
         for vote_key, voted_relationships in relationship_votes.items():
             if len(voted_relationships) < threshold:
                 continue
-            relationship_representative: GraphRelationship = max(
+            relationship_representative: ExtractionRelationship = max(
                 voted_relationships,
                 key=lambda rel: len(
                     str((rel.get("properties") or {}).get("description") or ""),
                 ),
             ).copy()
-            relationship_representative_properties: dict[str, object] = dict(
+            relationship_representative_properties: GraphProperties = dict[
+                AugmentedPropertyKey,
+                object,
+            ](
                 relationship_representative.get("properties") or {},
             )
             provenance: list[int] = sorted(
@@ -1050,7 +1079,7 @@ Rules:
     def _extract_entities_and_relationships_with_llm(
         self,
         chunk_text: str,
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         model_name: str = "openai/gpt-oss-120b:free",
         context_header: str | None = None,
         section_header: str | None = None,
@@ -1591,7 +1620,7 @@ Return ONLY the JSON object.
     def _extract_entities_and_relationships_with_anchor_constraints(
         self,
         chunk_text: str,
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         *,
         model_name: str,
         context_preamble: str,
@@ -1638,33 +1667,35 @@ Return ONLY the JSON object.
                 "",
                 model_name,
             )
-            grounded_result: DecodedJSONObject | ExtractionResult = (
-                self._parse_llm_json_response(
-                    grounded_response,
-                    allow_partial_extraction=True,
-                    empty_result={"entities": [], "relationships": []},
+            parsed_result: DecodedJSONObject = self._parse_llm_json_response(
+                grounded_response,
+                allow_partial_extraction=True,
+                empty_result={"entities": [], "relationships": []},
+            )
+            augmented_result: AugmentedExtractionResult = (
+                self._augment_result_with_anchor_entities(
+                    parsed_result,
+                    anchor_inventory,
                 )
             )
-            grounded_result = self._augment_result_with_anchor_entities(
-                grounded_result,
-                anchor_inventory,
-            )
-            grounded_result = self._supplement_relationships_from_unused_anchors(
-                grounded_result,
+            augmented_result = self._supplement_relationships_from_unused_anchors(
+                augmented_result,
                 chunk_text=chunk_text,
                 llm=llm,
                 model_name=model_name,
                 context_preamble=context_preamble,
                 anchor_inventory=anchor_inventory,
             )
-            grounded_result = self._postprocess_extraction_result(
-                grounded_result,
+            grounded_result: ExtractionResult = self._postprocess_extraction_result(
+                augmented_result,
                 chunk_text=chunk_text,
                 llm=llm,
                 model_name=model_name,
             )
             for entity in grounded_result.get("entities", []) or []:
-                entity_props: dict[str, object] = dict(entity.get("properties") or {})
+                entity_props: GraphProperties = dict[AugmentedPropertyKey, object](
+                    entity.get("properties") or {},
+                )
                 anchor_key: str = self._normalize_entity_text(entity.get("id") or "")
                 anchor_match: EntityAnchor | None = next(
                     (
@@ -1697,24 +1728,27 @@ Return ONLY the JSON object.
 
     def _postprocess_extraction_result(
         self,
-        result: DecodedJSONObject,
+        result: DecodedJSONObject | AugmentedExtractionResult,
         *,
         chunk_text: str,
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         model_name: str,
-    ) -> "ExtractionResult":
+    ) -> "PostprocessedExtractionResult":
         """Normalize parsed extraction JSON into entity/relationship records."""
         if not isinstance(result, dict) or (
             "entities" not in result and "relationships" not in result
         ):
             logging.warning("Invalid response structure. Returning empty result.")
             return {"entities": [], "relationships": []}
-        result = dict(result)
-        result.setdefault("entities", [])
-        result.setdefault("relationships", [])
+        result_copy: ExtractionPostprocessInput = cast(
+            ExtractionPostprocessInput,
+            dict(result),
+        )
+        result_copy.setdefault("entities", [])
+        result_copy.setdefault("relationships", [])
 
-        medical_entities: list[GraphNode] = []
-        entities_raw: DecodedJSONValue = result.get("entities", [])
+        medical_entities: list[PostprocessedEntity] = []
+        entities_raw: AugmentedExtractionValue = result_copy.get("entities", [])
         if not isinstance(entities_raw, list):
             logging.warning(
                 "LLM returned entities as %s instead of list: %s. Skipping chunk.",
@@ -1763,10 +1797,11 @@ Return ONLY the JSON object.
                     )
                     entity["id"] = str(entity["id"])
 
+                identified: IdentifiedEntity = cast("IdentifiedEntity", entity)
                 try:
                     entity_type = self._coerce_entity_type_with_ontology(
-                        entity.get("type"),
-                        entity.get("id"),
+                        identified.get("type"),
+                        identified["id"],
                     )
                     if not entity_type:
                         logging.info(
@@ -1795,12 +1830,14 @@ Return ONLY the JSON object.
                 )
                 continue
 
-            medical_entities.append(entity)
+            medical_entities.append(cast("PostprocessedEntity", entity))
 
-        medical_relationships: list[GraphRelationship] = []
+        medical_relationships: list[
+            ResolvedExtractionRelationship | ReflectedRelationship
+        ] = []
         relationship_drop_count: int = 0
         relationship_fuzzy_resolutions: int = 0
-        relationships_raw: DecodedJSONValue = result.get("relationships", [])
+        relationships_raw: DecodedJSONValue = result_copy.get("relationships", [])
 
         if not isinstance(relationships_raw, list):
             logging.warning(
@@ -1838,10 +1875,10 @@ Return ONLY the JSON object.
                     medical_entities,
                 )
                 if canonical_src and canonical_tgt:
-                    rel_copy: DecodedJSONObject = dict(rel)
+                    rel_copy: dict[str, DecodedJSONValue | GraphProperties] = dict(rel)
                     rel_copy["source"] = canonical_src
                     rel_copy["target"] = canonical_tgt
-                    rel_props: dict[str, object] = dict(
+                    rel_props: GraphProperties = dict[AugmentedPropertyKey, object](
                         rel_copy.get("properties") or {},
                     )
                     rel_props.setdefault("source_name", raw_src)
@@ -1849,7 +1886,9 @@ Return ONLY the JSON object.
                     rel_copy["properties"] = rel_props
                     if canonical_src != raw_src or canonical_tgt != raw_tgt:
                         relationship_fuzzy_resolutions += 1
-                    medical_relationships.append(rel_copy)
+                    medical_relationships.append(
+                        cast("ResolvedExtractionRelationship", rel_copy),
+                    )
                 else:
                     relationship_drop_count += 1
                     logging.warning(
@@ -1915,32 +1954,33 @@ Return ONLY the JSON object."""
                     continue
                 if not isinstance(entity["id"], str):
                     entity["id"] = str(entity["id"])
-                if entity["id"].lower() in existing_ids_lower:
+                reflected: IdentifiedEntity = cast("IdentifiedEntity", entity)
+                if reflected["id"].lower() in existing_ids_lower:
                     continue
-                if entity["id"].lower() not in chunk_text_lower:
+                if reflected["id"].lower() not in chunk_text_lower:
                     logging.info(
                         "Self-reflection: skipping hallucinated entity not in chunk text: %s",
-                        entity["id"],
+                        reflected["id"],
                     )
                     continue
                 entity_type = self._coerce_entity_type_with_ontology(
                     entity.get("type"),
-                    entity["id"],
+                    reflected["id"],
                 )
                 if not entity_type:
                     logging.info(
                         "Skipping reflected entity with no schema-compatible type: %s",
-                        entity["id"],
+                        reflected["id"],
                     )
                     continue
                 entity["type"] = entity_type
                 entity.setdefault(
                     "properties",
-                    {"name": entity["id"], "description": entity["type"]},
+                    {"name": reflected["id"], "description": entity["type"]},
                 )
-                medical_entities.append(entity)
-                existing_ids_lower.add(entity["id"].lower())
-                added_entity_ids.append(entity["id"])
+                medical_entities.append(cast("PostprocessedEntity", entity))
+                existing_ids_lower.add(reflected["id"].lower())
+                added_entity_ids.append(reflected["id"])
                 added += 1
             if added:
                 logging.info("Self-reflection added %d new entities", added)
@@ -2000,7 +2040,9 @@ Rules:
                         and rel.get("target")
                         and rel.get("type")
                     ):
-                        medical_relationships.append(rel)
+                        medical_relationships.append(
+                            cast("ReflectedRelationship", rel),
+                        )
                         new_rels_added += 1
                 if new_rels_added:
                     logging.info(
@@ -2015,10 +2057,10 @@ Rules:
     def _extract_relationships_only(
         self,
         combined_text: str,
-        known_entities: "list[GraphNode]",
-        llm: "ModelProvider | None",
+        known_entities: "Sequence[ExtractionEntity]",
+        llm: "GenerationProvider | None",
         model_name: str,
-    ) -> "list[GraphRelationship]":
+    ) -> DecodedJSONValue:
         """
         Given a combined text (two adjacent chunks) and entities already known from those chunks,
         ask the LLM only for relationships between those entities — no new entity extraction.
@@ -2093,13 +2135,13 @@ Rules:
 
     def _select_entities_for_relation_prompt(
         self,
-        entities: "list[GraphNode]",
+        entities: "Sequence[ExtractionEntity]",
         text: str,
-    ) -> "list[GraphNode]":
+    ) -> "list[ExtractionEntity]":
         """Keep only entities grounded in text, with a safe prompt-size cap."""
         if not isinstance(text, str) or not text.strip():
             return []
-        deduped: list[GraphNode] = []
+        deduped: list[ExtractionEntity] = []
         seen_entity_ids: set[str | int] = set()
         for entity in entities:
             entity_id: str | None = entity.get("id")
@@ -2114,7 +2156,7 @@ Rules:
         if len(deduped) <= getattr(self, "max_relationship_prompt_entities", 40):
             return deduped
 
-        def _support_score(entity: "GraphNode") -> tuple[int, int]:
+        def _support_score(entity: "ExtractionEntity") -> tuple[int, int]:
             names: list[str] = self._entity_candidate_names(entity)
             longest_name: int = max((len(name) for name in names), default=0)
             mentions: int = sum(
@@ -2130,22 +2172,22 @@ Rules:
     def _extract_relationships_for_segment_windows(
         self,
         segment_texts: list[str],
-        segment_entities: "dict[int, list[GraphNode]]",
+        segment_entities: "Mapping[int, Sequence[ExtractionEntity]]",
         segment_positions: dict[int, list[int]],
-        llm: "ModelProvider | None",
+        llm: "GenerationProvider | None",
         model_name: str,
         *,
         max_window_size: int,
         scope_label: str,
         relationship_scope_metadata: Mapping[str, str | int | None] | None = None,
-    ) -> "list[GraphRelationship]":
+    ) -> "list[ExtractionRelationship]":
         """Recover relationships that span multiple adjacent chunks or passages."""
         if llm is None or len(segment_texts) < 2:
             return []
 
         n_segments: int = len(segment_texts)
         max_window_size = max(2, min(int(max_window_size or 2), n_segments))
-        recovered: list[GraphRelationship] = []
+        recovered: list[ExtractionRelationship] = []
         total_rels: int = 0
 
         for window_size in range(2, max_window_size + 1):
@@ -2159,7 +2201,7 @@ Rules:
                 if not combined_text.strip():
                     continue
 
-                candidate_entities: list[GraphNode] = []
+                candidate_entities: list[ExtractionEntity] = []
                 for idx in indices:
                     candidate_entities.extend(segment_entities.get(idx, []))
                 candidate_entities = self._select_entities_for_relation_prompt(
@@ -2169,7 +2211,7 @@ Rules:
                 if len(candidate_entities) < 2:
                     continue
 
-                new_rels: list[GraphRelationship] = self._extract_relationships_only(
+                new_rels: DecodedJSONValue = self._extract_relationships_only(
                     combined_text,
                     candidate_entities,
                     llm,
@@ -2180,13 +2222,20 @@ Rules:
                         for rel in new_rels:
                             if not isinstance(rel, dict):
                                 continue
-                            rel_properties: dict[str, object] = dict(
+                            rel_properties: GraphProperties = dict[
+                                AugmentedPropertyKey,
+                                object,
+                            ](
                                 rel.get("properties") or {},
                             )
                             for key, value in relationship_scope_metadata.items():
                                 if value is not None:
                                     rel_properties.setdefault(key, value)
-                            rel["properties"] = rel_properties
+                            mutable_rel: RawExtractionRelationship = cast(
+                                "RawExtractionRelationship",
+                                rel,
+                            )
+                            mutable_rel["properties"] = rel_properties
                     provenance_positions: list[int] = []
                     for idx in indices:
                         provenance_positions.extend(segment_positions.get(idx, []))

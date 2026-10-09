@@ -30,6 +30,7 @@ from ontographrag.rag.systems._records import (
 from ontographrag.rag.systems._response_records import GenerationResponse, UsedEvidence
 from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
 from ontographrag.rag.systems.vanilla_rag_system import VanillaRAGSystem
+from tests.conftest import unused_runnable
 
 CallbackResult_co = TypeVar("CallbackResult_co", covariant=True)
 
@@ -99,7 +100,7 @@ def test_enhanced_retry_then_abstain_sets_final_decision_to_abstain(
 
     response, _, metadata = system._apply_runtime_answer_guardrail(
         question="Who is the father-in-law of Helena Palaiologina?",
-        llm=object(),
+        llm=unused_runnable(),
         response="Lazar Brankovic",
         context=_base_context(),
         runtime_guardrail=True,
@@ -108,8 +109,12 @@ def test_enhanced_retry_then_abstain_sets_final_decision_to_abstain(
     )
 
     assert response == RUNTIME_GUARDRAIL_ABSTENTION
+    assert "retried" in metadata
     assert metadata["retried"] is True
+    assert "final_decision" in metadata
     assert metadata["final_decision"] == "abstain"
+    assert "retry_verdict" in metadata
+    assert "decision" in metadata["retry_verdict"]
     assert metadata["retry_verdict"]["decision"] == "retry"
 
 
@@ -132,7 +137,7 @@ def test_vanilla_abstention_zeroes_confidence(monkeypatch: pytest.MonkeyPatch) -
 
     result: GenerationResponse = system.generate_response(
         "Question?",
-        llm=object(),
+        llm=unused_runnable(),
         runtime_guardrail=True,
     )
 
@@ -178,7 +183,7 @@ def test_enhanced_abstention_zeroes_confidence(monkeypatch: pytest.MonkeyPatch) 
 
     result: GenerationResponse = system.generate_response(
         "Question?",
-        llm=object(),
+        llm=unused_runnable(),
         runtime_guardrail=True,
         max_hops=1,
     )
@@ -231,7 +236,7 @@ def test_enhanced_retrieval_span_context_does_not_retry_vector_only(
 
     result: GenerationResponse = system.generate_response(
         "Question?",
-        llm=object(),
+        llm=unused_runnable(),
         max_hops=1,
     )
 

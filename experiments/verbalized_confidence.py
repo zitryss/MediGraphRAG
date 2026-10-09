@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from openai import OpenAI
     from openai.types.chat import ChatCompletion
 
+    from experiments.dataset_adapters import JSONValue
+
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
@@ -32,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from experiments.rejudge_independent import get_client
 from experiments.trust_analysis import KEY, MANIFEST, REPO, NamedConfig
 
-ConfidenceRow: TypeAlias = tuple[str, str, str, bool]
+ConfidenceRow: TypeAlias = "tuple[str, JSONValue, JSONValue, bool]"
 
 
 class ConfidenceDetail(TypedDict):
@@ -83,8 +85,8 @@ USER_TMPL: str = (
 
 def ask_conf(
     client: "OpenAI",
-    question: str,
-    response: str,
+    question: "JSONValue",
+    response: "JSONValue",
     retries: int = 3,
 ) -> float | None:
     for attempt in range(retries):
@@ -119,11 +121,11 @@ def ask_conf(
 
 
 def load_details(slug: str, policy: str) -> list[ConfidenceRow]:
-    doc: ConfidenceDocument = json.load(
+    doc: JSONValue = json.load(
         open(os.path.join(REPO, MANIFEST[KEY[slug]]["result_path"])),
     )
     cfg_prefix: str = "kg_entity_first" if policy == "kg" else "dense_floor"
-    details: list[ConfidenceDetail] = next(
+    details: JSONValue = next(
         c for c in doc["config_results"] if c["config"]["name"].startswith(cfg_prefix)
     )["details"]
     prefix: Literal["kg", "vanilla"] = "kg" if policy == "kg" else "vanilla"

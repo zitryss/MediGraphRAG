@@ -13,6 +13,7 @@ from neo4j.exceptions import TransientError
 
 from ontographrag.kg.loaders import graph_db_access
 from ontographrag.kg.loaders.graph_db_access import (
+    ExportedGraphScalar,
     NodeRelationshipCounts,
     RawGraphRow,
     graphDBdataAccess,
@@ -187,13 +188,19 @@ def test_symbolic_state_normalizes_deduplicates_and_measures_diversity() -> None
         [state, state],
     )
     assert result["chunk_entropy"] == 0
+    assert "subgraph_jaccard" in result
     assert result["subgraph_jaccard"] == 1
+    assert "dominant_seed_entity_fraction" in result
     assert result["dominant_seed_entity_fraction"] == 1
     assert dominant_anchor_id([state]) == "a"
     assert dominant_anchor_id([]) == ""
     assert graph_state_diversity([])["sample_count"] == 0
     malformed_states: list[None] = [None]
-    assert graph_state_diversity(malformed_states)["empty_state_count"] == 1
+    malformed_diversity: EmptyGraphStateDiversity | GraphStateDiversity = (
+        graph_state_diversity(malformed_states)
+    )
+    assert "empty_state_count" in malformed_diversity
+    assert malformed_diversity["empty_state_count"] == 1
 
 
 def test_source_create_update_parameters_and_status(
@@ -333,8 +340,10 @@ def test_connection_reports_index_and_chunk_readiness(
     assert result["message"] == "Connection Successful"
     assert result["gds_status"] and result["write_access"]
     if state == "indexed":
+        assert "db_vector_dimension" in result
         assert result["db_vector_dimension"] == 3
     elif state != "embedded":
+        assert "chunks_exists" in result
         assert result["chunks_exists"] is (state == "unembedded")
     assert all(
         c.kwargs["session_params"] == {"database": "unit"}
@@ -446,9 +455,11 @@ def test_count_update_sums_real_record_components(community: bool) -> None:
             ],
         ),
     )
-    result: dict[str | None, NodeRelationshipCounts] | list[Never] = graphDBdataAccess(
-        graph,
-    ).update_node_relationship_count(None if community else "doc")
+    result: dict[ExportedGraphScalar | None, NodeRelationshipCounts] | list[Never] = (
+        graphDBdataAccess(
+            graph,
+        ).update_node_relationship_count(None if community else "doc")
+    )
     assert isinstance(result, dict)
     assert result["doc"]["nodeCount"] == (10 if community else 5)
     assert result["doc"]["relationshipCount"] == (11 if community else 5)

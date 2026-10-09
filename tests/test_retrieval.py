@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import ontographrag.rag.systems.vanilla_rag_system as vanilla_rag_module
 from ontographrag.rag.reranking import RerankingMetadata
 from ontographrag.rag.systems._records import (
+    ChunkProjection,
     CountedGraphRetrievalContext,
     GraphRetrievalContext,
     ProducedGraphRetrievalContext,
@@ -40,11 +41,18 @@ from ontographrag.rag.systems._records import (
     RetrievedEntity,
     RetrievedRelationship,
     ScoredCompleteRetrievalContext,
+    StoredGraphKey,
     TraversalPath,
 )
 from ontographrag.rag.systems._response_records import UsedEvidence
 from ontographrag.rag.systems.enhanced_rag_system import EnhancedRAGSystem
 from ontographrag.rag.systems.vanilla_rag_system import VanillaRAGSystem
+from tests.conftest import (
+    UnusedGraph,
+    required_int_field,
+    required_text_field,
+    unused_runnable,
+)
 
 if TYPE_CHECKING:
     from langchain_core.runnables import RunnableLambda
@@ -58,8 +66,16 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+class AnswerChunk(TypedDict):
+    text: str
+
+
+class AnswerContext(TypedDict):
+    chunks: list[AnswerChunk]
+
+
 class AnswerArguments(TypedDict):
-    context: RetrievalContext
+    context: AnswerContext
 
 
 class GuardrailArguments(TypedDict):
@@ -85,7 +101,7 @@ def _make_vanilla_system() -> VanillaRAGSystem:
 
 def _minimal_context(
     chunks: list[RetrievedChunk] | None = None,
-    entities: dict[str, RetrievedEntity] | None = None,
+    entities: dict[StoredGraphKey, RetrievedEntity] | None = None,
     relationships: list[RetrievedRelationship] | None = None,
     traversal_paths: list[TraversalPath] | None = None,
 ) -> RetrievalContext:
@@ -266,7 +282,7 @@ class TestQuestionLocalGraphScope:
             def query(
                 self,
                 query: str,
-                params: dict[str, object] | None,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 self.query_text = query
                 self.params = params
@@ -282,6 +298,8 @@ class TestQuestionLocalGraphScope:
         )
 
         assert result == {"neighbors": {}, "paths": []}
+        assert graph.params is not None
+        assert graph.query_text is not None
         assert graph.params["question_id"] == "q1"
         assert "ALL(idx IN range(0, length(path) - 1)" in graph.query_text
         assert "c1.questionId = $question_id" in graph.query_text
@@ -298,7 +316,7 @@ class TestQuestionLocalGraphScope:
             def query(
                 self,
                 query: str,
-                params: dict[str, object] | None,
+                params: dict[str, object] | None = None,
             ) -> list[dict[str, object]]:
                 self.query_text = query
                 self.params = params
@@ -315,6 +333,8 @@ class TestQuestionLocalGraphScope:
         )
 
         assert result == {"neighbors": {}, "paths": []}
+        assert graph.params is not None
+        assert graph.query_text is not None
         assert graph.params["document_names"] == ["doc_a.txt"]
         assert "d.fileName IN $document_names" in graph.query_text
 
@@ -364,6 +384,8 @@ class TestQuestionLocalGraphScope:
         )
 
         assert len(pruned["relationships"]) == 1
+        assert "relationships" in pruned
+        assert "type" in pruned["relationships"][0]
         assert pruned["relationships"][0]["type"] == "REL"
 
 
@@ -497,7 +519,7 @@ class TestPprEntityScores:
     sys_: EnhancedRAGSystem = _make_system()
 
     def test_bidirectional_walk_and_dangling_mass_preserved(self) -> None:
-        scores: dict[str, float] = self.sys_._ppr_entity_scores(
+        scores: dict[StoredGraphKey, float] = self.sys_._ppr_entity_scores(
             seed_ids=["a"],
             all_entity_ids=["a", "b", "c"],
             edges=[("a", "b")],
@@ -538,6 +560,7 @@ class TestMergeRetrievalContexts:
             search_method="hybrid",
         )
 
+        assert "seed_entity_count" in merged
         assert merged["seed_entity_count"] == 5
 
 
@@ -584,12 +607,12 @@ class TestVanillaQuestionScopedRetrieval:
         graph: FakeGraph = FakeGraph()
         system._create_neo4j_connection = lambda: graph
 
-        def fake_generate_query_embedding(_: "object") -> "list[float]":
+        def fake_generate_query_embedding(query: str) -> "list[float]":
             return [0.0, 0.1]
 
         system._generate_query_embedding = fake_generate_query_embedding
 
-        def fake_resolve_vector_index_name(_: "object") -> "str":
+        def fake_resolve_vector_index_name(graph: object) -> "str":
             return "retrieval_vector"
 
         system._resolve_vector_index_name = fake_resolve_vector_index_name
@@ -616,6 +639,8 @@ class TestVanillaQuestionScopedRetrieval:
             in search_query
         )
         assert len(context["chunks"]) == 1
+        assert "chunks" in context
+        assert "question_id" in context["chunks"][0]
         assert context["chunks"][0]["question_id"] == "q1"
 
     def test_retrieval_vector_empty_question_scope_falls_back_to_chunk_vector(
@@ -659,12 +684,12 @@ class TestVanillaQuestionScopedRetrieval:
         graph: FakeGraph = FakeGraph()
         system._create_neo4j_connection = lambda: graph
 
-        def fake_generate_query_embedding(_: "object") -> "list[float]":
+        def fake_generate_query_embedding(query: str) -> "list[float]":
             return [0.0, 0.1]
 
         system._generate_query_embedding = fake_generate_query_embedding
 
-        def fake_resolve_vector_index_name(_: "object") -> "str":
+        def fake_resolve_vector_index_name(graph: object) -> "str":
             return "retrieval_vector"
 
         system._resolve_vector_index_name = fake_resolve_vector_index_name
@@ -681,8 +706,11 @@ class TestVanillaQuestionScopedRetrieval:
             "CALL db.index.vector.queryNodes('vector'" in query
             for query, _params in graph.queries
         )
+        assert "search_method" in context
         assert context["search_method"] == "vanilla_vector_similarity"
         assert len(context["chunks"]) == 1
+        assert "chunks" in context
+        assert "question_id" in context["chunks"][0]
         assert context["chunks"][0]["question_id"] == "q1"
 
 
@@ -694,7 +722,7 @@ class TestEnhancedQuestionScopedVectorRetrieval:
         system._active_vector_index_name = "retrieval_vector"
         system.check_vector_index = lambda: True
 
-        def fake_generate_query_embedding(_: "object") -> "list[float]":
+        def fake_generate_query_embedding(query: str) -> "list[float]":
             return [0.0, 0.1]
 
         system._generate_query_embedding = fake_generate_query_embedding
@@ -755,6 +783,8 @@ class TestEnhancedQuestionScopedVectorRetrieval:
             in search_query
         )
         assert len(context["chunks"]) == 1
+        assert "chunks" in context
+        assert "question_id" in context["chunks"][0]
         assert context["chunks"][0]["question_id"] == "q1"
 
     def test_retrieval_vector_empty_question_scope_falls_back_to_chunk_vector(
@@ -764,7 +794,7 @@ class TestEnhancedQuestionScopedVectorRetrieval:
         system._active_vector_index_name = "retrieval_vector"
         system.check_vector_index = lambda: True
 
-        def fake_generate_query_embedding(_: "object") -> "list[float]":
+        def fake_generate_query_embedding(query: str) -> "list[float]":
             return [0.0, 0.1]
 
         system._generate_query_embedding = fake_generate_query_embedding
@@ -814,8 +844,11 @@ class TestEnhancedQuestionScopedVectorRetrieval:
             "CALL db.index.vector.queryNodes('vector'" in query
             for query, _params in graph.queries
         )
+        assert "search_method" in context
         assert context["search_method"] == "vector_similarity"
         assert len(context["chunks"]) == 1
+        assert "chunks" in context
+        assert "question_id" in context["chunks"][0]
         assert context["chunks"][0]["question_id"] == "q1"
 
 
@@ -876,6 +909,7 @@ class TestLateInteractionFirstStageRetrieval:
             llm=None,
         )
 
+        assert "search_method" in context
         assert context["search_method"] == "late_interaction_similarity"
         assert context["chunks"][0]["text"] == "Late interaction evidence."
 
@@ -931,11 +965,12 @@ class TestLateInteractionFirstStageRetrieval:
         system._vector_similarity_search = fake_vector_similarity_search
 
         context: GraphRetrievalContext = system._semantic_similarity_search(
-            graph=object(),
+            graph=UnusedGraph(),
             query="Question?",
             max_chunks=1,
         )
 
+        assert "search_method" in context
         assert context["search_method"] == "vector_similarity"
         assert context["chunks"][0]["text"] == "Vector fallback."
 
@@ -945,15 +980,17 @@ class TestLateInteractionFirstStageRetrieval:
     ) -> None:
         system: EnhancedRAGSystem = _make_system()
 
-        def fake_late_interaction_scope_key(**kwargs: object) -> "tuple[str]":
-            return ("scope",)
+        def fake_late_interaction_scope_key(
+            **kwargs: object,
+        ) -> tuple[str, tuple[str, ...], str, bool]:
+            return ("scope", (), "", False)
 
         system._late_interaction_scope_key = fake_late_interaction_scope_key
 
         def fake_late_interaction_corpus_rows(
             *args: object,
             **kwargs: object,
-        ) -> "list[RetrievedChunk]":
+        ) -> list[ChunkProjection]:
             return [
                 {
                     "text": "Corpus-order chunk that should not masquerade as retrieval.",
@@ -984,13 +1021,16 @@ class TestLateInteractionFirstStageRetrieval:
         )
 
         context: GraphRetrievalContext = system._late_interaction_search(
-            object(),
+            UnusedGraph(),
             "Question?",
             max_chunks=1,
         )
 
         assert context["chunks"] == []
+        assert "search_method" in context
         assert context["search_method"] == "late_interaction_unavailable"
+        assert "late_interaction_stage" in context
+        assert "reason" in context["late_interaction_stage"]
         assert context["late_interaction_stage"]["reason"] == "model_unavailable"
 
     def test_enhanced_semantic_search_can_bypass_first_stage_late_interaction(
@@ -1032,12 +1072,13 @@ class TestLateInteractionFirstStageRetrieval:
         system._vector_similarity_search = fake_vector_similarity_search
 
         context: GraphRetrievalContext = system._semantic_similarity_search(
-            graph=object(),
+            graph=UnusedGraph(),
             query="Question?",
             max_chunks=1,
             allow_first_stage_late_interaction=False,
         )
 
+        assert "search_method" in context
         assert context["search_method"] == "vector_similarity"
         assert context["chunks"][0]["text"] == "Dense floor."
 
@@ -1047,15 +1088,17 @@ class TestLateInteractionFirstStageRetrieval:
     ) -> None:
         system: VanillaRAGSystem = VanillaRAGSystem.__new__(VanillaRAGSystem)
 
-        def fake_late_interaction_scope_key(**kwargs: object) -> "tuple[str]":
-            return ("scope",)
+        def fake_late_interaction_scope_key(
+            **kwargs: object,
+        ) -> tuple[str, tuple[str, ...], str]:
+            return ("scope", (), "")
 
         system._late_interaction_scope_key = fake_late_interaction_scope_key
 
         def fake_late_interaction_corpus_rows(
             *args: object,
             **kwargs: object,
-        ) -> "list[RetrievedChunk]":
+        ) -> list[ChunkProjection]:
             return [
                 {
                     "text": "Corpus-order chunk that should not masquerade as retrieval.",
@@ -1084,13 +1127,16 @@ class TestLateInteractionFirstStageRetrieval:
         )
 
         context: ScoredCompleteRetrievalContext = system._late_interaction_search(
-            object(),
+            UnusedGraph(),
             "Question?",
             max_chunks=1,
         )
 
         assert context["chunks"] == []
+        assert "search_method" in context
         assert context["search_method"] == "vanilla_late_interaction_unavailable"
+        assert "late_interaction_stage" in context
+        assert "reason" in context["late_interaction_stage"]
         assert context["late_interaction_stage"]["reason"] == "model_unavailable"
 
     def test_vanilla_context_prefers_late_interaction_backend(
@@ -1139,6 +1185,7 @@ class TestLateInteractionFirstStageRetrieval:
             max_chunks=1,
         )
 
+        assert "search_method" in context
         assert context["search_method"] == "vanilla_late_interaction_similarity"
         assert context["chunks"][0]["text"] == "Late interaction evidence."
 
@@ -1214,7 +1261,9 @@ class TestEnhancedAdjacentChunkRecovery:
         adjacent: RetrievedChunk = next(
             chunk for chunk in expanded["chunks"] if chunk.get("adjacent")
         )
+        assert "question_id" in adjacent
         assert adjacent["question_id"] == "q1"
+        assert "linked_entity_ids" in adjacent
         assert adjacent["linked_entity_ids"] == ["entity-2"]
         adj_query: str = graph.queries[0][0]
         assert "adj.questionId = $question_id" in adj_query
@@ -1253,7 +1302,7 @@ class TestDocumentScopedEnhancedRetrieval:
             llm: object | None = None,
             document_names: list[str] | None = None,
             anchor_mask_entity_ids: list[str] | None = None,
-            anchor_mask_entity_names: list[str] | None = None,
+            anchor_mask_entity_names: Sequence[object] | None = None,
         ) -> RetrievalContext | None:
             captured["document_names"] = document_names
             return {
@@ -1310,7 +1359,8 @@ class TestEnhancedRetrievalUpgrades:
             "Who directed Lost and Delirious?",
             chunks,
         )
-        assert "Lost and Delirious" in sorted_chunks[0]["text"]
+        assert "text" in sorted_chunks[0]
+        assert "Lost and Delirious" in required_text_field(sorted_chunks[0], "text")
 
 
 def test_enhanced_query_fusion_supplements_missing_comparison_branch(
@@ -1443,7 +1493,7 @@ def test_enhanced_query_fusion_supplements_missing_comparison_branch(
 
     result: GenerationResponse = system.generate_response(
         question,
-        llm=object(),
+        llm=unused_runnable(),
         max_hops=1,
     )
 
@@ -1540,7 +1590,7 @@ def test_vanilla_query_fusion_supplements_missing_comparison_branch(
 
     result: GenerationResponse = system.generate_response(
         question,
-        llm=object(),
+        llm=unused_runnable(),
         max_chunks=4,
     )
 
@@ -1676,11 +1726,13 @@ def test_enhanced_generate_response_respects_reranker_order(
 
     result: GenerationResponse = system.generate_response(
         "Who directed Lost and Delirious?",
-        llm=object(),
+        llm=unused_runnable(),
         max_hops=1,
     )
 
     assert result["response"].startswith("Lost and Delirious is directed by Lea Pool.")
+    assert "reranker" in result
+    assert "applied" in result["reranker"]
     assert result["reranker"]["applied"] is True
 
 
@@ -1781,11 +1833,13 @@ def test_vanilla_generate_response_respects_reranker_order(
 
     result: GenerationResponse = system.generate_response(
         "Who directed Lost and Delirious?",
-        llm=object(),
+        llm=unused_runnable(),
         max_chunks=4,
     )
 
     assert result["response"].startswith("Lost and Delirious is directed by Lea Pool.")
+    assert "reranker" in result
+    assert "applied" in result["reranker"]
     assert result["reranker"]["applied"] is True
 
 
@@ -1917,11 +1971,13 @@ def test_enhanced_generate_response_respects_late_interaction_order(
 
     result: GenerationResponse = system.generate_response(
         "Who directed Lost and Delirious?",
-        llm=object(),
+        llm=unused_runnable(),
         max_hops=1,
     )
 
     assert result["response"].startswith("Lost and Delirious is directed by Lea Pool.")
+    assert "late_interaction" in result
+    assert "applied" in result["late_interaction"]
     assert result["late_interaction"]["applied"] is True
 
 
@@ -2022,11 +2078,13 @@ def test_vanilla_generate_response_respects_late_interaction_order(
 
     result: GenerationResponse = system.generate_response(
         "Who directed Lost and Delirious?",
-        llm=object(),
+        llm=unused_runnable(),
         max_chunks=4,
     )
 
     assert result["response"].startswith("Lost and Delirious is directed by Lea Pool.")
+    assert "late_interaction" in result
+    assert "applied" in result["late_interaction"]
     assert result["late_interaction"]["applied"] is True
 
 
@@ -2239,7 +2297,7 @@ class TestGraphEvidenceFormatting:
 
         answer: str = system._invoke_answer_chain(
             question="Does it work?",
-            llm=object(),
+            llm=unused_runnable(),
             context=context,
             kg_name="pubmedqa",
         )
@@ -2290,7 +2348,7 @@ class TestTraversalRelevanceGate:
         # Simulate the gate with no query embedding → gate is skipped
         # (query_embedding guard: gate only runs when query_embedding is truthy)
         # Confirm seed chunks survive when gate is disabled
-        assert all(c["min_hop"] == 0 for c in chunks)
+        assert all(required_int_field(c, "min_hop") == 0 for c in chunks)
 
     def test_gate_disabled_at_zero_threshold(self) -> None:
         """Setting threshold to 0.0 skips the gate entirely."""
@@ -2352,9 +2410,12 @@ class TestPerPassageChunkCap:
         result: list[RetrievedChunk] = self._apply_cap(chunks, cap=2)
         from collections import Counter
 
-        counts: Counter[str] = Counter(
-            f"{c['question_id']}::p{c['passage_index']}" for c in result
-        )
+        def passage_key(chunk: RetrievedChunk) -> str:
+            question_id: str = required_text_field(chunk, "question_id")
+            passage_index: int = required_int_field(chunk, "passage_index")
+            return f"{question_id}::p{passage_index}"
+
+        counts: Counter[str] = Counter(passage_key(c) for c in result)
         assert counts["q1::p0"] == 2
         assert counts["q1::p1"] == 2
 
@@ -2460,7 +2521,10 @@ class TestPerPassageChunkCap:
 
         result: list[RetrievedChunk] = self._apply_cap(chunks, cap=1)
 
-        assert [chunk["chunk_id"] for chunk in result] == ["high", "other"]
+        assert [required_text_field(chunk, "chunk_id") for chunk in result] == [
+            "high",
+            "other",
+        ]
 
 
 class TestRetrievalCacheInvalidation:

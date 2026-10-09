@@ -87,7 +87,9 @@ def test_resolve_question_subset_creates_and_then_reuses_saved_ids(
     assert reused.created is False
     assert created.question_ids == reused.question_ids
     assert selection_path.exists()
+    assert "selection_key" in created.payload
     assert created.payload["selection_key"] == "n3_seed11"
+    assert "subset_id" in created.payload
     assert created.payload["subset_id"].startswith("musique__n3_seed11_h")
 
 
@@ -199,3 +201,16 @@ def test_resolve_question_subset_errors_on_missing_saved_ids(tmp_path: Path) -> 
             subset_seed=5,
             selection_path=selection_path,
         )
+
+
+def test_public_subset_dataclass_annotations_resolve() -> None:
+    from typing import get_type_hints
+
+    from experiments.subset_selection import (
+        QuestionSubsetResolution,
+        sample_size_token,
+    )
+
+    hints: dict[str, object] = get_type_hints(QuestionSubsetResolution)
+    assert set(hints) == {"question_ids", "payload", "created", "warnings"}
+    assert get_type_hints(sample_size_token)["return"] is str

@@ -1,5 +1,6 @@
 import logging
 import re
+from typing import cast
 
 from langchain.docstore.document import Document
 from langchain_neo4j import Neo4jGraph
@@ -42,7 +43,7 @@ class CreateChunksofDocument:
         MAX_TOKEN_CHUNK_SIZE: int = 8000  # Fixed value for determinism
         chunk_to_be_created: int = int(MAX_TOKEN_CHUNK_SIZE / token_chunk_size)
 
-        if "page" in self.pages[0].metadata:
+        if "page" in cast(dict[object, object], self.pages[0].metadata):
             chunks: list[Document] = []
             for i, document in enumerate(self.pages):
                 page_number: int = i + 1
@@ -57,13 +58,13 @@ class CreateChunksofDocument:
                             ),
                         )
 
-        elif "length" in self.pages[0].metadata:
+        elif "length" in cast(dict[object, object], self.pages[0].metadata):
             if len(self.pages) == 1 or (
                 len(self.pages) > 1 and self.pages[1].page_content.strip() == ""
             ):
                 match: re.Match[str] | None = re.search(
                     r"(?:v=)([0-9A-Za-z_-]{11})\s*",
-                    self.pages[0].metadata["source"],
+                    cast(dict[object, object], self.pages[0].metadata)["source"],
                 )
                 youtube_id: str = match.group(1)
                 chunks_without_time_range: list[Document] = (
