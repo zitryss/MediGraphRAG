@@ -419,6 +419,9 @@ ExtractionRelationship: TypeAlias = (
     | ReflectedRelationship
     | RawExtractionRelationship
 )
+RelationshipRecoveryInput: TypeAlias = (
+    DecodedJSONValue | Sequence[ExtractionRelationship | DecodedJSONValue]
+)
 HarmonizableEntity: TypeAlias = (
     EntityNode | PostprocessedEntity | HarmonizationCandidate
 )
@@ -629,7 +632,7 @@ class GraphChunkInput(TypedDict, total=False):
     question_id: ReadOnly[str | None]
     passage_index: ReadOnly[int]
     chunk_local_index: ReadOnly[int]
-    source_title: ReadOnly[str | None]
+    source_title: ReadOnly[object]
     source_scope_key: ReadOnly[str | None]
 
 
@@ -3525,7 +3528,7 @@ class OntologyGuidedKGCreator(
 
     @staticmethod
     def _attach_relationship_provenance(
-        relationships: Sequence[ExtractionRelationship] | DecodedJSONValue,
+        relationships: RelationshipRecoveryInput,
         chunk_positions: list[int],
     ) -> list[ExtractionRelationship]:
         """Attach local chunk provenance so triple verification can stay passage-local."""
@@ -4070,7 +4073,7 @@ class OntologyGuidedKGCreator(
             source_label: str = (
                 f"{passage.dataset}/{passage.question_id}/p{passage.passage_index}"
             )
-            source_title: str | None = getattr(
+            source_title: object = getattr(
                 passage,
                 "source_title",
                 None,

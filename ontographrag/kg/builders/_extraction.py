@@ -55,8 +55,10 @@ if TYPE_CHECKING:
         PostprocessedExtractionResult,
         RawExtractionRelationship,
         ReflectedRelationship,
+        RelationshipRecoveryInput,
         ResolvedExtractionRelationship,
     )
+    from ontographrag.kg.chunking import RelationshipScopeMetadata
     from ontographrag.providers.model_providers import ModelOutput
     from ontographrag.schemas.models import OntologySchema
 
@@ -84,7 +86,7 @@ class ExtractionMixin:
 
         @staticmethod
         def _attach_relationship_provenance(
-            relationships: "Sequence[ExtractionRelationship] | DecodedJSONValue",
+            relationships: "RelationshipRecoveryInput",
             chunk_positions: list[int],
         ) -> "list[ExtractionRelationship]": ...
 
@@ -329,7 +331,7 @@ class ExtractionMixin:
         question_id: str | None = chunk.get("question_id")
         passage_index: int | None = chunk.get("passage_index")
         source_label: str | None = chunk.get("source")
-        source_title: str | None = chunk.get("source_title")
+        source_title: object = chunk.get("source_title")
         source_scope_key: str | None = chunk.get(
             "source_scope_key",
         ) or self._build_passage_scope_key(
@@ -2179,7 +2181,7 @@ Rules:
         *,
         max_window_size: int,
         scope_label: str,
-        relationship_scope_metadata: Mapping[str, str | int | None] | None = None,
+        relationship_scope_metadata: "RelationshipScopeMetadata | Mapping[str, str | int | None] | None" = None,
     ) -> "list[ExtractionRelationship]":
         """Recover relationships that span multiple adjacent chunks or passages."""
         if llm is None or len(segment_texts) < 2:
@@ -2211,7 +2213,7 @@ Rules:
                 if len(candidate_entities) < 2:
                     continue
 
-                new_rels: DecodedJSONValue = self._extract_relationships_only(
+                new_rels: RelationshipRecoveryInput = self._extract_relationships_only(
                     combined_text,
                     candidate_entities,
                     llm,

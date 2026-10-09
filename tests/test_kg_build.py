@@ -34,7 +34,11 @@ from ontographrag.kg.builders._creator_shared import (
     PassageGroup,
     RestorationRecord,
 )
-from ontographrag.kg.chunking import ChunkGroundingInput, TextChunk
+from ontographrag.kg.chunking import (
+    ChunkGroundingInput,
+    RelationshipScopeMetadata,
+    TextChunk,
+)
 
 # Skip the whole module gracefully if heavy KG dependencies aren't installed.
 # The project venv includes all of these; this guard is for CI environments
@@ -134,7 +138,9 @@ class WindowCapture(TypedDict, total=False):
     segment_positions: dict[int, list[int]]
     max_window_size: int
     scope_label: str
-    relationship_scope_metadata: Mapping[str, str | int | None] | None
+    relationship_scope_metadata: (
+        RelationshipScopeMetadata | Mapping[str, str | int | None] | None
+    )
 
 
 class _Passage:
@@ -1362,7 +1368,9 @@ class TestSectionAwareChunking:
             *,
             max_window_size: int,
             scope_label: str,
-            relationship_scope_metadata: Mapping[str, str | int | None] | None = None,
+            relationship_scope_metadata: RelationshipScopeMetadata
+            | Mapping[str, str | int | None]
+            | None = None,
         ) -> list[ExtractionRelationship]:
             captured["segment_texts"] = segment_texts
             captured["segment_positions"] = segment_positions

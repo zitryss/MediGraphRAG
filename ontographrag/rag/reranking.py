@@ -746,7 +746,7 @@ def late_interaction_rescore_chunks_for_query(
                         scored_chunks,
                         key=lambda item: (
                             -item[0],
-                            -float(item[2].get("score", 0.0)),
+                            -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
                             item[1],
                         ),
                     )
@@ -793,7 +793,7 @@ def late_interaction_rescore_chunks_for_query(
             scored_chunks,
             key=lambda item: (
                 -item[0],
-                -float(item[2].get("score", 0.0)),
+                -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
                 item[1],
             ),
         )
@@ -879,7 +879,7 @@ def rerank_chunks_for_query(
             scored_chunks,
             key=lambda item: (
                 -item[0],
-                -float(item[2].get("score", 0.0)),
+                -float(cast(RetrievedChunk, item[2]).get("score", 0.0)),
                 item[1],
             ),
         )

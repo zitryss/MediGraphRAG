@@ -38,7 +38,8 @@ class TextChunk(TypedDict):
     question_id: NotRequired[str]
     passage_index: NotRequired[int]
     chunk_local_index: NotRequired[int]
-    source_title: NotRequired[str | None]
+    # Optional passage attributes are copied here without conversion.
+    source_title: NotRequired[object]
     source_scope_key: NotRequired[str | None]
 
 
@@ -52,7 +53,18 @@ class ChunkGroundingInput(TypedDict, total=False):
     question_id: str
     passage_index: int
     source: str | None
-    source_title: str | None
+    source_title: object
+    source_scope_key: str | None
+
+
+class RelationshipScopeMetadata(TypedDict, total=False):
+    """Recovery provenance; only the optional passage title is unnormalized."""
+
+    dataset: str | None
+    question_id: str | None
+    passage_index: int | None
+    source: str | None
+    source_title: object
     source_scope_key: str | None
 
 

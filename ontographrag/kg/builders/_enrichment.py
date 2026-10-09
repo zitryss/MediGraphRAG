@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         RelationshipRecord,
         SectionSegment,
     )
+    from ontographrag.kg.chunking import RelationshipScopeMetadata
     from ontographrag.providers.model_providers import ModelOutput
 
 
@@ -103,7 +104,7 @@ class EnrichmentMixin:
             *,
             max_window_size: int,
             scope_label: str,
-            relationship_scope_metadata: Mapping[str, str | int | None] | None = None,
+            relationship_scope_metadata: "RelationshipScopeMetadata | Mapping[str, str | int | None] | None" = None,
         ) -> "list[ExtractionRelationship]": ...
 
         def _find_exact_text_spans(
