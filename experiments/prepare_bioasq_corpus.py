@@ -17,27 +17,34 @@ import logging
 import os
 import re
 import time
-from pathlib import Path
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import requests
+from typing_extensions import TypedDict
 
 
-logger = logging.getLogger(__name__)
+class PubMedAbstract(TypedDict):
+    pmid: str
+    title: str
+    abstract: str
+
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 NCBI_EUTILS_BASE: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-DEFAULT_BIOASQ_PATH = Path(
+DEFAULT_BIOASQ_PATH: Path = Path(
     "MIRAGE/rawdata/bioasq/Task10BGoldenEnriched/10B1_golden.json"
 )
-DEFAULT_OUTPUT_PATH = Path("MIRAGE/rawdata/bioasq/pubmed_abstracts.jsonl")
-PMID_RE = re.compile(r"/pubmed/(\d+)")
+DEFAULT_OUTPUT_PATH: Path = Path("MIRAGE/rawdata/bioasq/pubmed_abstracts.jsonl")
+PMID_RE: re.Pattern[str] = re.compile(r"/pubmed/(\d+)")
 
 
 def extract_pmid_from_url(url: str) -> str | None:
     """Extract a PMID from a BioASQ PubMed URL."""
-    text = str(url or "").strip()
-    match = PMID_RE.search(text)
+    text: str = str(url or "").strip()
+    match: re.Match[str] | None = PMID_RE.search(text)
     if match:
         return match.group(1)
     if text.isdigit():
@@ -47,15 +54,15 @@ def extract_pmid_from_url(url: str) -> str | None:
 
 def load_bioasq_pmids(bioasq_path: Path) -> list[str]:
     """Collect unique PMIDs referenced by a BioASQ golden file."""
-    data = json.loads(bioasq_path.read_text())
-    questions = data.get("questions", []) if isinstance(data, dict) else []
+    data: object = json.loads(bioasq_path.read_text())
+    questions: object = data.get("questions", []) if isinstance(data, dict) else []
 
     pmids: set[str] = set()
     for question in questions:
         if not isinstance(question, dict):
             continue
         for url in question.get("documents", []) or []:
-            pmid = extract_pmid_from_url(str(url))
+            pmid: str | None = extract_pmid_from_url(str(url))
             if pmid:
                 pmids.add(pmid)
         for snippet in question.get("snippets", []) or []:
@@ -72,33 +79,37 @@ def _stringify_xml_text(elem: ET.Element | None) -> str:
     """Flatten an XML element into readable text."""
     if elem is None:
         return ""
-    text = "".join(elem.itertext())
+    text: str = "".join(elem.itertext())
     return re.sub(r"\s+", " ", text).strip()
 
 
-def parse_pubmed_article_xml(xml_text: str) -> dict[str, dict[str, str]]:
+def parse_pubmed_article_xml(xml_text: str) -> dict[str, PubMedAbstract]:
     """Parse an EFetch PubMedArticleSet XML response into PMID -> record."""
-    root = ET.fromstring(xml_text)
-    records: dict[str, dict[str, str]] = {}
+    root: ET.Element = ET.fromstring(xml_text)
+    records: dict[str, PubMedAbstract] = {}
 
     for article in root.findall(".//PubmedArticle"):
-        pmid = _stringify_xml_text(article.find(".//MedlineCitation/PMID"))
+        pmid: str = _stringify_xml_text(article.find(".//MedlineCitation/PMID"))
         if not pmid:
             continue
 
-        article_title = _stringify_xml_text(article.find(".//Article/ArticleTitle"))
-        abstract_nodes = article.findall(".//Article/Abstract/AbstractText")
+        article_title: str = _stringify_xml_text(
+            article.find(".//Article/ArticleTitle")
+        )
+        abstract_nodes: list[ET.Element] = article.findall(
+            ".//Article/Abstract/AbstractText"
+        )
         abstract_parts: list[str] = []
         for node in abstract_nodes:
-            label = str(node.attrib.get("Label", "")).strip()
-            part = _stringify_xml_text(node)
+            label: str = str(node.attrib.get("Label", "")).strip()
+            part: str = _stringify_xml_text(node)
             if not part:
                 continue
             if label:
                 abstract_parts.append(f"{label}: {part}")
             else:
                 abstract_parts.append(part)
-        abstract = "\n".join(abstract_parts).strip()
+        abstract: str = "\n".join(abstract_parts).strip()
 
         records[pmid] = {
             "pmid": pmid,
@@ -116,9 +127,9 @@ def fetch_pubmed_batch(
     api_key: str | None = None,
     tool: str = "ontographrag",
     timeout_seconds: float = 60.0,
-) -> dict[str, dict[str, str]]:
+) -> dict[str, PubMedAbstract]:
     """Fetch one PMID batch from PubMed via EFetch XML."""
-    params = {
+    params: dict[str, str] = {
         "db": "pubmed",
         "id": ",".join(pmids),
         "retmode": "xml",
@@ -129,7 +140,7 @@ def fetch_pubmed_batch(
     if api_key:
         params["api_key"] = api_key
 
-    response = requests.get(
+    response: requests.Response = requests.get(
         f"{NCBI_EUTILS_BASE}/efetch.fcgi",
         params=params,
         timeout=timeout_seconds,
@@ -139,9 +150,9 @@ def fetch_pubmed_batch(
     return parse_pubmed_article_xml(response.text)
 
 
-def load_existing_corpus(output_path: Path) -> dict[str, dict[str, str]]:
+def load_existing_corpus(output_path: Path) -> dict[str, object]:
     """Load an existing JSONL corpus file so reruns can resume incrementally."""
-    existing: dict[str, dict[str, str]] = {}
+    existing: dict[str, object] = {}
     if not output_path.exists():
         return existing
 
@@ -151,10 +162,10 @@ def load_existing_corpus(output_path: Path) -> dict[str, dict[str, str]]:
             if not line:
                 continue
             try:
-                record = json.loads(line)
+                record: object = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            pmid = str(record.get("pmid", "")).strip()
+            pmid: str = str(record.get("pmid", "")).strip()
             if pmid:
                 existing[pmid] = record
     return existing
@@ -186,12 +197,12 @@ def build_bioasq_shared_corpus(
         raise FileNotFoundError(f"BioASQ file not found: {bioasq_path}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    pmids = load_bioasq_pmids(bioasq_path)
+    pmids: list[str] = load_bioasq_pmids(bioasq_path)
     if max_pmids is not None:
         pmids = pmids[:max_pmids]
 
-    existing = {} if overwrite else load_existing_corpus(output_path)
-    pending = [pmid for pmid in pmids if pmid not in existing]
+    existing: dict[str, object] = {} if overwrite else load_existing_corpus(output_path)
+    pending: list[str] = [pmid for pmid in pmids if pmid not in existing]
 
     logger.info(
         "BioASQ corpus prep: %d PMIDs total, %d already cached, %d pending",
@@ -200,19 +211,21 @@ def build_bioasq_shared_corpus(
         len(pending),
     )
 
-    fetched: dict[str, dict[str, str]] = dict(existing)
+    fetched: dict[str, object] = dict(existing)
     missing: set[str] = set()
 
     for batch_num, batch in enumerate(_chunked(pending, batch_size), start=1):
         logger.info("Fetching PubMed batch %d (%d PMIDs)", batch_num, len(batch))
         try:
-            records = fetch_pubmed_batch(batch, email=email, api_key=api_key)
+            records: dict[str, PubMedAbstract] = fetch_pubmed_batch(
+                batch, email=email, api_key=api_key
+            )
         except Exception as e:
             logger.error("Failed to fetch batch %d: %s", batch_num, e)
             raise
 
         fetched.update(records)
-        batch_missing = set(batch) - set(records.keys())
+        batch_missing: set[str] = set(batch) - set(records.keys())
         if batch_missing:
             missing.update(batch_missing)
             logger.warning(
@@ -224,9 +237,9 @@ def build_bioasq_shared_corpus(
         if sleep_seconds > 0:
             time.sleep(sleep_seconds)
 
-    ordered_records: list[dict[str, str]] = []
+    ordered_records: list[object] = []
     for pmid in pmids:
-        record = fetched.get(pmid)
+        record: object = fetched.get(pmid)
         if not record:
             missing.add(pmid)
             continue
@@ -246,7 +259,7 @@ def build_bioasq_shared_corpus(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description="Build a shared PubMed abstract corpus for BioASQ retrieval benchmarking."
     )
     parser.add_argument(
@@ -300,7 +313,7 @@ def main() -> None:
         default=False,
         help="Enable info-level logging.",
     )
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,

@@ -62,25 +62,100 @@ import logging
 import re
 import threading
 import time
+from _thread import LockType
+from collections.abc import Mapping, Sequence
 from difflib import SequenceMatcher
-from typing import TYPE_CHECKING, Any
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    LiteralString,
+    Protocol,
+    TypeAlias,
+    cast,
+    overload,
+)
 
 from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
-    from neo4j import Session
+    from neo4j import Driver, Record, Result, Session
+    from sentence_transformers import SentenceTransformer
+    from transformers.modeling_utils import PreTrainedModel
+    from transformers.tokenization_utils_base import (
+        BatchEncoding,
+        PreTrainedTokenizerBase,
+    )
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-logger = logging.getLogger(__name__)
 
-_SENTENCE_TRANSFORMER_CACHE: dict[str, Any] = {}
-_SENTENCE_TRANSFORMER_CACHE_LOCK = threading.Lock()
+class StructuralResolutionFailure(TypedDict):
+    null_reason: Literal["no_q_entities", "no_a_entities", "trivial_overlap"]
 
-_NLI_MODEL_CACHE: dict[str, Any] = {}
-_NLI_TOKENIZER_CACHE: dict[str, Any] = {}
-_NLI_CACHE_LOCK = threading.Lock()
+
+class ResolvedStructuralEntities(TypedDict):
+    null_reason: None
+    question_entity_ids: list[str]
+    answer_entity_ids: list[str]
+    question_sources_by_answer: dict[str, list[str]]
+
+
+StructuralEntityResolution: TypeAlias = (
+    StructuralResolutionFailure | ResolvedStructuralEntities
+)
+
+
+class InformativenessRow(TypedDict):
+    """Exact Cypher projection; graph property values remain unchecked."""
+
+    candidate_id: object
+    candidate_name: object
+    rel_type: str
+    path_len: int
+
+
+class SupportPathRow(TypedDict):
+    a_id: str
+    rel_ids: list[int]
+
+
+# Neo4j's SDK requires a plain mutable dict for parameters. These maps contain
+# only bound scalar names and ID sequences; query text remains a separate input.
+StructuralPathParameters: TypeAlias = dict[str, list[str] | str]
+EntityWalkParameters: TypeAlias = dict[str, list[object] | str]
+
+
+EmbeddingArray: TypeAlias = NDArray[np.float16 | np.float32 | np.float64]
+EmbeddingScalar: TypeAlias = float | np.float16 | np.float32 | np.float64
+
+
+logger: logging.Logger = logging.getLogger(__name__)
+
+_SENTENCE_TRANSFORMER_CACHE: dict[str, "SentenceTransformer"] = {}
+_SENTENCE_TRANSFORMER_CACHE_LOCK: LockType = threading.Lock()
+
+_NLI_MODEL_CACHE: dict[str, "PreTrainedModel"] = {}
+_NLI_TOKENIZER_CACHE: dict[str, "PreTrainedTokenizerBase"] = {}
+_NLI_CACHE_LOCK: LockType = threading.Lock()
+
+
+@overload
+def _question_local_entity_support_predicate(
+    entity_var: LiteralString,
+    *,
+    kg_name: str | None,
+    question_id: str | None,
+) -> LiteralString: ...
+
+
+@overload
+def _question_local_entity_support_predicate(
+    entity_var: str,
+    *,
+    kg_name: str | None,
+    question_id: str | None,
+) -> str: ...
 
 
 def _question_local_entity_support_predicate(
@@ -95,11 +170,33 @@ def _question_local_entity_support_predicate(
         conditions.append("c.questionId = $question_id")
     if kg_name:
         conditions.append("d.kgName = $kg_name")
-    where_clause = " AND ".join(conditions) if conditions else "true"
+    where_clause: str = " AND ".join(conditions) if conditions else "true"
     return f"""EXISTS {{
         MATCH ({entity_var})<-[:MENTIONS|HAS_ENTITY]-(c:Chunk)-[:PART_OF]->(d:Document)
         WHERE {where_clause}
     }}"""
+
+
+@overload
+def _question_local_pair_support_predicate(
+    left_var: LiteralString,
+    right_var: LiteralString,
+    *,
+    kg_name: str | None,
+    question_id: str | None,
+    relationship_var: LiteralString | None = None,
+) -> LiteralString: ...
+
+
+@overload
+def _question_local_pair_support_predicate(
+    left_var: str,
+    right_var: str,
+    *,
+    kg_name: str | None,
+    question_id: str | None,
+    relationship_var: str | None = None,
+) -> str: ...
 
 
 def _question_local_pair_support_predicate(
@@ -120,7 +217,7 @@ def _question_local_pair_support_predicate(
           AND d1.kgName = $kg_name
           AND d2.kgName = $kg_name"""
 
-    direct_edge_scope = ""
+    direct_edge_scope: str = ""
     if relationship_var:
         direct_edge_scope = (
             f"$question_id IN coalesce({relationship_var}.questionIds, []) OR "
@@ -138,6 +235,24 @@ def _question_local_pair_support_predicate(
               ) <= 1
               {kg_filters}
     }}"""
+
+
+@overload
+def _question_local_path_support_predicate(
+    *,
+    path_var: LiteralString,
+    kg_name: str | None,
+    question_id: str | None,
+) -> LiteralString: ...
+
+
+@overload
+def _question_local_path_support_predicate(
+    *,
+    path_var: str,
+    kg_name: str | None,
+    question_id: str | None,
+) -> str: ...
 
 
 def _question_local_path_support_predicate(
@@ -177,7 +292,7 @@ def _question_local_path_support_predicate(
 
 def _normalize_structural_text(value: object) -> str:
     """Normalize text for conservative entity mention matching."""
-    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower())
+    normalized: str = re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower())
     return re.sub(r"\s+", " ", normalized).strip()
 
 
@@ -189,15 +304,15 @@ def _candidate_structural_spans(
     max_spans: int = 128,
 ) -> list[str]:
     """Generate normalized contiguous spans for lightweight entity matching."""
-    normalized = _normalize_structural_text(text)
+    normalized: str = _normalize_structural_text(text)
     if not normalized:
         return []
 
-    tokens = normalized.split()
-    spans = {normalized} if len(normalized) >= min_name_length else set()
+    tokens: list[str] = normalized.split()
+    spans: set[str] = {normalized} if len(normalized) >= min_name_length else set()
     for start in range(len(tokens)):
         for end in range(start + 1, min(len(tokens), start + max_tokens) + 1):
-            span = " ".join(tokens[start:end]).strip()
+            span: str = " ".join(tokens[start:end]).strip()
             if len(span) >= min_name_length:
                 spans.add(span)
             if len(spans) >= max_spans:
@@ -208,22 +323,26 @@ def _candidate_structural_spans(
 
 
 class ScopedEntity(TypedDict, total=False):
-    id: str | None
-    name: str
-    aliases: list[str]
-    original_ids: list[str]
-    synonyms: list[str]
+    # Cypher projects keys, but legacy graph properties have no runtime schema check.
+    id: object
+    name: object
+    aliases: object
+    original_ids: object
+    synonyms: object
 
 
 def _entity_surface_forms(row: ScopedEntity, *, min_name_length: int) -> list[str]:
     """Return normalized names / aliases / synonyms worth matching."""
-    surface_forms = set()
+    surface_forms: set[str] = set()
     for key in ("name",):
-        normalized = _normalize_structural_text(row.get(key, ""))
+        normalized: str = _normalize_structural_text(row.get(key, ""))
         if len(normalized) >= min_name_length:
             surface_forms.add(normalized)
-    for key in ("aliases", "original_ids", "synonyms"):
-        values = row.get(key) or []
+    alias_keys: tuple[
+        Literal["aliases"], Literal["original_ids"], Literal["synonyms"]
+    ] = ("aliases", "original_ids", "synonyms")
+    for alias_key in alias_keys:
+        values: object = row.get(alias_key) or []
         if not isinstance(values, list):
             continue
         for value in values:
@@ -245,8 +364,8 @@ def _entity_match_score(
     if not text_normalized or not candidate_spans or not surface_forms:
         return 0.0
 
-    candidate_span_set = set(candidate_spans)
-    best_score = 0.0
+    candidate_span_set: set[str] = set(candidate_spans)
+    best_score: float = 0.0
     for surface_form in surface_forms:
         if surface_form in candidate_span_set:
             return (
@@ -265,7 +384,7 @@ def _entity_match_score(
         for span in candidate_spans:
             if abs(len(span.split()) - len(surface_form.split())) > 1:
                 continue
-            ratio = SequenceMatcher(None, span, surface_form).ratio()
+            ratio: float = SequenceMatcher(None, span, surface_form).ratio()
             if ratio >= 0.92:
                 best_score = max(best_score, 3.0 + ratio)
                 break
@@ -298,7 +417,11 @@ def _load_scoped_entities(
         params["kg_name"] = kg_name
     if question_id:
         params["question_id"] = question_id
-    return [dict(row) for row in session.run(scoped_entity_query, params)]
+    # The query projects exactly the ScopedEntity keys; keep the SDK-record dict copy.
+    return [
+        cast(ScopedEntity, dict(row))
+        for row in session.run(scoped_entity_query, params)
+    ]
 
 
 def _match_scoped_entities_to_text(
@@ -353,14 +476,14 @@ def _match_scoped_entities_to_text(
 
 def _primary_answer_span(answer: str) -> str:
     """Use the first sentence / first 150 chars to avoid explanatory spillover."""
-    first_sentence = str(answer or "").split(".")[0].strip()
+    first_sentence: str = str(answer or "").split(".")[0].strip()
     if first_sentence and len(first_sentence) <= 150:
         return first_sentence
     return str(answer or "")[:150]
 
 
 def _resolve_structural_entities(
-    session: Any,
+    session: "Session",
     *,
     question: str,
     answer: str,
@@ -368,9 +491,9 @@ def _resolve_structural_entities(
     kg_name: str | None,
     question_id: str | None,
     min_name_length: int,
-) -> dict[str, Any]:
+) -> StructuralEntityResolution:
     """Resolve question / answer entities and retain non-self support sources."""
-    scoped_entities = _load_scoped_entities(
+    scoped_entities: list[ScopedEntity] = _load_scoped_entities(
         session,
         entity_scope=entity_scope,
         kg_name=kg_name,
@@ -380,7 +503,7 @@ def _resolve_structural_entities(
     if not scoped_entities:
         return {"null_reason": "no_q_entities"}
 
-    question_entities = _match_scoped_entities_to_text(
+    question_entities: list[ScopedEntity] = _match_scoped_entities_to_text(
         question,
         scoped_entities,
         min_name_length=min_name_length,
@@ -388,7 +511,7 @@ def _resolve_structural_entities(
     if not question_entities:
         return {"null_reason": "no_q_entities"}
 
-    answer_entities = _match_scoped_entities_to_text(
+    answer_entities: list[ScopedEntity] = _match_scoped_entities_to_text(
         _primary_answer_span(answer),
         scoped_entities,
         min_name_length=min_name_length,
@@ -396,7 +519,7 @@ def _resolve_structural_entities(
     if not answer_entities:
         return {"null_reason": "no_a_entities"}
 
-    question_entity_ids = [
+    question_entity_ids: list[str] = [
         str(row.get("id")) for row in question_entities if row.get("id")
     ]
     if not question_entity_ids:
@@ -405,10 +528,12 @@ def _resolve_structural_entities(
     effective_answer_ids: list[str] = []
     question_sources_by_answer: dict[str, list[str]] = {}
     for row in answer_entities:
-        answer_id = str(row.get("id"))
+        answer_id: str = str(row.get("id"))
         if not answer_id:
             continue
-        source_q_ids = [q_id for q_id in question_entity_ids if q_id != answer_id]
+        source_q_ids: list[str] = [
+            q_id for q_id in question_entity_ids if q_id != answer_id
+        ]
         if not source_q_ids:
             continue
         effective_answer_ids.append(answer_id)
@@ -439,6 +564,15 @@ def _safe_prob_entropy(probabilities: ArrayLike | None) -> float:
         return 0.0
     p = p / total
     return float(-np.sum(p * np.log(p)))
+
+
+class _NLIModelCache(Protocol):
+    _tokenizer: "PreTrainedTokenizerBase"
+    _model: "PreTrainedModel"
+
+
+class _NamedNLIModelCache(_NLIModelCache, Protocol):
+    _model_name: str | None
 
 
 def _cluster_responses_by_nli(
@@ -479,7 +613,7 @@ def _cluster_responses_by_nli(
     # Condition on question: prepend question to each response before NLI
     # (Farquhar et al., compute_uncertainty_measures.py, condition_on_question flag)
     if question:
-        nli_inputs = [f"{question} {r}" for r in responses]
+        nli_inputs: list[str] = [f"{question} {r}" for r in responses]
     else:
         nli_inputs = responses
 
@@ -488,40 +622,37 @@ def _cluster_responses_by_nli(
         import torch.nn.functional as F
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-        if (
-            not hasattr(_cluster_responses_by_nli, "_model")
-            or _cluster_responses_by_nli._model_name != nli_model
-        ):
-            _cluster_responses_by_nli._tokenizer = AutoTokenizer.from_pretrained(
-                nli_model
-            )
-            _cluster_responses_by_nli._model = (
-                AutoModelForSequenceClassification.from_pretrained(nli_model)
-            )
-            _cluster_responses_by_nli._model_name = nli_model
+        # The existing function object owns these lazily populated attributes.
+        cache: _NamedNLIModelCache = cast(
+            _NamedNLIModelCache, _cluster_responses_by_nli
+        )
+        if not hasattr(cache, "_model") or cache._model_name != nli_model:
+            cache._tokenizer = AutoTokenizer.from_pretrained(nli_model)
+            cache._model = AutoModelForSequenceClassification.from_pretrained(nli_model)
+            cache._model_name = nli_model
 
-        tokenizer = _cluster_responses_by_nli._tokenizer
-        model = _cluster_responses_by_nli._model
+        tokenizer: PreTrainedTokenizerBase = cache._tokenizer
+        model: PreTrainedModel = cache._model
 
         def _implication(text1: str, text2: str) -> int:
             """Return 0=contradiction, 1=neutral, 2=entailment (DeBERTa convention)."""
-            inputs = tokenizer(
+            inputs: BatchEncoding = tokenizer(
                 text1, text2, return_tensors="pt", truncation=True, max_length=512
             )
             with torch.no_grad():
-                logits = model(**inputs).logits
+                logits: torch.Tensor = model(**inputs).logits
             return int(torch.argmax(F.softmax(logits, dim=1)).item())
 
         def _are_equivalent(t1: str, t2: str) -> bool:
-            imp1 = _implication(t1, t2)
-            imp2 = _implication(t2, t1)
+            imp1: int = _implication(t1, t2)
+            imp2: int = _implication(t2, t1)
             if strict_entailment:
                 return imp1 == 2 and imp2 == 2
             # Non-strict (paper default): no contradiction, not both neutral
             return 0 not in (imp1, imp2) and [imp1, imp2] != [1, 1]
 
         cluster_ids: list[int] = [-1] * len(nli_inputs)
-        next_cluster = 0
+        next_cluster: int = 0
 
         for i, inp_i in enumerate(nli_inputs):
             if cluster_ids[i] != -1:
@@ -651,7 +782,7 @@ def compute_discrete_semantic_entropy(cluster_ids: list[int]) -> float:
 
 def compute_p_true(
     responses: list[str],
-    context: str,
+    context: str | None,
     question: str,
     precomputed_cluster_ids: list[int] | None = None,
 ) -> float:
@@ -704,41 +835,38 @@ def compute_embedding_consistency(
         return 0.0
 
     try:
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
         import torch
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-        if not hasattr(compute_embedding_consistency, "_model"):
-            compute_embedding_consistency._tokenizer = AutoTokenizer.from_pretrained(
-                nli_model
-            )
-            compute_embedding_consistency._model = (
-                AutoModelForSequenceClassification.from_pretrained(nli_model)
-            )
+        cache: _NLIModelCache = cast(_NLIModelCache, compute_embedding_consistency)
+        if not hasattr(cache, "_model"):
+            cache._tokenizer = AutoTokenizer.from_pretrained(nli_model)
+            cache._model = AutoModelForSequenceClassification.from_pretrained(nli_model)
 
-        tokenizer = compute_embedding_consistency._tokenizer
-        model = compute_embedding_consistency._model
+        tokenizer: PreTrainedTokenizerBase = cache._tokenizer
+        model: PreTrainedModel = cache._model
 
-        pairs = []
+        pairs: list[tuple[int, int]] = []
         for i in range(len(responses)):
             for j in range(i + 1, len(responses)):
                 if len(pairs) >= max_pairs:
                     break
                 pairs.append((i, j))
 
-        contradiction_count = 0
+        contradiction_count: int = 0
         for i, j in pairs:
             r1, r2 = responses[i], responses[j]
             for text1, text2 in [(r1, r2), (r2, r1)]:
-                inputs = tokenizer(
+                inputs: BatchEncoding = tokenizer(
                     text1, text2, return_tensors="pt", truncation=True, max_length=512
                 )
                 with torch.no_grad():
-                    outputs = model(**inputs)
-                    probs = torch.softmax(outputs.logits, dim=-1)
+                    outputs: object = model(**inputs)
+                    probs: torch.Tensor = torch.softmax(outputs.logits, dim=-1)
                     if torch.argmax(probs[0]).item() == 0:  # contradiction
                         contradiction_count += 1
 
-        total = len(pairs) * 2
+        total: int = len(pairs) * 2
         return contradiction_count / total if total > 0 else 0.0
 
     except Exception as e:
@@ -753,7 +881,7 @@ def compute_embedding_consistency(
 
 def compute_spuq(
     responses: list[str],
-    log_likelihoods: np.ndarray | None = None,
+    log_likelihoods: NDArray[np.float64] | None = None,
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     num_modes: int = 8,
 ) -> float:
@@ -784,42 +912,48 @@ def compute_spuq(
         return 0.0
 
     try:
-        model = _get_or_load_sentence_transformer(embedding_model)
-        embeddings = model.encode(responses, show_progress_bar=False)  # (R, d)
+        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
+        embeddings: EmbeddingArray = model.encode(
+            responses, show_progress_bar=False
+        )  # (R, d)
         embeddings = np.array(embeddings, dtype=float)
 
         # Kernel mean embedding (wave function centre)
         if log_likelihoods is not None:
-            probs = np.exp(log_likelihoods)
+            probs: NDArray[np.float64] = np.exp(log_likelihoods)
             probs = probs / probs.sum()
         else:
             probs = np.ones(len(responses)) / len(responses)
 
-        kme = (embeddings * probs[:, None]).sum(axis=0)  # weighted mean, (d,)
+        kme: EmbeddingArray = (embeddings * probs[:, None]).sum(
+            axis=0
+        )  # weighted mean, (d,)
 
         # Gaussian kernel bandwidth
-        dists = np.linalg.norm(embeddings - kme, axis=1)  # (R,)
-        sigma = np.std(dists)
+        dists: EmbeddingArray = np.linalg.norm(embeddings - kme, axis=1)  # (R,)
+        sigma: EmbeddingScalar = np.std(dists)
         if sigma < 1e-6:
             return 0.0  # all responses identical → no uncertainty
         sigma = sigma + 1e-8
 
         # Kernel amplitudes
-        k_vals = np.exp(-(dists**2) / (2 * sigma**2))  # (R,)
+        k_vals: EmbeddingArray = np.exp(-(dists**2) / (2 * sigma**2))  # (R,)
 
         # First-order energy corrections
-        energy_correction = k_vals - (k_vals * probs).sum()  # (R,)
+        energy_correction: EmbeddingArray = k_vals - (k_vals * probs).sum()  # (R,)
 
         # Laplacian of Gaussian kernel (second-order curvature of wave function)
-        laplacian = (sigma**2 / 2) * (dists**2 / sigma**4 - 1.0 / sigma**2)  # (R,)
+        laplacian: EmbeddingArray = (sigma**2 / 2) * (
+            dists**2 / sigma**4 - 1.0 / sigma**2
+        )  # (R,)
 
         # Per-response perturbation sensitivity
-        uq_per_response = np.abs(energy_correction + laplacian)  # (R,)
+        uq_per_response: EmbeddingArray = np.abs(energy_correction + laplacian)  # (R,)
 
         # Average over the top num_modes modes (highest amplitude first)
-        order = np.argsort(-k_vals)
-        top_modes = order[:num_modes]
-        score = float(uq_per_response[top_modes].mean())
+        order: NDArray[np.intp] = np.argsort(-k_vals)
+        top_modes: NDArray[np.intp] = order[:num_modes]
+        score: float = float(uq_per_response[top_modes].mean())
 
         return score
 
@@ -882,17 +1016,17 @@ def compute_von_neumann_entropy(
         return 0.0
 
     try:
-        model = _get_or_load_sentence_transformer(embedding_model)
-        V = model.encode(
+        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
+        V: EmbeddingArray = model.encode(
             list(responses), show_progress_bar=False, normalize_embeddings=True
         )
-        N = len(V)
+        N: int = len(V)
 
         # Gram matrix of cosine similarities (all positive because normalised)
-        G = V @ V.T  # (N, N)
+        G: EmbeddingArray = V @ V.T  # (N, N)
 
         # Density matrix: ρ = G / N  (tr(G) = N since ‖vᵢ‖ = 1)
-        eigenvalues = np.linalg.eigvalsh(G) / N  # (N,) ascending
+        eigenvalues: EmbeddingArray = np.linalg.eigvalsh(G) / N  # (N,) ascending
 
         # Clip numerical noise (eigenvalues should be ≥ 0)
         eigenvalues = np.clip(eigenvalues, 0, None)
@@ -902,7 +1036,7 @@ def compute_von_neumann_entropy(
             return 0.0
 
         # Von Neumann entropy: S = -∑ λ log λ  (nats)
-        s = -float(np.sum(eigenvalues * np.log(eigenvalues)))
+        s: float = -float(np.sum(eigenvalues * np.log(eigenvalues)))
         return max(s, 0.0)
 
     except ImportError:
@@ -989,44 +1123,45 @@ def compute_sre_uq(
         return 0.0
 
     try:
-        model = _get_or_load_sentence_transformer(embedding_model)
+        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
 
         # Encode responses; optionally encode the prompt as anchor
-        V = model.encode(
+        V: EmbeddingArray = model.encode(
             list(responses), show_progress_bar=False, normalize_embeddings=True
         )
-        N = len(V)
+        N: int = len(V)
 
         if prompt:
             # QA / conditional mode: anchor = question embedding
-            q = model.encode(
+            q: EmbeddingArray = model.encode(
                 [prompt], show_progress_bar=False, normalize_embeddings=True
             )[0]
         else:
             # Anchor-free mode: anchor = normalised mean response embedding
-            mean_v = V.mean(axis=0)
-            norm = np.linalg.norm(mean_v)
+            mean_v: EmbeddingArray = V.mean(axis=0)
+            norm: EmbeddingScalar = np.linalg.norm(mean_v)
             q = mean_v / norm if norm > 1e-10 else V[0]
 
         # Gram-Schmidt: project out the anchor direction from each response
-        proj_coeffs = V @ q  # (N,)
-        E = V - np.outer(proj_coeffs, q)  # (N, d) orthogonal residuals
+        proj_coeffs: EmbeddingArray = V @ q  # (N,)
+        E: EmbeddingArray = V - np.outer(proj_coeffs, q)  # (N, d) orthogonal residuals
 
         # Centre residuals (removes the mean residual direction)
-        E_centred = E - E.mean(axis=0)  # (N, d)
+        E_centred: EmbeddingArray = E - E.mean(axis=0)  # (N, d)
 
         # Thin SVD of centred residual matrix: E_centred = U S Vᵀ
         # Covariance eigenvalues: λᵢ = sᵢ² / N
-        k = min(N - 1, n_components)
+        k: int = min(N - 1, n_components)
         if k < 1:
             return 0.0
 
+        s: EmbeddingArray
         _, s, _ = np.linalg.svd(E_centred / np.sqrt(N), full_matrices=False)
-        eigenvalues = s[:k] ** 2  # top-k eigenvalues of Σ_E
+        eigenvalues: EmbeddingArray = s[:k] ** 2  # top-k eigenvalues of Σ_E
 
         # Entropy power: geometric mean of eigenvalues ∝ exp(H(E) / k)
         eps: float = 1e-12
-        log_geomean = float(np.mean(np.log(eigenvalues + eps)))
+        log_geomean: float = float(np.mean(np.log(eigenvalues + eps)))
         return float(np.exp(log_geomean))
 
     except ImportError:
@@ -1041,7 +1176,18 @@ def compute_sre_uq(
 # =============================================================================
 
 
-class UncertaintyMetrics(TypedDict, total=False):
+class UncertaintyMetrics(TypedDict):
+    semantic_entropy: float
+    discrete_semantic_entropy: float
+    p_true: float
+    selfcheckgpt: float
+    sre_uq: float
+    vn_entropy: float
+    sd_uq: float
+    compute_times: dict[str, float]
+
+
+class _PendingUncertaintyMetrics(TypedDict, total=False):
     semantic_entropy: float
     discrete_semantic_entropy: float
     p_true: float
@@ -1073,7 +1219,7 @@ def compute_all_uncertainty_metrics(
         - perturbation_family: sre_uq
         - geometric_family: vn_entropy, sd_uq
     """
-    results: UncertaintyMetrics = {}
+    results: _PendingUncertaintyMetrics = {}
 
     # Cluster responses using NLI-based bidirectional entailment (Farquhar et al.)
     # condition_on_question: prepend the question to each response before NLI
@@ -1165,7 +1311,8 @@ def compute_all_uncertainty_metrics(
     compute_times["sd_uq"] = time.perf_counter() - _t0
 
     results["compute_times"] = compute_times
-    return results
+    # Each required result key is populated above, including the fallback branches.
+    return cast(UncertaintyMetrics, results)
 
 
 class GroupedUncertaintyMetrics(TypedDict):
@@ -1174,6 +1321,7 @@ class GroupedUncertaintyMetrics(TypedDict):
     similarity_family: dict[str, float]
     perturbation_family: dict[str, float]
     geometric_family: dict[str, float]
+    raw_metrics: UncertaintyMetrics
 
 
 class UncertaintyEvaluator:
@@ -1221,7 +1369,26 @@ class UncertaintyEvaluator:
 
 
 # Backward-compatible alias for older call sites.
-compute_spux = compute_spuq
+class _SREMetric(Protocol):
+    def __call__(
+        self,
+        responses: list[str],
+        log_likelihoods: NDArray[np.float64] | None = None,
+        embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        num_modes: int = 8,
+    ) -> float: ...
+
+
+class _RankingMetric(Protocol):
+    def __call__(
+        self,
+        details: Sequence[Mapping[str, object]],
+        metric_names: list[str] | None = None,
+        exclude_generation_failures: bool = True,
+    ) -> dict[str, dict[str, float]]: ...
+
+
+compute_spux: _SREMetric = compute_spuq
 
 
 # =============================================================================
@@ -1306,6 +1473,11 @@ def compute_graph_path_support(
     )["score"]
 
 
+class GraphPathSupportDetail(TypedDict):
+    score: float
+    null_reason: str | None
+
+
 def compute_graph_path_support_detailed(
     question: str,
     answer: str,
@@ -1317,7 +1489,7 @@ def compute_graph_path_support_detailed(
     question_id: str | None = None,
     max_hops: int = 3,
     min_name_length: int = 4,
-) -> dict[str, Any]:
+) -> GraphPathSupportDetail:
     """Like compute_graph_path_support but returns a dict with score AND null_reason.
 
     Keys:
@@ -1341,22 +1513,22 @@ def compute_graph_path_support_detailed(
     if not question or not answer:
         return {"score": 0.5, "null_reason": "no_input"}
 
-    driver = None
+    driver: Driver | None = None
     try:
         driver = _GDB.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
 
         with driver.session(database=neo4j_database) as session:
-            entity_scope = _question_local_entity_support_predicate(
+            entity_scope: str = _question_local_entity_support_predicate(
                 "e",
                 kg_name=kg_name,
                 question_id=question_id,
             )
-            path_scope = _question_local_path_support_predicate(
+            path_scope: str = _question_local_path_support_predicate(
                 path_var="p",
                 kg_name=kg_name,
                 question_id=question_id,
             )
-            resolved = _resolve_structural_entities(
+            resolved: StructuralEntityResolution = _resolve_structural_entities(
                 session,
                 question=question,
                 answer=answer,
@@ -1365,20 +1537,28 @@ def compute_graph_path_support_detailed(
                 question_id=question_id,
                 min_name_length=min_name_length,
             )
-            null_reason = str(resolved.get("null_reason") or "")
+            null_reason: str = str(resolved.get("null_reason") or "")
             if null_reason:
                 driver.close()
                 return {"score": 0.5, "null_reason": null_reason}
-            question_entity_ids = list(resolved["question_entity_ids"])
-            answer_entity_ids = list(resolved["answer_entity_ids"])
-            question_sources_by_answer = dict(resolved["question_sources_by_answer"])
+            # The internal resolver emits all collections iff its failure reason is absent.
+            resolved_entities: ResolvedStructuralEntities = cast(
+                ResolvedStructuralEntities, resolved
+            )
+            question_entity_ids: list[str] = list(
+                resolved_entities["question_entity_ids"]
+            )
+            answer_entity_ids: list[str] = list(resolved_entities["answer_entity_ids"])
+            question_sources_by_answer: dict[str, list[str]] = dict(
+                resolved_entities["question_sources_by_answer"]
+            )
 
             # Step 3: Check reachability per answer entity with LIMIT 1 each.
             # Running one query per answer entity (capped at 5) lets us use
             # LIMIT 1 correctly — stop at the first qualifying path — while
             # keeping the confidence filter that shortestPath cannot support.
-            reachable_ids = set()
-            per_pair_query = f"""
+            reachable_ids: set[str] = set()
+            per_pair_query: str = f"""
             UNWIND $q_ids AS q_id
             MATCH (q_e:__Entity__ {{id: q_id}})
             MATCH (a_e:__Entity__ {{id: $a_id}})
@@ -1389,7 +1569,7 @@ def compute_graph_path_support_detailed(
             LIMIT 1
             """
             for a_id in answer_entity_ids:
-                params = {
+                params: StructuralPathParameters = {
                     "q_ids": question_sources_by_answer.get(a_id, question_entity_ids),
                     "a_id": a_id,
                 }
@@ -1397,13 +1577,15 @@ def compute_graph_path_support_detailed(
                     params["kg_name"] = kg_name
                 if question_id:
                     params["question_id"] = question_id
-                res = list(session.run(per_pair_query, params, timeout=20))
+                res: list[Record] = list(
+                    session.run(per_pair_query, params, timeout=20)
+                )
                 if res:
                     reachable_ids.add(a_id)
 
         driver.close()
 
-        support = len(reachable_ids) / len(answer_entity_ids)
+        support: float = len(reachable_ids) / len(answer_entity_ids)
         return {"score": float(1.0 - support), "null_reason": None}
 
     except Exception as e:
@@ -1475,24 +1657,24 @@ def compute_graph_path_disagreement(
     if not question:
         return 0.5
 
-    driver = None
+    driver: Driver | None = None
     try:
         driver = _GDB.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
-        question_lower = question.lower()
+        question_lower: str = question.lower()
 
         with driver.session(database=neo4j_database) as session:
-            entity_scope = _question_local_entity_support_predicate(
+            entity_scope: str = _question_local_entity_support_predicate(
                 "e",
                 kg_name=kg_name,
                 question_id=question_id,
             )
-            path_scope = _question_local_path_support_predicate(
+            path_scope: str = _question_local_path_support_predicate(
                 path_var="path",
                 kg_name=kg_name,
                 question_id=question_id,
             )
             # Step 1: Find question entities
-            q_entity_query = f"""
+            q_entity_query: str = f"""
             MATCH (e:__Entity__)
             WHERE size(e.name) >= $min_len
               AND $question_lower CONTAINS toLower(e.name)
@@ -1500,20 +1682,23 @@ def compute_graph_path_disagreement(
             RETURN DISTINCT e.id AS id
             LIMIT 20
             """
-            q_params = {"question_lower": question_lower, "min_len": min_name_length}
+            q_params: dict[str, str | int] = {
+                "question_lower": question_lower,
+                "min_len": min_name_length,
+            }
             if kg_name:
                 q_params["kg_name"] = kg_name
             if question_id:
                 q_params["question_id"] = question_id
-            q_result = session.run(q_entity_query, q_params)
-            question_entity_ids = [r["id"] for r in q_result]
+            q_result: Result = session.run(q_entity_query, q_params)
+            question_entity_ids: list[object] = [r["id"] for r in q_result]
 
             if not question_entity_ids:
                 driver.close()
                 return 0.5
 
             # Step 2: Walk max_hops from question entities, count neighbor frequencies
-            walk_query = f"""
+            walk_query: str = f"""
             MATCH (q_e:__Entity__)
             WHERE q_e.id IN $q_ids
             MATCH path = (q_e)-[*1..{max_hops}]->(neighbor:__Entity__)
@@ -1523,13 +1708,15 @@ def compute_graph_path_disagreement(
               {path_scope}
             RETURN neighbor.id AS nid, count(path) AS freq
             """
-            walk_params = {"q_ids": question_entity_ids}
+            walk_params: EntityWalkParameters = {"q_ids": question_entity_ids}
             if kg_name:
                 walk_params["kg_name"] = kg_name
             if question_id:
                 walk_params["question_id"] = question_id
-            walk_result = session.run(walk_query, walk_params)
-            rows = [(r["nid"], r["freq"]) for r in walk_result]
+            walk_result: Result = session.run(walk_query, walk_params)
+            rows: list[tuple[object, int]] = [
+                (r["nid"], r["freq"]) for r in walk_result
+            ]
 
         driver.close()
 
@@ -1537,16 +1724,16 @@ def compute_graph_path_disagreement(
             return 0.5
 
         # Step 3: Entropy over terminal entity frequency distribution
-        freqs = np.array([float(f) for _, f in rows])
-        total = freqs.sum()
+        freqs: NDArray[np.float64] = np.array([float(f) for _, f in rows])
+        total: np.float64 = freqs.sum()
         if total <= 0:
             return 0.5
-        probs = freqs / total
-        entropy = float(-np.sum(probs * np.log(probs + 1e-12)))
+        probs: NDArray[np.float64] = freqs / total
+        entropy: float = float(-np.sum(probs * np.log(probs + 1e-12)))
 
         # Normalise by log(N) so score ∈ [0, 1]
-        n = len(rows)
-        max_entropy = np.log(n) if n > 1 else 1.0
+        n: int = len(rows)
+        max_entropy: float | np.float64 = np.log(n) if n > 1 else 1.0
         return float(entropy / max_entropy) if max_entropy > 0 else 0.0
 
     except Exception as e:
@@ -1649,32 +1836,32 @@ def compute_evidence_vn_entropy(
     if not question:
         return 0.0
 
-    driver = None
+    driver: Driver | None = None
     try:
         driver = _GDB.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
-        question_lower = question.lower()
+        question_lower: str = question.lower()
 
         with driver.session(database=neo4j_database) as session:
-            entity_scope = _question_local_entity_support_predicate(
+            entity_scope: str = _question_local_entity_support_predicate(
                 "e",
                 kg_name=kg_name,
                 question_id=question_id,
             )
-            pair_scope = _question_local_pair_support_predicate(
+            pair_scope: str = _question_local_pair_support_predicate(
                 "h",
                 "t",
                 kg_name=kg_name,
                 question_id=question_id,
                 relationship_var="r",
             )
-            path_scope = _question_local_path_support_predicate(
+            path_scope: str = _question_local_path_support_predicate(
                 path_var="path",
                 kg_name=kg_name,
                 question_id=question_id,
             )
 
             # Step 1: Find question entities
-            q_entity_query = f"""
+            q_entity_query: str = f"""
             MATCH (e:__Entity__)
             WHERE size(e.name) >= $min_len
               AND $question_lower CONTAINS toLower(e.name)
@@ -1682,20 +1869,23 @@ def compute_evidence_vn_entropy(
             RETURN DISTINCT e.id AS id
             LIMIT 20
             """
-            q_params = {"question_lower": question_lower, "min_len": min_name_length}
+            q_params: dict[str, str | int] = {
+                "question_lower": question_lower,
+                "min_len": min_name_length,
+            }
             if kg_name:
                 q_params["kg_name"] = kg_name
             if question_id:
                 q_params["question_id"] = question_id
-            q_result = session.run(q_entity_query, q_params)
-            question_entity_ids = [r["id"] for r in q_result]
+            q_result: Result = session.run(q_entity_query, q_params)
+            question_entity_ids: list[object] = [r["id"] for r in q_result]
 
             if not question_entity_ids:
                 driver.close()
                 return 0.0
 
             # Step 2: Retrieve triples in max_hops neighbourhood
-            triple_query = f"""
+            triple_query: str = f"""
             MATCH (h:__Entity__)-[r]->(t:__Entity__)
             WHERE (
                   h.id IN $q_ids
@@ -1718,13 +1908,13 @@ def compute_evidence_vn_entropy(
             RETURN h.name AS head, type(r) AS rel, t.name AS tail
             LIMIT {n_triples}
             """
-            triple_params = {"q_ids": question_entity_ids}
+            triple_params: EntityWalkParameters = {"q_ids": question_entity_ids}
             if kg_name:
                 triple_params["kg_name"] = kg_name
             if question_id:
                 triple_params["question_id"] = question_id
-            triple_result = session.run(triple_query, triple_params)
-            triples = [
+            triple_result: Result = session.run(triple_query, triple_params)
+            triples: list[tuple[object, str, object]] = [
                 (r["head"], r["rel"], r["tail"])
                 for r in triple_result
                 if r["head"] and r["rel"] and r["tail"]
@@ -1736,42 +1926,42 @@ def compute_evidence_vn_entropy(
             return 0.0
 
         # Step 3: Format triples as text
-        triple_texts = [
+        triple_texts: list[str] = [
             f"{h} {rel.replace('_', ' ').lower()} {t}" for h, rel, t in triples
         ]
 
         # Step 4: Embed triples and question
-        model = _get_or_load_sentence_transformer(embedding_model)
+        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
 
-        V = model.encode(
+        V: EmbeddingArray = model.encode(
             triple_texts, show_progress_bar=False, normalize_embeddings=True
         )
-        q_vec = model.encode(
+        q_vec: EmbeddingArray = model.encode(
             [question], show_progress_bar=False, normalize_embeddings=True
         )[0]
-        N = len(V)
+        N: int = len(V)
 
         # Step 5: VN-entropy of Gram matrix
-        G = V @ V.T
-        eigenvalues = np.linalg.eigvalsh(G) / N
+        G: EmbeddingArray = V @ V.T
+        eigenvalues: EmbeddingArray = np.linalg.eigvalsh(G) / N
         eigenvalues = np.clip(eigenvalues, 0, None)
         eigenvalues = eigenvalues[eigenvalues > 1e-12]
         if len(eigenvalues) == 0:
             return 0.0
-        raw_entropy = float(-np.sum(eigenvalues * np.log(eigenvalues)))
+        raw_entropy: float = float(-np.sum(eigenvalues * np.log(eigenvalues)))
         # Normalise to [0, 1]
-        max_entropy = np.log(N) if N > 1 else 1.0
-        S_e = float(np.clip(raw_entropy / max_entropy, 0.0, 1.0))
+        max_entropy: float | np.float64 = np.log(N) if N > 1 else 1.0
+        S_e: float = float(np.clip(raw_entropy / max_entropy, 0.0, 1.0))
 
         # Step 6: Question-evidence alignment
-        mean_v = V.mean(axis=0)
-        norm = np.linalg.norm(mean_v)
+        mean_v: EmbeddingArray = V.mean(axis=0)
+        norm: EmbeddingScalar = np.linalg.norm(mean_v)
         if norm > 1e-10:
             mean_v = mean_v / norm
-        A = float(np.clip(float(mean_v @ q_vec), 0.0, 1.0))
+        A: float = float(np.clip(float(mean_v @ q_vec), 0.0, 1.0))
 
         # Step 7: Combined uncertainty U = 1 - A * (1 - S_e)
-        U = 1.0 - A * (1.0 - S_e)
+        U: float = 1.0 - A * (1.0 - S_e)
         return float(np.clip(U, 0.0, 1.0))
 
     except Exception as e:
@@ -1866,26 +2056,26 @@ def compute_competing_answer_alternatives(
     if not question or not answer:
         return 0.0
 
-    driver = None
+    driver: Driver | None = None
     try:
         driver = _GDB.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
-        question_lower = question.lower()
-        answer_lower = answer.lower()
+        question_lower: str = question.lower()
+        answer_lower: str = answer.lower()
 
         with driver.session(database=neo4j_database) as session:
-            entity_scope = _question_local_entity_support_predicate(
+            entity_scope: str = _question_local_entity_support_predicate(
                 "e",
                 kg_name=kg_name,
                 question_id=question_id,
             )
-            pair_scope_rel = _question_local_pair_support_predicate(
+            pair_scope_rel: str = _question_local_pair_support_predicate(
                 "q_e",
                 "a_e",
                 kg_name=kg_name,
                 question_id=question_id,
                 relationship_var="r",
             )
-            pair_scope_alt = _question_local_pair_support_predicate(
+            pair_scope_alt: str = _question_local_pair_support_predicate(
                 "q_e",
                 "alt",
                 kg_name=kg_name,
@@ -1894,7 +2084,7 @@ def compute_competing_answer_alternatives(
             )
 
             # Step 1: Find question entities
-            q_entity_query = f"""
+            q_entity_query: str = f"""
             MATCH (e:__Entity__)
             WHERE size(e.name) >= $min_len
               AND $question_lower CONTAINS toLower(e.name)
@@ -1902,20 +2092,23 @@ def compute_competing_answer_alternatives(
             RETURN DISTINCT e.id AS id, e.name AS name
             LIMIT 20
             """
-            q_params = {"question_lower": question_lower, "min_len": min_name_length}
+            q_params: dict[str, str | int] = {
+                "question_lower": question_lower,
+                "min_len": min_name_length,
+            }
             if kg_name:
                 q_params["kg_name"] = kg_name
             if question_id:
                 q_params["question_id"] = question_id
-            q_result = session.run(q_entity_query, q_params)
-            question_entity_ids = [r["id"] for r in q_result]
+            q_result: Result = session.run(q_entity_query, q_params)
+            question_entity_ids: list[object] = [r["id"] for r in q_result]
 
             if not question_entity_ids:
                 driver.close()
                 return 0.0
 
             # Step 2: Find answer entity (best substring match)
-            a_entity_query = f"""
+            a_entity_query: str = f"""
             MATCH (e:__Entity__)
             WHERE size(e.name) >= $min_len
               AND $answer_lower CONTAINS toLower(e.name)
@@ -1924,21 +2117,26 @@ def compute_competing_answer_alternatives(
             ORDER BY name_len DESC
             LIMIT 5
             """
-            a_params = {"answer_lower": answer_lower, "min_len": min_name_length}
+            a_params: dict[str, str | int] = {
+                "answer_lower": answer_lower,
+                "min_len": min_name_length,
+            }
             if kg_name:
                 a_params["kg_name"] = kg_name
             if question_id:
                 a_params["question_id"] = question_id
-            a_result = session.run(a_entity_query, a_params)
-            answer_entity_rows = [(r["id"], r["name"]) for r in a_result]
+            a_result: Result = session.run(a_entity_query, a_params)
+            answer_entity_rows: list[tuple[object, object]] = [
+                (r["id"], r["name"]) for r in a_result
+            ]
 
             if not answer_entity_rows:
                 driver.close()
                 return 0.0
 
-            answer_entity_ids = [row[0] for row in answer_entity_rows]
+            answer_entity_ids: list[object] = [row[0] for row in answer_entity_rows]
             # Remove question entities from answer entities
-            q_id_set = set(question_entity_ids)
+            q_id_set: set[object] = set(question_entity_ids)
             answer_entity_ids = [
                 eid for eid in answer_entity_ids if eid not in q_id_set
             ]
@@ -1948,7 +2146,7 @@ def compute_competing_answer_alternatives(
                 return 0.0
 
             # Step 3: Find relation types connecting question entities → answer entity
-            rel_type_query = f"""
+            rel_type_query: str = f"""
             MATCH (q_e:__Entity__)-[r]->(a_e:__Entity__)
             WHERE q_e.id IN $q_ids
               AND a_e.id IN $a_ids
@@ -1957,17 +2155,22 @@ def compute_competing_answer_alternatives(
             RETURN DISTINCT type(r) AS rel_type
             LIMIT 10
             """
-            rel_params = {"q_ids": question_entity_ids, "a_ids": answer_entity_ids}
+            rel_params: EntityWalkParameters = {
+                "q_ids": question_entity_ids,
+                "a_ids": answer_entity_ids,
+            }
             if kg_name:
                 rel_params["kg_name"] = kg_name
             if question_id:
                 rel_params["question_id"] = question_id
-            rel_result = session.run(rel_type_query, rel_params)
-            relation_patterns = [(r["rel_type"], "forward") for r in rel_result]
+            rel_result: Result = session.run(rel_type_query, rel_params)
+            relation_patterns: list[tuple[str, str]] = [
+                (r["rel_type"], "forward") for r in rel_result
+            ]
 
             if not relation_patterns:
                 # Also try reverse direction (answer → question)
-                rel_type_query_rev = f"""
+                rel_type_query_rev: str = f"""
                 MATCH (a_e:__Entity__)-[r]->(q_e:__Entity__)
                 WHERE q_e.id IN $q_ids
                   AND a_e.id IN $a_ids
@@ -1976,7 +2179,7 @@ def compute_competing_answer_alternatives(
                 RETURN DISTINCT type(r) AS rel_type
                 LIMIT 10
                 """
-                rel_result_rev = session.run(rel_type_query_rev, rel_params)
+                rel_result_rev: Result = session.run(rel_type_query_rev, rel_params)
                 relation_patterns = [(r["rel_type"], "reverse") for r in rel_result_rev]
 
             if not relation_patterns:
@@ -1985,10 +2188,10 @@ def compute_competing_answer_alternatives(
 
             # Step 4: Count all entities reachable from question entities via those
             # relation types — these are the "competing answer alternatives"
-            competing_count = 0
+            competing_count: int = 0
             for rel_type, direction in relation_patterns:
                 if direction == "reverse":
-                    alt_query = f"""
+                    alt_query: str = f"""
                     MATCH (alt:__Entity__)-[r:{rel_type}]->(q_e:__Entity__)
                     WHERE q_e.id IN $q_ids
                       AND NOT alt.id IN $q_ids
@@ -2005,13 +2208,13 @@ def compute_competing_answer_alternatives(
                       AND {pair_scope_alt}
                     RETURN count(DISTINCT alt) AS n
                     """
-                alt_params = {"q_ids": question_entity_ids}
+                alt_params: EntityWalkParameters = {"q_ids": question_entity_ids}
                 if kg_name:
                     alt_params["kg_name"] = kg_name
                 if question_id:
                     alt_params["question_id"] = question_id
-                alt_result = session.run(alt_query, alt_params)
-                row = alt_result.single()
+                alt_result: Result = session.run(alt_query, alt_params)
+                row: Record | None = alt_result.single()
                 if row:
                     competing_count = max(competing_count, row["n"])
 
@@ -2086,7 +2289,7 @@ def compute_subgraph_perturbation_stability_detailed(
     max_dropout: float = 0.40,
     max_paths: int = 500,
     seed: int = 42,
-) -> dict[str, Any]:
+) -> GraphPathSupportDetail:
     """
     Subgraph Perturbation Stability (SPS-UQ) — Structural uncertainty (novel).
 
@@ -2122,24 +2325,24 @@ def compute_subgraph_perturbation_stability_detailed(
     if not question or not answer:
         return {"score": 0.5, "null_reason": "no_input"}
 
-    driver = None
+    driver: Driver | None = None
     try:
         import zlib
 
         driver = _GDB.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
 
         with driver.session(database=neo4j_database) as session:
-            entity_scope = _question_local_entity_support_predicate(
+            entity_scope: str = _question_local_entity_support_predicate(
                 "e",
                 kg_name=kg_name,
                 question_id=question_id,
             )
-            path_scope = _question_local_path_support_predicate(
+            path_scope: str = _question_local_path_support_predicate(
                 path_var="p",
                 kg_name=kg_name,
                 question_id=question_id,
             )
-            resolved = _resolve_structural_entities(
+            resolved: StructuralEntityResolution = _resolve_structural_entities(
                 session,
                 question=question,
                 answer=answer,
@@ -2148,16 +2351,22 @@ def compute_subgraph_perturbation_stability_detailed(
                 question_id=question_id,
                 min_name_length=min_name_length,
             )
-            null_reason = str(resolved.get("null_reason") or "")
+            null_reason: str = str(resolved.get("null_reason") or "")
             if null_reason:
                 driver.close()
                 return {"score": 0.5, "null_reason": null_reason}
-            q_ids = list(resolved["question_entity_ids"])
-            a_ids = list(resolved["answer_entity_ids"])
-            question_sources_by_answer = dict(resolved["question_sources_by_answer"])
+            # The internal resolver emits all collections iff its failure reason is absent.
+            resolved_entities: ResolvedStructuralEntities = cast(
+                ResolvedStructuralEntities, resolved
+            )
+            q_ids: list[str] = list(resolved_entities["question_entity_ids"])
+            a_ids: list[str] = list(resolved_entities["answer_entity_ids"])
+            question_sources_by_answer: dict[str, list[str]] = dict(
+                resolved_entities["question_sources_by_answer"]
+            )
 
             # 3) supporting paths with relationship IDs — capped at max_paths
-            path_query = f"""
+            path_query: str = f"""
             UNWIND $q_ids AS q_id
             MATCH (q:__Entity__ {{id: q_id}})
             MATCH p = (q)-[*1..{max_hops}]-(a:__Entity__)
@@ -2168,9 +2377,9 @@ def compute_subgraph_perturbation_stability_detailed(
                    [rel IN relationships(p) | id(rel)] AS rel_ids
             LIMIT {max_paths}
             """
-            path_rows: list[dict[str, Any]] = []
+            path_rows: list[SupportPathRow] = []
             for a_id in a_ids:
-                path_params = {
+                path_params: StructuralPathParameters = {
                     "q_ids": question_sources_by_answer.get(a_id, q_ids),
                     "a_ids": [a_id],
                 }
@@ -2179,7 +2388,9 @@ def compute_subgraph_perturbation_stability_detailed(
                 if question_id:
                     path_params["question_id"] = question_id
                 path_rows.extend(
-                    dict(r) for r in session.run(path_query, path_params, timeout=20)
+                    # The query returns a matched string answer ID and Neo4j integer relationship IDs.
+                    cast(SupportPathRow, dict(r))
+                    for r in session.run(path_query, path_params, timeout=20)
                 )
 
         driver.close()
@@ -2188,12 +2399,14 @@ def compute_subgraph_perturbation_stability_detailed(
         if not path_rows:
             return {"score": 1.0, "null_reason": None}
 
-        answer_count = max(1, len(a_ids))
-        baseline_reachable = len({row["a_id"] for row in path_rows}) / answer_count
+        answer_count: int = max(1, len(a_ids))
+        baseline_reachable: float = (
+            len({row["a_id"] for row in path_rows}) / answer_count
+        )
         if baseline_reachable <= 0:
             return {"score": 1.0, "null_reason": None}
 
-        rel_universe = sorted(
+        rel_universe: list[int] = sorted(
             {rid for row in path_rows for rid in (row.get("rel_ids") or [])}
         )
         if not rel_universe:
@@ -2201,8 +2414,8 @@ def compute_subgraph_perturbation_stability_detailed(
             return {"score": 1.0, "null_reason": None}
 
         # Deterministic RNG per (question, answer)
-        pair_seed = seed ^ zlib.crc32(f"{question}||{answer}".encode())
-        rng = np.random.default_rng(pair_seed)
+        pair_seed: int = seed ^ zlib.crc32(f"{question}||{answer}".encode())
+        rng: np.random.Generator = np.random.default_rng(pair_seed)
 
         # Guardrails
         n_perturbations = max(1, int(n_perturbations))
@@ -2210,36 +2423,36 @@ def compute_subgraph_perturbation_stability_detailed(
         max_dropout = float(np.clip(max_dropout, min_dropout, 1.0))
 
         stability_terms: list[float] = []
-        rel_universe_arr = np.array(rel_universe, dtype=np.int64)
+        rel_universe_arr: NDArray[np.int64] = np.array(rel_universe, dtype=np.int64)
 
         for _ in range(n_perturbations):
-            dropout = float(rng.uniform(min_dropout, max_dropout))
-            k = int(round(dropout * len(rel_universe_arr)))
+            dropout: float = float(rng.uniform(min_dropout, max_dropout))
+            k: int = int(round(dropout * len(rel_universe_arr)))
             if len(rel_universe_arr) > 0:
                 k = min(len(rel_universe_arr), max(1, k))
-                dropped = set(
+                dropped: set[int] = set(
                     rng.choice(rel_universe_arr, size=k, replace=False).tolist()
                 )
             else:
                 dropped = set()
 
-            reachable_cf = set()
+            reachable_cf: set[str] = set()
             for row in path_rows:
-                rel_ids = row.get("rel_ids") or []
+                rel_ids: list[int] = row.get("rel_ids") or []
                 if rel_ids and not any(rid in dropped for rid in rel_ids):
                     reachable_cf.add(row["a_id"])
 
-            support_cf = len(reachable_cf) / answer_count
+            support_cf: float = len(reachable_cf) / answer_count
             stability_terms.append(
                 float(np.clip(support_cf / baseline_reachable, 0.0, 1.0))
             )
 
-        stability = (
+        stability: float = (
             float(np.mean(stability_terms))
             if stability_terms
             else float(baseline_reachable)
         )
-        uncertainty = 1.0 - stability
+        uncertainty: float = 1.0 - stability
         return {"score": float(np.clip(uncertainty, 0.0, 1.0)), "null_reason": None}
 
     except Exception as e:
@@ -2285,7 +2498,7 @@ _GPS_NULL_REASON_ORDER: tuple[str, str, str, str, str, str] = (
     "no_input",
     "error",
 )
-_SPS_NULL_REASON_ORDER = _GPS_NULL_REASON_ORDER
+_SPS_NULL_REASON_ORDER: tuple[str, str, str, str, str, str] = _GPS_NULL_REASON_ORDER
 
 
 def compute_subgraph_informativeness(
@@ -2378,8 +2591,8 @@ def compute_subgraph_informativeness(
     → 1  — diffuse or off-topic subgraph → high uncertainty
     """
     try:
-        from sentence_transformers import SentenceTransformer
         from neo4j import GraphDatabase as _GDB
+        from sentence_transformers import SentenceTransformer
     except ImportError:
         logger.warning(
             "sentence_transformers or neo4j not available — skipping subgraph informativeness"
@@ -2389,25 +2602,25 @@ def compute_subgraph_informativeness(
     if not question:
         return 0.5
 
-    driver = None
+    driver: Driver | None = None
     try:
         driver = _GDB.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
-        question_lower = question.lower()
+        question_lower: str = question.lower()
 
         with driver.session(database=neo4j_database) as session:
-            entity_scope = _question_local_entity_support_predicate(
+            entity_scope: str = _question_local_entity_support_predicate(
                 "e",
                 kg_name=kg_name,
                 question_id=question_id,
             )
-            path_scope = _question_local_path_support_predicate(
+            path_scope: str = _question_local_path_support_predicate(
                 path_var="path",
                 kg_name=kg_name,
                 question_id=question_id,
             )
 
             # Step 1: find question entities
-            q_entity_query = f"""
+            q_entity_query: str = f"""
             MATCH (e:__Entity__)
             WHERE size(e.name) >= $min_len
               AND $question_lower CONTAINS toLower(e.name)
@@ -2415,7 +2628,7 @@ def compute_subgraph_informativeness(
             RETURN DISTINCT e.id AS id, e.name AS name
             LIMIT 20
             """
-            q_params: dict = {
+            q_params: dict[str, str | int] = {
                 "question_lower": question_lower,
                 "min_len": min_name_length,
             }
@@ -2424,8 +2637,8 @@ def compute_subgraph_informativeness(
             if question_id:
                 q_params["question_id"] = question_id
 
-            q_result = session.run(q_entity_query, q_params)
-            question_entity_ids = [r["id"] for r in q_result]
+            q_result: Result = session.run(q_entity_query, q_params)
+            question_entity_ids: list[object] = [r["id"] for r in q_result]
 
             if not question_entity_ids:
                 driver.close()
@@ -2433,7 +2646,7 @@ def compute_subgraph_informativeness(
 
             # Step 2: walk max_hops from question entities, collecting
             # (candidate_id, candidate_name, relation_type, path_length)
-            walk_query = f"""
+            walk_query: str = f"""
             MATCH (seed:__Entity__)
             WHERE seed.id IN $seed_ids
             MATCH path = (seed)-[*1..{max_hops}]->(candidate:__Entity__)
@@ -2448,14 +2661,16 @@ def compute_subgraph_informativeness(
                 length(path)   AS path_len
             LIMIT 500
             """
-            walk_params: dict = {"seed_ids": question_entity_ids}
+            walk_params: EntityWalkParameters = {"seed_ids": question_entity_ids}
             if kg_name:
                 walk_params["kg_name"] = kg_name
             if question_id:
                 walk_params["question_id"] = question_id
 
-            walk_result = session.run(walk_query, walk_params)
-            rows = [dict(r) for r in walk_result]
+            walk_result: Result = session.run(walk_query, walk_params)
+            rows: list[InformativenessRow] = [
+                cast(InformativenessRow, dict(r)) for r in walk_result
+            ]
 
         driver.close()
 
@@ -2465,12 +2680,12 @@ def compute_subgraph_informativeness(
         # Step 3: weight each candidate by sum of 1/path_length across all paths
         from collections import defaultdict
 
-        candidate_weight: dict = defaultdict(float)
-        candidate_name: dict = {}
-        relation_types: set = set()
+        candidate_weight: dict[str, float] = defaultdict(float)
+        candidate_name: dict[str, str] = {}
+        relation_types: set[str] = set()
 
         for row in rows:
-            cid = row["candidate_id"]
+            cid: object = row["candidate_id"]
             candidate_weight[cid] += 1.0 / max(row["path_len"], 1)
             candidate_name[cid] = row["candidate_name"]
             relation_types.add(row["rel_type"])
@@ -2481,38 +2696,42 @@ def compute_subgraph_informativeness(
             return 0.2
 
         # Step 4: normalise to probability distribution
-        weights = np.array(list(candidate_weight.values()), dtype=float)
+        weights: NDArray[np.float64] = np.array(
+            list(candidate_weight.values()), dtype=float
+        )
         weights /= weights.sum()
 
         # Step 5: normalised entropy of candidate distribution
-        H = _safe_prob_entropy(weights)
-        H_max = np.log(len(weights))
-        H_normalized = H / H_max if H_max > 0 else 0.0
+        H: float = _safe_prob_entropy(weights)
+        H_max: np.float64 = np.log(len(weights))
+        H_normalized: float | np.float64 = H / H_max if H_max > 0 else 0.0
 
         # Step 6-7: question-relation alignment
         # Embed distinct relation types + question; compute cosine alignment
-        model = _get_or_load_sentence_transformer(embedding_model)
-        relation_texts = [rt.replace("_", " ").lower() for rt in relation_types]
-        all_texts = [question] + relation_texts
-        embeddings = model.encode(all_texts, normalize_embeddings=True)
+        model: SentenceTransformer = _get_or_load_sentence_transformer(embedding_model)
+        relation_texts: list[str] = [
+            rt.replace("_", " ").lower() for rt in relation_types
+        ]
+        all_texts: list[str] = [question] + relation_texts
+        embeddings: EmbeddingArray = model.encode(all_texts, normalize_embeddings=True)
 
-        question_emb = embeddings[0]
-        relation_embs = embeddings[1:]
-        mean_relation_emb = relation_embs.mean(axis=0)
-        norm = np.linalg.norm(mean_relation_emb)
+        question_emb: EmbeddingArray = embeddings[0]
+        relation_embs: EmbeddingArray = embeddings[1:]
+        mean_relation_emb: EmbeddingArray = relation_embs.mean(axis=0)
+        norm: EmbeddingScalar = np.linalg.norm(mean_relation_emb)
         if norm > 1e-8:
             mean_relation_emb = mean_relation_emb / norm
 
-        A = float(np.dot(question_emb, mean_relation_emb))
-        A = max(0.0, A)  # clamp negative cosine to 0
+        alignment: float = float(np.dot(question_emb, mean_relation_emb))
+        alignment = max(0.0, alignment)  # clamp negative cosine to 0
 
         # Step 8: SI = (1 - H_normalized) * A;  U = 1 - SI
-        SI = (1.0 - H_normalized) * A
-        U = 1.0 - SI
+        SI: float | np.float64 = (1.0 - H_normalized) * alignment
+        U: float | np.float64 = 1.0 - SI
 
         logger.debug(
             f"[subgraph_informativeness] candidates={len(candidate_weight)} "
-            f"H_norm={H_normalized:.3f} A={A:.3f} SI={SI:.3f} U={U:.3f}"
+            f"H_norm={H_normalized:.3f} A={alignment:.3f} SI={SI:.3f} U={U:.3f}"
         )
         return float(np.clip(U, 0.0, 1.0))
 
@@ -2526,9 +2745,9 @@ def compute_subgraph_informativeness(
         return 0.5
 
 
-def _get_or_load_sentence_transformer(model_name: str):
+def _get_or_load_sentence_transformer(model_name: str) -> "SentenceTransformer":
     """Cache sentence transformer models to avoid reloading on every call."""
-    normalized_name = model_name.replace("sentence-transformers/", "")
+    normalized_name: str = model_name.replace("sentence-transformers/", "")
     with _SENTENCE_TRANSFORMER_CACHE_LOCK:
         if normalized_name not in _SENTENCE_TRANSFORMER_CACHE:
             from sentence_transformers import SentenceTransformer
@@ -2539,7 +2758,9 @@ def _get_or_load_sentence_transformer(model_name: str):
     return _SENTENCE_TRANSFORMER_CACHE[normalized_name]
 
 
-def _get_or_load_nli_model(model_name: str):
+def _get_or_load_nli_model(
+    model_name: str,
+) -> tuple["PreTrainedTokenizerBase", "PreTrainedModel"]:
     """Return (tokenizer, model) for an NLI sequence-classification model, cached."""
     with _NLI_CACHE_LOCK:
         if model_name not in _NLI_MODEL_CACHE:
@@ -2570,7 +2791,7 @@ def _classify_chunks_against_answer(
     """
     if not chunks or not answer:
         return []
-    active = [c.strip() for c in chunks if c.strip()][:max_chunks]
+    active: list[str] = [c.strip() for c in chunks if c.strip()][:max_chunks]
     if not active:
         return []
 
@@ -2581,7 +2802,7 @@ def _classify_chunks_against_answer(
         tokenizer, model = _get_or_load_nli_model(nli_model)
         labels: list[int] = []
         for chunk in active:
-            inputs = tokenizer(
+            inputs: BatchEncoding = tokenizer(
                 chunk,
                 answer,
                 return_tensors="pt",
@@ -2589,7 +2810,7 @@ def _classify_chunks_against_answer(
                 max_length=512,
             )
             with torch.no_grad():
-                logits = model(**inputs).logits
+                logits: torch.Tensor = model(**inputs).logits
             labels.append(int(torch.argmax(F.softmax(logits, dim=1)).item()))
         return labels
     except Exception as e:
@@ -2641,14 +2862,16 @@ def compute_support_entailment_uncertainty(
     1.0  — all chunks contradict the answer (maximally ungrounded)
     0.5  — fallback: no chunks, empty answer, or NLI failure
     """
-    labels = _classify_chunks_against_answer(chunks, answer, nli_model, max_chunks)
+    labels: list[int] = _classify_chunks_against_answer(
+        chunks, answer, nli_model, max_chunks
+    )
     if not labels:
         return 0.5
 
-    n = len(labels)
-    n_entail = sum(1 for lb in labels if lb == 2)
-    n_contradict = sum(1 for lb in labels if lb == 0)
-    support_score = (n_entail - n_contradict) / n
+    n: int = len(labels)
+    n_entail: int = sum(1 for lb in labels if lb == 2)
+    n_contradict: int = sum(1 for lb in labels if lb == 0)
+    support_score: float = (n_entail - n_contradict) / n
     return float((1.0 - support_score) / 2.0)
 
 
@@ -2688,12 +2911,14 @@ def compute_evidence_conflict_uncertainty(
     1.0  — maximum conflict (half entail, half contradict)
     0.0  — fallback: fewer than 2 chunks or NLI failure
     """
-    labels = _classify_chunks_against_answer(chunks, answer, nli_model, max_chunks)
+    labels: list[int] = _classify_chunks_against_answer(
+        chunks, answer, nli_model, max_chunks
+    )
     if len(labels) < 2:
         return 0.0
 
-    conflict = 0
-    total = 0
+    conflict: int = 0
+    total: int = 0
     for i in range(len(labels)):
         for j in range(i + 1, len(labels)):
             total += 1
@@ -2706,9 +2931,9 @@ def compute_evidence_conflict_uncertainty(
 
 
 def compute_precision_at_k(
-    details: list[dict[str, Any]],
+    details: Sequence[Mapping[str, object]],
     metric_names: list[str] | None = None,
-    k_fractions: tuple = (0.1, 0.2, 0.3),
+    k_fractions: tuple[float, ...] = (0.1, 0.2, 0.3),
     exclude_generation_failures: bool = True,
 ) -> dict[str, dict[str, float]]:
     """Precision@k (PPV@k) — fraction of top-k% most uncertain questions that are wrong.
@@ -2773,7 +2998,7 @@ def compute_precision_at_k(
     for system, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
         system_details = details
         if exclude_generation_failures:
-            system_details = [
+            system_details: Sequence[Mapping[str, object]] = [
                 d
                 for d in details
                 if not bool(d.get(f"{prefix}_generation_failed", False))
@@ -2781,14 +3006,14 @@ def compute_precision_at_k(
         if len(system_details) < 4:
             continue
 
-        y_true = np.array(
+        y_true: NDArray[np.float64] = np.array(
             [1.0 if d.get(f"{prefix}_correct", False) else 0.0 for d in system_details]
         )
-        n = len(y_true)
+        n: int = len(y_true)
         output["baseline"][f"error_rate_{prefix}"] = float(1.0 - y_true.mean())
 
         for metric in metric_names:
-            metric_details = system_details
+            metric_details: list[Mapping[str, object]] = system_details
             if metric == "graph_path_support":
                 metric_details = [
                     d
@@ -2807,30 +3032,32 @@ def compute_precision_at_k(
                 ]
             if len(metric_details) < 4:
                 for frac in k_fractions:
-                    pct = int(round(frac * 100))
+                    pct: int = int(round(frac * 100))
                     output[system][f"{metric}_ppv@{pct}"] = float("nan")
                 continue
 
-            y_metric = np.array(
+            y_metric: NDArray[np.float64] = np.array(
                 [
                     1.0 if d.get(f"{prefix}_correct", False) else 0.0
                     for d in metric_details
                 ]
             )
-            raw = np.array(
+            raw: NDArray[np.float64] = np.array(
                 [float(d.get(f"{prefix}_{metric}", 0.0)) for d in metric_details]
             )
             if metric in _HIGHER_IS_MORE_CERTAIN:
-                uncertainty = -raw
+                uncertainty: NDArray[np.float64] = -raw
             else:
                 uncertainty = raw
 
-            order = np.argsort(-uncertainty)  # most uncertain first
+            order: NDArray[np.intp] = np.argsort(-uncertainty)  # most uncertain first
 
             for frac in k_fractions:
-                k = max(1, int(np.ceil(len(y_metric) * frac)))
-                top_k_correct = y_metric[order[:k]]
-                ppv = float(np.mean(top_k_correct == 0))  # fraction wrong in top-k
+                k: int = max(1, int(np.ceil(len(y_metric) * frac)))
+                top_k_correct: NDArray[np.float64] = y_metric[order[:k]]
+                ppv: float = float(
+                    np.mean(top_k_correct == 0)
+                )  # fraction wrong in top-k
                 pct = int(round(frac * 100))
                 output[system][f"{metric}_ppv@{pct}"] = ppv
 
@@ -2838,7 +3065,7 @@ def compute_precision_at_k(
 
 
 def compute_ece(
-    details: list[dict[str, Any]],
+    details: Sequence[Mapping[str, object]],
     metric_names: list[str] | None = None,
     n_bins: int = 10,
     exclude_generation_failures: bool = True,
@@ -2898,7 +3125,7 @@ def compute_ece(
     for system, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
         system_details = details
         if exclude_generation_failures:
-            system_details = [
+            system_details: Sequence[Mapping[str, object]] = [
                 d
                 for d in details
                 if not bool(d.get(f"{prefix}_generation_failed", False))
@@ -2907,7 +3134,7 @@ def compute_ece(
             continue
 
         for metric in metric_names:
-            metric_details = system_details
+            metric_details: list[Mapping[str, object]] = system_details
             if metric == "graph_path_support":
                 metric_details = [
                     d
@@ -2928,14 +3155,16 @@ def compute_ece(
                 output[system][f"{metric}_ece"] = float("nan")
                 continue
 
-            y_true = np.array(
+            y_true: NDArray[np.float64] = np.array(
                 [
                     1.0 if d.get(f"{prefix}_correct", False) else 0.0
                     for d in metric_details
                 ]
             )
-            key = f"{prefix}_{metric}"
-            raw = np.array([float(d.get(key, 0.0)) for d in metric_details])
+            key: str = f"{prefix}_{metric}"
+            raw: NDArray[np.float64] = np.array(
+                [float(d.get(key, 0.0)) for d in metric_details]
+            )
 
             # Flip certainty-scored metrics so higher always = more uncertain
             if metric in _HIGHER_IS_MORE_CERTAIN:
@@ -2946,24 +3175,26 @@ def compute_ece(
             if r_max - r_min < 1e-12:
                 output[system][f"{metric}_ece"] = float("nan")
                 continue
-            scaled_uncertainty = (raw - r_min) / (r_max - r_min)
-            confidence = 1.0 - scaled_uncertainty
+            scaled_uncertainty: NDArray[np.float64] = (raw - r_min) / (r_max - r_min)
+            confidence: NDArray[np.float64] = 1.0 - scaled_uncertainty
 
             # Equal-width binning
-            bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
-            bin_indices = np.digitize(confidence, bin_edges[1:-1])  # 0-based bucket
+            bin_edges: NDArray[np.float64] = np.linspace(0.0, 1.0, n_bins + 1)
+            bin_indices: NDArray[np.intp] = np.digitize(
+                confidence, bin_edges[1:-1]
+            )  # 0-based bucket
 
-            total_n = len(y_true)
-            ece = 0.0
-            populated = 0
+            total_n: int = len(y_true)
+            ece: float = 0.0
+            populated: int = 0
             for b in range(n_bins):
-                mask = bin_indices == b
-                n_b = int(mask.sum())
+                mask: NDArray[np.bool_] = bin_indices == b
+                n_b: int = int(mask.sum())
                 if n_b == 0:
                     continue
                 populated += 1
-                mean_conf = float(confidence[mask].mean())
-                accuracy = float(y_true[mask].mean())
+                mean_conf: float = float(confidence[mask].mean())
+                accuracy: float = float(y_true[mask].mean())
                 ece += (n_b / total_n) * abs(mean_conf - accuracy)
 
             output[system][f"{metric}_ece"] = (
@@ -2974,7 +3205,7 @@ def compute_ece(
 
 
 def compute_auroc_aurec(
-    details: list[dict[str, Any]],
+    details: Sequence[Mapping[str, object]],
     metric_names: list[str] | None = None,
     exclude_generation_failures: bool = True,
 ) -> dict[str, dict[str, float]]:
@@ -3039,32 +3270,36 @@ def compute_auroc_aurec(
             "evidence_conflict_uncertainty",
         ]
 
-    def _auroc(y_true: np.ndarray, uncertainty: np.ndarray) -> float:
+    def _auroc(y_true: NDArray[np.float64], uncertainty: NDArray[np.float64]) -> float:
         """AUROC: higher uncertainty should predict incorrectness (y_true=0)."""
         if len(np.unique(y_true)) < 2:
             return float("nan")
         return float(roc_auc_score(y_true, -uncertainty))
 
-    def _aurec(y_true: np.ndarray, uncertainty: np.ndarray) -> float:
+    def _aurec(y_true: NDArray[np.float64], uncertainty: NDArray[np.float64]) -> float:
         """AUREC: Area Under the Rejection-Error Curve.
 
         Sort by descending uncertainty (reject most uncertain first).
         At each rejection level k, compute error rate on the remaining N-k questions.
         Return the mean error across all rejection levels.
         """
-        n = len(y_true)
+        n: int = len(y_true)
         if n == 0:
             return float("nan")
         # Sort descending by uncertainty → most uncertain rejected first
-        order = np.argsort(-uncertainty)
-        errors = (1 - y_true[order]).astype(float)  # 1 = incorrect
+        order: NDArray[np.intp] = np.argsort(-uncertainty)
+        errors: NDArray[np.float64] = (1 - y_true[order]).astype(float)  # 1 = incorrect
 
         # At rejection level k: keep questions [k:], i.e. the N-k most certain ones
         # error(k) = sum(errors[k:]) / (N - k)   for k = 0 .. N-1
         # At k = N-1: one question left; at k = N: all rejected → skip (undefined)
-        suffix_errors = np.cumsum(errors[::-1])[::-1]  # suffix sums
-        n_remaining = np.arange(n, 0, -1, dtype=float)  # N, N-1, ..., 1
-        rejection_errors = (
+        suffix_errors: NDArray[np.float64] = np.cumsum(errors[::-1])[
+            ::-1
+        ]  # suffix sums
+        n_remaining: NDArray[np.float64] = np.arange(
+            n, 0, -1, dtype=float
+        )  # N, N-1, ..., 1
+        rejection_errors: NDArray[np.float64] = (
             suffix_errors / n_remaining
         )  # error rate at each rejection level
         return float(rejection_errors.mean())
@@ -3074,14 +3309,14 @@ def compute_auroc_aurec(
     for system, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
         system_details = details
         if exclude_generation_failures:
-            system_details = [
+            system_details: Sequence[Mapping[str, object]] = [
                 d
                 for d in details
                 if not bool(d.get(f"{prefix}_generation_failed", False))
             ]
 
         for metric in metric_names:
-            metric_details = system_details
+            metric_details: list[Mapping[str, object]] = system_details
             if metric == "graph_path_support":
                 metric_details = [
                     d
@@ -3103,18 +3338,20 @@ def compute_auroc_aurec(
                 output[system][f"{metric}_aurec"] = float("nan")
                 continue
 
-            y_true = np.array(
+            y_true: NDArray[np.float64] = np.array(
                 [
                     1.0 if d.get(f"{prefix}_correct", False) else 0.0
                     for d in metric_details
                 ]
             )
-            key = f"{prefix}_{metric}"
-            raw_scores = np.array([float(d.get(key, 0.0)) for d in metric_details])
+            key: str = f"{prefix}_{metric}"
+            raw_scores: NDArray[np.float64] = np.array(
+                [float(d.get(key, 0.0)) for d in metric_details]
+            )
 
             # Normalise to an "uncertainty" score (higher = less certain)
             if metric in _HIGHER_IS_MORE_CERTAIN:
-                uncertainty = -raw_scores
+                uncertainty: NDArray[np.float64] = -raw_scores
             else:
                 uncertainty = raw_scores
 
@@ -3125,11 +3362,11 @@ def compute_auroc_aurec(
         # Track every observed reason explicitly so per-reason totals stay in sync
         # with the overall null-rate even as new categories are introduced.
         # A high null-rate means AUROC for GPS is measured on a small effective sample.
-        gps_null_key = f"{prefix}_graph_path_support_null_reason"
-        null_reasons = [str(d.get(gps_null_key, "")) for d in system_details]
-        n_total = len(null_reasons)
+        gps_null_key: str = f"{prefix}_graph_path_support_null_reason"
+        null_reasons: list[str] = [str(d.get(gps_null_key, "")) for d in system_details]
+        n_total: int = len(null_reasons)
         if n_total > 0:
-            observed_reasons = [
+            observed_reasons: list[str] = [
                 reason
                 for reason in _GPS_NULL_REASON_ORDER
                 if any(r == reason for r in null_reasons)
@@ -3139,22 +3376,22 @@ def compute_auroc_aurec(
             ):
                 observed_reasons.append(reason)
             for reason in observed_reasons:
-                count = sum(1 for r in null_reasons if r == reason)
+                count: int = sum(1 for r in null_reasons if r == reason)
                 output[system][f"graph_path_support_null_{reason}"] = count / n_total
-            total_null = sum(1 for r in null_reasons if r)
+            total_null: int = sum(1 for r in null_reasons if r)
             output[system]["graph_path_support_null_rate"] = total_null / n_total
             # AUROC computed on non-null GPS rows only (more honest estimate)
-            non_null_details = [
+            non_null_details: list[Mapping[str, object]] = [
                 d for d in system_details if not str(d.get(gps_null_key, ""))
             ]
             if len(non_null_details) >= 2:
-                y_nn = np.array(
+                y_nn: NDArray[np.float64] = np.array(
                     [
                         1.0 if d.get(f"{prefix}_correct", False) else 0.0
                         for d in non_null_details
                     ]
                 )
-                gps_nn = np.array(
+                gps_nn: NDArray[np.float64] = np.array(
                     [
                         float(d.get(f"{prefix}_graph_path_support", 0.0))
                         for d in non_null_details
@@ -3171,7 +3408,7 @@ def compute_auroc_aurec(
         # subgraph_perturbation_stability_auroc above is already conditional
         # on these non-null rows; the *_non_null aliases keep old analysis
         # notebooks explicit.
-        sps_null_key = f"{prefix}_subgraph_perturbation_stability_null_reason"
+        sps_null_key: str = f"{prefix}_subgraph_perturbation_stability_null_reason"
         null_reasons = [str(d.get(sps_null_key, "")) for d in system_details]
         n_total = len(null_reasons)
         if n_total > 0:
@@ -3203,7 +3440,7 @@ def compute_auroc_aurec(
                         for d in non_null_details
                     ]
                 )
-                sps_nn = np.array(
+                sps_nn: NDArray[np.float64] = np.array(
                     [
                         float(d.get(f"{prefix}_subgraph_perturbation_stability", 0.0))
                         for d in non_null_details
@@ -3220,4 +3457,4 @@ def compute_auroc_aurec(
 
 
 # Backward-compatible alias
-compute_auroc_aurc = compute_auroc_aurec
+compute_auroc_aurc: _RankingMetric = compute_auroc_aurec

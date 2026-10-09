@@ -29,8 +29,8 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from experiments.trust_analysis import REPO, MANIFEST, KEY, NamedConfig
 from experiments.rejudge_independent import get_client
+from experiments.trust_analysis import KEY, MANIFEST, REPO, NamedConfig
 
 ConfidenceRow: TypeAlias = tuple[str, str, str, bool]
 
