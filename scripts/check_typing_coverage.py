@@ -2,6 +2,12 @@
 
 This complements (and never replaces) strict mypy/Pyright: syntax-constrained
 bindings are reported as inferred, not certified as concretely typed here.
+
+Dynamic-read detection is a conservative lexical inventory: direct ``getattr``,
+import-resolved builtins calls, and references acquiring those callables require
+site proof. Shadowed names can produce reviewable false positives. This does not
+resolve arbitrary Python execution, computed imports, or every alias invocation;
+approval of a callable reference must cover its producer and downstream uses.
 """
 
 from __future__ import annotations
@@ -554,6 +560,16 @@ class Coverage(ast.NodeVisitor):
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Load) and self.resolve(node) in {
+            "getattr",
+            "builtins.getattr",
+        }:
+            self.emit(
+                node,
+                ast.unparse(node),
+                "dynamic-attribute-read-reference",
+                "dynamic",
+            )
+        if isinstance(node.ctx, ast.Load) and self.resolve(node) in {
             "typing.Any",
             "typing_extensions.Any",
         }:
@@ -572,11 +588,34 @@ class Coverage(ast.NodeVisitor):
         return ""
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
+        if isinstance(node.ctx, ast.Load) and self.resolve(node) == "builtins.getattr":
+            self.emit(
+                node,
+                ast.unparse(node),
+                "dynamic-attribute-read-reference",
+                "dynamic",
+            )
         if self.resolve(node) in {"typing.Any", "typing_extensions.Any"}:
             self.emit(node, ast.unparse(node), "dynamic-type", "dynamic")
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        if self.resolve(node.func) in {"getattr", "builtins.getattr"}:
+            # Even a literal attribute or an object destination can hide Any from
+            # both strict checkers. Concrete reads need site-specific producer
+            # proof, not a second type engine or an automatic AST exemption.
+            self.emit(
+                node,
+                ast.unparse(node.func),
+                "dynamic-attribute-read",
+                "dynamic",
+                ast.unparse(node),
+            )
+            for argument in node.args:
+                self.visit(argument)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            return
         if self.resolve(node.func) in {"typing.cast", "typing_extensions.cast"}:
             self.emit(node, ast.unparse(node.func), "cast", "dynamic")
             if node.args:

@@ -1,14 +1,24 @@
-"""Whole-scope gate receipts must fail closed without running real checkers."""
+"""Gate receipts fail closed; one focused fixture checks the real checker gap."""
 
 import json
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from scripts.check_typing_baseline import Command, Receipt, commands, execute, run
+from scripts.check_typing_baseline import (
+    Command,
+    Receipt,
+    audit_errors,
+    commands,
+    execute,
+    mypy_count,
+    pyright_count,
+    run,
+)
+from scripts.check_typing_coverage import Binding, inspect_source
 
 
 @dataclass
@@ -61,6 +71,15 @@ class GateFixture:
             if self.scenario == "partial-audit":
                 manifest = []
             unresolved: int = int(self.scenario == "pending-ledger")
+            if self.scenario == "open-read":
+                unresolved = sum(
+                    binding.category in {"missing", "dynamic"}
+                    for path in self.paths
+                    for binding in inspect_source(
+                        path.read_text(),
+                        path.relative_to(self.root).as_posix(),
+                    )
+                )
             if self.scenario != "missing-audit":
                 (self.output / "bindings.json").write_text(
                     json.dumps(
@@ -239,3 +258,85 @@ def test_ledger_mutation_invalidates_even_successful_tool_output(
     assert invoke(gate, ledger) == 1
     assert len(gate.calls) == 1
     assert "Exception ledger changed" in (gate.output / "receipt.json").read_text()
+
+
+def test_open_read_fails_combined_gate_despite_clean_checker_receipts(
+    gate: GateFixture,
+) -> None:
+    gate.paths[0].write_text(
+        "def f(value: object) -> object:\n"
+        '    result: object = getattr(value, "arbitrary")\n'
+        "    return result\n",
+    )
+    gate.scenario = "open-read"
+    assert invoke(gate) == 1
+    receipt: str = (gate.output / "receipt.json").read_text()
+    assert "bindings exited 1" in receipt
+    assert "Binding audit contains unresolved bindings or ledger errors" in receipt
+    assert (gate.output / "mypy.stdout").read_text().startswith("Success:")
+    assert '"filesAnalyzed": 1' in (gate.output / "pyright.stdout").read_text()
+
+
+def test_real_strict_checkers_need_audit_to_reject_open_getattr(
+    tmp_path: Path,
+) -> None:
+    root: Path = Path(__file__).resolve().parents[1]
+    fixture: Path = tmp_path / "untracked_dynamic_read.py"
+    fixture.write_text(
+        "import builtins as b\n"
+        "from builtins import getattr as imported_read\n"
+        "from collections.abc import Callable\n\n"
+        "def direct(value: object) -> object:\n"
+        '    result: object = getattr(value, "arbitrary")\n'
+        "    return result\n\n"
+        "def qualified(value: object) -> object:\n"
+        '    result: object = b.getattr(value, "arbitrary")\n'
+        "    return result\n\n"
+        "def imported(value: object) -> object:\n"
+        '    result: object = imported_read(value, "arbitrary")\n'
+        "    return result\n\n"
+        "def assigned(value: object) -> object:\n"
+        "    read: Callable[[object, str], object] = getattr\n"
+        '    result: object = read(value, "arbitrary")\n'
+        "    return result\n",
+    )
+    receipts: list[Receipt] = []
+    for command in commands([str(fixture)], tmp_path):
+        if command.name not in {"mypy", "pyright"}:
+            continue
+        receipt: Receipt = execute(command, root, tmp_path)
+        receipts.append(receipt)
+        assert receipt.returncode == 0, receipt.stdout + receipt.stderr
+        if command.name == "mypy":
+            assert mypy_count(receipt.stdout) == 1
+        else:
+            assert pyright_count(receipt.stdout) == 1
+    (tmp_path / "checker-receipts.json").write_text(
+        json.dumps([asdict(receipt) for receipt in receipts], indent=2),
+    )
+    bindings: list[Binding] = inspect_source(fixture.read_text(), fixture.name)
+    dynamic: list[Binding] = [
+        binding for binding in bindings if binding.category == "dynamic"
+    ]
+    assert len(dynamic) == 4
+    assert {binding.scope for binding in dynamic} == {
+        "<module>.direct",
+        "<module>.qualified",
+        "<module>.imported",
+        "<module>.assigned",
+    }
+    assert not any(binding.category == "missing" for binding in bindings)
+    audit: Path = tmp_path / "bindings.json"
+    audit.write_text(
+        json.dumps(
+            {
+                "files": [fixture.name],
+                "bindings": [binding.record() for binding in bindings],
+                "unresolved": len(dynamic),
+                "ledger_errors": [],
+            },
+        ),
+    )
+    assert audit_errors(audit, [fixture.name]) == [
+        "Binding audit contains unresolved bindings or ledger errors",
+    ]

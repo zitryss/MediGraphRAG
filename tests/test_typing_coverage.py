@@ -352,6 +352,118 @@ def test_dynamic_attribute_updates_require_review(source: str) -> None:
     assert any(binding.kind == "dynamic-attribute" for binding in bindings)
 
 
+@pytest.mark.parametrize(
+    "prefix,expression",
+    [
+        ("", "getattr(value, name)"),
+        ("", 'getattr(value, "arbitrary")'),
+        ("", 'getattr(value, "arbitrary", None)'),
+        ("import builtins\n", "builtins.getattr(value, name)"),
+        ("import builtins as b\n", "b.getattr(value, name)"),
+        ("from builtins import getattr as read\n", "read(value, name)"),
+    ],
+)
+def test_open_attribute_reads_require_individual_review(
+    prefix: str,
+    expression: str,
+) -> None:
+    source: str = (
+        f"{prefix}def f(value: object, name: str) -> object:\n"
+        f"    result: object = {expression}\n    return result\n"
+    )
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    reads: list[Binding] = [
+        binding for binding in bindings if binding.kind == "dynamic-attribute-read"
+    ]
+    assert len(reads) == 1
+    assert reads[0].category == "dynamic"
+    assert reads[0].scope == "<module>.f"
+    assert reads[0].declaration == expression.replace('"', "'")
+    assert not reads[0].exception_id
+    assert not reconcile(bindings, [], date(2026, 10, 9))
+    assert not any(binding.category == "missing" for binding in bindings)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "read = getattr\nresult: object = read(value, name)\n",
+        "import builtins as b\nread = b.getattr\nresult: object = read(value, name)\n",
+        "from builtins import getattr as read\nforward(read)\n",
+        "forward(getattr)\n",
+    ],
+)
+def test_getattr_alias_acquisition_and_forwarding_cannot_escape_inventory(
+    source: str,
+) -> None:
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert any(
+        binding.kind == "dynamic-attribute-read-reference"
+        and binding.category == "dynamic"
+        for binding in bindings
+    )
+
+
+def test_concrete_getattr_is_not_automatically_approved_by_syntax() -> None:
+    source: str = (
+        "class Record:\n    value: int = 1\n"
+        "def f(record: Record) -> object:\n"
+        '    return getattr(record, "value")\n'
+    )
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    read: Binding = next(
+        binding for binding in bindings if binding.kind == "dynamic-attribute-read"
+    )
+    entry: ExceptionEntry = ExceptionEntry(
+        "concrete-read",
+        read.path,
+        read.scope,
+        read.symbol,
+        read.kind,
+        read.fingerprint,
+        "Record producer declares value: int; no open extension producer",
+        "fixture Record.value declaration and f consumer; pending review",
+        "engineer",
+        "fixture reviewer",
+        "pending",
+        date(2099, 1, 1),
+    )
+    assert reconcile(bindings, [entry], date(2026, 10, 9)) == [
+        "concrete-read: pending independent review",
+    ]
+    assert not read.exception_id
+
+
+def test_attribute_read_fingerprint_tracks_producer_attribute_and_default() -> None:
+    fingerprints: set[str] = {
+        binding.fingerprint
+        for source in (
+            'getattr(value, "name")\n',
+            'getattr(other, "name")\n',
+            'getattr(value, "other")\n',
+            'getattr(value, "name", None)\n',
+        )
+        for binding in inspect_source(source, "fixture.py")
+        if binding.kind == "dynamic-attribute-read"
+    }
+    assert len(fingerprints) == 4
+
+
+def test_shadowed_getattr_is_conservatively_reviewed_not_type_inferred() -> None:
+    source: str = (
+        "def getattr(value: object, name: str) -> int:\n    return 1\n"
+        'def f(value: object) -> int:\n    return getattr(value, "name")\n'
+    )
+    bindings: list[Binding] = inspect_source(source, "fixture.py")
+    assert (
+        sum(
+            binding.kind == "dynamic-attribute-read" and binding.category == "dynamic"
+            for binding in bindings
+        )
+        == 1
+    )
+
+
 def test_signature_dynamic_site_has_function_scope() -> None:
     bindings: list[Binding] = inspect_source(
         "from typing import Any\ndef f(value: Any) -> None: pass\n",
