@@ -2996,9 +2996,9 @@ def compute_precision_at_k(
     }
 
     for system, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
-        system_details = details
+        system_details: Sequence[Mapping[str, object]] = details
         if exclude_generation_failures:
-            system_details: Sequence[Mapping[str, object]] = [
+            system_details = [
                 d
                 for d in details
                 if not bool(d.get(f"{prefix}_generation_failed", False))
@@ -3013,7 +3013,7 @@ def compute_precision_at_k(
         output["baseline"][f"error_rate_{prefix}"] = float(1.0 - y_true.mean())
 
         for metric in metric_names:
-            metric_details: list[Mapping[str, object]] = system_details
+            metric_details: Sequence[Mapping[str, object]] = system_details
             if metric == "graph_path_support":
                 metric_details = [
                     d
@@ -3123,9 +3123,9 @@ def compute_ece(
     output: dict[str, dict[str, float]] = {"vanilla_rag": {}, "kg_rag": {}}
 
     for system, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
-        system_details = details
+        system_details: Sequence[Mapping[str, object]] = details
         if exclude_generation_failures:
-            system_details: Sequence[Mapping[str, object]] = [
+            system_details = [
                 d
                 for d in details
                 if not bool(d.get(f"{prefix}_generation_failed", False))
@@ -3134,7 +3134,7 @@ def compute_ece(
             continue
 
         for metric in metric_names:
-            metric_details: list[Mapping[str, object]] = system_details
+            metric_details: Sequence[Mapping[str, object]] = system_details
             if metric == "graph_path_support":
                 metric_details = [
                     d
@@ -3307,16 +3307,16 @@ def compute_auroc_aurec(
     output: dict[str, dict[str, float]] = {"vanilla_rag": {}, "kg_rag": {}}
 
     for system, prefix in (("vanilla_rag", "vanilla"), ("kg_rag", "kg")):
-        system_details = details
+        system_details: Sequence[Mapping[str, object]] = details
         if exclude_generation_failures:
-            system_details: Sequence[Mapping[str, object]] = [
+            system_details = [
                 d
                 for d in details
                 if not bool(d.get(f"{prefix}_generation_failed", False))
             ]
 
         for metric in metric_names:
-            metric_details: list[Mapping[str, object]] = system_details
+            metric_details: Sequence[Mapping[str, object]] = system_details
             if metric == "graph_path_support":
                 metric_details = [
                     d

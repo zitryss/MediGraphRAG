@@ -44,13 +44,15 @@ from typing import (
 from typing_extensions import ReadOnly, TypedDict
 
 if TYPE_CHECKING:
-    from langchain_core.language_models import LanguageModelLike
+    from langchain_core.prompt_values import PromptValue
+    from langchain_core.runnables import Runnable
     from matplotlib.axes import Axes
     from neo4j import Driver, Record, Result, Session
     from wandb.sdk.wandb_run import Run
 
     from ontographrag.kg.builders.ontology_guided_kg_creator import KnowledgeGraph
     from ontographrag.rag.systems._records import (
+        RetrievalContext,
         RetrievalDiagnostics,
         RetrievedEntity,
         RetrievedRelationship,
@@ -351,7 +353,7 @@ class SamplingGenerateOptions(TypedDict, total=False):
 
 class SamplingResponse(TypedDict, total=False):
     response: ReadOnly[str]
-    context: ReadOnly[ExperimentContextProjection]
+    context: ReadOnly[RetrievalContext]
     used_chunks: ReadOnly[Sequence[ChunkTextProjection | str]]
 
 
@@ -360,7 +362,7 @@ class SamplingRAGSystem(Protocol):
         self,
         *,
         question: str,
-        llm: "LanguageModelLike",
+        llm: "Runnable[PromptValue, object]",
         document_names: list[str] | None = None,
         similarity_threshold: float = 0.1,
         max_chunks: int = 10,
@@ -3155,7 +3157,7 @@ class MIRAGEEvaluationPipeline:
         extra_context_texts: list[str] | None = None,
         kg_name: str | None = None,
         question_id: str | None = None,
-        llm: "LanguageModelLike | None" = None,
+        llm: "Runnable[PromptValue, object] | None" = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         generate_kwargs: SamplingGenerateOptions | None = None,
@@ -3176,7 +3178,7 @@ class MIRAGEEvaluationPipeline:
         extra_context_texts: list[str] | None = None,
         kg_name: str | None = None,
         question_id: str | None = None,
-        llm: "LanguageModelLike | None" = None,
+        llm: "Runnable[PromptValue, object] | None" = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         generate_kwargs: SamplingGenerateOptions | None = None,
@@ -3196,7 +3198,7 @@ class MIRAGEEvaluationPipeline:
         extra_context_texts: list[str] | None = None,
         kg_name: str | None = None,
         question_id: str | None = None,
-        llm: "LanguageModelLike | None" = None,
+        llm: "Runnable[PromptValue, object] | None" = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         generate_kwargs: SamplingGenerateOptions | None = None,
@@ -3215,7 +3217,7 @@ class MIRAGEEvaluationPipeline:
         extra_context_texts: list[str] | None = None,
         kg_name: str | None = None,
         question_id: str | None = None,
-        llm: "LanguageModelLike | None" = None,
+        llm: "Runnable[PromptValue, object] | None" = None,
         retrieval_temperature: float = 0.0,
         retrieval_shortlist_factor: int = 4,
         generate_kwargs: SamplingGenerateOptions | None = None,
@@ -3248,7 +3250,7 @@ class MIRAGEEvaluationPipeline:
             retrieved_chunk_texts = self._extract_chunk_texts_from_result(base_result)
 
         # Use provided LLM or fall back to default
-        sampling_llm: LanguageModelLike | LangChainRunnableAdapter = (
+        sampling_llm: Runnable[PromptValue, object] = (
             llm if llm is not None else self.llm
         )
 
@@ -3282,7 +3284,7 @@ class MIRAGEEvaluationPipeline:
                 )
                 per_sample_chunk_sets.append(set(sample_chunks))
                 if return_graph_state_traces:
-                    sample_context: ExperimentContextProjection = (
+                    sample_context: RetrievalContext = (
                         sampled_result.get("context", {}) or {}
                     )
                     graph_state_traces.append(
@@ -5514,9 +5516,7 @@ class MIRAGEEvaluationPipeline:
         total: int = len(results["details"])
         # This producer emits only the twelve declared accuracy fields, all
         # compatible with EvaluationOutcome; no open extra keys are forwarded.
-        results.update(
-            cast(EvaluationOutcome, compute_accuracy_breakdown(results["details"]))
-        )
+        results.update(compute_accuracy_breakdown(results["details"]))
         self._apply_clean_accuracy_reporting(results)
         routing_distribution: RoutingDistribution = (
             self._compute_kg_routing_distribution(results["details"])
