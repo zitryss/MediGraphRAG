@@ -676,8 +676,9 @@ def datasets() -> None:
         typer.echo(f"- {name}  [{mark}]{prep_note}{fetch}")
         typer.echo(f"    path:   {spec['path']}")
         typer.echo(f"    source: {spec['source']}")
-        if spec.get("note"):
-            typer.echo(f"    note:   {spec['note']}")
+        note: str | None = spec.get("note")
+        if note:
+            typer.echo(f"    note:   {note}")
     typer.echo(
         "\nWorkflow:  ontograph prepare <dataset>  ->  "
         "ontograph evaluate --datasets <dataset> ...\n"
