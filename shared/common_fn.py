@@ -1,7 +1,7 @@
 import logging
 import os
 from collections.abc import Mapping, Sequence
-from typing import Protocol, TypeVar, cast
+from typing import Protocol, TypeVar
 
 from langchain_core.embeddings import Embeddings
 
@@ -63,11 +63,11 @@ def load_embedding_model(
         load_embedding_model as _shared_loader,
     )
 
-    # Both selected branches are strings: the first must be truthy, and getenv
-    # has a string default. Mypy 2.3.1 loses this narrowing inside the `or`.
-    provider_name: str = cast(
-        str,
-        embedding_model_name or os.getenv("EMBEDDING_PROVIDER", "huggingface"),
+    # The explicit branch retains mypy's optional-name narrowing without a cast.
+    provider_name: str = (
+        embedding_model_name
+        if embedding_model_name
+        else os.getenv("EMBEDDING_PROVIDER", "huggingface")
     )
     embedding_function, embedding_dimension = _shared_loader(provider_name)
     logging.info(
