@@ -25,7 +25,7 @@ from typing_extensions import ReadOnly
 
 # Shared helpers re-exported for backward compatibility (tests and callers
 # access them through this module).
-from ontographrag.kg.builders._creator_shared import (  # noqa: F401
+from ontographrag.kg.builders._creator_shared import (
     _ENTITY_MIN_NAME_LENGTH as _ENTITY_MIN_NAME_LENGTH,
 )
 from ontographrag.kg.builders._creator_shared import (

@@ -13,7 +13,7 @@ from experiments import retrieval_audit as audit
 from scripts import check_arxiv_package as package
 
 MALFORMED_MANIFEST_CASES: tuple[
-    tuple[package.JSONValue, type[AttributeError] | type[SystemExit] | type[TypeError]],
+    tuple[package.JSONValue, type[AttributeError | SystemExit | TypeError]],
     ...,
 ] = (
     (7, AttributeError),
@@ -183,7 +183,7 @@ def test_manifest_decoder_preserves_unvalidated_json(
 )
 def test_manifest_checker_preserves_malformed_shape_failures(
     payload: package.JSONValue,
-    expected_error: type[AttributeError] | type[SystemExit] | type[TypeError],
+    expected_error: type[AttributeError | SystemExit | TypeError],
 ) -> None:
     with pytest.raises(expected_error):
         package.check_manifest_files(payload)

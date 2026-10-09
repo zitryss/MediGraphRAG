@@ -108,7 +108,7 @@ def load_details(path: str) -> JSONValue:
     raise SystemExit("no kg_entity_first config in " + path)
 
 
-def fin(x: float | str | None) -> bool | np.bool_:
+def fin(x: JSONValue) -> bool | np.bool_:
     try:
         return cast(np.bool_, np.isfinite(float(x)))
     except Exception:
@@ -159,8 +159,8 @@ def main(pattern: str) -> None:
         ys: list[float]
         xs, ys = [], []
         for r in wrong:
-            overlap: float | None = r.get(key)
-            sd_uq: float | None = r.get("kg_sd_uq")
+            overlap: JSONValue = r.get(key)
+            sd_uq: JSONValue = r.get("kg_sd_uq")
             if (
                 overlap is not None
                 and sd_uq is not None

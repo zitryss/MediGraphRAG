@@ -1,6 +1,7 @@
 """Shared constants and helpers for the KG creator modules."""
 
 import re
+from collections.abc import Sequence
 from typing import Generic, NotRequired, Protocol, TypeAlias, TypedDict, TypeVar
 
 from typing_extensions import ReadOnly
@@ -329,7 +330,7 @@ GroupEntity = TypeVar("GroupEntity")
 class PassageGroup(TypedDict, Generic[GroupEntity]):
     group_key: tuple[str, str]
     texts: list[str]
-    entities: dict[int, list[GroupEntity]]
+    entities: dict[int, Sequence[GroupEntity]]
     positions: dict[int, list[int]]
     source_label: str
 

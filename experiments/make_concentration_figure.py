@@ -65,7 +65,9 @@ class ConcentrationDocument(TypedDict):
 
 
 BinnedMeans: TypeAlias = tuple[list[float], list[float], list[tuple[float, float]]]
-ConcentrationSources: TypeAlias = list[tuple[str, list[ConcentrationDetail]]]
+ConcentrationSources: TypeAlias = (
+    "Sequence[tuple[str, Sequence[ConcentrationDetail] | JSONValue]]"
+)
 
 
 REPO: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -85,7 +87,7 @@ def load(path: str, jsonl: bool = False) -> "JSONValue":
 
 
 def points(
-    rows: Sequence[ConcentrationDetail],
+    rows: "Sequence[ConcentrationDetail] | JSONValue",
     pre: str,
 ) -> Iterator[NDArray[np.float64]]:
     ow: list[float]
@@ -94,9 +96,9 @@ def points(
     sc: list[np.float64]
     ow, sw, oc, sc = [], [], [], []
     for r in rows:
-        o: float | None = r.get(f"{pre}_retrieval_overlap")
-        s: float | None = r.get(f"{pre}_sd_uq")
-        c: bool | None = r.get(f"{pre}_correct")
+        o: object = r.get(f"{pre}_retrieval_overlap")
+        s: object = r.get(f"{pre}_sd_uq")
+        c: object = r.get(f"{pre}_correct")
         if o is None or s is None or c is None or r.get(f"{pre}_generation_failed"):
             continue
         y: np.float64 = np.log10(max(float(s), 0.0) + FLOOR)

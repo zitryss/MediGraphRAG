@@ -143,7 +143,7 @@ def build_matrix(system: str) -> NDArray[np.float64]:
     for j, ds in enumerate(DATASET_ORDER):
         path: str = RUNS[ds]
         try:
-            auroc: dict[str, float | None] = load_auroc(path, system)
+            auroc: "dict[str, JSONValue]" = load_auroc(path, system)
         except Exception:
             continue
         for i, (key, _, family) in enumerate(MEASURES):

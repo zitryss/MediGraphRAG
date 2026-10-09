@@ -23,7 +23,8 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Generator, Mapping, Sequence, Set
+from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from contextlib import contextmanager
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -32,6 +33,7 @@ from typing import (
     TYPE_CHECKING,
     ClassVar,
     Literal,
+    LiteralString,
     Never,
     NotRequired,
     Protocol,
@@ -3384,7 +3386,9 @@ class MIRAGEEvaluationPipeline:
         return unique_chunk_texts
 
     @staticmethod
-    def _mean_pairwise_jaccard(chunk_sets: Sequence[Set[RetrievedChunkText]]) -> float:
+    def _mean_pairwise_jaccard(
+        chunk_sets: Sequence[AbstractSet[RetrievedChunkText]],
+    ) -> float:
         """Mean pairwise Jaccard similarity across a list of chunk sets.
 
         Returns 1.0 if there is only one sample (trivially identical) and 0.0
@@ -3898,7 +3902,11 @@ class MIRAGEEvaluationPipeline:
         driver: Driver = self._get_neo4j_driver()
         batch_size: int = 200
 
-        def _delete_in_batches(session: "Session", label: str, query: str) -> int:
+        def _delete_in_batches(
+            session: "Session",
+            label: str,
+            query: LiteralString,
+        ) -> int:
             total_deleted: int = 0
             while True:
                 record: Record | None = session.run(

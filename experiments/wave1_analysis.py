@@ -330,7 +330,9 @@ def taxonomy_prevalence() -> dict[str, TaxonomySummary]:
                 gps: dict[str, float | None] = gps_cache[key]
             else:
                 gps = {}
-            sd_vals: list[float] = [r["sd"] for r in rows if r["sd"] is not None]
+            sd_vals: "list[bool | int | float | str | list[JSONValue] | dict[str, JSONValue]]" = [
+                r["sd"] for r in rows if r["sd"] is not None
+            ]
             sd_med: float | None = float(np.median(sd_vals)) if sd_vals else None
             for r in rows:
                 tot += 1
@@ -388,7 +390,9 @@ def hard_certificate_mask(
     rows: Sequence[TrustRow | CompleteTrustRow],
     gps: Mapping[str, float | None],
 ) -> NDArray[np.bool_ | np.float64]:
-    sd_vals: list[float] = [r["sd"] for r in rows if r["sd"] is not None]
+    sd_vals: "list[bool | int | float | str | list[JSONValue] | dict[str, JSONValue]]" = [
+        r["sd"] for r in rows if r["sd"] is not None
+    ]
     sd_med: float = float(np.median(sd_vals))
     mask: list[bool] = []
     for r in rows:

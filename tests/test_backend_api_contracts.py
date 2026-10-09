@@ -536,7 +536,7 @@ def test_provider_probe_preserves_json_shape_behavior(
     key: str,
     payload: JSONValue,
     expected_count: int | None,
-    expected_error: type[TypeError] | type[AttributeError] | None,
+    expected_error: type[TypeError | AttributeError] | None,
 ) -> None:
     probes: dict[str, Callable[[], str]] = {
         "openai": app_module._probe_openai_models,

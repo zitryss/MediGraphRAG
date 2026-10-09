@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
 if TYPE_CHECKING:
     from experiments.dataset_adapters import DefaultJSONCodec, JSONValue
+    from shared.graph_types import Neo4jProperty
 
 
 JSONScalar: TypeAlias = None | bool | int | float | str
@@ -131,8 +132,8 @@ class EntityCountProjection(TypedDict):
 
 class ElementProjection(TypedDict):
     eid: str
-    # Uninspected stored properties have no scalar schema guarantee.
-    text: object
+    # Uninspected stored properties retain the finite hydrated SDK domain.
+    text: Neo4jProperty
 
 
 class VectorProjection(TypedDict):
@@ -142,7 +143,7 @@ class VectorProjection(TypedDict):
 
 class EntityIDProjection(TypedDict):
     # This helper returns the raw stored property, not the driver element ID.
-    eid: object
+    eid: Neo4jProperty
 
 
 class PathCountProjection(TypedDict):
@@ -301,13 +302,13 @@ def _get_supporting_facts(
       - [[title, sent_id], ...]             (array form, some versions)
     """
     empty_supporting_facts: SupportingFacts = {}
-    sf: SupportingFacts | JSONValue = raw_q.get(
+    sf: SupportingFacts | list[list[str | int]] | JSONValue = raw_q.get(
         "supporting_facts",
         empty_supporting_facts,
     )
     if isinstance(sf, dict):
-        titles: JSONValue = sf.get("title", [])
-        sent_ids: JSONValue = sf.get("sent_id", [])
+        titles: list[str] | JSONValue = sf.get("title", [])
+        sent_ids: list[int] | JSONValue = sf.get("sent_id", [])
         return list(zip(titles, sent_ids))
     elif isinstance(sf, list):
         return [(item[0], item[1]) for item in sf if len(item) >= 2]
@@ -397,7 +398,7 @@ def _check_chunk_retrievable_via_vector(
     Returns (found_in_top_k, similarity_score_or_None).
     """
     # Get the chunk text for this passage
-    # elementId is a string; the unused text property remains unconstrained.
+    # elementId is a string; text retains the raw stored-property domain.
     chunk_rows: list[ElementProjection] = cast(
         list[ElementProjection],
         _run_query(
@@ -454,7 +455,7 @@ def _get_entity_seeds_for_question(
     kg_name: str,
     entity_names: list[str],
     limit: int = 12,
-) -> list[object]:
+) -> list[Neo4jProperty]:
     """
     Look up entity IDs that match any of the entity_names for this question's scope.
     Approximates what the entity-first retriever would use as seeds.

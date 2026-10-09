@@ -101,7 +101,7 @@ def metric_aurocs(
     except Exception:
         gps = {}
     out: dict[str, tuple[float | None, int]] = {}
-    getters: list[tuple[str, Callable[[TrustRow], float | None]]] = [
+    getters: "list[tuple[str, Callable[[TrustRow], JSONValue]]]" = [
         ("sd_uq", lambda r: r["sd"]),
         ("seu", lambda r: r["seu"]),
         ("gps", lambda r: gps.get(r["qid"])),
@@ -112,7 +112,7 @@ def metric_aurocs(
         s, w = [], []
         for r in rows:
             lbl: bool | None = labels_by_qid.get(r["qid"])
-            v: float | None = getter(r)
+            v: "JSONValue" = getter(r)
             if lbl is None or v is None:
                 continue
             s.append(float(v))

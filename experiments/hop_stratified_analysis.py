@@ -338,14 +338,14 @@ def baseline_error_rate(y_true: NDArray[np.float64 | np.int64]) -> float:
 
 
 def compute_stats(
-    details: Sequence[HopDetail | Mapping[str, object]],
+    details: "Sequence[HopDetail | Mapping[str, object] | JSONValue]",
     hop_label_: str,
     ds_name: str,
     ppv_frac: float = 0.20,
     system_prefix: str = SYSTEM_PREFIX,
 ) -> HopStats:
     """For a slice of details (same hop bucket), compute AUROC and PPV for each metric."""
-    clean_details: list[HopDetail | Mapping[str, object]] = [
+    clean_details: "list[HopDetail | Mapping[str, object] | JSONValue]" = [
         d
         for d in details
         if not bool(d.get(f"{system_prefix}_generation_failed", False))
@@ -362,7 +362,9 @@ def compute_stats(
     }
 
     for key, label, family, higher_is_certain in METRICS:
-        metric_details: list[HopDetail | Mapping[str, object]] = clean_details
+        metric_details: "list[HopDetail | Mapping[str, object] | JSONValue]" = (
+            clean_details
+        )
         if key == "graph_path_support":
             metric_details = [
                 d
@@ -454,15 +456,15 @@ def build_hop_table() -> list[HopSummary]:
     rows: list[HopSummary] = []
     for ds, path in RUNS.items():
         try:
-            details: list[HopDetail] = load_details(path)
+            details: "JSONValue" = load_details(path)
         except Exception as e:
             print(f"  [skip] {ds}: {e}")
             continue
 
         # Group by hop bucket
-        buckets: dict[str, list[HopDetail]] = defaultdict(list)
+        buckets: "dict[str, list[JSONValue]]" = defaultdict(list)
         for d in details:
-            hc: int | None = d.get("hop_count")
+            hc: "JSONValue" = d.get("hop_count")
             hl: str = hop_label(hc, ds)
             if hl != "unknown":
                 buckets[hl].append(d)
@@ -494,12 +496,12 @@ def build_per_metric_table() -> list[PerMetricRow]:
     rows: list[PerMetricRow] = []
     for ds, path in RUNS.items():
         try:
-            details: list[HopDetail] = load_details(path)
+            details: "JSONValue" = load_details(path)
         except Exception:
             continue
-        buckets: dict[str, list[HopDetail]] = defaultdict(list)
+        buckets: "dict[str, list[JSONValue]]" = defaultdict(list)
         for d in details:
-            hc: int | None = d.get("hop_count")
+            hc: "JSONValue" = d.get("hop_count")
             hl: str = hop_label(hc, ds)
             if hl != "unknown":
                 buckets[hl].append(d)

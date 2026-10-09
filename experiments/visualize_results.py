@@ -2143,7 +2143,7 @@ def main() -> None:
 
     # Load results
     print(f"Loading results from {args.results}...")
-    results: VisualizationResults = load_results(args.results)
+    results: "JSONValue" = load_results(args.results)
 
     # Check if multi-dataset
     is_multi_dataset: bool = "per_dataset_results" in results

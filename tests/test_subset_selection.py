@@ -14,6 +14,7 @@ from experiments.subset_selection import (
     resolve_question_subset,
     selection_file_path,
 )
+from tests.conftest import required_text_field
 
 
 def test_deterministic_subset_ids_is_seeded_and_order_preserving() -> None:
@@ -90,7 +91,9 @@ def test_resolve_question_subset_creates_and_then_reuses_saved_ids(
     assert "selection_key" in created.payload
     assert created.payload["selection_key"] == "n3_seed11"
     assert "subset_id" in created.payload
-    assert created.payload["subset_id"].startswith("musique__n3_seed11_h")
+    assert required_text_field(created.payload, "subset_id").startswith(
+        "musique__n3_seed11_h",
+    )
 
 
 def test_resolve_question_subset_reuses_persisted_ids_when_params_change(
